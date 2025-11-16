@@ -4,12 +4,12 @@ A JSON-RPC 2.0 server for CoLRev operations, designed to be packaged as a standa
 
 ## Features
 
-- **JSON-RPC 2.0 compliant** server over HTTP
-- **Initialize CoLRev projects** programmatically with project IDs
-- **Get project status** for existing projects
+- **JSON-RPC 2.0 compliant** server using stdio protocol
+- **Full CoLRev workflow support**: init, status, search, prep, dedupe, screen, data
+- **Modular architecture** with separate handlers for each operation
 - **Automatic git repository initialization** (handled by CoLRev)
-- **CORS enabled** for Electron app integration
-- **Health check endpoint** for monitoring
+- **Comprehensive error handling** with detailed error messages
+- **PyInstaller packaging** for standalone distribution
 
 ## Building the Executable
 
@@ -40,24 +40,31 @@ The executable will be created in the `dist/` directory.
 ### From Source
 
 ```bash
-python main.py [--host HOST] [--port PORT] [--log-level LEVEL]
+# Using the Python module
+python -m colrev.ui_jsonrpc.server [--log-level LEVEL]
+
+# Or using the entry point (after pip install)
+colrev-jsonrpc [--log-level LEVEL]
+
+# Or using the main.py launcher
+python main.py [--log-level LEVEL]
 ```
 
 ### From Executable
 
 ```bash
-./dist/colrev-jsonrpc [--host HOST] [--port PORT] [--log-level LEVEL]
+./dist/colrev-jsonrpc [--log-level LEVEL]
 ```
 
 **Options:**
-- `--host`: Host to bind to (default: `127.0.0.1`)
-- `--port`: Port to bind to (default: `8765`)
 - `--log-level`: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 
 **Example:**
 ```bash
-./dist/colrev-jsonrpc --host 127.0.0.1 --port 8765 --log-level INFO
+./dist/colrev-jsonrpc --log-level INFO
 ```
+
+**Note:** The server uses stdio for communication (reads from stdin, writes to stdout). All logging goes to stderr to avoid interference with JSON-RPC communication.
 
 ## API Methods
 
@@ -148,7 +155,243 @@ Get the status of an existing CoLRev project.
 }
 ```
 
-### 3. `ping`
+### 3. `search`
+
+Execute search operation to retrieve records from sources.
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "search",
+  "params": {
+    "project_id": "my_literature_review",
+    "base_path": "./projects",
+    "source": "all",
+    "rerun": false,
+    "skip_commit": false
+  },
+  "id": 3
+}
+```
+
+**Parameters:**
+- `project_id` (required): Project identifier
+- `base_path` (optional): Base directory for projects (default: `./projects`)
+- `source` (optional): Source selection string (default: `"all"`)
+- `rerun` (optional): Rerun API-based searches (default: `false`)
+- `skip_commit` (optional): Skip git commit (default: `false`)
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "success": true,
+    "operation": "search",
+    "project_id": "my_literature_review",
+    "message": "Search operation completed successfully",
+    "details": {
+      "source": "all",
+      "rerun": false,
+      "message": "Search completed"
+    }
+  },
+  "id": 3
+}
+```
+
+### 4. `prep`
+
+Execute metadata preparation operation.
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "prep",
+  "params": {
+    "project_id": "my_literature_review",
+    "base_path": "./projects"
+  },
+  "id": 4
+}
+```
+
+**Parameters:**
+- `project_id` (required): Project identifier
+- `base_path` (optional): Base directory for projects (default: `./projects`)
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "success": true,
+    "operation": "prep",
+    "project_id": "my_literature_review",
+    "message": "Prep operation completed successfully",
+    "details": {
+      "message": "Metadata preparation completed"
+    }
+  },
+  "id": 4
+}
+```
+
+### 5. `dedupe`
+
+Execute deduplication operation.
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "dedupe",
+  "params": {
+    "project_id": "my_literature_review",
+    "base_path": "./projects"
+  },
+  "id": 5
+}
+```
+
+**Parameters:**
+- `project_id` (required): Project identifier
+- `base_path` (optional): Base directory for projects (default: `./projects`)
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "success": true,
+    "operation": "dedupe",
+    "project_id": "my_literature_review",
+    "message": "Dedupe operation completed successfully",
+    "details": {
+      "message": "Deduplication completed"
+    }
+  },
+  "id": 5
+}
+```
+
+### 6. `screen`
+
+Execute screening operation.
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "screen",
+  "params": {
+    "project_id": "my_literature_review",
+    "base_path": "./projects"
+  },
+  "id": 6
+}
+```
+
+**Parameters:**
+- `project_id` (required): Project identifier
+- `base_path` (optional): Base directory for projects (default: `./projects`)
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "success": true,
+    "operation": "screen",
+    "project_id": "my_literature_review",
+    "message": "Screen operation completed successfully",
+    "details": {
+      "message": "Screening completed"
+    }
+  },
+  "id": 6
+}
+```
+
+### 7. `data`
+
+Execute data extraction and synthesis operation.
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "data",
+  "params": {
+    "project_id": "my_literature_review",
+    "base_path": "./projects"
+  },
+  "id": 7
+}
+```
+
+**Parameters:**
+- `project_id` (required): Project identifier
+- `base_path` (optional): Base directory for projects (default: `./projects`)
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "success": true,
+    "operation": "data",
+    "project_id": "my_literature_review",
+    "message": "Data operation completed successfully",
+    "details": {
+      "message": "Data extraction and synthesis completed"
+    }
+  },
+  "id": 7
+}
+```
+
+### 8. `validate`
+
+Validate the CoLRev project.
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "validate",
+  "params": {
+    "project_id": "my_literature_review",
+    "base_path": "./projects"
+  },
+  "id": 8
+}
+```
+
+**Parameters:**
+- `project_id` (required): Project identifier
+- `base_path` (optional): Base directory for projects (default: `./projects`)
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "success": true,
+    "operation": "validate",
+    "project_id": "my_literature_review",
+    "message": "Validate operation completed successfully",
+    "details": {
+      "message": "Validation completed"
+    }
+  },
+  "id": 8
+}
+```
+
+### 9. `ping`
 
 Health check method.
 
@@ -158,7 +401,7 @@ Health check method.
   "jsonrpc": "2.0",
   "method": "ping",
   "params": {},
-  "id": 3
+  "id": 9
 }
 ```
 
@@ -169,42 +412,34 @@ Health check method.
   "result": {
     "status": "pong"
   },
-  "id": 3
-}
-```
-
-### Health Check Endpoint
-
-A simple HTTP GET endpoint for health checks:
-
-**Request:**
-```
-GET /health
-```
-
-**Response:**
-```json
-{
-  "status": "ok"
+  "id": 9
 }
 ```
 
 ## Error Responses
 
-**Error codes:**
+**Standard JSON-RPC error codes:**
 - `-32700`: Parse error (Invalid JSON)
 - `-32600`: Invalid Request (Missing required fields)
 - `-32601`: Method not found
+- `-32602`: Invalid params
 - `-32603`: Internal error
+
+**CoLRev-specific error codes:**
+- `-32000`: CoLRev repository setup error
+- `-32001`: CoLRev operation error
+- `-32002`: Service not available
+- `-32003`: Missing dependency
+- `-32004`: Parameter error
 
 **Example error response:**
 ```json
 {
   "jsonrpc": "2.0",
   "error": {
-    "code": -32600,
-    "message": "Invalid Request",
-    "data": "project_id is required"
+    "code": -32602,
+    "message": "Project nonexistent does not exist at /path/to/projects/nonexistent",
+    "data": "ValueError"
   },
   "id": 1
 }
@@ -214,72 +449,106 @@ GET /health
 
 ### Start the Server as a Subprocess
 
+The server uses stdio for communication. Launch it as a subprocess and communicate via stdin/stdout:
+
 ```javascript
 const { spawn } = require('child_process');
 
 // Start the JSON-RPC server
-const colrevServer = spawn('./path/to/colrev-jsonrpc', [
-  '--host', '127.0.0.1',
-  '--port', '8765'
-]);
+const colrevServer = spawn('./path/to/colrev-jsonrpc', ['--log-level', 'INFO']);
 
+let requestId = 0;
+const pendingRequests = new Map();
+
+// Handle responses from stdout
 colrevServer.stdout.on('data', (data) => {
-  console.log(`Server: ${data}`);
-});
+  const lines = data.toString().split('\n').filter(line => line.trim());
 
-colrevServer.stderr.on('data', (data) => {
-  console.error(`Server Error: ${data}`);
-});
-```
+  for (const line of lines) {
+    try {
+      const response = JSON.parse(line);
+      const callback = pendingRequests.get(response.id);
 
-### Make JSON-RPC Calls
-
-```javascript
-async function initProject(projectId) {
-  const response = await fetch('http://127.0.0.1:8765', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'init_project',
-      params: {
-        project_id: projectId,
-        review_type: 'colrev.literature_review',
-        force_mode: true,
-      },
-      id: 1,
-    }),
-  });
-
-  const result = await response.json();
-
-  if (result.error) {
-    throw new Error(result.error.message);
+      if (callback) {
+        pendingRequests.delete(response.id);
+        if (response.error) {
+          callback.reject(new Error(response.error.message));
+        } else {
+          callback.resolve(response.result);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse response:', err);
+    }
   }
+});
 
-  return result.result;
+// Handle server errors/logs from stderr
+colrevServer.stderr.on('data', (data) => {
+  console.log(`Server log: ${data}`);
+});
+
+// Helper function to make JSON-RPC calls
+function callRPC(method, params) {
+  return new Promise((resolve, reject) => {
+    const id = ++requestId;
+
+    pendingRequests.set(id, { resolve, reject });
+
+    const request = {
+      jsonrpc: '2.0',
+      method: method,
+      params: params,
+      id: id
+    };
+
+    colrevServer.stdin.write(JSON.dumps(request) + '\n');
+
+    // Timeout after 60 seconds
+    setTimeout(() => {
+      if (pendingRequests.has(id)) {
+        pendingRequests.delete(id);
+        reject(new Error('Request timeout'));
+      }
+    }, 60000);
+  });
 }
 
-// Usage
-initProject('my_review_001')
-  .then(result => {
+// Usage examples
+async function initProject(projectId) {
+  try {
+    const result = await callRPC('init_project', {
+      project_id: projectId,
+      review_type: 'colrev.literature_review',
+      force_mode: true,
+      light: true
+    });
     console.log('Project initialized:', result);
-  })
-  .catch(error => {
-    console.error('Error:', error);
-  });
-```
+    return result;
+  } catch (error) {
+    console.error('Error initializing project:', error);
+    throw error;
+  }
+}
 
-### Check Server Health
+async function getStatus(projectId) {
+  try {
+    const result = await callRPC('get_status', {
+      project_id: projectId
+    });
+    console.log('Status:', result);
+    return result;
+  } catch (error) {
+    console.error('Error getting status:', error);
+    throw error;
+  }
+}
 
-```javascript
+// Health check
 async function checkHealth() {
   try {
-    const response = await fetch('http://127.0.0.1:8765/health');
-    const data = await response.json();
-    return data.status === 'ok';
+    const result = await callRPC('ping', {});
+    return result.status === 'pong';
   } catch (error) {
     return false;
   }
@@ -288,51 +557,78 @@ async function checkHealth() {
 
 ## Testing the Server
 
-### Using curl
+### Using Python Test Client
+
+The repository includes a comprehensive test client in `test_jsonrpc_client.py`:
 
 ```bash
-# Initialize a project
-curl -X POST http://127.0.0.1:8765 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "init_project",
-    "params": {
-      "project_id": "test_project",
-      "review_type": "colrev.literature_review"
-    },
-    "id": 1
-  }'
-
-# Get project status
-curl -X POST http://127.0.0.1:8765 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "get_status",
-    "params": {
-      "project_id": "test_project"
-    },
-    "id": 2
-  }'
-
-# Ping
-curl -X POST http://127.0.0.1:8765 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "ping",
-    "params": {},
-    "id": 3
-  }'
-
-# Health check
-curl http://127.0.0.1:8765/health
+# After building the executable
+python test_jsonrpc_client.py
 ```
 
-### Using Python
+This will test:
+- Server health (ping)
+- Project initialization
+- Status retrieval
+- Error handling
 
-See `test_jsonrpc_client.py` for a Python client example.
+### Manual Testing with Echo and Python
+
+You can test the server manually using echo and Python's json module:
+
+```bash
+# Start the server
+python -m colrev.ui_jsonrpc.server &
+SERVER_PID=$!
+
+# Send a ping request
+echo '{"jsonrpc": "2.0", "method": "ping", "params": {}, "id": 1}' | \
+  python -m colrev.ui_jsonrpc.server
+
+# Initialize a project
+echo '{"jsonrpc": "2.0", "method": "init_project", "params": {"project_id": "test", "light": true}, "id": 2}' | \
+  python -m colrev.ui_jsonrpc.server
+
+# Get status
+echo '{"jsonrpc": "2.0", "method": "get_status", "params": {"project_id": "test"}, "id": 3}' | \
+  python -m colrev.ui_jsonrpc.server
+
+# Clean up
+kill $SERVER_PID
+```
+
+### Using Python Subprocess
+
+Quick test script:
+
+```python
+import json
+import subprocess
+import sys
+
+# Start server
+proc = subprocess.Popen(
+    [sys.executable, "-m", "colrev.ui_jsonrpc.server"],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    bufsize=1
+)
+
+# Send request
+request = {"jsonrpc": "2.0", "method": "ping", "params": {}, "id": 1}
+proc.stdin.write(json.dumps(request) + "\n")
+proc.stdin.flush()
+
+# Read response
+response = json.loads(proc.stdout.readline())
+print(response)
+
+# Clean up
+proc.terminate()
+proc.wait()
+```
 
 ## Project Structure
 
@@ -351,15 +647,35 @@ projects/
         └── pdfs/                # PDF files
 ```
 
-## Troubleshooting
+## Architecture
 
-### Port Already in Use
+The JSON-RPC server has been refactored into a modular architecture for better maintainability:
 
-If port 8765 is already in use, specify a different port:
-
-```bash
-./dist/colrev-jsonrpc --port 8766
 ```
+colrev/ui_jsonrpc/
+├── __init__.py                 # Module exports
+├── server.py                   # Server lifecycle and stdio protocol
+├── handler.py                  # Request routing and dispatch
+├── handlers/                   # Operation handlers
+│   ├── init_handler.py        # Project initialization
+│   ├── status_handler.py      # Status and validation
+│   ├── search_handler.py      # Search operations
+│   ├── prep_handler.py        # Metadata preparation
+│   ├── dedupe_handler.py      # Deduplication
+│   ├── screen_handler.py      # Screening
+│   └── data_handler.py        # Data extraction
+├── response_formatter.py      # Result formatting
+├── error_handler.py           # Exception mapping
+└── validation.py              # Parameter validation
+```
+
+Each operation handler:
+- Receives a ReviewManager instance
+- Validates parameters
+- Calls the appropriate Operation class from `colrev.ops.*`
+- Formats the response
+
+## Troubleshooting
 
 ### Permission Denied
 
@@ -377,9 +693,27 @@ If running from source, ensure all CoLRev dependencies are installed:
 uv pip install --editable .
 ```
 
+### Server Not Responding
+
+Check stderr for error messages:
+
+```bash
+python -m colrev.ui_jsonrpc.server --log-level DEBUG 2> server.log
+```
+
+### PyInstaller Build Issues
+
+If the build fails, try cleaning and rebuilding:
+
+```bash
+rm -rf build dist
+pyinstaller colrev_jsonrpc.spec
+```
+
 ## Security Notes
 
-- The server binds to `127.0.0.1` by default (localhost only)
 - Project IDs are sanitized to prevent path traversal attacks
-- CORS is enabled for local Electron app integration
-- For production use, consider adding authentication and encryption
+- Server uses stdio protocol (no network exposure)
+- All operations run in the context of the project directory
+- Git hooks validate data quality on commits
+- For production use with network protocols, consider adding authentication and encryption
