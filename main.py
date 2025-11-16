@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-JSON-RPC server for CoLRev operations.
+JSON-RPC server for CoLRev operations via stdio.
 This serves as the entry point for PyInstaller packaging.
 """
 
@@ -8,7 +8,6 @@ import json
 import logging
 import os
 import sys
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -60,10 +59,11 @@ import colrev.ops.init
 import colrev.review_manager
 from colrev.package_manager.package_manager import PackageManager
 
-# Configure logging
+# Configure logging to stderr only (stdout is used for JSON-RPC communication)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stderr,  # Ensure logs go to stderr, not stdout
 )
 logger = logging.getLogger(__name__)
 
@@ -293,38 +293,8 @@ if _is_frozen():
     colrev.package_manager.package.Package.__init__ = _patched_package_init
 
 
-class CoLRevJSONRPCHandler(BaseHTTPRequestHandler):
-    """HTTP request handler for JSON-RPC requests."""
-
-    def log_message(self, format: str, *args: Any) -> None:
-        """Override to use logger instead of stderr."""
-        logger.info("%s - %s", self.address_string(), format % args)
-
-    def do_POST(self) -> None:
-        """Handle POST requests with JSON-RPC payload."""
-        content_length = int(self.headers["Content-Length"])
-        post_data = self.rfile.read(content_length)
-
-        try:
-            request = json.loads(post_data.decode("utf-8"))
-            response = self.handle_jsonrpc_request(request)
-            self.send_jsonrpc_response(response)
-        except json.JSONDecodeError as e:
-            self.send_jsonrpc_error(-32700, "Parse error", str(e))
-        except Exception as e:
-            logger.exception("Unexpected error handling request")
-            self.send_jsonrpc_error(-32603, "Internal error", str(e))
-
-    def do_GET(self) -> None:
-        """Handle GET requests for health check."""
-        if self.path == "/health":
-            self.send_response(200)
-            self.send_header("Content-type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"status": "ok"}).encode())
-        else:
-            self.send_response(404)
-            self.end_headers()
+class CoLRevJSONRPCHandler:
+    """JSON-RPC request handler for CoLRev operations."""
 
     def handle_jsonrpc_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Process JSON-RPC 2.0 request and return response."""
@@ -419,14 +389,23 @@ class CoLRevJSONRPCHandler(BaseHTTPRequestHandler):
 
         # Initialize CoLRev project (this also initializes git repo with pre-commit hooks)
         try:
-            colrev.ops.init.Initializer(
-                review_type=review_type,
-                target_path=target_path,
-                example=example,
-                force_mode=force_mode,
-                light=light,
-                exact_call=f"jsonrpc:init_project:{project_id}",
-            )
+            # Redirect stdout to stderr to prevent non-JSON output
+            import io
+            original_stdout = sys.stdout
+            sys.stdout = sys.stderr
+
+            try:
+                colrev.ops.init.Initializer(
+                    review_type=review_type,
+                    target_path=target_path,
+                    example=example,
+                    force_mode=force_mode,
+                    light=light,
+                    exact_call=f"jsonrpc:init_project:{project_id}",
+                )
+            finally:
+                # Restore original stdout
+                sys.stdout = original_stdout
 
             logger.info(f"Project {project_id} initialized successfully")
 
@@ -470,23 +449,31 @@ class CoLRevJSONRPCHandler(BaseHTTPRequestHandler):
             raise ValueError(f"Project {project_id} does not exist at {target_path}")
 
         try:
-            review_manager = colrev.review_manager.ReviewManager(
-                path_str=str(target_path)
-            )
-            status_stats = review_manager.get_status_stats()
+            # Redirect stdout to stderr to prevent non-JSON output
+            original_stdout = sys.stdout
+            sys.stdout = sys.stderr
 
-            # Convert status stats to dictionary for JSON serialization
-            status_dict = {
-                "completeness_condition": status_stats.completeness_condition,
-                "currently_completed": status_stats.completed_atomic_steps,
-            }
+            try:
+                review_manager = colrev.review_manager.ReviewManager(
+                    path_str=str(target_path)
+                )
+                status_stats = review_manager.get_status_stats()
 
-            return {
-                "success": True,
-                "project_id": project_id,
-                "path": str(target_path.resolve()),
-                "status": status_dict,
-            }
+                # Convert status stats to dictionary for JSON serialization
+                status_dict = {
+                    "completeness_condition": status_stats.completeness_condition,
+                    "currently_completed": status_stats.completed_atomic_steps,
+                }
+
+                return {
+                    "success": True,
+                    "project_id": project_id,
+                    "path": str(target_path.resolve()),
+                    "status": status_dict,
+                }
+            finally:
+                # Restore original stdout
+                sys.stdout = original_stdout
 
         except Exception as e:
             logger.exception(f"Failed to get status for project {project_id}")
@@ -510,29 +497,14 @@ class CoLRevJSONRPCHandler(BaseHTTPRequestHandler):
             "id": request_id,
         }
 
-    def send_jsonrpc_response(self, response: Dict[str, Any]) -> None:
-        """Send JSON-RPC response."""
-        self.send_response(200)
-        self.send_header("Content-type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")  # Allow CORS for Electron
-        self.end_headers()
-        self.wfile.write(json.dumps(response).encode())
-
-    def send_jsonrpc_error(
-        self, code: int, message: str, data: Optional[str] = None
-    ) -> None:
-        """Send JSON-RPC error response."""
-        error_response = self.create_error_response(code, message, data)
-        self.send_jsonrpc_response(error_response)
 
 
-def run_server(host: str = "127.0.0.1", port: int = 8765) -> None:
-    """Run the JSON-RPC server."""
-    server_address = (host, port)
-    httpd = HTTPServer(server_address, CoLRevJSONRPCHandler)
+def run_stdio_server() -> None:
+    """Run the JSON-RPC server over stdio."""
+    handler = CoLRevJSONRPCHandler()
 
-    logger.info(f"CoLRev JSON-RPC server starting on {host}:{port}")
-    logger.info("Press Ctrl+C to stop the server")
+    logger.info("CoLRev JSON-RPC server starting (stdio mode)")
+    logger.info("Press Ctrl+C or send EOF to stop the server")
     logger.info(
         f"Example request: "
         f'{{"jsonrpc": "2.0", "method": "init_project", '
@@ -540,28 +512,40 @@ def run_server(host: str = "127.0.0.1", port: int = 8765) -> None:
     )
 
     try:
-        httpd.serve_forever()
+        # Read requests from stdin line by line
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+
+            try:
+                request = json.loads(line)
+                response = handler.handle_jsonrpc_request(request)
+                # Write response to stdout with newline and flush
+                print(json.dumps(response), flush=True)
+            except json.JSONDecodeError as e:
+                error_response = handler.create_error_response(
+                    -32700, "Parse error", str(e), None
+                )
+                print(json.dumps(error_response), flush=True)
+            except Exception as e:
+                logger.exception("Unexpected error handling request")
+                error_response = handler.create_error_response(
+                    -32603, "Internal error", str(e), None
+                )
+                print(json.dumps(error_response), flush=True)
+
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
-        httpd.shutdown()
+    except EOFError:
+        logger.info("Server stopped (EOF received)")
 
 
 def main() -> None:
     """Main entry point for the application."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="CoLRev JSON-RPC Server")
-    parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Host to bind to (default: 127.0.0.1)",
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=8765,
-        help="Port to bind to (default: 8765)",
-    )
+    parser = argparse.ArgumentParser(description="CoLRev JSON-RPC Server (stdio)")
     parser.add_argument(
         "--log-level",
         default="INFO",
@@ -575,7 +559,7 @@ def main() -> None:
     logging.getLogger().setLevel(getattr(logging, args.log_level))
 
     # Run server
-    run_server(host=args.host, port=args.port)
+    run_stdio_server()
 
 
 if __name__ == "__main__":
