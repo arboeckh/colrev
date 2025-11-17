@@ -1,7 +1,9 @@
 """Main JSON-RPC request handler and router."""
 
+import io
 import logging
 import os
+import sys
 from typing import Any, Dict, Optional
 
 import colrev.review_manager
@@ -10,9 +12,13 @@ from colrev.ui_jsonrpc.handlers import (
     DataHandler,
     DedupeHandler,
     InitHandler,
+    LoadHandler,
+    PDFGetHandler,
+    PDFPrepHandler,
     PrepHandler,
-    SearchHandler,
+    PrescreenHandler,
     ScreenHandler,
+    SearchHandler,
     StatusHandler,
 )
 
@@ -100,6 +106,10 @@ class JSONRPCHandler:
             return self._handle_with_review_manager(
                 method, params, SearchHandler
             )
+        elif method in ["load"]:
+            return self._handle_with_review_manager(
+                method, params, LoadHandler
+            )
         elif method in ["prep"]:
             return self._handle_with_review_manager(
                 method, params, PrepHandler
@@ -107,6 +117,18 @@ class JSONRPCHandler:
         elif method in ["dedupe"]:
             return self._handle_with_review_manager(
                 method, params, DedupeHandler
+            )
+        elif method in ["prescreen"]:
+            return self._handle_with_review_manager(
+                method, params, PrescreenHandler
+            )
+        elif method in ["pdf_get"]:
+            return self._handle_with_review_manager(
+                method, params, PDFGetHandler
+            )
+        elif method in ["pdf_prep"]:
+            return self._handle_with_review_manager(
+                method, params, PDFPrepHandler
             )
         elif method in ["screen"]:
             return self._handle_with_review_manager(
@@ -142,14 +164,23 @@ class JSONRPCHandler:
         # Save current directory and change to project directory
         original_cwd = os.getcwd()
 
+        # Capture stdout to prevent CoLRev operations from polluting JSON-RPC responses
+        original_stdout = sys.stdout
+        stdout_buffer = io.StringIO()
+
         try:
             os.chdir(project_path)
+
+            # Redirect stdout to a buffer (not stderr, to avoid TTY issues)
+            # JSON-RPC responses use the real stdout, so operations must not print there
+            sys.stdout = stdout_buffer
 
             # Create ReviewManager
             review_manager = colrev.review_manager.ReviewManager(
                 path_str=str(project_path),
-                force_mode=params.get("force", False),
+                force_mode=params.get("force", True),  # Force mode to skip prompts
                 verbose_mode=params.get("verbose", False),
+                high_level_operation=True,  # Suppress unnecessary output
             )
 
             # Create handler instance
@@ -158,10 +189,18 @@ class JSONRPCHandler:
             # Call the method
             if hasattr(handler, method):
                 method_func = getattr(handler, method)
-                return method_func(params)
+                result = method_func(params)
+
+                # Log captured output to stderr for debugging if needed
+                captured = stdout_buffer.getvalue()
+                if captured:
+                    logger.debug(f"Captured output from {method}: {captured[:500]}")
+
+                return result
             else:
                 raise ValueError(f"Handler {handler_class.__name__} does not support method '{method}'")
 
         finally:
-            # Always restore original directory
+            # Always restore original stdout and directory
+            sys.stdout = original_stdout
             os.chdir(original_cwd)

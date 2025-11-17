@@ -60,24 +60,34 @@ class StatusHandler:
         """
         Validate the CoLRev project.
 
+        Expected params:
+            project_id (str): Project identifier
+            scope (str, optional): Scope of validation (default: "HEAD")
+            filter_setting (str, optional): Filter setting (default: "general")
+
         Args:
             params: Method parameters (project_id required)
 
         Returns:
             Validation results
         """
+        from colrev.ui_jsonrpc import validation
+
         project_id = params["project_id"]
+        scope = validation.get_optional_param(params, "scope", "HEAD")
+        filter_setting = validation.get_optional_param(params, "filter_setting", "general")
+
         logger.info(f"Validating project {project_id}")
 
         # Get validate operation
         validate_operation = self.review_manager.get_validate_operation()
 
         # Run validation
-        validate_operation.main()
+        result = validate_operation.main(scope=scope, filter_setting=filter_setting)
 
         # Return success response
         return response_formatter.format_operation_response(
             operation_name="validate",
             project_id=project_id,
-            details={"message": "Validation completed"},
+            details={"message": "Validation completed", "result": result},
         )
