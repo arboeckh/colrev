@@ -1,719 +1,580 @@
 # CoLRev JSON-RPC Server
 
-A JSON-RPC 2.0 server for CoLRev operations, designed to be packaged as a standalone executable for use with Electron apps.
-
-## Features
-
-- **JSON-RPC 2.0 compliant** server using stdio protocol
-- **Full CoLRev workflow support**: init, status, search, prep, dedupe, screen, data
-- **Modular architecture** with separate handlers for each operation
-- **Automatic git repository initialization** (handled by CoLRev)
-- **Comprehensive error handling** with detailed error messages
-- **PyInstaller packaging** for standalone distribution
-
-## Building the Executable
-
-### Prerequisites
-
-```bash
-# Install PyInstaller
-pip install pyinstaller
-
-# Or with uv
-uv pip install pyinstaller
-```
-
-### Build
-
-```bash
-# Using the spec file (recommended)
-pyinstaller colrev_jsonrpc.spec
-
-# Or using the command line
-pyinstaller --onefile --name colrev-jsonrpc main.py
-```
-
-The executable will be created in the `dist/` directory.
-
-## Running the Server
-
-### From Source
-
-```bash
-# Using the Python module
-python -m colrev.ui_jsonrpc.server [--log-level LEVEL]
-
-# Or using the entry point (after pip install)
-colrev-jsonrpc [--log-level LEVEL]
-
-# Or using the main.py launcher
-python main.py [--log-level LEVEL]
-```
-
-### From Executable
-
-```bash
-./dist/colrev-jsonrpc [--log-level LEVEL]
-```
-
-**Options:**
-- `--log-level`: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-
-**Example:**
-```bash
-./dist/colrev-jsonrpc --log-level INFO
-```
-
-**Note:** The server uses stdio for communication (reads from stdin, writes to stdout). All logging goes to stderr to avoid interference with JSON-RPC communication.
-
-## API Methods
-
-### 1. `init_project`
-
-Initialize a new CoLRev project.
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "init_project",
-  "params": {
-    "project_id": "my_literature_review",
-    "review_type": "colrev.literature_review",
-    "example": false,
-    "force_mode": true,
-    "light": false,
-    "base_path": "./projects"
-  },
-  "id": 1
-}
-```
-
-**Parameters:**
-- `project_id` (required): Unique alphanumeric identifier for the project
-- `review_type` (optional): Type of review (default: `colrev.literature_review`)
-  - Options: `colrev.literature_review`, `colrev.scoping_review`, `colrev.meta_analysis`, etc.
-- `example` (optional): Include example records (default: `false`)
-- `force_mode` (optional): Force initialization even if directory exists (default: `true`)
-- `light` (optional): Light mode without Docker dependencies (default: `false`)
-- `base_path` (optional): Base directory for projects (default: `./projects`)
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "success": true,
-    "project_id": "my_literature_review",
-    "path": "/absolute/path/to/projects/my_literature_review",
-    "review_type": "colrev.literature_review",
-    "message": "Project initialized successfully at projects/my_literature_review"
-  },
-  "id": 1
-}
-```
-
-**Notes:**
-- Creates directory at `{base_path}/{project_id}`
-- Automatically initializes a git repository
-- Project ID is sanitized to alphanumeric characters, hyphens, and underscores only
-
-### 2. `get_status`
-
-Get the status of an existing CoLRev project.
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "get_status",
-  "params": {
-    "project_id": "my_literature_review",
-    "base_path": "./projects"
-  },
-  "id": 2
-}
-```
-
-**Parameters:**
-- `project_id` (required): Project identifier
-- `base_path` (optional): Base directory for projects (default: `./projects`)
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "success": true,
-    "project_id": "my_literature_review",
-    "path": "/absolute/path/to/projects/my_literature_review",
-    "status": {
-      "... project status details ..."
-    }
-  },
-  "id": 2
-}
-```
-
-### 3. `search`
-
-Execute search operation to retrieve records from sources.
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "search",
-  "params": {
-    "project_id": "my_literature_review",
-    "base_path": "./projects",
-    "source": "all",
-    "rerun": false,
-    "skip_commit": false
-  },
-  "id": 3
-}
-```
-
-**Parameters:**
-- `project_id` (required): Project identifier
-- `base_path` (optional): Base directory for projects (default: `./projects`)
-- `source` (optional): Source selection string (default: `"all"`)
-- `rerun` (optional): Rerun API-based searches (default: `false`)
-- `skip_commit` (optional): Skip git commit (default: `false`)
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "success": true,
-    "operation": "search",
-    "project_id": "my_literature_review",
-    "message": "Search operation completed successfully",
-    "details": {
-      "source": "all",
-      "rerun": false,
-      "message": "Search completed"
-    }
-  },
-  "id": 3
-}
-```
-
-### 4. `prep`
-
-Execute metadata preparation operation.
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "prep",
-  "params": {
-    "project_id": "my_literature_review",
-    "base_path": "./projects"
-  },
-  "id": 4
-}
-```
-
-**Parameters:**
-- `project_id` (required): Project identifier
-- `base_path` (optional): Base directory for projects (default: `./projects`)
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "success": true,
-    "operation": "prep",
-    "project_id": "my_literature_review",
-    "message": "Prep operation completed successfully",
-    "details": {
-      "message": "Metadata preparation completed"
-    }
-  },
-  "id": 4
-}
-```
-
-### 5. `dedupe`
-
-Execute deduplication operation.
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "dedupe",
-  "params": {
-    "project_id": "my_literature_review",
-    "base_path": "./projects"
-  },
-  "id": 5
-}
-```
-
-**Parameters:**
-- `project_id` (required): Project identifier
-- `base_path` (optional): Base directory for projects (default: `./projects`)
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "success": true,
-    "operation": "dedupe",
-    "project_id": "my_literature_review",
-    "message": "Dedupe operation completed successfully",
-    "details": {
-      "message": "Deduplication completed"
-    }
-  },
-  "id": 5
-}
-```
-
-### 6. `screen`
-
-Execute screening operation.
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "screen",
-  "params": {
-    "project_id": "my_literature_review",
-    "base_path": "./projects"
-  },
-  "id": 6
-}
-```
-
-**Parameters:**
-- `project_id` (required): Project identifier
-- `base_path` (optional): Base directory for projects (default: `./projects`)
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "success": true,
-    "operation": "screen",
-    "project_id": "my_literature_review",
-    "message": "Screen operation completed successfully",
-    "details": {
-      "message": "Screening completed"
-    }
-  },
-  "id": 6
-}
-```
-
-### 7. `data`
-
-Execute data extraction and synthesis operation.
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "data",
-  "params": {
-    "project_id": "my_literature_review",
-    "base_path": "./projects"
-  },
-  "id": 7
-}
-```
-
-**Parameters:**
-- `project_id` (required): Project identifier
-- `base_path` (optional): Base directory for projects (default: `./projects`)
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "success": true,
-    "operation": "data",
-    "project_id": "my_literature_review",
-    "message": "Data operation completed successfully",
-    "details": {
-      "message": "Data extraction and synthesis completed"
-    }
-  },
-  "id": 7
-}
-```
-
-### 8. `validate`
-
-Validate the CoLRev project.
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "validate",
-  "params": {
-    "project_id": "my_literature_review",
-    "base_path": "./projects"
-  },
-  "id": 8
-}
-```
-
-**Parameters:**
-- `project_id` (required): Project identifier
-- `base_path` (optional): Base directory for projects (default: `./projects`)
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "success": true,
-    "operation": "validate",
-    "project_id": "my_literature_review",
-    "message": "Validate operation completed successfully",
-    "details": {
-      "message": "Validation completed"
-    }
-  },
-  "id": 8
-}
-```
-
-### 9. `ping`
-
-Health check method.
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "ping",
-  "params": {},
-  "id": 9
-}
-```
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "status": "pong"
-  },
-  "id": 9
-}
-```
-
-## Error Responses
-
-**Standard JSON-RPC error codes:**
-- `-32700`: Parse error (Invalid JSON)
-- `-32600`: Invalid Request (Missing required fields)
-- `-32601`: Method not found
-- `-32602`: Invalid params
-- `-32603`: Internal error
-
-**CoLRev-specific error codes:**
-- `-32000`: CoLRev repository setup error
-- `-32001`: CoLRev operation error
-- `-32002`: Service not available
-- `-32003`: Missing dependency
-- `-32004`: Parameter error
-
-**Example error response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "error": {
-    "code": -32602,
-    "message": "Project nonexistent does not exist at /path/to/projects/nonexistent",
-    "data": "ValueError"
-  },
-  "id": 1
-}
-```
-
-## Using from Electron App
-
-### Start the Server as a Subprocess
-
-The server uses stdio for communication. Launch it as a subprocess and communicate via stdin/stdout:
-
-```javascript
-const { spawn } = require('child_process');
-
-// Start the JSON-RPC server
-const colrevServer = spawn('./path/to/colrev-jsonrpc', ['--log-level', 'INFO']);
-
-let requestId = 0;
-const pendingRequests = new Map();
-
-// Handle responses from stdout
-colrevServer.stdout.on('data', (data) => {
-  const lines = data.toString().split('\n').filter(line => line.trim());
-
-  for (const line of lines) {
-    try {
-      const response = JSON.parse(line);
-      const callback = pendingRequests.get(response.id);
-
-      if (callback) {
-        pendingRequests.delete(response.id);
-        if (response.error) {
-          callback.reject(new Error(response.error.message));
-        } else {
-          callback.resolve(response.result);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to parse response:', err);
-    }
-  }
-});
-
-// Handle server errors/logs from stderr
-colrevServer.stderr.on('data', (data) => {
-  console.log(`Server log: ${data}`);
-});
-
-// Helper function to make JSON-RPC calls
-function callRPC(method, params) {
-  return new Promise((resolve, reject) => {
-    const id = ++requestId;
-
-    pendingRequests.set(id, { resolve, reject });
-
-    const request = {
-      jsonrpc: '2.0',
-      method: method,
-      params: params,
-      id: id
-    };
-
-    colrevServer.stdin.write(JSON.dumps(request) + '\n');
-
-    // Timeout after 60 seconds
-    setTimeout(() => {
-      if (pendingRequests.has(id)) {
-        pendingRequests.delete(id);
-        reject(new Error('Request timeout'));
-      }
-    }, 60000);
-  });
-}
-
-// Usage examples
-async function initProject(projectId) {
-  try {
-    const result = await callRPC('init_project', {
-      project_id: projectId,
-      review_type: 'colrev.literature_review',
-      force_mode: true,
-      light: true
-    });
-    console.log('Project initialized:', result);
-    return result;
-  } catch (error) {
-    console.error('Error initializing project:', error);
-    throw error;
-  }
-}
-
-async function getStatus(projectId) {
-  try {
-    const result = await callRPC('get_status', {
-      project_id: projectId
-    });
-    console.log('Status:', result);
-    return result;
-  } catch (error) {
-    console.error('Error getting status:', error);
-    throw error;
-  }
-}
-
-// Health check
-async function checkHealth() {
-  try {
-    const result = await callRPC('ping', {});
-    return result.status === 'pong';
-  } catch (error) {
-    return false;
-  }
-}
-```
-
-## Testing the Server
-
-### Using Python Test Client
-
-The repository includes a comprehensive test client in `test_jsonrpc_client.py`:
-
-```bash
-# After building the executable
-python test_jsonrpc_client.py
-```
-
-This will test:
-- Server health (ping)
-- Project initialization
-- Status retrieval
-- Error handling
-
-### Manual Testing with Echo and Python
-
-You can test the server manually using echo and Python's json module:
-
-```bash
-# Start the server
-python -m colrev.ui_jsonrpc.server &
-SERVER_PID=$!
-
-# Send a ping request
-echo '{"jsonrpc": "2.0", "method": "ping", "params": {}, "id": 1}' | \
-  python -m colrev.ui_jsonrpc.server
-
-# Initialize a project
-echo '{"jsonrpc": "2.0", "method": "init_project", "params": {"project_id": "test", "light": true}, "id": 2}' | \
-  python -m colrev.ui_jsonrpc.server
-
-# Get status
-echo '{"jsonrpc": "2.0", "method": "get_status", "params": {"project_id": "test"}, "id": 3}' | \
-  python -m colrev.ui_jsonrpc.server
-
-# Clean up
-kill $SERVER_PID
-```
-
-### Using Python Subprocess
-
-Quick test script:
-
-```python
-import json
-import subprocess
-import sys
-
-# Start server
-proc = subprocess.Popen(
-    [sys.executable, "-m", "colrev.ui_jsonrpc.server"],
-    stdin=subprocess.PIPE,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    text=True,
-    bufsize=1
-)
-
-# Send request
-request = {"jsonrpc": "2.0", "method": "ping", "params": {}, "id": 1}
-proc.stdin.write(json.dumps(request) + "\n")
-proc.stdin.flush()
-
-# Read response
-response = json.loads(proc.stdout.readline())
-print(response)
-
-# Clean up
-proc.terminate()
-proc.wait()
-```
-
-## Project Structure
-
-Projects are created in the following structure:
-
-```
-projects/
-└── {project_id}/
-    ├── .git/                    # Git repository (auto-initialized)
-    ├── .pre-commit-config.yaml  # Pre-commit hooks
-    ├── settings.json            # CoLRev settings
-    ├── readme.md                # Project README
-    └── data/
-        ├── records.bib          # Bibliography records
-        ├── search/              # Search results
-        └── pdfs/                # PDF files
-```
+End-to-end proof of concept for running CoLRev as an in-process backend via JSON-RPC 2.0 over stdio. Designed for integration with Electron desktop applications.
 
 ## Architecture
 
-The JSON-RPC server has been refactored into a modular architecture for better maintainability:
-
 ```
-colrev/ui_jsonrpc/
-├── __init__.py                 # Module exports
-├── server.py                   # Server lifecycle and stdio protocol
-├── handler.py                  # Request routing and dispatch
-├── handlers/                   # Operation handlers
-│   ├── init_handler.py        # Project initialization
-│   ├── status_handler.py      # Status and validation
-│   ├── search_handler.py      # Search operations
-│   ├── prep_handler.py        # Metadata preparation
-│   ├── dedupe_handler.py      # Deduplication
-│   ├── screen_handler.py      # Screening
-│   └── data_handler.py        # Data extraction
-├── response_formatter.py      # Result formatting
-├── error_handler.py           # Exception mapping
-└── validation.py              # Parameter validation
+┌─────────────────────────────────────────────────────────────────┐
+│ Electron App                                                    │
+│  ┌──────────────┐      IPC       ┌──────────────────────────┐  │
+│  │ Vue.js       │◄──────────────►│ Main Process             │  │
+│  │ (Renderer)   │                │                          │  │
+│  │              │                │  ┌────────────────────┐  │  │
+│  │ TypeScript   │                │  │ colrev-jsonrpc     │  │  │
+│  │ Interfaces   │                │  │ (subprocess)       │  │  │
+│  └──────────────┘                │  │                    │  │  │
+│                                  │  │ stdin ──► request  │  │  │
+│                                  │  │ stdout ◄── response│  │  │
+│                                  │  │ stderr ──► logs    │  │  │
+│                                  │  └────────────────────┘  │  │
+│                                  └──────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-Each operation handler:
-- Receives a ReviewManager instance
-- Validates parameters
-- Calls the appropriate Operation class from `colrev.ops.*`
-- Formats the response
+**Protocol:** JSON-RPC 2.0 over stdio (line-delimited JSON)
+- Requests: Write JSON + newline to stdin
+- Responses: Read JSON + newline from stdout
+- Logs: stderr (doesn't interfere with RPC)
 
-## Troubleshooting
+**Why stdio?** No port conflicts, no network exposure, simple process lifecycle tied to parent.
 
-### Permission Denied
+## Quick Start
 
-On Linux/Mac, make the executable runnable:
+### Build Executable
 
 ```bash
-chmod +x ./dist/colrev-jsonrpc
+pip install pyinstaller
+./build_jsonrpc.sh
+# Output: dist/colrev-jsonrpc
 ```
 
-### Missing Dependencies
-
-If running from source, ensure all CoLRev dependencies are installed:
+### Run (Development)
 
 ```bash
-uv pip install --editable .
+# Via Python module (fast iteration)
+python main.py
+
+# Via installed package
+colrev-jsonrpc
 ```
 
-### Server Not Responding
-
-Check stderr for error messages:
+### Test
 
 ```bash
-python -m colrev.ui_jsonrpc.server --log-level DEBUG 2> server.log
+# Comprehensive workflow test
+python test_jsonrpc_client.py
+
+# Quick ping test
+echo '{"jsonrpc":"2.0","method":"ping","params":{},"id":1}' | python main.py
 ```
 
-### PyInstaller Build Issues
+## API Methods
 
-If the build fails, try cleaning and rebuilding:
+| Method | Parameters | Description |
+|--------|------------|-------------|
+| `ping` | - | Health check, returns `{"status":"pong"}` |
+| `init_project` | `project_id`, `review_type?`, `example?`, `force_mode?`, `light?`, `base_path?` | Create new CoLRev project |
+| `get_status` | `project_id`, `base_path?` | Get project status and record counts |
+| `validate` | `project_id`, `base_path?` | Validate project data quality |
+| `search` | `project_id`, `base_path?`, `source?`, `rerun?`, `skip_commit?` | Execute search operation |
+| `load` | `project_id`, `base_path?`, `keep_ids?` | Import search results |
+| `prep` | `project_id`, `base_path?`, `skip_commit?` | Prepare/clean metadata |
+| `dedupe` | `project_id`, `base_path?` | Deduplicate records |
+| `prescreen` | `project_id`, `base_path?`, `split_str?` | Initial screening |
+| `pdf_get` | `project_id`, `base_path?` | Retrieve PDFs |
+| `pdf_prep` | `project_id`, `base_path?`, `reprocess?`, `batch_size?` | Prepare/validate PDFs |
+| `screen` | `project_id`, `base_path?` | Full-text screening |
+| `data` | `project_id`, `base_path?` | Data extraction/synthesis |
 
-```bash
-rm -rf build dist
-pyinstaller colrev_jsonrpc.spec
+**Common parameters:**
+- `project_id` (required): Alphanumeric identifier, sanitized for path safety
+- `base_path` (optional): Base directory for projects, default `./projects`
+
+## Electron Integration
+
+### Main Process: Backend Manager
+
+```typescript
+// src/main/colrev-backend.ts
+import { spawn, ChildProcess } from 'child_process';
+import { EventEmitter } from 'events';
+import * as readline from 'readline';
+import * as path from 'path';
+import { app } from 'electron';
+
+export class ColrevBackend extends EventEmitter {
+  private process: ChildProcess | null = null;
+  private requestId = 0;
+  private pending = new Map<number, { resolve: Function; reject: Function }>();
+  private rl: readline.Interface | null = null;
+
+  constructor(private executablePath?: string) {
+    super();
+    // Default: bundled executable in app resources
+    this.executablePath = executablePath ?? path.join(
+      app.isPackaged ? process.resourcesPath : __dirname,
+      'colrev-jsonrpc'
+    );
+  }
+
+  start(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.process = spawn(this.executablePath!, [], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      // Parse stdout line-by-line for JSON-RPC responses
+      this.rl = readline.createInterface({ input: this.process.stdout! });
+      this.rl.on('line', (line) => {
+        try {
+          const response = JSON.parse(line);
+          const pending = this.pending.get(response.id);
+          if (pending) {
+            this.pending.delete(response.id);
+            if (response.error) {
+              pending.reject(new Error(`${response.error.code}: ${response.error.message}`));
+            } else {
+              pending.resolve(response.result);
+            }
+          }
+        } catch (e) {
+          this.emit('error', e);
+        }
+      });
+
+      // Forward stderr to logs
+      this.process.stderr?.on('data', (data) => {
+        this.emit('log', data.toString());
+      });
+
+      this.process.on('error', reject);
+      this.process.on('close', (code) => {
+        this.emit('close', code);
+        this.process = null;
+      });
+
+      // Verify server is responding
+      this.call('ping', {})
+        .then(() => resolve())
+        .catch(reject);
+    });
+  }
+
+  call<T>(method: string, params: Record<string, unknown>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      if (!this.process?.stdin) {
+        return reject(new Error('Backend not running'));
+      }
+
+      const id = ++this.requestId;
+      this.pending.set(id, { resolve, reject });
+
+      const request = { jsonrpc: '2.0', method, params, id };
+      this.process.stdin.write(JSON.stringify(request) + '\n');
+
+      // Timeout after 60s
+      setTimeout(() => {
+        if (this.pending.has(id)) {
+          this.pending.delete(id);
+          reject(new Error('Request timeout'));
+        }
+      }, 60000);
+    });
+  }
+
+  stop(): void {
+    if (this.process) {
+      this.process.kill();
+      this.process = null;
+    }
+  }
+}
 ```
 
-## Security Notes
+### Main Process: IPC Bridge
 
-- Project IDs are sanitized to prevent path traversal attacks
-- Server uses stdio protocol (no network exposure)
-- All operations run in the context of the project directory
-- Git hooks validate data quality on commits
-- For production use with network protocols, consider adding authentication and encryption
+```typescript
+// src/main/ipc-handlers.ts
+import { ipcMain, BrowserWindow } from 'electron';
+import { ColrevBackend } from './colrev-backend';
+
+let backend: ColrevBackend;
+
+export function setupColrevIPC(mainWindow: BrowserWindow) {
+  backend = new ColrevBackend();
+
+  // Forward logs to renderer
+  backend.on('log', (msg) => mainWindow.webContents.send('colrev:log', msg));
+  backend.on('close', (code) => mainWindow.webContents.send('colrev:close', code));
+
+  // Start backend when app is ready
+  ipcMain.handle('colrev:start', async () => {
+    await backend.start();
+    return true;
+  });
+
+  // Generic RPC call handler
+  ipcMain.handle('colrev:call', async (_, method: string, params: Record<string, unknown>) => {
+    return backend.call(method, params);
+  });
+
+  // Stop backend
+  ipcMain.handle('colrev:stop', async () => {
+    backend.stop();
+    return true;
+  });
+}
+
+// Call in main.ts before app.on('ready')
+export function cleanupColrev() {
+  backend?.stop();
+}
+```
+
+### Preload Script
+
+```typescript
+// src/preload/index.ts
+import { contextBridge, ipcRenderer } from 'electron';
+
+contextBridge.exposeInMainWorld('colrev', {
+  start: () => ipcRenderer.invoke('colrev:start'),
+  call: (method: string, params: Record<string, unknown>) =>
+    ipcRenderer.invoke('colrev:call', method, params),
+  stop: () => ipcRenderer.invoke('colrev:stop'),
+  onLog: (callback: (msg: string) => void) =>
+    ipcRenderer.on('colrev:log', (_, msg) => callback(msg)),
+  onClose: (callback: (code: number) => void) =>
+    ipcRenderer.on('colrev:close', (_, code) => callback(code)),
+});
+```
+
+## Vue.js + TypeScript
+
+### Type Definitions
+
+```typescript
+// src/types/colrev.ts
+
+// JSON-RPC base types
+export interface JsonRpcError {
+  code: number;
+  message: string;
+  data?: string;
+}
+
+// Parameter types
+export interface InitProjectParams {
+  project_id: string;
+  review_type?: string;  // default: 'colrev.literature_review'
+  example?: boolean;     // default: false
+  force_mode?: boolean;  // default: true
+  light?: boolean;       // default: false
+  base_path?: string;    // default: './projects'
+}
+
+export interface ProjectParams {
+  project_id: string;
+  base_path?: string;
+}
+
+export interface SearchParams extends ProjectParams {
+  source?: string;       // default: 'all'
+  rerun?: boolean;
+  skip_commit?: boolean;
+}
+
+export interface PrepParams extends ProjectParams {
+  skip_commit?: boolean;
+}
+
+export interface LoadParams extends ProjectParams {
+  keep_ids?: boolean;
+}
+
+export interface PrescreenParams extends ProjectParams {
+  split_str?: string;    // default: 'NA'
+}
+
+export interface PdfPrepParams extends ProjectParams {
+  reprocess?: boolean;
+  batch_size?: number;   // default: 0
+}
+
+// Result types
+export interface OperationResult {
+  success: boolean;
+  operation?: string;
+  project_id: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+export interface InitProjectResult extends OperationResult {
+  path: string;
+  review_type: string;
+}
+
+export interface ProjectStatus {
+  success: boolean;
+  project_id: string;
+  path: string;
+  status: {
+    overall: { atomic_steps: number; completed_atomic_steps: number };
+    currently: { [key: string]: number };
+    [key: string]: unknown;
+  };
+}
+
+export interface PingResult {
+  status: 'pong';
+}
+
+// Window augmentation for preload
+declare global {
+  interface Window {
+    colrev: {
+      start: () => Promise<boolean>;
+      call: <T>(method: string, params: Record<string, unknown>) => Promise<T>;
+      stop: () => Promise<boolean>;
+      onLog: (callback: (msg: string) => void) => void;
+      onClose: (callback: (code: number) => void) => void;
+    };
+  }
+}
+```
+
+### Vue Composable
+
+```typescript
+// src/composables/useColrev.ts
+import { ref, onMounted, onUnmounted } from 'vue';
+import type {
+  InitProjectParams,
+  InitProjectResult,
+  ProjectParams,
+  ProjectStatus,
+  SearchParams,
+  PrepParams,
+  LoadParams,
+  PrescreenParams,
+  PdfPrepParams,
+  OperationResult,
+  PingResult,
+} from '@/types/colrev';
+
+export function useColrev() {
+  const isRunning = ref(false);
+  const isLoading = ref(false);
+  const error = ref<string | null>(null);
+  const logs = ref<string[]>([]);
+
+  // Start backend on mount
+  onMounted(async () => {
+    try {
+      await window.colrev.start();
+      isRunning.value = true;
+
+      window.colrev.onLog((msg) => {
+        logs.value.push(msg);
+        // Keep last 100 logs
+        if (logs.value.length > 100) logs.value.shift();
+      });
+
+      window.colrev.onClose(() => {
+        isRunning.value = false;
+      });
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to start backend';
+    }
+  });
+
+  // Stop backend on unmount
+  onUnmounted(() => {
+    window.colrev.stop();
+  });
+
+  // Generic call wrapper with loading state
+  async function call<T>(method: string, params: Record<string, unknown>): Promise<T> {
+    isLoading.value = true;
+    error.value = null;
+    try {
+      return await window.colrev.call<T>(method, params);
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Unknown error';
+      throw e;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  // Typed API methods
+  const api = {
+    ping: () => call<PingResult>('ping', {}),
+
+    initProject: (params: InitProjectParams) =>
+      call<InitProjectResult>('init_project', params),
+
+    getStatus: (params: ProjectParams) =>
+      call<ProjectStatus>('get_status', params),
+
+    validate: (params: ProjectParams) =>
+      call<OperationResult>('validate', params),
+
+    search: (params: SearchParams) =>
+      call<OperationResult>('search', params),
+
+    load: (params: LoadParams) =>
+      call<OperationResult>('load', params),
+
+    prep: (params: PrepParams) =>
+      call<OperationResult>('prep', params),
+
+    dedupe: (params: ProjectParams) =>
+      call<OperationResult>('dedupe', params),
+
+    prescreen: (params: PrescreenParams) =>
+      call<OperationResult>('prescreen', params),
+
+    pdfGet: (params: ProjectParams) =>
+      call<OperationResult>('pdf_get', params),
+
+    pdfPrep: (params: PdfPrepParams) =>
+      call<OperationResult>('pdf_prep', params),
+
+    screen: (params: ProjectParams) =>
+      call<OperationResult>('screen', params),
+
+    data: (params: ProjectParams) =>
+      call<OperationResult>('data', params),
+  };
+
+  return {
+    isRunning,
+    isLoading,
+    error,
+    logs,
+    api,
+  };
+}
+```
+
+### Component Example
+
+```vue
+<!-- src/components/ProjectManager.vue -->
+<script setup lang="ts">
+import { ref } from 'vue';
+import { useColrev } from '@/composables/useColrev';
+
+const { isRunning, isLoading, error, api } = useColrev();
+
+const projectId = ref('');
+const status = ref<Record<string, unknown> | null>(null);
+const message = ref('');
+
+async function createProject() {
+  try {
+    const result = await api.initProject({
+      project_id: projectId.value,
+      review_type: 'colrev.literature_review',
+      example: true,  // Include sample records
+    });
+    message.value = result.message;
+    await refreshStatus();
+  } catch (e) {
+    // error.value is already set by composable
+  }
+}
+
+async function refreshStatus() {
+  if (!projectId.value) return;
+  const result = await api.getStatus({ project_id: projectId.value });
+  status.value = result.status;
+}
+
+async function runWorkflow() {
+  const params = { project_id: projectId.value };
+
+  // Execute workflow steps sequentially
+  await api.load(params);
+  await api.prep(params);
+  await api.dedupe(params);
+  await api.prescreen(params);
+  await api.screen(params);
+  await api.data(params);
+
+  await refreshStatus();
+  message.value = 'Workflow completed';
+}
+</script>
+
+<template>
+  <div class="project-manager">
+    <div v-if="!isRunning" class="status-banner warning">
+      Backend not running
+    </div>
+
+    <div v-if="error" class="status-banner error">
+      {{ error }}
+    </div>
+
+    <div class="controls">
+      <input
+        v-model="projectId"
+        placeholder="Project ID"
+        :disabled="isLoading"
+      />
+      <button @click="createProject" :disabled="!isRunning || isLoading">
+        Create Project
+      </button>
+      <button @click="runWorkflow" :disabled="!isRunning || isLoading || !projectId">
+        Run Workflow
+      </button>
+    </div>
+
+    <div v-if="isLoading" class="loading">Processing...</div>
+
+    <div v-if="message" class="message">{{ message }}</div>
+
+    <pre v-if="status" class="status">{{ JSON.stringify(status, null, 2) }}</pre>
+  </div>
+</template>
+```
+
+## Error Codes
+
+| Code | Type | Description |
+|------|------|-------------|
+| -32700 | Parse error | Invalid JSON |
+| -32600 | Invalid Request | Missing required fields |
+| -32601 | Method not found | Unknown method |
+| -32602 | Invalid params | Parameter validation failed |
+| -32603 | Internal error | Server error |
+| -32000 | Repository setup | CoLRev repo not found/invalid |
+| -32001 | Operation error | CoLRev operation failed |
+| -32002 | Service unavailable | External service down |
+| -32003 | Missing dependency | Required package missing |
+| -32004 | Parameter error | Invalid parameter value |
+
+## Project Structure
+
+```
+./projects/{project_id}/
+├── .git/                    # Auto-initialized
+├── .pre-commit-config.yaml  # Quality hooks
+├── settings.json            # CoLRev config
+├── readme.md
+└── data/
+    ├── records.bib          # Bibliography
+    ├── search/              # Search results
+    └── pdfs/                # PDF storage
+```
+
+## Files
+
+```
+colrev/
+├── main.py                  # PyInstaller entry point
+├── test_jsonrpc_client.py   # Python test client
+├── build_jsonrpc.sh         # Build script
+├── colrev_jsonrpc.spec      # PyInstaller spec
+└── colrev/ui_jsonrpc/
+    ├── server.py            # Stdio server loop
+    ├── handler.py           # Request routing
+    ├── handlers/            # Operation handlers
+    ├── validation.py        # Parameter validation
+    ├── error_handler.py     # Exception mapping
+    └── response_formatter.py
+```
