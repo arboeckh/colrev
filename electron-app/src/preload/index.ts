@@ -1,0 +1,58 @@
+import { contextBridge, ipcRenderer } from 'electron';
+
+/**
+ * Expose CoLRev API to the renderer process via context bridge.
+ * This maintains security by not exposing full Node.js APIs.
+ */
+contextBridge.exposeInMainWorld('colrev', {
+  /**
+   * Start the CoLRev backend subprocess.
+   */
+  start: () => ipcRenderer.invoke('colrev:start'),
+
+  /**
+   * Make a JSON-RPC call to the backend.
+   */
+  call: (method: string, params: Record<string, unknown>) =>
+    ipcRenderer.invoke('colrev:call', method, params),
+
+  /**
+   * Stop the CoLRev backend.
+   */
+  stop: () => ipcRenderer.invoke('colrev:stop'),
+
+  /**
+   * Subscribe to backend logs.
+   */
+  onLog: (callback: (msg: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, msg: string) => callback(msg);
+    ipcRenderer.on('colrev:log', handler);
+    // Return unsubscribe function
+    return () => ipcRenderer.removeListener('colrev:log', handler);
+  },
+
+  /**
+   * Subscribe to backend errors.
+   */
+  onError: (callback: (msg: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, msg: string) => callback(msg);
+    ipcRenderer.on('colrev:error', handler);
+    return () => ipcRenderer.removeListener('colrev:error', handler);
+  },
+
+  /**
+   * Subscribe to backend close events.
+   */
+  onClose: (callback: (code: number | null) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, code: number | null) => callback(code);
+    ipcRenderer.on('colrev:close', handler);
+    return () => ipcRenderer.removeListener('colrev:close', handler);
+  },
+});
+
+/**
+ * Expose app info API.
+ */
+contextBridge.exposeInMainWorld('appInfo', {
+  get: () => ipcRenderer.invoke('app:info'),
+});

@@ -2,17 +2,52 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Repository Structure
+
+This monorepo contains three main components:
+
+```
+colrev/
+├── colrev/              # Python library - Core CoLRev functionality
+├── colrev_jsonrpc/      # Python JSON-RPC server - Bridge between Electron and CoLRev
+├── electron-app/        # Electron + Vue.js desktop application
+├── scripts/             # Build and utility scripts
+├── tests/               # Python test suite
+└── docs/                # Sphinx documentation
+```
+
+### Component Overview
+
+| Component | Language | Purpose |
+|-----------|----------|---------|
+| `colrev/` | Python | Core library for literature review operations |
+| `colrev_jsonrpc/` | Python | JSON-RPC 2.0 server exposing CoLRev operations via stdio |
+| `electron-app/` | TypeScript/Vue | Desktop GUI that spawns and communicates with the JSON-RPC server |
+
 ## Project Overview
 
 CoLRev is an open-source environment for collaborative literature reviews. It integrates with different synthesis tools, manages data quality, and facilitates Git-based collaboration. The project supports all literature review steps: problem formulation, search, dedupe, prescreen/screen, PDF retrieval/preparation, and synthesis.
 
-**Technology Stack:**
+**Core Library Technology Stack (colrev/):**
 - Python 3.10-3.12 (no 3.13 support yet due to lingua-language-detector)
 - CLI-based tool using Click
 - Git-based workflow with pre-commit hooks
 - Extensible package architecture (100+ packages)
 - Uses `uv` for dependency management
 - Pydantic for settings validation
+
+**Electron App Technology Stack (electron-app/):**
+- Electron 40.x with electron-vite for build tooling
+- Vue.js 3.5 with TypeScript
+- Tailwind CSS v4 for styling
+- shadcn-vue for UI components (based on Reka UI primitives)
+- Uses `@` path alias for imports (maps to `src/renderer/`)
+
+**Documentation Lookup:**
+When working on the Electron frontend, use Context7 MCP to look up documentation for:
+- Tailwind CSS v4 (`/websites/v3_tailwindcss` or `/tailwindlabs/tailwindcss.com`)
+- shadcn-vue (`/llmstxt/shadcn-vue_llms-full_txt` or `/unovue/shadcn-vue`)
+- Vue.js, Electron, or other libraries as needed
 
 ## Development Setup
 
@@ -234,3 +269,107 @@ When creating new packages:
 - Record instantiation should be lightweight (avoid parsing on init)
 - Records must be pickle-able for multiprocessing
 - Use `review_manager.high_level_operation` flag for output formatting
+
+---
+
+## JSON-RPC Server (colrev_jsonrpc/)
+
+The JSON-RPC server provides a bridge between the Electron app and CoLRev Python library.
+
+**Key Files:**
+- `colrev_jsonrpc/server.py` - Main JSON-RPC server implementation
+- `colrev_jsonrpc/__main__.py` - Entry point for running as module
+
+**Protocol:**
+- Uses JSON-RPC 2.0 over stdio (stdin/stdout)
+- Electron spawns the server as a child process
+- Each request/response is a single JSON line
+
+**Building the Server:**
+```bash
+# Build standalone executable with PyInstaller
+./scripts/build_jsonrpc.sh
+```
+
+The built executable is placed in `dist/colrev-jsonrpc` and bundled with the Electron app.
+
+---
+
+## Electron App (electron-app/)
+
+Desktop GUI application that communicates with CoLRev via the JSON-RPC server.
+
+### Directory Structure
+
+```
+electron-app/
+├── src/
+│   ├── main/                    # Electron main process
+│   │   ├── index.ts             # Window creation, IPC handlers
+│   │   ├── colrev-backend.ts    # JSON-RPC subprocess manager
+│   │   └── git-env.ts           # Git environment (dugite)
+│   ├── preload/
+│   │   └── index.ts             # Context bridge (secure IPC)
+│   └── renderer/                # Vue.js frontend
+│       ├── App.vue              # Main application component
+│       ├── main.ts              # Vue app entry point
+│       ├── index.css            # Tailwind CSS + shadcn-vue theme
+│       ├── components/ui/       # shadcn-vue components
+│       └── lib/utils.ts         # Utility functions (cn helper)
+├── electron.vite.config.ts      # Vite configuration
+├── components.json              # shadcn-vue configuration
+└── package.json
+```
+
+### Development Commands
+
+```bash
+cd electron-app
+
+# Development with hot reload
+npm run dev
+
+# Production build
+npm run build
+
+# Package for distribution
+npm run package:mac    # macOS DMG
+npm run package:win    # Windows portable
+npm run package:linux  # Linux AppImage
+```
+
+### Adding shadcn-vue Components
+
+```bash
+cd electron-app
+npx shadcn-vue@latest add <component-name>
+```
+
+Available components: button, card, input, dialog, dropdown-menu, etc.
+See full list: https://www.shadcn-vue.com/docs/components
+
+### IPC Communication
+
+The Electron app uses a secure IPC pattern:
+
+1. **Main Process** (`src/main/`) - Spawns JSON-RPC server, handles system operations
+2. **Preload Script** (`src/preload/`) - Exposes safe API via `contextBridge`
+3. **Renderer** (`src/renderer/`) - Vue app accesses backend via `window.colrev`
+
+**Available API (in renderer):**
+```typescript
+window.colrev.start()              // Start JSON-RPC server
+window.colrev.stop()               // Stop server
+window.colrev.call(method, params) // Make RPC call
+window.colrev.onLog(callback)      // Subscribe to logs
+window.colrev.onError(callback)    // Subscribe to errors
+window.appInfo.get()               // Get app metadata
+```
+
+### Styling Guidelines
+
+- Use Tailwind CSS utility classes for styling
+- Use shadcn-vue components for UI elements (Button, Card, Input, etc.)
+- Theme colors are defined as CSS variables in `src/renderer/index.css`
+- Dark mode is enabled by default (`.dark` class on root element)
+- Use the `cn()` utility from `@/lib/utils` to merge class names

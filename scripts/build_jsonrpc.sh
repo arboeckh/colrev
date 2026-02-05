@@ -15,6 +15,10 @@ if ! command -v pyinstaller &> /dev/null; then
     exit 1
 fi
 
+# Navigate to repo root (scripts live in scripts/)
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
+
 # Clean previous builds
 echo ""
 echo "Cleaning previous builds..."
@@ -35,11 +39,23 @@ if [ -f "dist/colrev-jsonrpc" ] || [ -f "dist/colrev-jsonrpc.exe" ]; then
     echo "Executable location:"
     ls -lh dist/colrev-jsonrpc* 2>/dev/null || true
     echo ""
+
+    # Copy binary into electron-app/resources/ for packaging
+    echo "Copying executable to electron-app/resources/..."
+    mkdir -p electron-app/resources
+    if [ -f "dist/colrev-jsonrpc" ]; then
+        cp dist/colrev-jsonrpc electron-app/resources/colrev-jsonrpc
+    elif [ -f "dist/colrev-jsonrpc.exe" ]; then
+        cp dist/colrev-jsonrpc.exe electron-app/resources/colrev-jsonrpc.exe
+    fi
+    echo "  Copied to electron-app/resources/"
+    echo ""
+
     echo "To run the server:"
     echo "  ./dist/colrev-jsonrpc --host 127.0.0.1 --port 8765"
     echo ""
     echo "To test the server:"
-    echo "  python test_jsonrpc_client.py"
+    echo "  python scripts/test_jsonrpc_client.py"
     echo ""
 else
     echo "================================================"

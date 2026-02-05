@@ -1,0 +1,81 @@
+{
+  "name": "colrev-electron-poc",
+  "version": "0.1.0",
+  "description": "CoLRev Electron POC - JSON-RPC integration test",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "package": "electron-builder",
+    "package:mac": "electron-builder --mac",
+    "package:win": "electron-builder --win",
+    "package:linux": "electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.colrev.poc",
+    "productName": "CoLRev POC",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/dugite/git/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/colrev-jsonrpc",
+        "to": "colrev-jsonrpc"
+      }
+    ],
+    "mac": {
+      "target": "dmg",
+      "extraResources": [
+        {
+          "from": "node_modules/dugite/git",
+          "to": "git"
+        }
+      ]
+    },
+    "win": {
+      "target": "portable",
+      "extraResources": [
+        {
+          "from": "node_modules/dugite/git",
+          "to": "git"
+        }
+      ]
+    },
+    "linux": {
+      "target": "AppImage",
+      "extraResources": [
+        {
+          "from": "node_modules/dugite/git",
+          "to": "git"
+        }
+      ]
+    }
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.4",
+    "electron": "^40.1.0",
+    "electron-builder": "^26.7.0",
+    "electron-vite": "^5.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vue": "^3.5.27"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "@vueuse/core": "^14.2.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "dugite": "^3.0.0",
+    "lucide-vue-next": "^0.563.0",
+    "reka-ui": "^2.8.0",
+    "tailwind-merge": "^3.4.0",
+    "tailwindcss": "^4.1.18"
+  }
+}

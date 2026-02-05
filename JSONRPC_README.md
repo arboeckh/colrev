@@ -35,7 +35,7 @@ End-to-end proof of concept for running CoLRev as an in-process backend via JSON
 
 ```bash
 pip install pyinstaller
-./build_jsonrpc.sh
+./scripts/build_jsonrpc.sh
 # Output: dist/colrev-jsonrpc
 ```
 
@@ -53,7 +53,7 @@ colrev-jsonrpc
 
 ```bash
 # Comprehensive workflow test
-python test_jsonrpc_client.py
+python scripts/test_jsonrpc_client.py
 
 # Quick ping test
 echo '{"jsonrpc":"2.0","method":"ping","params":{},"id":1}' | python main.py
@@ -567,9 +567,10 @@ async function runWorkflow() {
 ```
 colrev/
 ├── main.py                  # PyInstaller entry point
-├── test_jsonrpc_client.py   # Python test client
-├── build_jsonrpc.sh         # Build script
 ├── colrev_jsonrpc.spec      # PyInstaller spec
+├── scripts/
+│   ├── build_jsonrpc.sh     # Build script
+│   └── test_jsonrpc_client.py # Python test client
 └── colrev/ui_jsonrpc/
     ├── server.py            # Stdio server loop
     ├── handler.py           # Request routing

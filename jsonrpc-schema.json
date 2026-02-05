@@ -1,0 +1,232 @@
+{
+  "$schema": "https://open-rpc.org/meta-schema.json",
+  "openrpc": "1.0.0",
+  "info": {
+    "title": "CoLRev JSON-RPC API",
+    "description": "JSON-RPC 2.0 interface for CoLRev literature review operations over stdio.",
+    "version": "0.1.0"
+  },
+  "methods": [
+    {
+      "name": "ping",
+      "description": "Health check. Returns immediately, no project required.",
+      "params": [],
+      "result": {
+        "name": "PingResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "status": { "type": "string", "enum": ["pong"] }
+          },
+          "required": ["status"]
+        }
+      }
+    },
+    {
+      "name": "init_project",
+      "description": "Create a new CoLRev literature review project. No existing project required.",
+      "params": [
+        { "name": "project_id", "required": true, "schema": { "type": "string", "description": "Alphanumeric project identifier (sanitized for path safety)" } },
+        { "name": "review_type", "required": false, "schema": { "type": "string", "default": "colrev.literature_review", "description": "Review type package identifier" } },
+        { "name": "example", "required": false, "schema": { "type": "boolean", "default": false, "description": "Include 30 example records" } },
+        { "name": "force_mode", "required": false, "schema": { "type": "boolean", "default": true, "description": "Force initialization even if directory exists" } },
+        { "name": "light", "required": false, "schema": { "type": "boolean", "default": true, "description": "Light mode without Docker dependencies" } },
+        { "name": "base_path", "required": false, "schema": { "type": "string", "default": "./projects", "description": "Base directory for project creation" } }
+      ],
+      "result": {
+        "name": "InitProjectResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": { "type": "boolean" },
+            "project_id": { "type": "string" },
+            "path": { "type": "string", "description": "Absolute path to created project" },
+            "review_type": { "type": "string" },
+            "message": { "type": "string" }
+          },
+          "required": ["success", "project_id", "path", "review_type", "message"]
+        }
+      }
+    },
+    {
+      "name": "get_status",
+      "description": "Get project status and record counts. Aliases: status.",
+      "params": [
+        { "name": "project_id", "required": true, "schema": { "type": "string" } },
+        { "name": "base_path", "required": false, "schema": { "type": "string", "default": "./projects" } },
+        { "name": "force", "required": false, "schema": { "type": "boolean", "default": true } },
+        { "name": "verbose", "required": false, "schema": { "type": "boolean", "default": false } }
+      ],
+      "result": {
+        "name": "StatusResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": { "type": "boolean" },
+            "project_id": { "type": "string" },
+            "path": { "type": "string" },
+            "status": { "type": "object" }
+          },
+          "required": ["success", "project_id", "path", "status"]
+        }
+      }
+    },
+    {
+      "name": "validate",
+      "description": "Validate project data quality.",
+      "params": [
+        { "name": "project_id", "required": true, "schema": { "type": "string" } },
+        { "name": "base_path", "required": false, "schema": { "type": "string", "default": "./projects" } },
+        { "name": "scope", "required": false, "schema": { "type": "string", "default": "HEAD" } },
+        { "name": "filter_setting", "required": false, "schema": { "type": "string", "default": "general" } }
+      ],
+      "result": {
+        "name": "OperationResult",
+        "schema": { "$ref": "#/components/schemas/OperationResult" }
+      }
+    },
+    {
+      "name": "search",
+      "description": "Execute search operation to retrieve records from configured sources.",
+      "params": [
+        { "name": "project_id", "required": true, "schema": { "type": "string" } },
+        { "name": "base_path", "required": false, "schema": { "type": "string", "default": "./projects" } },
+        { "name": "source", "required": false, "schema": { "type": "string", "default": "all" } },
+        { "name": "rerun", "required": false, "schema": { "type": "boolean", "default": false, "description": "Rerun API-based searches" } },
+        { "name": "skip_commit", "required": false, "schema": { "type": "boolean", "default": false } }
+      ],
+      "result": {
+        "name": "OperationResult",
+        "schema": { "$ref": "#/components/schemas/OperationResult" }
+      }
+    },
+    {
+      "name": "load",
+      "description": "Import search results into the main dataset.",
+      "params": [
+        { "name": "project_id", "required": true, "schema": { "type": "string" } },
+        { "name": "base_path", "required": false, "schema": { "type": "string", "default": "./projects" } },
+        { "name": "keep_ids", "required": false, "schema": { "type": "boolean", "default": false, "description": "Keep original record IDs" } }
+      ],
+      "result": {
+        "name": "OperationResult",
+        "schema": { "$ref": "#/components/schemas/OperationResult" }
+      }
+    },
+    {
+      "name": "prep",
+      "description": "Prepare and clean record metadata.",
+      "params": [
+        { "name": "project_id", "required": true, "schema": { "type": "string" } },
+        { "name": "base_path", "required": false, "schema": { "type": "string", "default": "./projects" } },
+        { "name": "skip_commit", "required": false, "schema": { "type": "boolean", "default": false } }
+      ],
+      "result": {
+        "name": "OperationResult",
+        "schema": { "$ref": "#/components/schemas/OperationResult" }
+      }
+    },
+    {
+      "name": "dedupe",
+      "description": "Deduplicate records in the dataset.",
+      "params": [
+        { "name": "project_id", "required": true, "schema": { "type": "string" } },
+        { "name": "base_path", "required": false, "schema": { "type": "string", "default": "./projects" } }
+      ],
+      "result": {
+        "name": "OperationResult",
+        "schema": { "$ref": "#/components/schemas/OperationResult" }
+      }
+    },
+    {
+      "name": "prescreen",
+      "description": "Initial screening of records based on title/abstract.",
+      "params": [
+        { "name": "project_id", "required": true, "schema": { "type": "string" } },
+        { "name": "base_path", "required": false, "schema": { "type": "string", "default": "./projects" } },
+        { "name": "split_str", "required": false, "schema": { "type": "string", "default": "NA", "description": "Split string for parallel prescreening" } }
+      ],
+      "result": {
+        "name": "OperationResult",
+        "schema": { "$ref": "#/components/schemas/OperationResult" }
+      }
+    },
+    {
+      "name": "pdf_get",
+      "description": "Retrieve PDFs for included records.",
+      "params": [
+        { "name": "project_id", "required": true, "schema": { "type": "string" } },
+        { "name": "base_path", "required": false, "schema": { "type": "string", "default": "./projects" } }
+      ],
+      "result": {
+        "name": "OperationResult",
+        "schema": { "$ref": "#/components/schemas/OperationResult" }
+      }
+    },
+    {
+      "name": "pdf_prep",
+      "description": "Prepare and validate retrieved PDFs.",
+      "params": [
+        { "name": "project_id", "required": true, "schema": { "type": "string" } },
+        { "name": "base_path", "required": false, "schema": { "type": "string", "default": "./projects" } },
+        { "name": "reprocess", "required": false, "schema": { "type": "boolean", "default": false } },
+        { "name": "batch_size", "required": false, "schema": { "type": "integer", "default": 0 } }
+      ],
+      "result": {
+        "name": "OperationResult",
+        "schema": { "$ref": "#/components/schemas/OperationResult" }
+      }
+    },
+    {
+      "name": "screen",
+      "description": "Full-text screening of records.",
+      "params": [
+        { "name": "project_id", "required": true, "schema": { "type": "string" } },
+        { "name": "base_path", "required": false, "schema": { "type": "string", "default": "./projects" } }
+      ],
+      "result": {
+        "name": "OperationResult",
+        "schema": { "$ref": "#/components/schemas/OperationResult" }
+      }
+    },
+    {
+      "name": "data",
+      "description": "Data extraction and synthesis.",
+      "params": [
+        { "name": "project_id", "required": true, "schema": { "type": "string" } },
+        { "name": "base_path", "required": false, "schema": { "type": "string", "default": "./projects" } }
+      ],
+      "result": {
+        "name": "OperationResult",
+        "schema": { "$ref": "#/components/schemas/OperationResult" }
+      }
+    }
+  ],
+  "components": {
+    "schemas": {
+      "OperationResult": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "operation": { "type": "string" },
+          "project_id": { "type": "string" },
+          "message": { "type": "string" },
+          "details": { "type": "object" }
+        },
+        "required": ["success", "project_id", "message"]
+      }
+    },
+    "errors": {
+      "ParseError": { "code": -32700, "message": "Parse error" },
+      "InvalidRequest": { "code": -32600, "message": "Invalid Request" },
+      "MethodNotFound": { "code": -32601, "message": "Method not found" },
+      "InvalidParams": { "code": -32602, "message": "Invalid params" },
+      "InternalError": { "code": -32603, "message": "Internal error" },
+      "RepoSetupError": { "code": -32000, "message": "CoLRev repository setup error" },
+      "OperationError": { "code": -32001, "message": "CoLRev operation error" },
+      "ServiceNotAvailable": { "code": -32002, "message": "External service unavailable" },
+      "MissingDependency": { "code": -32003, "message": "Required dependency missing" },
+      "ParameterError": { "code": -32004, "message": "Invalid parameter value" }
+    }
+  }
+}

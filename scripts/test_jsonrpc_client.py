@@ -35,7 +35,7 @@ class CoLRevJSONRPCClient:
             if use_executable:
                 # Run via PyInstaller executable
                 if executable_path is None:
-                    executable_path = str(Path(__file__).parent / "dist" / "colrev-jsonrpc")
+                    executable_path = str(Path(__file__).parent.parent / "dist" / "colrev-jsonrpc")
 
                 print(f"Starting JSON-RPC server via executable: {executable_path}")
                 self.process = subprocess.Popen(
@@ -56,7 +56,7 @@ class CoLRevJSONRPCClient:
                     stderr=subprocess.PIPE,
                     text=True,
                     bufsize=1,  # Line buffered
-                    cwd=Path(__file__).parent,
+                    cwd=Path(__file__).parent.parent,
                 )
         except Exception as e:
             raise Exception(f"Failed to start JSON-RPC server process: {e}")
@@ -515,8 +515,8 @@ def main():
             print("All operations tested successfully!")
             print(f"Test project created at: ./projects/{project_id}")
             print("\nUsage:")
-            print("  python test_jsonrpc_client.py              # Run via Python (fast)")
-            print("  python test_jsonrpc_client.py --executable # Run via executable")
+            print("  python scripts/test_jsonrpc_client.py              # Run via Python (fast)")
+            print("  python scripts/test_jsonrpc_client.py --executable # Run via executable")
 
     except Exception as e:
         print(f"\n✗ Fatal error: {e}")
