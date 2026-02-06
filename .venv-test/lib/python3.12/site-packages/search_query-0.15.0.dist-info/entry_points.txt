@@ -1,0 +1,2 @@
+[console_scripts]
+search-query = search_query.cli:main

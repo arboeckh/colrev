@@ -11,14 +11,17 @@ from colrev.ui_jsonrpc import error_handler, validation
 from colrev.ui_jsonrpc.handlers import (
     DataHandler,
     DedupeHandler,
+    GitHandler,
     InitHandler,
     LoadHandler,
     PDFGetHandler,
     PDFPrepHandler,
     PrepHandler,
     PrescreenHandler,
+    RecordsHandler,
     ScreenHandler,
     SearchHandler,
+    SettingsHandler,
     StatusHandler,
 )
 
@@ -98,46 +101,85 @@ class JSONRPCHandler:
             return InitHandler.init_project(params)
 
         # Methods that require an existing project
+
+        # Status operations
         elif method in ["get_status", "status", "validate", "get_operation_info"]:
             return self._handle_with_review_manager(
                 method, params, StatusHandler
             )
-        elif method in ["search"]:
+
+        # Settings operations
+        elif method in ["get_settings", "update_settings"]:
+            return self._handle_with_review_manager(
+                method, params, SettingsHandler
+            )
+
+        # Records operations
+        elif method in ["get_records", "get_record", "update_record"]:
+            return self._handle_with_review_manager(
+                method, params, RecordsHandler
+            )
+
+        # Git operations
+        elif method in ["get_git_status"]:
+            return self._handle_with_review_manager(
+                method, params, GitHandler
+            )
+
+        # Search operations
+        elif method in ["search", "get_sources", "add_source", "upload_search_file"]:
             return self._handle_with_review_manager(
                 method, params, SearchHandler
             )
+
+        # Load operations
         elif method in ["load"]:
             return self._handle_with_review_manager(
                 method, params, LoadHandler
             )
+
+        # Prep operations
         elif method in ["prep"]:
             return self._handle_with_review_manager(
                 method, params, PrepHandler
             )
+
+        # Dedupe operations
         elif method in ["dedupe"]:
             return self._handle_with_review_manager(
                 method, params, DedupeHandler
             )
-        elif method in ["prescreen"]:
+
+        # Prescreen operations
+        elif method in ["prescreen", "get_prescreen_queue", "prescreen_record"]:
             return self._handle_with_review_manager(
                 method, params, PrescreenHandler
             )
+
+        # PDF get operations
         elif method in ["pdf_get"]:
             return self._handle_with_review_manager(
                 method, params, PDFGetHandler
             )
+
+        # PDF prep operations
         elif method in ["pdf_prep"]:
             return self._handle_with_review_manager(
                 method, params, PDFPrepHandler
             )
-        elif method in ["screen"]:
+
+        # Screen operations
+        elif method in ["screen", "get_screen_queue", "screen_record"]:
             return self._handle_with_review_manager(
                 method, params, ScreenHandler
             )
+
+        # Data operations
         elif method in ["data"]:
             return self._handle_with_review_manager(
                 method, params, DataHandler
             )
+
         else:
             raise ValueError(f"Method '{method}' not found")
 

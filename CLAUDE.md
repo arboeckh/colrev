@@ -66,6 +66,35 @@ uv pip install --editable ".[dev]"
 
 ### Testing
 
+**Recommended: Use the Conda Environment**
+
+For persistent development and testing, use the existing conda environment:
+
+```bash
+# Activate the colrev environment
+conda activate colrev
+
+# If needed, install/update with dev dependencies
+pip install -e ".[dev]"
+
+# Now you can run tests anytime with:
+conda activate colrev
+pytest
+```
+
+The conda environment persists across sessions, so you only need to run `conda activate colrev` before testing.
+
+**Alternative: Using uv/venv**
+
+If you prefer not to use conda:
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+```
+
+**Running Tests:**
+
 Run all tests:
 ```bash
 pytest
@@ -79,6 +108,11 @@ pytest tests/0_core/record_test.py
 Run a specific test method:
 ```bash
 pytest tests/0_core/record_test.py -k "test_update_metadata_status"
+```
+
+Run JSON-RPC handler tests:
+```bash
+pytest tests/4_jsonrpc/
 ```
 
 Generate coverage report:

@@ -74,8 +74,11 @@
     "clsx": "^2.1.1",
     "dugite": "^3.0.0",
     "lucide-vue-next": "^0.563.0",
+    "pinia": "^3.0.4",
     "reka-ui": "^2.8.0",
     "tailwind-merge": "^3.4.0",
-    "tailwindcss": "^4.1.18"
+    "tailwindcss": "^4.1.18",
+    "vue-router": "^4.6.4",
+    "vue-sonner": "^2.0.9"
   }
 }

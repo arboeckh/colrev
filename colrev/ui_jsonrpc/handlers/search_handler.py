@@ -1,7 +1,18 @@
-"""Handler for search operations."""
+"""Handler for search operations.
 
+JSON-RPC Endpoints:
+    - search: Execute search operation
+    - get_sources: List all configured search sources
+    - add_source: Add a new search source
+    - upload_search_file: Upload a search results file
+
+See docs/source/api/jsonrpc/search.rst for full endpoint documentation.
+"""
+
+import base64
 import logging
-from typing import Any, Dict
+from pathlib import Path
+from typing import Any, Dict, List
 
 import colrev.review_manager
 from colrev.ui_jsonrpc import response_formatter, validation
@@ -10,11 +21,17 @@ logger = logging.getLogger(__name__)
 
 
 class SearchHandler:
-    """Handle search-related JSON-RPC methods."""
+    """Handle search-related JSON-RPC methods.
+
+    This handler provides endpoints for managing search sources and
+    executing search operations.
+
+    Attributes:
+        review_manager: ReviewManager instance for the current project
+    """
 
     def __init__(self, review_manager: colrev.review_manager.ReviewManager):
-        """
-        Initialize search handler.
+        """Initialize search handler.
 
         Args:
             review_manager: ReviewManager instance for the project
@@ -25,17 +42,19 @@ class SearchHandler:
         """
         Execute search operation to retrieve records from sources.
 
-        Expected params:
-            project_id (str): Project identifier
-            source (str, optional): Source selection string (default: "all")
-            rerun (bool, optional): Rerun API-based searches (default: False)
-            skip_commit (bool, optional): Skip git commit (default: False)
-
         Args:
-            params: Method parameters
+            params: Method parameters containing:
+                - project_id (str): Project identifier (required)
+                - source (str, optional): Source selection string (default: "all")
+                - rerun (bool, optional): Rerun API-based searches (default: False)
+                - skip_commit (bool, optional): Skip git commit (default: False)
 
         Returns:
-            Search operation results
+            Dict containing:
+                - success (bool): Always True on success
+                - operation (str): "search"
+                - project_id (str): Project identifier
+                - details (dict): Search results
         """
         project_id = params["project_id"]
         source = validation.get_optional_param(params, "source", "all")
@@ -64,3 +83,236 @@ class SearchHandler:
                 "message": "Search completed",
             },
         )
+
+    def get_sources(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        List all configured search sources.
+
+        Returns the list of search sources configured in the project settings.
+
+        Args:
+            params: Method parameters containing:
+                - project_id (str): Project identifier (required)
+
+        Returns:
+            Dict containing:
+                - success (bool): Always True on success
+                - sources (list): List of SearchSource objects with:
+                    - platform (str): Platform/source identifier
+                    - search_results_path (str): Path to search results file
+                    - search_type (str): Type of search (DB, API, etc.)
+                    - search_parameters (dict): Source-specific parameters
+        """
+        project_id = params["project_id"]
+        logger.info(f"Getting sources for project {project_id}")
+
+        sources = self.review_manager.settings.sources
+        sources_list = []
+
+        for source in sources:
+            # Use model_dump() for proper serialization
+            source_dict = source.model_dump()
+            sources_list.append(source_dict)
+
+        return {
+            "success": True,
+            "project_id": project_id,
+            "sources": sources_list,
+        }
+
+    def add_source(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Add a new search source.
+
+        Adds a search source to the project configuration. The source can be
+        an API-based source (like Crossref) or a file-based source.
+
+        Args:
+            params: Method parameters containing:
+                - project_id (str): Project identifier (required)
+                - endpoint (str): Package endpoint/platform (required)
+                    e.g., "colrev.crossref", "colrev.files_dir"
+                - search_type (str): Type of search (required)
+                    One of: "DB", "API", "BACKWARD", "FORWARD", "TOC", "OTHER", "FILES", "MD"
+                - search_string (str, optional): Search query string (default: "")
+                - filename (str, optional): Target filename (auto-generated if not provided)
+                - skip_commit (bool, optional): Skip git commit (default: False)
+
+        Returns:
+            Dict containing:
+                - success (bool): Always True on success
+                - source (dict): Added source details
+                - message (str): Success message
+
+        Raises:
+            ValueError: If endpoint or search_type is missing/invalid
+        """
+        project_id = params["project_id"]
+        endpoint = params.get("endpoint")
+        search_type = params.get("search_type")
+        search_string = validation.get_optional_param(params, "search_string", "")
+        filename = validation.get_optional_param(params, "filename", None)
+        skip_commit = validation.get_optional_param(params, "skip_commit", False)
+
+        if not endpoint:
+            raise ValueError("endpoint parameter is required")
+
+        if not search_type:
+            raise ValueError("search_type parameter is required")
+
+        logger.info(f"Adding source {endpoint} to project {project_id}")
+
+        # Import SearchType enum
+        from colrev.constants import SearchType
+        from colrev.search_file import ExtendedSearchFile
+
+        # Convert search_type string to enum
+        try:
+            search_type_enum = SearchType[search_type]
+        except KeyError:
+            valid_types = ", ".join([t.name for t in SearchType])
+            raise ValueError(
+                f"Invalid search_type '{search_type}'. Valid types: {valid_types}"
+            )
+
+        # Generate filename if not provided
+        if not filename:
+            # Create a filename based on endpoint
+            endpoint_name = endpoint.split(".")[-1]
+            filename = f"data/search/{endpoint_name}.bib"
+
+        # Create the ExtendedSearchFile
+        new_source = ExtendedSearchFile(
+            search_string=search_string,
+            platform=endpoint,
+            search_results_path=Path(filename),
+            search_type=search_type_enum,
+            version="1.0",
+        )
+
+        # Add to settings
+        self.review_manager.settings.sources.append(new_source)
+        self.review_manager.save_settings()
+
+        # Create commit if not skipped
+        if not skip_commit:
+            self.review_manager.dataset.create_commit(
+                msg=f"Add search source: {endpoint}",
+            )
+
+        return response_formatter.format_operation_response(
+            operation_name="add_source",
+            project_id=project_id,
+            details={
+                "source": new_source.model_dump(),
+                "message": f"Added search source: {endpoint}",
+            },
+        )
+
+    def upload_search_file(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Upload a search results file to the project.
+
+        Uploads a search results file (RIS, BibTeX, etc.) to the data/search/
+        directory of the project.
+
+        Args:
+            params: Method parameters containing:
+                - project_id (str): Project identifier (required)
+                - filename (str): Target filename in data/search/ (required)
+                - content (str): File content (required)
+                - encoding (str, optional): Content encoding - "utf-8" (default) or "base64"
+
+        Returns:
+            Dict containing:
+                - success (bool): Always True on success
+                - path (str): Path where file was saved
+                - detected_format (str): Detected file format
+                - message (str): Success message
+
+        Raises:
+            ValueError: If filename or content is missing
+        """
+        project_id = params["project_id"]
+        filename = params.get("filename")
+        content = params.get("content")
+        encoding = validation.get_optional_param(params, "encoding", "utf-8")
+
+        if not filename:
+            raise ValueError("filename parameter is required")
+
+        if not content:
+            raise ValueError("content parameter is required")
+
+        logger.info(f"Uploading search file {filename} to project {project_id}")
+
+        # Sanitize filename to prevent path traversal
+        safe_filename = Path(filename).name
+        if not safe_filename:
+            raise ValueError("Invalid filename")
+
+        # Create the target path
+        search_dir = self.review_manager.path / "data" / "search"
+        search_dir.mkdir(parents=True, exist_ok=True)
+        target_path = search_dir / safe_filename
+
+        # Decode content if base64 encoded
+        if encoding == "base64":
+            try:
+                file_content = base64.b64decode(content)
+            except Exception as e:
+                raise ValueError(f"Invalid base64 content: {e}")
+            write_mode = "wb"
+        else:
+            file_content = content
+            write_mode = "w"
+
+        # Write the file
+        with open(target_path, write_mode) as f:
+            f.write(file_content)
+
+        # Detect file format
+        detected_format = self._detect_file_format(target_path)
+
+        return response_formatter.format_operation_response(
+            operation_name="upload_search_file",
+            project_id=project_id,
+            details={
+                "path": str(target_path.relative_to(self.review_manager.path)),
+                "detected_format": detected_format,
+                "message": f"Uploaded search file: {safe_filename}",
+            },
+        )
+
+    def _detect_file_format(self, file_path: Path) -> str:
+        """Detect the format of a search file."""
+        suffix = file_path.suffix.lower()
+
+        format_map = {
+            ".bib": "bibtex",
+            ".ris": "ris",
+            ".nbib": "nbib",
+            ".enl": "endnote",
+            ".csv": "csv",
+            ".xlsx": "excel",
+            ".txt": "text",
+        }
+
+        if suffix in format_map:
+            return format_map[suffix]
+
+        # Try to detect from content
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                first_lines = f.read(1000)
+
+            if first_lines.startswith("@"):
+                return "bibtex"
+            elif "TY  -" in first_lines:
+                return "ris"
+            elif "PMID-" in first_lines:
+                return "nbib"
+        except Exception:
+            pass
+
+        return "unknown"
