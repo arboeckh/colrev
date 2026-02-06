@@ -11,6 +11,7 @@ const props = defineProps<{
   label?: string;
   disabled?: boolean;
   params?: Record<string, unknown>;
+  testId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -48,6 +49,7 @@ async function run() {
 <template>
   <Button
     :disabled="disabled || isRunning || !backend.isRunning"
+    :data-testid="testId || `run-${operation}-button`"
     @click="run"
   >
     <Loader2 v-if="isRunning" class="h-4 w-4 mr-2 animate-spin" />

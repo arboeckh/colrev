@@ -294,13 +294,19 @@ class PubmedAPI:
                     time.sleep(5.0)
                     continue
                 ret.raise_for_status()
-                data = ret.json()
+                # Use json.loads with strict=False to handle invalid control characters
+                # that PubMed API sometimes returns in responses
+                import json
+                data = json.loads(ret.text, strict=False)
                 es = data.get("esearchresult", {})
                 return {
                     "uids": es.get("idlist", []),
                     "totalResults": int(es.get("count", 0)),
                 }
             except requests.exceptions.RequestException as exc:  # pragma: no cover
+                raise PubmedAPIError from exc
+            except json.JSONDecodeError as exc:  # pragma: no cover
+                self.logger.error(f"Failed to parse PubMed response: {exc}")
                 raise PubmedAPIError from exc
 
     def get_query_return(self) -> typing.Iterator[colrev.record.record.Record]:

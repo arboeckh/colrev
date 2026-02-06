@@ -3,20 +3,22 @@
 This document tracks implemented frontend features, their test coverage, and planned functionality.
 
 **Legend:**
-- ✅ Implemented
+- ✅ Implemented & Tested
 - ⏳ Partially implemented / disabled
 - ❌ Not yet implemented
-- `-` No test coverage
+
+**Test File:** `complete-workflow.spec.ts` - Single comprehensive E2E test covering all features.
 
 ---
 
 ## Landing Page (Project Management)
 
-| Feature | Status | Test Coverage |
-|---------|--------|---------------|
-| List projects | ✅ | `project-workflow.spec.ts` |
-| Create new project | ✅ | `should create a new project` |
-| Backend status indicator | ✅ | `app-launch.spec.ts` |
+| Feature | Status | Test Section |
+|---------|--------|--------------|
+| App launch | ✅ | `LANDING PAGE: App Launch & Backend Status` |
+| Backend status indicator | ✅ | `LANDING PAGE: App Launch & Backend Status` |
+| List projects | ✅ | `LANDING PAGE: Project Creation` |
+| Create new project | ✅ | `LANDING PAGE: Project Creation` |
 | Refresh projects | ✅ | - |
 | Delete project | ❌ | - |
 
@@ -24,206 +26,212 @@ This document tracks implemented frontend features, their test coverage, and pla
 - `project-id-input` - New project name input
 - `submit-create-project` - Create project button
 - `cancel-create-project` - Cancel button
+- `project-card-{projectId}` - Project card (dynamic)
 
 ---
 
 ## Project Overview
 
-| Feature | Status | Test Coverage |
-|---------|--------|---------------|
-| Quick stats cards (Total, Included, PDF, Final) | ✅ | `should view a project` |
-| Workflow progress visualization | ✅ | `should view a project` |
+| Feature | Status | Test Section |
+|---------|--------|--------------|
+| Navigate to project | ✅ | `PROJECT OVERVIEW: Navigation & Display` |
+| Workflow progress visualization | ✅ | `PROJECT OVERVIEW: Navigation & Display` |
+| Record status breakdown | ✅ | `PROJECT OVERVIEW: Navigation & Display` |
+| Quick stats cards | ✅ | `PROJECT OVERVIEW: Navigation & Display` |
 | Next step suggestion with CTA | ✅ | - |
-| Navigate to workflow steps | ✅ | `should navigate to workflow steps` |
-| Record status breakdown | ✅ | - |
-
-**data-testid attributes:** None currently
 
 ---
 
 ## 1. Search
 
-| Feature | Status | Test Coverage |
-|---------|--------|---------------|
-| Display search sources | ✅ | - |
-| Show source details (endpoint, type, params) | ✅ | - |
-| Run search operation | ✅ | - |
-| Add search source | ⏳ Button disabled | - |
-| Upload search file | ⏳ Button disabled | - |
+| Feature | Status | Test Section |
+|---------|--------|--------------|
+| Display search sources | ✅ | `SEARCH PAGE: Navigation & Display` |
+| Add PubMed API source | ✅ | `SEARCH: Add PubMed API Source` |
+| Edit search source | ✅ | `SEARCH: Edit Source` |
+| Delete search source | ✅ | `SEARCH: Delete Source` |
+| Run search operation | ✅ | `SEARCH: Run Search Operation` |
+| File upload dialog | ✅ | `SEARCH: File Upload Dialog` |
 
-**data-testid attributes:** None currently
+**data-testid attributes:**
+- `add-source-button` - Add source dropdown trigger
+- `add-source-menu` - Dropdown menu
+- `add-api-source-option` - PubMed option
+- `add-file-source-option` - Database export option
+- `pubmed-query-input` - PubMed query input
+- `submit-add-pubmed` - Submit PubMed source
+- `source-card-pubmed` - PubMed source card
+- `edit-source-pubmed` - Edit button
+- `delete-source-pubmed` - Delete button
+- `edit-query-input` - Edit dialog query input
+- `confirm-edit-source` - Confirm edit
+- `confirm-delete-source` - Confirm delete
+- `run-search-button` - Run search
+- `source-name-input` - File source name
+- `file-input` - File upload input
+- `submit-add-source` - Submit file source
+- `cancel-add-source` - Cancel dialog
 
 ---
 
 ## 2. Load
 
-| Feature | Status | Test Coverage |
-|---------|--------|---------------|
-| Display operation status | ✅ | - |
+| Feature | Status | Test Section |
+|---------|--------|--------------|
+| Display operation status | ✅ | `LOAD PAGE: Run Load Operation` |
+| Run load operation | ✅ | `LOAD PAGE: Run Load Operation` |
 | Show affected records count | ✅ | - |
 | Show warning if can't run | ✅ | - |
-| Run load operation | ✅ | - |
 
-**data-testid attributes:** None currently
+**data-testid attributes:**
+- `run-load-button` - Run load operation
 
 ---
 
 ## 3. Prep
 
-| Feature | Status | Test Coverage |
-|---------|--------|---------------|
+| Feature | Status | Test Section |
+|---------|--------|--------------|
+| Page navigation | ✅ | `NAVIGATION: Workflow Steps` |
 | Display operation status | ✅ | - |
-| Show affected records count | ✅ | - |
 | Display prep rounds configuration | ✅ | - |
 | Run prep operation | ✅ | - |
 | Configure prep rounds | ❌ | - |
-
-**data-testid attributes:** None currently
 
 ---
 
 ## 4. Dedupe
 
-| Feature | Status | Test Coverage |
-|---------|--------|---------------|
+| Feature | Status | Test Section |
+|---------|--------|--------------|
+| Page navigation | ✅ | `NAVIGATION: Workflow Steps` |
 | Display operation status | ✅ | - |
-| Show affected records count | ✅ | - |
 | Display dedupe packages | ✅ | - |
 | Run dedupe operation | ✅ | - |
 | Manual duplicate resolution | ❌ | - |
-
-**data-testid attributes:** None currently
 
 ---
 
 ## 5. Prescreen
 
-| Feature | Status | Test Coverage |
-|---------|--------|---------------|
+| Feature | Status | Test Section |
+|---------|--------|--------------|
+| Page navigation | ✅ | `NAVIGATION: Workflow Steps` |
 | Load prescreen queue (paginated) | ✅ | - |
-| Display record details (title, author, abstract) | ✅ | - |
+| Display record details | ✅ | - |
 | Include/Exclude decision buttons | ✅ | - |
-| Queue navigation (Previous, Next, Skip) | ✅ | - |
-| Remaining count badge | ✅ | - |
-| Auto-reload queue when empty | ✅ | - |
+| Queue navigation | ✅ | - |
 | Bulk operations | ❌ | - |
-
-**data-testid attributes:** None currently
 
 ---
 
 ## 6. PDF Get
 
-| Feature | Status | Test Coverage |
-|---------|--------|---------------|
+| Feature | Status | Test Section |
+|---------|--------|--------------|
+| Page navigation | ✅ | `NAVIGATION: Workflow Steps` |
 | Display operation status | ✅ | - |
-| Show affected records count | ✅ | - |
 | Display PDF settings | ✅ | - |
-| Display PDF retrieval packages | ✅ | - |
 | Run pdf_get operation | ✅ | - |
 | Manual PDF upload | ❌ | - |
-
-**data-testid attributes:** None currently
 
 ---
 
 ## 7. PDF Prep
 
-| Feature | Status | Test Coverage |
-|---------|--------|---------------|
+| Feature | Status | Test Section |
+|---------|--------|--------------|
+| Page navigation | ✅ | `NAVIGATION: Workflow Steps` |
 | Display operation status | ✅ | - |
-| Show affected records count | ✅ | - |
 | Display prep packages | ✅ | - |
 | Run pdf_prep operation | ✅ | - |
 | Manual PDF validation | ❌ | - |
-
-**data-testid attributes:** None currently
 
 ---
 
 ## 8. Screen
 
-| Feature | Status | Test Coverage |
-|---------|--------|---------------|
+| Feature | Status | Test Section |
+|---------|--------|--------------|
+| Page navigation | ✅ | `NAVIGATION: Workflow Steps` |
 | Load screen queue (paginated) | ✅ | - |
 | Display record details | ✅ | - |
 | Display screening criteria panel | ✅ | - |
 | Include/Exclude decision buttons | ✅ | - |
-| Queue navigation | ✅ | - |
-| PDF indicator | ✅ | - |
-| Remaining count badge | ✅ | - |
-| Auto-reload queue when empty | ✅ | - |
 | Open PDF viewer | ❌ | - |
-| Add notes to decision | ❌ | - |
-
-**data-testid attributes:** None currently
 
 ---
 
 ## 9. Data
 
-| Feature | Status | Test Coverage |
-|---------|--------|---------------|
+| Feature | Status | Test Section |
+|---------|--------|--------------|
+| Page navigation | ✅ | `NAVIGATION: Workflow Steps` |
 | Display operation status | ✅ | - |
-| Show affected records count | ✅ | - |
 | Display data packages | ✅ | - |
 | Run data operation | ✅ | - |
 | Data extraction interface | ❌ | - |
 
-**data-testid attributes:** None currently
+---
+
+## Workflow Progress Indicators
+
+| Feature | Status | Test Section |
+|---------|--------|--------------|
+| Sidebar step indicators | ✅ | `WORKFLOW PROGRESS: Initial Step Statuses` |
+| Status updates after search | ✅ | `WORKFLOW PROGRESS: Status After Search` |
+| Status updates after load | ✅ | `LOAD PAGE: Run Load Operation` |
+
+**data-testid attributes:**
+- `sidebar-search` - Search step (with `data-step-status`)
+- `sidebar-load` - Load step (with `data-step-status`)
+- `sidebar-prep` - Prep step (with `data-step-status`)
+- `sidebar-dedupe` - Dedupe step
+- `sidebar-prescreen` - Prescreen step
+- `sidebar-pdf_get` - PDF Get step
+- `sidebar-pdf_prep` - PDF Prep step
+- `sidebar-screen` - Screen step
+- `sidebar-data` - Data step
 
 ---
 
 ## Settings
 
-| Feature | Status | Test Coverage |
-|---------|--------|---------------|
-| Display project info (title, keywords) | ✅ | - |
-| Display authors with contact info | ✅ | - |
+| Feature | Status | Test Section |
+|---------|--------|--------------|
+| Display project info | ✅ | - |
+| Display authors | ✅ | - |
 | Display Git repository info | ✅ | - |
-| Display search sources summary | ✅ | - |
-| Edit project settings | ⏳ Save disabled | - |
-
-**data-testid attributes:** None currently
+| Edit project settings | ⏳ | - |
 
 ---
 
-## E2E Test Inventory
+## E2E Test Structure
 
-### app-launch.spec.ts (3 tests)
-- `should launch the Electron app`
-- `should show landing page and backend status`
-- `should display backend logs`
+### complete-workflow.spec.ts
 
-### backend-rpc.spec.ts (4 tests)
-- `should capture RPC ping request and response`
-- `should list projects via RPC`
-- `should capture errors in debug logs`
-- `demonstrates capturing RPC for iterative debugging`
+Single comprehensive test covering the full workflow:
 
-### project-workflow.spec.ts (5 tests)
-- `should create a new project`
-- `should view a project after creation`
-- `should navigate to workflow steps`
-- `should show empty state when no projects`
-- `should display project cards with status`
+1. **LANDING PAGE: App Launch & Backend Status** - App launch, backend startup
+2. **LANDING PAGE: Project Creation** - Create new project
+3. **PROJECT OVERVIEW: Navigation & Display** - Navigate to project, verify overview
+4. **WORKFLOW PROGRESS: Initial Step Statuses** - Verify sidebar indicators
+5. **SEARCH PAGE: Navigation & Display** - Navigate to search, verify UI
+6. **SEARCH: Add PubMed API Source** - Add API source
+7. **SEARCH: Edit Source** - Edit source query
+8. **SEARCH: Delete Source** - Remove source
+9. **SEARCH: Run Search Operation** - Execute search
+10. **SEARCH: File Upload Dialog** - Test file upload UI
+11. **WORKFLOW PROGRESS: Status After Search** - Verify status updates
+12. **LOAD PAGE: Run Load Operation** - Run load, verify status
+13. **NAVIGATION: Workflow Steps** - Navigate all pages
 
 ---
-
-## Priority Test Coverage Gaps
-
-These features are implemented but lack test coverage:
-
-1. **Prescreen workflow** - Interactive screening with decisions
-2. **Screen workflow** - Full-text screening with criteria
-3. **Run operations** - Search, Load, Prep, Dedupe, etc.
-4. **Settings display** - Project configuration view
 
 ## Adding Tests
 
-When implementing new features or adding test coverage:
+When implementing new features:
 
 1. Add `data-testid` attributes to interactive elements
-2. Update this document with new features
-3. Create tests in `electron-app/e2e/specs/`
-4. Follow patterns in `project-workflow.spec.ts`
+2. Add a new section to `complete-workflow.spec.ts`
+3. Update this document with the feature and test section

@@ -127,7 +127,7 @@ export async function failFastOnBackendError(
 ): Promise<void> {
   const debugData = await getDebugData();
 
-  // Check for error logs
+  // Check for error logs in debug store
   const errorLogs = debugData.logs.filter((log) => log.type === 'error');
   if (errorLogs.length > 0) {
     const errorMessages = errorLogs
@@ -141,6 +141,19 @@ export async function failFastOnBackendError(
       `Backend error during: ${context}\n\n` +
         `=== ERRORS ===\n${errorMessages}\n\n` +
         `=== BACKEND LOGS ===\n${debugData.backendLogs.slice(-20).join('\n')}`
+    );
+  }
+
+  // Also check backend stderr logs for ERROR patterns (Python tracebacks)
+  const recentBackendLogs = debugData.backendLogs.slice(-30);
+  const backendErrorLogs = recentBackendLogs.filter(
+    (log) => log.includes('ERROR') || log.includes('Traceback') || log.includes('Exception')
+  );
+  if (backendErrorLogs.length > 0) {
+    throw new Error(
+      `Backend stderr error during: ${context}\n\n` +
+        `=== BACKEND ERROR LOGS ===\n${backendErrorLogs.join('\n')}\n\n` +
+        `=== FULL BACKEND LOGS ===\n${recentBackendLogs.join('\n')}`
     );
   }
 
