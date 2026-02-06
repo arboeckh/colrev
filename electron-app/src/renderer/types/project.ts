@@ -160,6 +160,9 @@ export interface SearchSource {
   search_type: 'API' | 'DB' | 'TOC' | 'BACKWARD_SEARCH' | 'FORWARD_SEARCH' | 'OTHER' | 'FILES' | 'MD';
   search_parameters: Record<string, unknown>;
   filename: string;
+  search_string?: string;
+  search_results_path?: string;
+  platform?: string;
 }
 
 export interface ScreenCriterion {

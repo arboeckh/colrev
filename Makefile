@@ -56,6 +56,12 @@ test-python: ## Run Python test suite
 test-jsonrpc: ## Run JSON-RPC integration test
 	python scripts/test_jsonrpc_client.py
 
+test-e2e: build-electron ## Run Playwright E2E tests (requires colrev env)
+	cd electron-app && npx playwright test
+
+test-e2e-headed: build-electron ## Run E2E tests with visible window
+	cd electron-app && npx playwright test --headed
+
 test: test-python test-jsonrpc ## Run all tests
 
 # ── Quality ──────────────────────────────────────────────────────────

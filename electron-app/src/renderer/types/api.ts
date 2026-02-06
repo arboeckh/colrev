@@ -180,6 +180,34 @@ export interface SearchResponse extends SuccessResponse {
   rerun: boolean;
 }
 
+// Remove Source
+export interface RemoveSourceParams {
+  project_id: string;
+  filename: string;
+  delete_file?: boolean;
+  skip_commit?: boolean;
+  base_path?: string;
+}
+
+export interface RemoveSourceResponse extends SuccessResponse {
+  message: string;
+}
+
+// Update Source
+export interface UpdateSourceParams {
+  project_id: string;
+  filename: string;
+  search_string?: string;
+  search_parameters?: Record<string, unknown>;
+  skip_commit?: boolean;
+  base_path?: string;
+}
+
+export interface UpdateSourceResponse extends SuccessResponse {
+  source: SearchSource;
+  message: string;
+}
+
 // Load
 export interface LoadParams {
   project_id: string;

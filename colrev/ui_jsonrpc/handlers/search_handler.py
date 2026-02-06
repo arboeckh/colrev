@@ -4,6 +4,8 @@ JSON-RPC Endpoints:
     - search: Execute search operation
     - get_sources: List all configured search sources
     - add_source: Add a new search source
+    - update_source: Update an existing search source configuration
+    - remove_source: Remove a search source
     - upload_search_file: Upload a search results file
 
 See docs/source/api/jsonrpc/search.rst for full endpoint documentation.
@@ -67,11 +69,20 @@ class SearchHandler:
         search_operation = self.review_manager.get_search_operation()
 
         # Execute search
-        search_operation.main(
-            selection_str=source,
-            rerun=rerun,
-            skip_commit=skip_commit,
-        )
+        # Note: When source is "all", don't pass selection_str to let main() use its default.
+        # The decorator _check_source_selection_exists validates the kwarg if passed,
+        # so "all" (not being a valid path) would fail validation.
+        if source == "all":
+            search_operation.main(
+                rerun=rerun,
+                skip_commit=skip_commit,
+            )
+        else:
+            search_operation.main(
+                selection_str=source,
+                rerun=rerun,
+                skip_commit=skip_commit,
+            )
 
         # Return success response
         return response_formatter.format_operation_response(
@@ -181,14 +192,38 @@ class SearchHandler:
             endpoint_name = endpoint.split(".")[-1]
             filename = f"data/search/{endpoint_name}.bib"
 
+        # Get the package's CURRENT_SYNTAX_VERSION if available
+        from colrev.constants import EndpointType
+        from colrev.package_manager.package_manager import PackageManager
+
+        package_manager = PackageManager()
+        version = "1.0"  # Default fallback
+        try:
+            search_source_class = package_manager.get_package_endpoint_class(
+                package_type=EndpointType.search_source,
+                package_identifier=endpoint,
+            )
+            if hasattr(search_source_class, 'CURRENT_SYNTAX_VERSION'):
+                version = search_source_class.CURRENT_SYNTAX_VERSION
+        except Exception:
+            pass  # Use default version if package lookup fails
+
         # Create the ExtendedSearchFile
         new_source = ExtendedSearchFile(
             search_string=search_string,
             platform=endpoint,
             search_results_path=Path(filename),
             search_type=search_type_enum,
-            version="1.0",
+            version=version,
         )
+
+        # For API-based sources like PubMed, set up search_parameters with the proper URL
+        if search_type_enum == SearchType.API and endpoint == "colrev.pubmed":
+            # Construct the PubMed eSearch URL from the search string
+            import urllib.parse
+            encoded_query = urllib.parse.quote(search_string)
+            pubmed_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={encoded_query}"
+            new_source.search_parameters = {"url": pubmed_url}
 
         # Add to settings
         self.review_manager.settings.sources.append(new_source)
@@ -196,7 +231,7 @@ class SearchHandler:
 
         # Create commit if not skipped
         if not skip_commit:
-            self.review_manager.dataset.create_commit(
+            self.review_manager.create_commit(
                 msg=f"Add search source: {endpoint}",
             )
 
@@ -281,6 +316,159 @@ class SearchHandler:
                 "path": str(target_path.relative_to(self.review_manager.path)),
                 "detected_format": detected_format,
                 "message": f"Uploaded search file: {safe_filename}",
+            },
+        )
+
+    def remove_source(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Remove a search source from the project.
+
+        Args:
+            params: Method parameters containing:
+                - project_id (str): Project identifier (required)
+                - filename (str): Source filename to remove (required)
+                - delete_file (bool, optional): Also delete the search file (default: False)
+                - skip_commit (bool, optional): Skip git commit (default: False)
+
+        Returns:
+            Dict containing:
+                - success (bool): Always True on success
+                - project_id (str): Project identifier
+                - message (str): Success message
+
+        Raises:
+            ValueError: If filename is missing or source not found
+        """
+        project_id = params["project_id"]
+        filename = params.get("filename")
+        delete_file = validation.get_optional_param(params, "delete_file", False)
+        skip_commit = validation.get_optional_param(params, "skip_commit", False)
+
+        if not filename:
+            raise ValueError("filename parameter is required")
+
+        logger.info(f"Removing source {filename} from project {project_id}")
+
+        # Find the source with matching filename
+        sources = self.review_manager.settings.sources
+        source_to_remove = None
+        source_index = None
+
+        for i, source in enumerate(sources):
+            # Match by filename (could be full path or just filename)
+            source_filename = str(source.search_results_path)
+            if source_filename == filename or source_filename.endswith(filename):
+                source_to_remove = source
+                source_index = i
+                break
+
+        if source_to_remove is None:
+            raise ValueError(f"Source with filename '{filename}' not found")
+
+        # Remove from settings list
+        self.review_manager.settings.sources.pop(source_index)
+
+        # Delete the search_history.json file (required to remove source permanently)
+        # Sources are loaded by scanning *_search_history.json files in data/search/
+        search_history_path = self.review_manager.path / source_to_remove.get_search_history_path()
+        if search_history_path.exists():
+            search_history_path.unlink()
+            logger.info(f"Deleted search history file: {search_history_path}")
+
+        # Save settings (this saves other sources but the removed one won't be re-saved)
+        self.review_manager.save_settings()
+
+        # Optionally delete the search results file (e.g., pubmed.bib)
+        if delete_file:
+            file_path = self.review_manager.path / source_to_remove.search_results_path
+            if file_path.exists():
+                file_path.unlink()
+                logger.info(f"Deleted search file: {file_path}")
+
+        # Create commit if not skipped
+        if not skip_commit:
+            self.review_manager.create_commit(
+                msg=f"Remove search source: {filename}",
+            )
+
+        return response_formatter.format_operation_response(
+            operation_name="remove_source",
+            project_id=project_id,
+            details={
+                "message": f"Removed search source: {filename}",
+            },
+        )
+
+    def update_source(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update an existing search source configuration.
+
+        Args:
+            params: Method parameters containing:
+                - project_id (str): Project identifier (required)
+                - filename (str): Source filename to update (required)
+                - search_string (str, optional): New search query string
+                - search_parameters (dict, optional): New search parameters
+                - skip_commit (bool, optional): Skip git commit (default: False)
+
+        Returns:
+            Dict containing:
+                - success (bool): Always True on success
+                - project_id (str): Project identifier
+                - source (dict): Updated source details
+                - message (str): Success message
+
+        Raises:
+            ValueError: If filename is missing or source not found
+        """
+        project_id = params["project_id"]
+        filename = params.get("filename")
+        search_string = params.get("search_string")
+        search_parameters = params.get("search_parameters")
+        skip_commit = validation.get_optional_param(params, "skip_commit", False)
+
+        if not filename:
+            raise ValueError("filename parameter is required")
+
+        logger.info(f"Updating source {filename} in project {project_id}")
+
+        # Find the source with matching filename
+        sources = self.review_manager.settings.sources
+        source_to_update = None
+
+        for source in sources:
+            source_filename = str(source.search_results_path)
+            if source_filename == filename or source_filename.endswith(filename):
+                source_to_update = source
+                break
+
+        if source_to_update is None:
+            raise ValueError(f"Source with filename '{filename}' not found")
+
+        # Update fields if provided
+        if search_string is not None:
+            source_to_update.search_string = search_string
+
+        if search_parameters is not None:
+            # Merge new parameters with existing ones
+            for key, value in search_parameters.items():
+                source_to_update.search_parameters[key] = value
+
+        # Save settings
+        self.review_manager.save_settings()
+
+        # Create commit if not skipped
+        if not skip_commit:
+            self.review_manager.create_commit(
+                msg=f"Update search source: {filename}",
+            )
+
+        return response_formatter.format_operation_response(
+            operation_name="update_source",
+            project_id=project_id,
+            details={
+                "source": source_to_update.model_dump(),
+                "message": f"Updated search source: {filename}",
             },
         )
 

@@ -69,6 +69,7 @@ const statusClass = computed(() => {
 <template>
   <RouterLink
     :to="routePath"
+    :data-testid="`sidebar-${step.id}`"
     class="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors"
     :class="[
       isActive

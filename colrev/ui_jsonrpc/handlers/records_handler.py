@@ -248,7 +248,7 @@ class RecordsHandler:
 
         # Create commit if not skipped
         if not skip_commit and updated_fields:
-            self.review_manager.dataset.create_commit(
+            self.review_manager.create_commit(
                 msg=f"Update record {record_id}: {', '.join(updated_fields[:3])}{'...' if len(updated_fields) > 3 else ''}",
             )
 

@@ -37,6 +37,7 @@ function openProject() {
   <Card
     class="cursor-pointer transition-all hover:border-primary/50 hover:shadow-md"
     :class="{ 'opacity-50': project.loading }"
+    :data-testid="`project-card-${project.id}`"
     @click="openProject"
   >
     <CardHeader class="pb-2">

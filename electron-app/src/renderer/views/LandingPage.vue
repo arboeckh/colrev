@@ -161,6 +161,7 @@ onMounted(async () => {
                     <Input
                       v-model="newProjectId"
                       placeholder="my-literature-review"
+                      data-testid="project-id-input"
                       :disabled="isCreatingProject"
                       @keyup.enter="createProject"
                     />
@@ -187,11 +188,16 @@ onMounted(async () => {
                   <Button
                     variant="outline"
                     :disabled="isCreatingProject"
+                    data-testid="cancel-create-project"
                     @click="showNewProjectDialog = false"
                   >
                     Cancel
                   </Button>
-                  <Button :disabled="isCreatingProject || !newProjectId.trim()" @click="createProject">
+                  <Button
+                    :disabled="isCreatingProject || !newProjectId.trim()"
+                    data-testid="submit-create-project"
+                    @click="createProject"
+                  >
                     <Loader2 v-if="isCreatingProject" class="h-4 w-4 mr-2 animate-spin" />
                     Create Project
                   </Button>

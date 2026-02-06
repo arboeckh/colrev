@@ -68,8 +68,25 @@ class SettingsHandler:
         settings = self.review_manager.settings
 
         # Convert to dictionary using Pydantic's model_dump()
-        # Use mode='json' to ensure all types (including Enums) are JSON serializable
-        settings_dict = settings.model_dump(mode='json')
+        # Note: Don't use mode='json' as it conflicts with custom ExtendedSearchFile serialization
+        # The custom model_dump override in Settings handles sources properly
+        settings_dict = settings.model_dump()
+
+        # Convert any remaining Enum values to their string representation for JSON serialization
+        import json
+        from enum import Enum
+
+        def convert_enums(obj):
+            """Recursively convert Enum values to strings."""
+            if isinstance(obj, dict):
+                return {k: convert_enums(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_enums(item) for item in obj]
+            elif isinstance(obj, Enum):
+                return obj.value
+            return obj
+
+        settings_dict = convert_enums(settings_dict)
 
         return {
             "success": True,
@@ -150,7 +167,7 @@ class SettingsHandler:
 
         # Create commit if not skipped
         if not skip_commit and updated_fields:
-            self.review_manager.dataset.create_commit(
+            self.review_manager.create_commit(
                 msg=f"Update settings: {', '.join(updated_fields[:3])}{'...' if len(updated_fields) > 3 else ''}",
             )
 

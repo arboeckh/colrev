@@ -10,7 +10,10 @@
     "package": "electron-builder",
     "package:mac": "electron-builder --mac",
     "package:win": "electron-builder --win",
-    "package:linux": "electron-builder --linux"
+    "package:linux": "electron-builder --linux",
+    "test:e2e": "npm run build && playwright test",
+    "test:e2e:headed": "npm run build && playwright test --headed",
+    "test:e2e:debug": "npm run build && playwright test --debug"
   },
   "build": {
     "appId": "com.colrev.poc",
@@ -59,6 +62,7 @@
     }
   },
   "devDependencies": {
+    "@playwright/test": "^1.50.0",
     "@vitejs/plugin-vue": "^6.0.4",
     "electron": "^40.1.0",
     "electron-builder": "^26.7.0",

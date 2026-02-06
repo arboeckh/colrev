@@ -13,6 +13,10 @@ const app = createApp(App);
 const pinia = createPinia();
 app.use(pinia);
 
+// Expose Pinia stores for E2E testing
+// @ts-expect-error Expose for test access
+window.__pinia__ = pinia;
+
 // Install Vue Router
 app.use(router);
 

@@ -227,7 +227,7 @@ class PrescreenHandler:
 
         # Create commit if not skipped
         if not skip_commit:
-            self.review_manager.dataset.create_commit(
+            self.review_manager.create_commit(
                 msg=f"Prescreen {decision}: {record_id}",
             )
 
