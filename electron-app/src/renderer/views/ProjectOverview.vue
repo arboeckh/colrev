@@ -36,13 +36,13 @@ const stepIcons: Record<WorkflowStep, typeof Search> = {
   data: Database,
 };
 
-// Record counts by category
+// Record counts by category - use 'currently' for current record states
 const recordStats = computed(() => {
-  const records = projects.currentStatus?.records;
+  const records = projects.currentStatus?.currently;
   if (!records) return null;
 
   return {
-    total: records.total,
+    total: projects.currentStatus?.total_records ?? 0,
     imported: records.md_imported + records.md_retrieved,
     prepared: records.md_prepared + records.md_processed,
     prescreened: records.rev_prescreen_included,
@@ -54,14 +54,41 @@ const recordStats = computed(() => {
   };
 });
 
+// Calculate step completion percentage based on record states
+// A step is "complete" when no records are pending for it
+function calculateStepProgress(stepId: WorkflowStep): number {
+  const records = projects.currentStatus?.currently;
+  if (!records) return 0;
+
+  const step = WORKFLOW_STEPS.find((s) => s.id === stepId);
+  if (!step) return 0;
+
+  // Get pending records for this step
+  const pending = step.inputStates.reduce((sum, state) => {
+    return sum + (records[state] ?? 0);
+  }, 0);
+
+  // Get processed records for this step
+  const processed = step.outputStates.reduce((sum, state) => {
+    return sum + (records[state] ?? 0);
+  }, 0);
+
+  // If no records have reached this step yet, 0%
+  if (pending === 0 && processed === 0) return 0;
+
+  // If all records processed (none pending), 100%
+  if (pending === 0 && processed > 0) return 100;
+
+  // Otherwise, percentage of processed vs total
+  const total = pending + processed;
+  return Math.round((processed / total) * 100);
+}
+
 // Current workflow progress
 const workflowProgress = computed(() => {
-  const completeness = projects.currentStatus?.overall?.completeness;
-  if (!completeness) return [];
-
   return WORKFLOW_STEPS.map((step) => ({
     ...step,
-    percentage: Math.round((completeness[step.id as keyof typeof completeness] || 0) * 100),
+    percentage: calculateStepProgress(step.id),
     canRun: projects.operationInfo[step.id]?.can_run ?? false,
     affectedRecords: projects.operationInfo[step.id]?.affected_records ?? 0,
   }));

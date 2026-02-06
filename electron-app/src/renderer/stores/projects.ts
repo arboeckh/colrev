@@ -56,7 +56,7 @@ export const useProjectsStore = defineStore('projects', () => {
   const currentStatus = computed(() => currentProject.value?.status ?? null);
 
   const nextOperation = computed(() => {
-    return currentStatus.value?.overall?.next_operation ?? null;
+    return currentStatus.value?.next_operation ?? null;
   });
 
   // Actions

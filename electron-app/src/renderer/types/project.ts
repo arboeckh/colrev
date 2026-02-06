@@ -42,6 +42,7 @@ export interface RecordCounts {
   rev_prescreen_included: number;
   pdf_needs_manual_retrieval: number;
   pdf_imported: number;
+  pdf_not_available: number;
   pdf_needs_manual_preparation: number;
   pdf_prepared: number;
   rev_excluded: number;
@@ -68,23 +69,40 @@ export interface GitStatus {
   } | null;
 }
 
+// Overall record counts (records that have ever been in each state)
+export interface OverallRecordCounts {
+  md_retrieved: number;
+  md_imported: number;
+  md_prepared: number;
+  md_processed: number;
+  rev_prescreen_excluded: number;
+  rev_prescreen_included: number;
+  pdf_not_available: number;
+  pdf_imported: number;
+  pdf_prepared: number;
+  rev_excluded: number;
+  rev_included: number;
+  rev_synthesized: number;
+}
+
 export interface ProjectStatus {
-  project_id: string;
-  path: string;
-  overall: {
-    completeness: {
-      prep: number;
-      dedupe: number;
-      prescreen: number;
-      pdf_get: number;
-      pdf_prep: number;
-      screen: number;
-      data: number;
-    };
-    currently: string;
-    next_operation: string | null;
-  };
-  records: RecordCounts;
+  project_id?: string;
+  path?: string;
+  // Overall counts - records that have ever been in each state
+  overall: OverallRecordCounts;
+  // Currently counts - records currently in each state (this is what we need for workflow progress)
+  currently: RecordCounts;
+  total_records: number;
+  next_operation: string | null;
+  completeness_condition: boolean;
+  atomic_steps: number;
+  completed_atomic_steps: number;
+  has_changes: boolean;
+  duplicates_removed: number;
+  nr_origins: number;
+  screening_statistics: Record<string, unknown>;
+  // Legacy field for backwards compatibility (maps to 'currently')
+  records?: RecordCounts;
 }
 
 export interface Project {
@@ -187,16 +205,85 @@ export interface WorkflowStepInfo {
   label: string;
   description: string;
   route: string;
+  // Record states that feed into this step (records waiting for this operation)
+  // When all these counts are 0, the step is "complete" (no pending work)
+  inputStates: (keyof RecordCounts)[];
+  // Record states that indicate this step has processed records
+  // Used to determine if the step has ever been run
+  outputStates: (keyof RecordCounts)[];
 }
 
 export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
-  { id: 'search', label: 'Search', description: 'Configure and run searches', route: 'search' },
-  { id: 'load', label: 'Load', description: 'Import search results', route: 'load' },
-  { id: 'prep', label: 'Prep', description: 'Prepare metadata', route: 'prep' },
-  { id: 'dedupe', label: 'Dedupe', description: 'Remove duplicates', route: 'dedupe' },
-  { id: 'prescreen', label: 'Prescreen', description: 'Title/abstract screening', route: 'prescreen' },
-  { id: 'pdf_get', label: 'PDF Get', description: 'Retrieve PDFs', route: 'pdf-get' },
-  { id: 'pdf_prep', label: 'PDF Prep', description: 'Prepare PDFs', route: 'pdf-prep' },
-  { id: 'screen', label: 'Screen', description: 'Full-text screening', route: 'screen' },
-  { id: 'data', label: 'Data', description: 'Data extraction', route: 'data' },
+  {
+    id: 'search',
+    label: 'Search',
+    description: 'Configure and run searches',
+    route: 'search',
+    inputStates: [], // Search doesn't consume records, it creates them
+    outputStates: ['md_retrieved'], // Records waiting in search files
+  },
+  {
+    id: 'load',
+    label: 'Load',
+    description: 'Import search results',
+    route: 'load',
+    inputStates: ['md_retrieved'],
+    outputStates: ['md_imported', 'md_needs_manual_preparation'],
+  },
+  {
+    id: 'prep',
+    label: 'Prep',
+    description: 'Prepare metadata',
+    route: 'prep',
+    inputStates: ['md_imported', 'md_needs_manual_preparation'],
+    outputStates: ['md_prepared'],
+  },
+  {
+    id: 'dedupe',
+    label: 'Dedupe',
+    description: 'Remove duplicates',
+    route: 'dedupe',
+    inputStates: ['md_prepared'],
+    outputStates: ['md_processed'],
+  },
+  {
+    id: 'prescreen',
+    label: 'Prescreen',
+    description: 'Title/abstract screening',
+    route: 'prescreen',
+    inputStates: ['md_processed'],
+    outputStates: ['rev_prescreen_included', 'rev_prescreen_excluded'],
+  },
+  {
+    id: 'pdf_get',
+    label: 'PDF Get',
+    description: 'Retrieve PDFs',
+    route: 'pdf-get',
+    inputStates: ['rev_prescreen_included', 'pdf_needs_manual_retrieval'],
+    outputStates: ['pdf_imported', 'pdf_not_available'],
+  },
+  {
+    id: 'pdf_prep',
+    label: 'PDF Prep',
+    description: 'Prepare PDFs',
+    route: 'pdf-prep',
+    inputStates: ['pdf_imported', 'pdf_needs_manual_preparation'],
+    outputStates: ['pdf_prepared'],
+  },
+  {
+    id: 'screen',
+    label: 'Screen',
+    description: 'Full-text screening',
+    route: 'screen',
+    inputStates: ['pdf_prepared'],
+    outputStates: ['rev_included', 'rev_excluded'],
+  },
+  {
+    id: 'data',
+    label: 'Data',
+    description: 'Data extraction',
+    route: 'data',
+    inputStates: ['rev_included'],
+    outputStates: ['rev_synthesized'],
+  },
 ];

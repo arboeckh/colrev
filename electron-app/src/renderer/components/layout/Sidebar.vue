@@ -26,6 +26,12 @@ const isSettingsActive = computed(() => {
 function getOperationInfo(stepId: WorkflowStep) {
   return projects.operationInfo[stepId];
 }
+
+// Get record counts from the current project status
+// Use 'currently' which has the current record counts by state
+const recordCounts = computed(() => {
+  return projects.currentStatus?.currently ?? null;
+});
 </script>
 
 <template>
@@ -34,6 +40,7 @@ function getOperationInfo(stepId: WorkflowStep) {
       <!-- Overview link -->
       <RouterLink
         :to="`/project/${projectId}`"
+        data-testid="sidebar-overview"
         class="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors mb-1"
         :class="[
           isOverviewActive
@@ -47,14 +54,17 @@ function getOperationInfo(stepId: WorkflowStep) {
 
       <Separator class="my-3" />
 
-      <!-- Workflow steps -->
-      <div class="space-y-1">
+      <!-- Workflow steps with connecting lines -->
+      <div class="space-y-0">
         <SidebarItem
-          v-for="step in WORKFLOW_STEPS"
+          v-for="(step, index) in WORKFLOW_STEPS"
           :key="step.id"
           :step="step"
           :project-id="projectId"
           :operation-info="getOperationInfo(step.id)"
+          :record-counts="recordCounts"
+          :is-first="index === 0"
+          :is-last="index === WORKFLOW_STEPS.length - 1"
         />
       </div>
 
@@ -63,6 +73,7 @@ function getOperationInfo(stepId: WorkflowStep) {
       <!-- Settings link -->
       <RouterLink
         :to="`/project/${projectId}/settings`"
+        data-testid="sidebar-settings"
         class="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors"
         :class="[
           isSettingsActive
