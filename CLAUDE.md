@@ -561,6 +561,32 @@ npm run package:win    # Windows portable
 npm run package:linux  # Linux AppImage
 ```
 
+### Dev Mode Project Location
+
+In development mode, Electron stores projects in the app's user data directory, NOT in the repository:
+
+```
+~/Library/Application Support/colrev-electron-poc/projects/
+```
+
+For example, a project named "my-review" would be at:
+```
+~/Library/Application Support/colrev-electron-poc/projects/my-review/
+├── settings.json           # Project configuration
+├── data/
+│   ├── records.bib         # Main records (after load operation)
+│   └── search/
+│       ├── pubmed.bib      # Search results from PubMed
+│       └── *_search_history.json  # Search history files
+└── .git/                   # Git repository
+```
+
+**Debugging tip:** To inspect raw files after running search/load operations:
+```bash
+ls -la ~/Library/Application\ Support/colrev-electron-poc/projects/
+cat ~/Library/Application\ Support/colrev-electron-poc/projects/<project>/data/search/pubmed.bib
+```
+
 ### Adding shadcn-vue Components
 
 ```bash
