@@ -4,12 +4,24 @@ import { useDebugStore } from './debug';
 
 export type BackendStatus = 'stopped' | 'starting' | 'running' | 'error';
 
+export interface SearchProgress {
+  currentBatch: number;
+  totalBatches: number;
+  fetchedRecords: number;
+  totalRecords: number;
+  status: string;
+}
+
 export const useBackendStore = defineStore('backend', () => {
   // State
   const status = ref<BackendStatus>('stopped');
   const error = ref<string | null>(null);
   const logs = ref<string[]>([]);
   const basePath = ref<string>('./projects');
+
+  // Search progress tracking
+  const searchProgress = ref<SearchProgress | null>(null);
+  const searchProgressListeners = ref<Set<(progress: SearchProgress) => void>>(new Set());
 
   // Request ID counter for tracking
   let requestIdCounter = 0;
@@ -32,6 +44,75 @@ export const useBackendStore = defineStore('backend', () => {
     if (logs.value.length > 100) {
       logs.value.shift();
     }
+
+    // Parse for search progress patterns
+    parseSearchProgress(msg);
+  }
+
+  function parseSearchProgress(msg: string) {
+    // Pattern: "Fetching batch X/Y (Z records)..."
+    const batchMatch = msg.match(/Fetching batch (\d+)\/(\d+) \((\d+) records\)/i);
+    if (batchMatch) {
+      const currentBatch = parseInt(batchMatch[1], 10);
+      const totalBatches = parseInt(batchMatch[2], 10);
+      const batchRecords = parseInt(batchMatch[3], 10);
+
+      const progress: SearchProgress = {
+        currentBatch,
+        totalBatches,
+        fetchedRecords: (currentBatch - 1) * batchRecords + batchRecords,
+        totalRecords: totalBatches * batchRecords,
+        status: `Fetching batch ${currentBatch}/${totalBatches}`,
+      };
+      searchProgress.value = progress;
+      notifySearchProgressListeners(progress);
+      return;
+    }
+
+    // Pattern: "Found X results" or "total_results: X"
+    const resultsMatch = msg.match(/Found (\d+) results|total[_\s]?results[:\s]+(\d+)/i);
+    if (resultsMatch) {
+      const total = parseInt(resultsMatch[1] || resultsMatch[2], 10);
+      const progress: SearchProgress = {
+        currentBatch: 0,
+        totalBatches: Math.ceil(total / 200), // Estimate based on batch size
+        fetchedRecords: 0,
+        totalRecords: total,
+        status: `Found ${total} results`,
+      };
+      searchProgress.value = progress;
+      notifySearchProgressListeners(progress);
+      return;
+    }
+
+    // Pattern: "Fetching X records in batches"
+    const fetchingMatch = msg.match(/Fetching (\d+) records in batches/i);
+    if (fetchingMatch) {
+      const total = parseInt(fetchingMatch[1], 10);
+      const progress: SearchProgress = {
+        currentBatch: 0,
+        totalBatches: Math.ceil(total / 200),
+        fetchedRecords: 0,
+        totalRecords: total,
+        status: `Fetching ${total} records...`,
+      };
+      searchProgress.value = progress;
+      notifySearchProgressListeners(progress);
+      return;
+    }
+  }
+
+  function notifySearchProgressListeners(progress: SearchProgress) {
+    searchProgressListeners.value.forEach(listener => listener(progress));
+  }
+
+  function onSearchProgress(listener: (progress: SearchProgress) => void) {
+    searchProgressListeners.value.add(listener);
+    return () => searchProgressListeners.value.delete(listener);
+  }
+
+  function clearSearchProgress() {
+    searchProgress.value = null;
   }
 
   function clearLogs() {
@@ -149,6 +230,7 @@ export const useBackendStore = defineStore('backend', () => {
     error,
     logs,
     basePath,
+    searchProgress,
     // Computed
     isRunning,
     isStarting,
@@ -160,5 +242,7 @@ export const useBackendStore = defineStore('backend', () => {
     ping,
     addLog,
     clearLogs,
+    onSearchProgress,
+    clearSearchProgress,
   };
 });

@@ -3,8 +3,10 @@ export { useBackendStore } from './backend';
 export { useProjectsStore } from './projects';
 export { useNotificationsStore } from './notifications';
 export { useDebugStore } from './debug';
+export { useThemeStore } from './theme';
 
-export type { BackendStatus } from './backend';
+export type { BackendStatus, SearchProgress } from './backend';
 export type { ProjectListItem } from './projects';
 export type { NotificationType, Notification } from './notifications';
 export type { DebugLogEntry } from './debug';
+export type { Theme } from './theme';

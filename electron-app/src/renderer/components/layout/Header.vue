@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { ArrowLeft, RefreshCw } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import GitSyncStatus from '@/components/common/GitSyncStatus.vue';
+import ThemeToggle from '@/components/common/ThemeToggle.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 
@@ -44,9 +45,11 @@ async function refresh() {
         </h1>
       </div>
 
-      <!-- Right side: Git status + Refresh -->
+      <!-- Right side: Git status + Theme toggle + Refresh -->
       <div class="flex items-center gap-3">
         <GitSyncStatus v-if="projects.currentGitStatus" :status="projects.currentGitStatus" />
+
+        <ThemeToggle />
 
         <Button
           variant="ghost"

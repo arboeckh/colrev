@@ -13,11 +13,11 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { ProjectCard } from '@/components/project';
-import { EmptyState } from '@/components/common';
+import { EmptyState, ThemeToggle } from '@/components/common';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
-import type { InitProjectResponse } from '@/types/api';
+import type { InitProjectResponse, ListProjectsResponse } from '@/types/api';
 
 const backend = useBackendStore();
 const projects = useProjectsStore();
@@ -27,17 +27,30 @@ const notifications = useNotificationsStore();
 const showNewProjectDialog = ref(false);
 const newProjectId = ref('');
 const isCreatingProject = ref(false);
-const useExampleData = ref(true);
 
 // Loading state for project list
 const isLoadingProjects = ref(false);
 
-async function loadAllProjects() {
+async function discoverProjects() {
   if (!backend.isRunning) return;
 
   isLoadingProjects.value = true;
 
-  // Load status for each project in parallel
+  try {
+    // First, discover existing projects from disk
+    const response = await backend.call<ListProjectsResponse>('list_projects', {});
+
+    if (response.success && response.projects) {
+      // Add discovered projects to the store
+      for (const proj of response.projects) {
+        projects.addProject(proj.id, proj.path);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to discover projects:', err);
+  }
+
+  // Then load status for all projects
   await Promise.all(
     projects.projects.map(async (project) => {
       await projects.loadProjectStatus(project.id);
@@ -60,7 +73,7 @@ async function createProject() {
     const result = await backend.call<InitProjectResponse>('init_project', {
       project_id: newProjectId.value.trim(),
       review_type: 'colrev.literature_review',
-      example: useExampleData.value,
+      example: false,
       force_mode: false,
       light: false,
     });
@@ -89,15 +102,15 @@ async function createProject() {
 watch(
   () => backend.isRunning,
   async (running) => {
-    if (running && projects.projects.length > 0) {
-      await loadAllProjects();
+    if (running) {
+      await discoverProjects();
     }
   }
 );
 
 onMounted(async () => {
-  if (backend.isRunning && projects.projects.length > 0) {
-    await loadAllProjects();
+  if (backend.isRunning) {
+    await discoverProjects();
   }
 });
 </script>
@@ -128,12 +141,15 @@ onMounted(async () => {
               <span class="text-muted-foreground capitalize">{{ backend.status }}</span>
             </div>
 
+            <!-- Theme toggle -->
+            <ThemeToggle />
+
             <!-- Refresh button -->
             <Button
               variant="ghost"
               size="icon"
               :disabled="!backend.isRunning || isLoadingProjects"
-              @click="loadAllProjects"
+              @click="discoverProjects"
             >
               <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': isLoadingProjects }" />
             </Button>
@@ -168,19 +184,6 @@ onMounted(async () => {
                     <p class="text-xs text-muted-foreground">
                       Use lowercase letters, numbers, and hyphens only.
                     </p>
-                  </div>
-
-                  <div class="flex items-center gap-2">
-                    <input
-                      id="useExample"
-                      v-model="useExampleData"
-                      type="checkbox"
-                      class="rounded border-border"
-                      :disabled="isCreatingProject"
-                    />
-                    <label for="useExample" class="text-sm">
-                      Include example data (30 sample records)
-                    </label>
                   </div>
                 </div>
 

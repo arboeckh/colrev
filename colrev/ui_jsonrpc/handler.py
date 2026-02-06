@@ -99,6 +99,10 @@ class JSONRPCHandler:
             return {"status": "pong"}
         elif method == "init_project":
             return InitHandler.init_project(params)
+        elif method == "list_projects":
+            return InitHandler.list_projects(params)
+        elif method == "delete_project":
+            return InitHandler.delete_project(params)
 
         # Methods that require an existing project
 

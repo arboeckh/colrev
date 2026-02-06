@@ -13,6 +13,28 @@ export interface PingResponse {
   status: 'pong';
 }
 
+// List Projects
+export interface ListProjectsParams {
+  base_path?: string;
+}
+
+export interface ListProjectsResponse extends SuccessResponse {
+  projects: Array<{
+    id: string;
+    path: string;
+  }>;
+}
+
+// Delete Project
+export interface DeleteProjectParams {
+  project_id: string;
+  base_path?: string;
+}
+
+export interface DeleteProjectResponse extends SuccessResponse {
+  project_id: string;
+}
+
 // Init Project
 export interface InitProjectParams {
   project_id: string;

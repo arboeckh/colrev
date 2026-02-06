@@ -46,6 +46,9 @@ export const useProjectsStore = defineStore('projects', () => {
   const isLoadingProject = ref(false);
   const projectError = ref<string | null>(null);
 
+  // Track if search sources were modified (need re-run)
+  const searchSourcesModified = ref(false);
+
   // Computed
   const hasProjects = computed(() => projects.value.length > 0);
 
@@ -266,6 +269,14 @@ export const useProjectsStore = defineStore('projects', () => {
     };
   }
 
+  function markSearchSourcesModified() {
+    searchSourcesModified.value = true;
+  }
+
+  function clearSearchSourcesModified() {
+    searchSourcesModified.value = false;
+  }
+
   return {
     // State
     projects,
@@ -274,6 +285,7 @@ export const useProjectsStore = defineStore('projects', () => {
     operationInfo,
     isLoadingProject,
     projectError,
+    searchSourcesModified,
     // Computed
     hasProjects,
     currentGitStatus,
@@ -291,5 +303,7 @@ export const useProjectsStore = defineStore('projects', () => {
     refreshCurrentProject,
     refreshGitStatus,
     clearCurrentProject,
+    markSearchSourcesModified,
+    clearSearchSourcesModified,
   };
 });

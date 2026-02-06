@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import 'vue-sonner/style.css';
 import { onMounted, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { Toaster } from '@/components/ui/sonner';
@@ -35,7 +36,7 @@ watch(
 <template>
   <div class="min-h-screen bg-background text-foreground">
     <!-- Toast notifications -->
-    <Toaster position="top-right" :expand="true" rich-colors />
+    <Toaster position="bottom-right" :expand="true" />
 
     <!-- Debug panel (floating button in bottom right) -->
     <DebugPanel />

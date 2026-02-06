@@ -445,14 +445,33 @@ class SearchHandler:
         if source_to_update is None:
             raise ValueError(f"Source with filename '{filename}' not found")
 
+        # Track if query changed (to clear results)
+        query_changed = False
+
         # Update fields if provided
         if search_string is not None:
+            if source_to_update.search_string != search_string:
+                query_changed = True
             source_to_update.search_string = search_string
 
         if search_parameters is not None:
+            # Check if URL parameter changed (main query for API sources)
+            if "url" in search_parameters:
+                old_url = source_to_update.search_parameters.get("url", "")
+                if old_url != search_parameters["url"]:
+                    query_changed = True
             # Merge new parameters with existing ones
             for key, value in search_parameters.items():
                 source_to_update.search_parameters[key] = value
+
+        # If query changed, clear the existing results file so next search starts fresh
+        if query_changed:
+            results_path = self.review_manager.path / source_to_update.search_results_path
+            if results_path.exists():
+                logger.info(f"Query changed, clearing results file: {results_path}")
+                results_path.unlink()
+                # Create empty file to maintain the source
+                results_path.touch()
 
         # Save settings
         self.review_manager.save_settings()

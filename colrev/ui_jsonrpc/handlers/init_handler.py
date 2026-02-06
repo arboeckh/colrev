@@ -2,8 +2,9 @@
 
 import logging
 import os
+import shutil
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import colrev.ops.init
 from colrev.ui_jsonrpc import response_formatter, validation
@@ -91,3 +92,108 @@ class InitHandler:
         finally:
             # Always restore the original working directory
             os.chdir(original_cwd)
+
+    @staticmethod
+    def list_projects(params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        List all CoLRev projects in the base path.
+
+        Expected params:
+            base_path (str, optional): Base path for projects (default: ./projects)
+
+        Args:
+            params: Method parameters
+
+        Returns:
+            Success response with list of projects
+
+        Note:
+            A directory is considered a CoLRev project if it contains
+            a settings.json file in the expected location.
+        """
+        base_path_str = params.get("base_path", "./projects")
+        base_path = Path(base_path_str)
+
+        logger.info(f"Listing projects in {base_path}")
+
+        projects: List[Dict[str, Any]] = []
+
+        if not base_path.exists():
+            logger.info(f"Base path {base_path} does not exist, returning empty list")
+            return {
+                "success": True,
+                "projects": projects,
+            }
+
+        # Scan directories in base_path
+        for item in base_path.iterdir():
+            if not item.is_dir():
+                continue
+
+            # Check if it's a CoLRev project by looking for settings.json
+            settings_file = item / "settings.json"
+            if settings_file.exists():
+                project_id = item.name
+                projects.append({
+                    "id": project_id,
+                    "path": str(item.resolve()),
+                })
+                logger.debug(f"Found project: {project_id}")
+
+        logger.info(f"Found {len(projects)} projects")
+
+        return {
+            "success": True,
+            "projects": projects,
+        }
+
+    @staticmethod
+    def delete_project(params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Delete a CoLRev project.
+
+        Expected params:
+            project_id (str): Unique identifier for the project
+            base_path (str, optional): Base path for projects (default: ./projects)
+
+        Args:
+            params: Method parameters
+
+        Returns:
+            Success response
+
+        Raises:
+            ValueError: If project_id is missing or project doesn't exist
+        """
+        project_id = params.get("project_id")
+        if not project_id:
+            raise ValueError("project_id is required")
+
+        base_path_str = params.get("base_path", "./projects")
+        base_path = Path(base_path_str)
+        project_path = base_path / project_id
+
+        logger.info(f"Deleting project {project_id} at {project_path}")
+
+        if not project_path.exists():
+            raise ValueError(f"Project '{project_id}' does not exist")
+
+        # Verify it's a CoLRev project
+        settings_file = project_path / "settings.json"
+        if not settings_file.exists():
+            raise ValueError(f"'{project_id}' is not a valid CoLRev project")
+
+        try:
+            # Remove the entire project directory
+            shutil.rmtree(project_path)
+            logger.info(f"Project {project_id} deleted successfully")
+
+            return {
+                "success": True,
+                "message": f"Project '{project_id}' deleted successfully",
+                "project_id": project_id,
+            }
+
+        except Exception as e:
+            logger.exception(f"Failed to delete project {project_id}")
+            raise ValueError(f"Failed to delete project: {str(e)}")

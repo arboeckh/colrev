@@ -29,8 +29,14 @@ function getOperationInfo(stepId: WorkflowStep) {
 
 // Get record counts from the current project status
 // Use 'currently' which has the current record counts by state
+// Include total_records from the parent status object
 const recordCounts = computed(() => {
-  return projects.currentStatus?.currently ?? null;
+  const status = projects.currentStatus;
+  if (!status?.currently) return null;
+  return {
+    ...status.currently,
+    total: status.total_records ?? 0,
+  };
 });
 </script>
 

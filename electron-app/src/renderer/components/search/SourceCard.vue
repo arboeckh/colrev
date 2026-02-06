@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dialog';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useProjectsStore } from '@/stores/projects';
 import type { SearchSource, RemoveSourceResponse, UpdateSourceResponse } from '@/types';
 
 const props = defineProps<{
@@ -35,6 +36,7 @@ const emit = defineEmits<{
 
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
+const projects = useProjectsStore();
 
 // State
 const showDeleteDialog = ref(false);
@@ -115,9 +117,11 @@ async function handleUpdate() {
     });
 
     if (response.success) {
-      notifications.success('Source updated', response.message);
+      notifications.success('Source updated', 'Query changed - run search again to fetch new results');
       showEditDialog.value = false;
       emit('updated');
+      // Refresh project status since search results were cleared
+      await projects.refreshCurrentProject();
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

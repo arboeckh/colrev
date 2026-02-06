@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import { Circle, CircleDot, CircleCheck, CircleAlert } from 'lucide-vue-next';
+import { useProjectsStore } from '@/stores/projects';
 import type { WorkflowStepInfo, RecordCounts } from '@/types/project';
 import type { GetOperationInfoResponse } from '@/types/api';
 
@@ -15,6 +16,7 @@ const props = defineProps<{
 }>();
 
 const route = useRoute();
+const projects = useProjectsStore();
 
 const isActive = computed(() => {
   return route.meta.step === props.step.id;
@@ -48,15 +50,17 @@ const processedRecords = computed(() => {
 type StepStatus = 'complete' | 'active' | 'warning' | 'pending';
 
 const stepStatus = computed((): StepStatus => {
-  // Special case for search: check if sources are configured
+  // Special case for search: only complete when records have actually been retrieved
+  // and no sources have been modified since the last search
   if (props.step.id === 'search') {
-    // Search is "complete" when there are no retrieved records waiting to be loaded
-    // AND records have been retrieved (or sources exist)
-    if (props.operationInfo?.can_run && props.operationInfo.affected_records > 0) {
-      return 'complete'; // Sources configured, ready to search
+    // If sources were modified, search needs to be re-run
+    if (projects.searchSourcesModified) {
+      return 'pending';
     }
-    // Check if search has produced output (records in md_retrieved or beyond)
-    if (processedRecords.value > 0 || (props.recordCounts?.total ?? 0) > 0) {
+    // Search is "complete" only when there are actual records in the system
+    // (not just because sources exist - the default FILES source always exists)
+    const totalRecords = props.recordCounts?.total ?? 0;
+    if (totalRecords > 0) {
       return 'complete';
     }
     return 'pending';

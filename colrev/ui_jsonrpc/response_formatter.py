@@ -165,9 +165,10 @@ def format_comprehensive_status_response(
         "rev_synthesized": currently.rev_synthesized,
     }
 
-    # Calculate total records (unique, after deduplication)
+    # Calculate total records (all records in any state)
     total_records = (
-        currently_dict["md_imported"]
+        currently_dict["md_retrieved"]
+        + currently_dict["md_imported"]
         + currently_dict["md_needs_manual_preparation"]
         + currently_dict["md_prepared"]
         + currently_dict["md_processed"]
