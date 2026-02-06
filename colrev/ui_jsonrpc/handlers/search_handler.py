@@ -7,6 +7,7 @@ JSON-RPC Endpoints:
     - update_source: Update an existing search source configuration
     - remove_source: Remove a search source
     - upload_search_file: Upload a search results file
+    - get_source_records: Get records from a specific search source file
 
 See docs/source/api/jsonrpc/search.rst for full endpoint documentation.
 """
@@ -490,6 +491,179 @@ class SearchHandler:
                 "message": f"Updated search source: {filename}",
             },
         )
+
+    def get_source_records(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Get records originating from a specific search source.
+
+        Reads records from the main records.bib dataset and filters by colrev_origin
+        to show records that came from a specific search source.
+
+        Args:
+            params: Method parameters containing:
+                - project_id (str): Project identifier (required)
+                - filename (str): Source filename to filter by (required)
+                - pagination (dict, optional): Pagination options:
+                    - offset (int): Skip first N records (default: 0)
+                    - limit (int): Max records to return (default: 50, max: 500)
+
+        Returns:
+            Dict containing:
+                - success (bool): Always True on success
+                - project_id (str): Project identifier
+                - filename (str): Source filename
+                - records (list): List of record dictionaries with:
+                    - ID (str): Record identifier
+                    - ENTRYTYPE (str): Entry type (article, book, etc.)
+                    - title (str): Record title
+                    - author (str): Authors
+                    - year (str): Publication year
+                    - journal (str, optional): Journal name
+                    - doi (str, optional): DOI
+                    - colrev_status (str): Current record status
+                - total_count (int): Total number of records from this source
+                - pagination (dict): Pagination info (offset, limit, has_more)
+
+        Raises:
+            ValueError: If filename is missing or source not found
+        """
+        from colrev.constants import Fields
+
+        project_id = params["project_id"]
+        filename = params.get("filename")
+        pagination = validation.get_optional_param(params, "pagination", {})
+
+        if not filename:
+            raise ValueError("filename parameter is required")
+
+        logger.info(f"Getting records from source {filename} in project {project_id}")
+
+        # Find the source to get origin prefix
+        source = None
+        for s in self.review_manager.settings.sources:
+            source_filename = str(s.search_results_path)
+            if source_filename == filename or source_filename.endswith(filename):
+                source = s
+                break
+
+        if source is None:
+            raise ValueError(f"Source with filename '{filename}' not found")
+
+        # Get origin prefix from the source path (e.g., "data/search/pubmed.bib" -> "pubmed.bib")
+        origin_prefix = Path(source.search_results_path).name
+
+        # Try to load records from the main dataset first (after load operation)
+        self.review_manager.get_status_operation()
+        records_dict = self.review_manager.dataset.load_records_dict()
+
+        if records_dict is None:
+            records_dict = {}
+
+        # Filter records by origin
+        filtered_records = []
+        for record in records_dict.values():
+            origins = record.get(Fields.ORIGIN, [])
+            # Check if any origin starts with the source filename
+            for origin in origins:
+                if origin.startswith(origin_prefix + "/") or origin.startswith(origin_prefix):
+                    filtered_records.append(record)
+                    break
+
+        # If no records found in main dataset, try reading from search file directly
+        # This happens after search but before load
+        if not filtered_records:
+            results_path = self.review_manager.path / source.search_results_path
+            if results_path.exists():
+                filtered_records = self._read_search_file_records(results_path)
+
+        # Get total count
+        total_count = len(filtered_records)
+
+        # Apply pagination
+        offset = pagination.get("offset", 0)
+        limit = min(pagination.get("limit", 50), 500)
+        paginated_records = filtered_records[offset:offset + limit]
+        has_more = (offset + limit) < total_count
+
+        # Format records for response
+        formatted_records = []
+        for record in paginated_records:
+            # Get status as string
+            status = record.get(Fields.STATUS)
+            status_str = status.name if hasattr(status, 'name') else str(status) if status else ""
+
+            formatted = {
+                "ID": record.get(Fields.ID, ""),
+                "ENTRYTYPE": record.get(Fields.ENTRYTYPE, ""),
+                "title": record.get(Fields.TITLE, ""),
+                "author": record.get(Fields.AUTHOR, ""),
+                "year": record.get(Fields.YEAR, ""),
+                "colrev_status": status_str,
+            }
+            # Add optional fields if present
+            if record.get(Fields.JOURNAL):
+                formatted["journal"] = record[Fields.JOURNAL]
+            if record.get(Fields.BOOKTITLE):
+                formatted["booktitle"] = record[Fields.BOOKTITLE]
+            if record.get(Fields.DOI):
+                formatted["doi"] = record[Fields.DOI]
+            if record.get(Fields.ABSTRACT):
+                abstract = record[Fields.ABSTRACT]
+                formatted["abstract"] = abstract[:500] + "..." if len(abstract) > 500 else abstract
+            formatted_records.append(formatted)
+
+        return {
+            "success": True,
+            "project_id": project_id,
+            "filename": filename,
+            "records": formatted_records,
+            "total_count": total_count,
+            "pagination": {
+                "offset": offset,
+                "limit": limit,
+                "has_more": has_more,
+            },
+        }
+
+    def _read_search_file_records(self, file_path: Path) -> List[Dict[str, Any]]:
+        """Read records from a search file (BibTeX format).
+
+        Used as fallback when records haven't been loaded into records.bib yet.
+        """
+        records = []
+
+        try:
+            # Use colrev's bibtex parser
+            from colrev.loader.bib import BIBLoader
+
+            loader = BIBLoader(
+                filename=file_path,
+                unique_id_field="ID",
+            )
+
+            entries = loader.load_records_list()
+            records = entries
+
+        except Exception as e:
+            logger.warning(f"Failed to parse {file_path}: {e}")
+            # Try a simpler approach - just extract basic info
+            try:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                import re
+                matches = re.findall(r'@(\w+)\s*\{([^,]+),', content)
+                for entry_type, entry_id in matches:
+                    records.append({
+                        "ID": entry_id.strip(),
+                        "ENTRYTYPE": entry_type.lower(),
+                        "title": "(parsing error)",
+                        "author": "",
+                        "year": "",
+                    })
+            except Exception:
+                pass
+
+        return records
 
     def _detect_file_format(self, file_path: Path) -> str:
         """Detect the format of a search file."""

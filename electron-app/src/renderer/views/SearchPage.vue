@@ -62,6 +62,20 @@ const isSearchComplete = computed(() => {
   return totalRecords > 0;
 });
 
+// Determine if we can view results (search has been run, sources not modified)
+// This is separate from isSearchComplete because we want to show results
+// even before records are loaded into records.bib
+const canViewSourceResults = computed(() => {
+  // If sources were modified since last search, can't view results
+  if (projects.searchSourcesModified) return false;
+
+  // If currently searching, can't view results
+  if (isSearching.value) return false;
+
+  // Must have sources configured
+  return visibleSources.value.length > 0;
+});
+
 function goToNextStep() {
   if (projects.currentProjectId) {
     router.push(`/project/${projects.currentProjectId}/load`);
@@ -367,6 +381,7 @@ onMounted(() => {
           :key="source.filename || source.search_results_path"
           :source="source"
           :project-id="projects.currentProjectId!"
+          :can-view-results="canViewSourceResults"
           @deleted="handleSourceDeleted"
           @updated="handleSourceUpdated"
         />

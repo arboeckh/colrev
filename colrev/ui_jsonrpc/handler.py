@@ -131,7 +131,7 @@ class JSONRPCHandler:
             )
 
         # Search operations
-        elif method in ["search", "get_sources", "add_source", "update_source", "remove_source", "upload_search_file"]:
+        elif method in ["search", "get_sources", "add_source", "update_source", "remove_source", "upload_search_file", "get_source_records"]:
             return self._handle_with_review_manager(
                 method, params, SearchHandler
             )

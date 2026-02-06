@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { Database, Globe, Trash2, Settings, Loader2 } from 'lucide-vue-next';
+import { Database, Globe, Trash2, Settings, Loader2, Eye } from 'lucide-vue-next';
 import {
   Card,
   CardContent,
@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { SearchResultsModal } from '@/components/search';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
@@ -27,6 +28,7 @@ import type { SearchSource, RemoveSourceResponse, UpdateSourceResponse } from '@
 const props = defineProps<{
   source: SearchSource;
   projectId: string;
+  canViewResults?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -41,6 +43,7 @@ const projects = useProjectsStore();
 // State
 const showDeleteDialog = ref(false);
 const showEditDialog = ref(false);
+const showResultsModal = ref(false);
 const isDeleting = ref(false);
 const isUpdating = ref(false);
 
@@ -142,6 +145,16 @@ async function handleUpdate() {
           <Badge :variant="searchTypeVariant">{{ source.search_type }}</Badge>
         </CardTitle>
         <div class="flex items-center gap-1">
+          <Button
+            v-if="canViewResults"
+            variant="ghost"
+            size="icon"
+            :data-testid="`view-results-${sourceName}`"
+            title="View search results"
+            @click="showResultsModal = true"
+          >
+            <Eye class="h-4 w-4" />
+          </Button>
           <Button
             v-if="source.search_type === 'API'"
             variant="ghost"
@@ -253,4 +266,12 @@ async function handleUpdate() {
       </DialogFooter>
     </DialogContent>
   </Dialog>
+
+  <!-- Search Results Modal -->
+  <SearchResultsModal
+    v-model:open="showResultsModal"
+    :source-name="sourceName"
+    :filename="filename"
+    :project-id="projectId"
+  />
 </template>

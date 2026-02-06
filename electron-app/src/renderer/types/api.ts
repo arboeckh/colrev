@@ -230,6 +230,41 @@ export interface UpdateSourceResponse extends SuccessResponse {
   message: string;
 }
 
+// Get Source Records
+export interface GetSourceRecordsParams {
+  project_id: string;
+  filename: string;
+  pagination?: {
+    offset: number;
+    limit: number;
+  };
+  base_path?: string;
+}
+
+export interface SourceRecord {
+  ID: string;
+  ENTRYTYPE: string;
+  title: string;
+  author: string;
+  year: string;
+  journal?: string;
+  booktitle?: string;
+  doi?: string;
+  abstract?: string;
+  colrev_status?: string;
+}
+
+export interface GetSourceRecordsResponse extends SuccessResponse {
+  filename: string;
+  records: SourceRecord[];
+  total_count: number;
+  pagination: {
+    offset: number;
+    limit: number;
+    has_more: boolean;
+  };
+}
+
 // Load
 export interface LoadParams {
   project_id: string;
