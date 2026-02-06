@@ -293,6 +293,152 @@ The JSON-RPC server provides a bridge between the Electron app and CoLRev Python
 
 The built executable is placed in `dist/colrev-jsonrpc` and bundled with the Electron app.
 
+### JSON-RPC Endpoint Development Guidelines
+
+When implementing new JSON-RPC endpoints, follow this structured approach:
+
+**1. Implementation Checklist:**
+- [ ] Add endpoint specification to `/Users/ab/.claude/plans/mutable-hopping-willow.md` (implementation spec)
+- [ ] Create or update handler in `colrev/ui_jsonrpc/handlers/<category>_handler.py`
+- [ ] Add routing in `colrev/ui_jsonrpc/handler.py`
+- [ ] Add response formatter in `colrev/ui_jsonrpc/response_formatter.py` if needed
+- [ ] Create tests in `tests/4_jsonrpc/test_<category>_handler.py`
+- [ ] Document in `docs/source/api/jsonrpc/<category>.rst`
+
+**2. Handler Structure:**
+Each handler class follows this pattern:
+```python
+"""Handler for <category> operations.
+
+JSON-RPC Endpoints:
+    - method_name: Brief description
+    - another_method: Brief description
+
+See docs/api/jsonrpc/<category>.rst for full endpoint documentation.
+"""
+
+class CategoryHandler:
+    """Handle <category>-related JSON-RPC methods."""
+
+    def __init__(self, review_manager: colrev.review_manager.ReviewManager):
+        self.review_manager = review_manager
+
+    def method_name(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Full docstring with Args and Returns.
+
+        Args:
+            params: Method parameters containing:
+                - param1 (type): Description
+                - param2 (type, optional): Description
+
+        Returns:
+            Dict containing:
+                - success (bool): ...
+                - field (type): ...
+
+        Raises:
+            ValueError: When ...
+        """
+        # Implementation
+```
+
+**3. Documentation Format (RST):**
+Each endpoint in `docs/source/api/jsonrpc/<category>.rst` uses this structure:
+```rst
+method_name
+-----------
+
+Brief description of what this endpoint does.
+
+**Method:** ``method_name``
+
+**Parameters:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 15 10 55
+
+   * - Name
+     - Type
+     - Required
+     - Description
+   * - param_name
+     - string
+     - Yes
+     - Parameter description
+
+**Returns:**
+
+.. code-block:: typescript
+
+    {
+        success: boolean,
+        field: type
+    }
+
+**Example:**
+
+.. code-block:: json
+
+    // Request
+    {"jsonrpc": "2.0", "method": "method_name", "params": {...}, "id": 1}
+
+    // Response
+    {"jsonrpc": "2.0", "result": {...}, "id": 1}
+```
+
+**4. Test Structure:**
+Tests in `tests/4_jsonrpc/` follow this pattern:
+```python
+class TestMethodNameEndpoint:
+    """Tests for the method_name endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def setup_project(self, tmp_path, mocker):
+        """Set up a test project for each test."""
+        # Setup mocks, initialize project
+        self.handler = JSONRPCHandler()
+
+    def test_method_returns_expected_structure(self):
+        """Test that method returns expected response structure."""
+        request = {
+            "jsonrpc": "2.0",
+            "method": "method_name",
+            "params": {"project_id": self.project_id, "base_path": str(self.base_path)},
+            "id": 1,
+        }
+        response = self.handler.handle_request(request)
+        assert "error" not in response
+        assert response["result"]["success"] is True
+```
+
+**5. Common Parameters:**
+Most endpoints require:
+- `project_id` (required): Project identifier
+- `base_path` (optional): Base directory containing project (default: "./projects")
+- `skip_commit` (optional): Skip automatic Git commit (default: false)
+
+**6. Error Handling:**
+Use CoLRev-specific error codes:
+- `-32000`: COLREV_REPO_SETUP_ERROR
+- `-32001`: COLREV_OPERATION_ERROR
+- `-32002`: COLREV_SERVICE_NOT_AVAILABLE
+- `-32003`: COLREV_MISSING_DEPENDENCY
+- `-32004`: COLREV_PARAMETER_ERROR
+
+**7. Endpoint Categories:**
+- `status_handler.py` - Project status, validation, operation info
+- `init_handler.py` - Project initialization
+- `settings_handler.py` - Settings management
+- `search_handler.py` - Search sources and search execution
+- `records_handler.py` - Record CRUD operations
+- `dedupe_handler.py` - Deduplication
+- `prescreen_handler.py` - Pre-screening
+- `screen_handler.py` - Full-text screening
+- `data_handler.py` - Data extraction
+- `git_handler.py` - Git operations
+
 ---
 
 ## Electron App (electron-app/)

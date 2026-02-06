@@ -98,7 +98,7 @@ class JSONRPCHandler:
             return InitHandler.init_project(params)
 
         # Methods that require an existing project
-        elif method in ["get_status", "status", "validate"]:
+        elif method in ["get_status", "status", "validate", "get_operation_info"]:
             return self._handle_with_review_manager(
                 method, params, StatusHandler
             )
