@@ -302,6 +302,37 @@ The project includes custom linters in `colrev/linter/`:
 - Use constants from `colrev/constants.py` instead of hardcoded strings
 - Common constants: `Fields`, `ENTRYTYPES`, `RecordState`, `FieldSet`, `DefectCodes`
 
+## Data Structure Quick Reference
+
+For detailed data structure documentation, see `llm_context/data_structures.md`.
+
+### RecordState Workflow
+
+States flow: `md_retrieved` → `md_imported` → `md_prepared` → `md_processed` →
+`rev_prescreen_included` → `pdf_imported` → `pdf_prepared` → `rev_included` → `rev_synthesized`
+
+### Key Fields (from `Fields` class in `colrev/constants.py`)
+
+| Category | Fields |
+|----------|--------|
+| Identity | `ID`, `ENTRYTYPE` |
+| Status | `colrev_status`, `colrev_origin`, `colrev_pdf_id` |
+| Provenance | `colrev_masterdata_provenance`, `colrev_data_provenance` |
+| Bibliographic | `title`, `author`, `year`, `journal`, `booktitle`, `doi`, `abstract` |
+| Screening | `screening_criteria` (format: `"criterion1=in;criterion2=out"`) |
+
+### Protected Fields (cannot update via JSON-RPC API)
+
+`ID`, `colrev_origin`, `colrev_masterdata_provenance`, `colrev_data_provenance`
+
+### JSON-RPC Response Patterns
+
+- **Operations**: `{success, operation, project_id, details}`
+- **Queries**: `{success, total_count, records, pagination}`
+- **Errors**: Codes `-32000` (repo setup), `-32001` (operation), `-32004` (parameter)
+
+---
+
 ## Git Workflow
 
 The project uses Git extensively for collaboration and reproducibility:
@@ -919,3 +950,13 @@ See `electron-app/docs/FRONTEND_FEATURES.md` for a working table of:
 - Features implemented by workflow step
 - Test coverage status for each feature
 - Planned vs. implemented functionality
+
+---
+
+## LLM Context Documentation
+
+The `llm_context/` directory contains detailed documentation intended for LLM consumption:
+
+- `data_structures.md` - Comprehensive reference for CoLRev data structures, RecordState enum, Fields constants, and JSON-RPC endpoint documentation
+
+When adding new LLM-relevant documentation (e.g., detailed API references, data model documentation, workflow specifications), place it in the `llm_context/` directory rather than CLAUDE.md. Keep CLAUDE.md focused on quick references and development guidance.

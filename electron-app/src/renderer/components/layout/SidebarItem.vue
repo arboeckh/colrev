@@ -2,7 +2,6 @@
 import { computed } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import { Circle, CircleDot, CircleCheck, CircleAlert } from 'lucide-vue-next';
-import { useProjectsStore } from '@/stores/projects';
 import type { WorkflowStepInfo, RecordCounts } from '@/types/project';
 import type { GetOperationInfoResponse } from '@/types/api';
 
@@ -16,7 +15,6 @@ const props = defineProps<{
 }>();
 
 const route = useRoute();
-const projects = useProjectsStore();
 
 const isActive = computed(() => {
   return route.meta.step === props.step.id;
@@ -53,8 +51,8 @@ const stepStatus = computed((): StepStatus => {
   // Special case for search: only complete when records have actually been retrieved
   // and no sources have been modified since the last search
   if (props.step.id === 'search') {
-    // If sources were modified, search needs to be re-run
-    if (projects.searchSourcesModified) {
+    // If search needs to be re-run (based on backend state), it's pending
+    if (props.operationInfo?.needs_rerun) {
       return 'pending';
     }
     // Search is "complete" only when there are actual records in the system

@@ -50,26 +50,8 @@ export const useBackendStore = defineStore('backend', () => {
   }
 
   function parseSearchProgress(msg: string) {
-    // Pattern: "Fetching batch X/Y (Z records)..."
-    const batchMatch = msg.match(/Fetching batch (\d+)\/(\d+) \((\d+) records\)/i);
-    if (batchMatch) {
-      const currentBatch = parseInt(batchMatch[1], 10);
-      const totalBatches = parseInt(batchMatch[2], 10);
-      const batchRecords = parseInt(batchMatch[3], 10);
-
-      const progress: SearchProgress = {
-        currentBatch,
-        totalBatches,
-        fetchedRecords: (currentBatch - 1) * batchRecords + batchRecords,
-        totalRecords: totalBatches * batchRecords,
-        status: `Fetching batch ${currentBatch}/${totalBatches}`,
-      };
-      searchProgress.value = progress;
-      notifySearchProgressListeners(progress);
-      return;
-    }
-
-    // Pattern: "Found X results" or "total_results: X"
+    // Pattern: "Found X results" or "total_results: X" or "Total results found: X"
+    // Process this FIRST to establish the real total before batch messages
     const resultsMatch = msg.match(/Found (\d+) results|total[_\s]?results[:\s]+(\d+)/i);
     if (resultsMatch) {
       const total = parseInt(resultsMatch[1] || resultsMatch[2], 10);
@@ -86,6 +68,7 @@ export const useBackendStore = defineStore('backend', () => {
     }
 
     // Pattern: "Fetching X records in batches"
+    // This gives us the actual count to fetch (may differ from total results due to deduplication)
     const fetchingMatch = msg.match(/Fetching (\d+) records in batches/i);
     if (fetchingMatch) {
       const total = parseInt(fetchingMatch[1], 10);
@@ -95,6 +78,36 @@ export const useBackendStore = defineStore('backend', () => {
         fetchedRecords: 0,
         totalRecords: total,
         status: `Fetching ${total} records...`,
+      };
+      searchProgress.value = progress;
+      notifySearchProgressListeners(progress);
+      return;
+    }
+
+    // Pattern: "Fetching batch X/Y (Z records)..."
+    // Update batch progress but preserve totalRecords from earlier messages
+    const batchMatch = msg.match(/Fetching batch (\d+)\/(\d+) \((\d+) records\)/i);
+    if (batchMatch) {
+      const currentBatch = parseInt(batchMatch[1], 10);
+      const totalBatches = parseInt(batchMatch[2], 10);
+      const batchRecords = parseInt(batchMatch[3], 10);
+
+      // Preserve the real totalRecords from earlier "Fetching X records in batches" message
+      // Don't recalculate from batch info since last batch may be smaller
+      const previousTotal = searchProgress.value?.totalRecords ?? 0;
+
+      // Calculate fetched records: completed batches × batch size + current batch size
+      // Use standard batch size (200) for completed batches, actual size for current
+      const completedBatches = currentBatch - 1;
+      const standardBatchSize = 200;
+      const fetchedRecords = completedBatches * standardBatchSize + batchRecords;
+
+      const progress: SearchProgress = {
+        currentBatch,
+        totalBatches,
+        fetchedRecords,
+        totalRecords: previousTotal > 0 ? previousTotal : totalBatches * standardBatchSize,
+        status: `Fetching batch ${currentBatch}/${totalBatches}`,
       };
       searchProgress.value = progress;
       notifySearchProgressListeners(progress);

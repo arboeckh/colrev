@@ -6,21 +6,49 @@ import { Toaster } from '@/components/ui/sonner';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import DebugPanel from '@/components/common/DebugPanel.vue';
 import { useBackendStore } from '@/stores/backend';
+import { useProjectsStore } from '@/stores/projects';
+import type { ListProjectsResponse } from '@/types/api';
 
 const route = useRoute();
 const backend = useBackendStore();
+const projects = useProjectsStore();
 
 // Determine which layout to use based on route meta
 const useProjectLayout = computed(() => {
   return route.meta.layout === 'project' || route.matched.some((r) => r.meta.layout === 'project');
 });
 
-// Auto-start backend on mount
+// Auto-start backend and discover projects on mount
 onMounted(async () => {
   if (backend.canStart) {
-    await backend.start();
+    const started = await backend.start();
+    if (started) {
+      // Discover projects immediately after backend starts
+      await discoverProjects();
+    }
   }
 });
+
+// Discover existing projects from disk
+async function discoverProjects() {
+  try {
+    const response = await backend.call<ListProjectsResponse>('list_projects', {});
+    if (response.success && response.projects) {
+      for (const proj of response.projects) {
+        projects.addProject(proj.id, proj.path);
+      }
+    }
+    // Load status for all discovered projects
+    await Promise.all(
+      projects.projects.map(async (project) => {
+        await projects.loadProjectStatus(project.id);
+        await projects.loadProjectGitStatus(project.id);
+      })
+    );
+  } catch (err) {
+    console.error('Failed to discover projects:', err);
+  }
+}
 
 // Watch for backend errors
 watch(

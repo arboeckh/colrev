@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { Database, Globe, Trash2, Settings, Loader2, Eye } from 'lucide-vue-next';
+import { Database, Globe, Trash2, Settings, Loader2, ExternalLink, AlertCircle, Play, CheckCircle2, Circle, Upload } from 'lucide-vue-next';
+import { cn } from '@/lib/utils';
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import {
   Dialog,
@@ -25,15 +26,27 @@ import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
 import type { SearchSource, RemoveSourceResponse, UpdateSourceResponse } from '@/types';
 
+interface SearchProgress {
+  progress: number;
+  status: string;
+  fetchedRecords: number;
+  totalRecords: number;
+  currentBatch: number;
+  totalBatches: number;
+}
+
 const props = defineProps<{
   source: SearchSource;
   projectId: string;
-  canViewResults?: boolean;
+  class?: string;
+  isSearching?: boolean;
+  searchProgress?: SearchProgress;
 }>();
 
 const emit = defineEmits<{
   (e: 'deleted'): void;
   (e: 'updated'): void;
+  (e: 'run-search', filename: string): void;
 }>();
 
 const backend = useBackendStore();
@@ -43,12 +56,19 @@ const projects = useProjectsStore();
 // State
 const showDeleteDialog = ref(false);
 const showEditDialog = ref(false);
+const showUpdateFileDialog = ref(false);
 const showResultsModal = ref(false);
 const isDeleting = ref(false);
 const isUpdating = ref(false);
+const isUploadingUpdate = ref(false);
 
-// Edit form state
+// Edit form state (for API sources)
 const editSearchString = ref('');
+
+// Update file form state (for DB sources)
+const updateFile = ref<File | null>(null);
+// Use ISO date string format for HTML date input (YYYY-MM-DD)
+const updateSearchDate = ref(new Date().toISOString().split('T')[0]);
 
 // Computed
 const sourceIcon = computed(() => {
@@ -56,7 +76,14 @@ const sourceIcon = computed(() => {
 });
 
 const sourceName = computed(() => {
-  // Extract name from endpoint (e.g., "colrev.pubmed" -> "pubmed")
+  // For DB (file-based) sources, use the filename without extension as the name
+  // e.g., "data/search/scopus.ris" -> "scopus"
+  if (props.source.search_type === 'DB') {
+    const path = props.source.filename || props.source.search_results_path || '';
+    const basename = path.split('/').pop() || '';
+    return basename.replace(/\.[^/.]+$/, '') || 'unknown';
+  }
+  // For API sources, extract name from endpoint (e.g., "colrev.pubmed" -> "pubmed")
   const endpoint = props.source.endpoint || props.source.platform || 'unknown';
   return endpoint.split('.').pop() || endpoint;
 });
@@ -80,7 +107,39 @@ const hasSearchString = computed(() => {
   return !!props.source.search_string;
 });
 
+const isApiSource = computed(() => {
+  return props.source.search_type === 'API';
+});
+
+const isDbSource = computed(() => {
+  return props.source.search_type === 'DB';
+});
+
+// Format relative time for display
+function formatRelativeTime(timestamp: string): string {
+  try {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  } catch {
+    return 'Unknown';
+  }
+}
+
 // Methods
+function runSearch() {
+  emit('run-search', filename.value);
+}
+
 function openEditDialog() {
   editSearchString.value = props.source.search_string || '';
   showEditDialog.value = true;
@@ -133,63 +192,214 @@ async function handleUpdate() {
     isUpdating.value = false;
   }
 }
+
+function openUpdateFileDialog() {
+  updateFile.value = null;
+  updateSearchDate.value = new Date().toISOString().split('T')[0];
+  showUpdateFileDialog.value = true;
+}
+
+function handleUpdateFileSelect(event: Event) {
+  const input = event.target as HTMLInputElement;
+  if (input.files && input.files.length > 0) {
+    updateFile.value = input.files[0];
+  }
+}
+
+async function handleUpdateFile() {
+  if (!updateFile.value) return;
+
+  isUploadingUpdate.value = true;
+
+  try {
+    // Read file content
+    const fileContent = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsText(updateFile.value!);
+    });
+
+    // Get just the filename from the source path (e.g., "data/search/scopus.ris" -> "scopus.ris")
+    const sourceFilename = filename.value.split('/').pop() || filename.value;
+
+    // Upload the file with the same filename to overwrite
+    const uploadResponse = await backend.call<{ success: boolean; path: string }>('upload_search_file', {
+      project_id: props.projectId,
+      filename: sourceFilename,
+      content: fileContent,
+      encoding: 'utf-8',
+    });
+
+    if (!uploadResponse.success) {
+      throw new Error('Failed to upload file');
+    }
+
+    // Update the source with the new run date (convert YYYY-MM-DD to ISO string)
+    const runDateISO = new Date(updateSearchDate.value).toISOString();
+    const response = await backend.call<UpdateSourceResponse>('update_source', {
+      project_id: props.projectId,
+      filename: filename.value,
+      run_date: runDateISO,
+    });
+
+    if (response.success) {
+      notifications.success('Source updated', 'File replaced and search date updated');
+      showUpdateFileDialog.value = false;
+      emit('updated');
+      await projects.refreshCurrentProject();
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    notifications.error('Failed to update source', message);
+  } finally {
+    isUploadingUpdate.value = false;
+  }
+}
 </script>
 
 <template>
-  <Card :data-testid="`source-card-${sourceName}`">
+  <Card
+    :data-testid="`source-card-${sourceName}`"
+    :class="cn(
+      isSearching ? 'border-primary/50 bg-primary/5' : source.is_stale ? 'border-yellow-500/50' : 'border-border',
+      'transition-colors',
+      props.class
+    )"
+  >
     <CardHeader class="pb-2">
       <div class="flex items-center justify-between">
-        <CardTitle class="text-base flex items-center gap-2">
-          <component :is="sourceIcon" class="h-4 w-4" />
+        <CardTitle class="text-base flex items-center gap-2 flex-wrap">
+          <component :is="sourceIcon" class="h-4 w-4 shrink-0" />
           {{ sourceName }}
           <Badge :variant="searchTypeVariant">{{ source.search_type }}</Badge>
+          <Badge
+            v-if="source.is_stale"
+            variant="outline"
+            class="text-yellow-600 border-yellow-500/50"
+          >
+            <AlertCircle class="h-3 w-3 mr-1" />
+            Stale
+          </Badge>
         </CardTitle>
-        <div class="flex items-center gap-1">
+        <div class="flex items-center gap-1 shrink-0">
+          <!-- Run search (API sources only) -->
           <Button
-            v-if="canViewResults"
+            v-if="isApiSource"
             variant="ghost"
             size="icon"
-            :data-testid="`view-results-${sourceName}`"
-            title="View search results"
-            @click="showResultsModal = true"
+            :disabled="isSearching"
+            :data-testid="`run-search-${sourceName}`"
+            title="Run search for this source"
+            @click="runSearch"
           >
-            <Eye class="h-4 w-4" />
+            <Loader2 v-if="isSearching" class="h-4 w-4 animate-spin" />
+            <Play v-else class="h-4 w-4" />
           </Button>
+          <!-- Update file (DB sources only) -->
           <Button
-            v-if="source.search_type === 'API'"
+            v-if="isDbSource"
+            variant="ghost"
+            size="icon"
+            :data-testid="`update-source-${sourceName}`"
+            title="Update source file"
+            @click="openUpdateFileDialog"
+          >
+            <Upload class="h-4 w-4" />
+          </Button>
+          <!-- Edit query (API sources only) -->
+          <Button
+            v-if="isApiSource"
             variant="ghost"
             size="icon"
             :data-testid="`edit-source-${sourceName}`"
+            title="Edit search query"
             @click="openEditDialog"
           >
             <Settings class="h-4 w-4" />
           </Button>
+          <!-- Delete -->
           <Button
             variant="ghost"
             size="icon"
             :data-testid="`delete-source-${sourceName}`"
+            title="Delete source"
             @click="showDeleteDialog = true"
           >
             <Trash2 class="h-4 w-4 text-destructive" />
           </Button>
         </div>
       </div>
-      <CardDescription class="font-mono text-xs">
-        {{ filename }}
-      </CardDescription>
     </CardHeader>
-    <CardContent>
-      <div class="text-sm text-muted-foreground space-y-2">
-        <!-- Search string for API sources -->
-        <div v-if="hasSearchString" class="space-y-1">
-          <span class="text-xs font-medium">Query:</span>
-          <pre class="text-xs bg-muted p-2 rounded overflow-auto max-h-20">{{ source.search_string }}</pre>
+    <CardContent class="space-y-3">
+      <!-- Search progress (when searching) -->
+      <div v-if="isSearching && searchProgress" class="space-y-2">
+        <div class="flex items-center justify-between text-sm">
+          <div class="flex items-center gap-2">
+            <Loader2 class="h-4 w-4 animate-spin text-primary" />
+            <span class="text-muted-foreground">{{ searchProgress.status || 'Searching...' }}</span>
+          </div>
+          <span class="text-xs font-medium tabular-nums">{{ Math.round(searchProgress.progress) }}%</span>
         </div>
-        <!-- Parameters -->
-        <div v-if="Object.keys(source.search_parameters || {}).length > 0">
-          <span class="text-xs font-medium">Parameters:</span>
-          <pre class="text-xs bg-muted p-2 rounded overflow-auto max-h-20">{{ JSON.stringify(source.search_parameters, null, 2) }}</pre>
+        <Progress :model-value="searchProgress.progress" class="h-1.5" />
+        <div class="flex items-center justify-between text-xs text-muted-foreground">
+          <span v-if="searchProgress.totalBatches > 0">
+            Batch {{ searchProgress.currentBatch }}/{{ searchProgress.totalBatches }}
+          </span>
+          <span v-if="searchProgress.totalRecords > 0" class="tabular-nums">
+            {{ searchProgress.fetchedRecords.toLocaleString() }}/{{ searchProgress.totalRecords.toLocaleString() }} records
+          </span>
         </div>
+      </div>
+
+      <!-- Status section (when not searching) -->
+      <div v-else class="flex items-center justify-between">
+        <!-- Status indicator -->
+        <div class="flex items-center gap-2 text-sm">
+          <!-- Searching (fallback if no progress data) -->
+          <template v-if="isSearching">
+            <Loader2 class="h-4 w-4 animate-spin text-primary" />
+            <span class="font-medium text-primary">Searching...</span>
+          </template>
+          <!-- Completed (has records, not stale) -->
+          <template v-else-if="(source.record_count ?? 0) > 0 && !source.is_stale">
+            <CheckCircle2 class="h-4 w-4 text-green-500" />
+            <span class="text-muted-foreground">
+              <span class="font-medium text-foreground">{{ source.record_count }}</span> records
+            </span>
+            <span class="text-muted-foreground">·</span>
+            <span class="text-muted-foreground">{{ formatRelativeTime(source.last_run_timestamp!) }}</span>
+          </template>
+          <!-- Stale -->
+          <template v-else-if="source.is_stale">
+            <AlertCircle class="h-4 w-4 text-yellow-500" />
+            <span class="text-yellow-600 dark:text-yellow-400 text-xs">{{ source.stale_reason }}</span>
+          </template>
+          <!-- Never run -->
+          <template v-else>
+            <Circle class="h-4 w-4 text-muted-foreground" />
+            <span class="text-muted-foreground italic">Not run yet</span>
+          </template>
+        </div>
+
+        <!-- View records button (only when has records and not stale) -->
+        <Button
+          v-if="(source.record_count ?? 0) > 0 && !source.is_stale && !isSearching"
+          variant="outline"
+          size="sm"
+          class="h-7 text-xs"
+          :data-testid="`view-results-${sourceName}`"
+          @click="showResultsModal = true"
+        >
+          View
+          <ExternalLink class="h-3 w-3 ml-1" />
+        </Button>
+      </div>
+
+      <!-- Search string for API sources -->
+      <div v-if="hasSearchString" class="space-y-1">
+        <span class="text-xs font-medium text-muted-foreground">Query:</span>
+        <pre class="text-xs bg-muted p-2 rounded overflow-auto max-h-16">{{ source.search_string }}</pre>
       </div>
     </CardContent>
   </Card>
@@ -262,6 +472,70 @@ async function handleUpdate() {
         >
           <Loader2 v-if="isUpdating" class="h-4 w-4 mr-2 animate-spin" />
           Save Changes
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
+  <!-- Update File Dialog (for DB sources) -->
+  <Dialog v-model:open="showUpdateFileDialog">
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Update {{ sourceName }} Source</DialogTitle>
+        <DialogDescription>
+          Upload a new file to replace the existing search results.
+        </DialogDescription>
+      </DialogHeader>
+      <div class="space-y-4 py-4">
+        <div class="space-y-2">
+          <label class="text-sm font-medium">New Search Results File</label>
+          <Input
+            type="file"
+            accept=".bib,.ris,.nbib,.enl,.csv,.xlsx,.txt"
+            data-testid="update-file-input"
+            :disabled="isUploadingUpdate"
+            @change="handleUpdateFileSelect"
+          />
+          <p class="text-xs text-muted-foreground">
+            The new file will replace the existing search results.
+          </p>
+        </div>
+        <div v-if="updateFile" class="flex items-center gap-2 p-3 bg-muted rounded-md">
+          <span class="text-sm">{{ updateFile.name }}</span>
+          <span class="text-xs text-muted-foreground">
+            ({{ (updateFile.size / 1024).toFixed(1) }} KB)
+          </span>
+        </div>
+        <div class="space-y-2">
+          <label class="text-sm font-medium">Search Date</label>
+          <Input
+            type="date"
+            v-model="updateSearchDate"
+            data-testid="update-search-date"
+            :disabled="isUploadingUpdate"
+          />
+          <p class="text-xs text-muted-foreground">
+            When the new database search was performed.
+          </p>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button
+          variant="outline"
+          :disabled="isUploadingUpdate"
+          data-testid="cancel-update-file"
+          @click="showUpdateFileDialog = false"
+        >
+          Cancel
+        </Button>
+        <Button
+          :disabled="isUploadingUpdate || !updateFile"
+          data-testid="confirm-update-file"
+          @click="handleUpdateFile"
+        >
+          <Loader2 v-if="isUploadingUpdate" class="h-4 w-4 mr-2 animate-spin" />
+          <Upload v-else class="h-4 w-4 mr-2" />
+          Update Source
         </Button>
       </DialogFooter>
     </DialogContent>

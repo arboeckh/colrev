@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { Plus, FolderOpen, Loader2, RefreshCw } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,13 +13,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { ProjectCard } from '@/components/project';
+import { ProjectsTable } from '@/components/project';
 import { EmptyState, ThemeToggle } from '@/components/common';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
 import type { InitProjectResponse, ListProjectsResponse } from '@/types/api';
 
+const router = useRouter();
 const backend = useBackendStore();
 const projects = useProjectsStore();
 const notifications = useNotificationsStore();
@@ -89,6 +91,9 @@ async function createProject() {
       // Reset dialog
       showNewProjectDialog.value = false;
       newProjectId.value = '';
+
+      // Navigate to the new project
+      router.push({ name: 'project-overview', params: { id: result.project_id } });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -98,21 +103,8 @@ async function createProject() {
   }
 }
 
-// Watch for backend becoming ready
-watch(
-  () => backend.isRunning,
-  async (running) => {
-    if (running) {
-      await discoverProjects();
-    }
-  }
-);
-
-onMounted(async () => {
-  if (backend.isRunning) {
-    await discoverProjects();
-  }
-});
+// Note: Initial project discovery is handled in App.vue after backend starts
+// The discoverProjects function here is only for manual refresh
 </script>
 
 <template>
@@ -237,14 +229,8 @@ onMounted(async () => {
         </template>
       </EmptyState>
 
-      <!-- Project grid -->
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <ProjectCard
-          v-for="project in projects.projects"
-          :key="project.id"
-          :project="project"
-        />
-      </div>
+      <!-- Projects table -->
+      <ProjectsTable v-else :projects="projects.projects" />
     </main>
   </div>
 </template>

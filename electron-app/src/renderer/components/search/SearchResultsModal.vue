@@ -96,7 +96,7 @@ function truncate(text: string, maxLength: number): string {
 
 <template>
   <Dialog v-model:open="isOpen">
-    <DialogContent class="max-w-4xl max-h-[80vh] flex flex-col">
+    <DialogContent class="max-w-4xl max-h-[80vh] flex flex-col" data-testid="source-records-modal">
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           Search Results: {{ sourceName }}
@@ -120,7 +120,7 @@ function truncate(text: string, maxLength: number): string {
 
         <!-- Records table -->
         <div v-else class="border rounded-lg overflow-hidden">
-          <table class="w-full text-sm">
+          <table class="w-full text-sm" data-testid="records-table">
             <thead class="bg-muted/50">
               <tr>
                 <th class="px-4 py-3 text-left font-medium w-16">#</th>
@@ -135,6 +135,7 @@ function truncate(text: string, maxLength: number): string {
                 v-for="(record, index) in records"
                 :key="record.ID"
                 class="hover:bg-muted/30"
+                :data-testid="`record-row-${index}`"
               >
                 <td class="px-4 py-3 text-muted-foreground">
                   {{ (currentPage - 1) * pageSize + index + 1 }}

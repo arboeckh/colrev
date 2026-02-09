@@ -181,6 +181,11 @@ export interface SearchSource {
   search_string?: string;
   search_results_path?: string;
   platform?: string;
+  // Per-source staleness metadata
+  record_count?: number;
+  last_run_timestamp?: string | null;
+  is_stale?: boolean;
+  stale_reason?: string | null;
 }
 
 export interface ScreenCriterion {

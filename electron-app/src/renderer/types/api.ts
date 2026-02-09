@@ -429,6 +429,8 @@ export interface GetOperationInfoResponse extends SuccessResponse {
   operation: string;
   can_run: boolean;
   reason?: string;
+  needs_rerun: boolean;
+  needs_rerun_reason?: string;
   affected_records: number;
   description: string;
 }

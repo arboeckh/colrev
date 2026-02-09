@@ -1,8 +1,14 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { Upload, Loader2, FileText } from 'lucide-vue-next';
+import { Upload, Loader2, FileText, CalendarIcon } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Calendar } from '@/components/ui/calendar';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import {
   Dialog,
   DialogContent,
@@ -14,6 +20,8 @@ import {
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import type { UploadSearchFileResponse, AddSourceResponse } from '@/types';
+import { getLocalTimeZone, today, type DateValue, CalendarDate } from '@internationalized/date';
+import { cn } from '@/lib/utils';
 
 const props = defineProps<{
   projectId: string;
@@ -31,6 +39,7 @@ const notifications = useNotificationsStore();
 // Form state
 const sourceName = ref('');
 const selectedFile = ref<File | null>(null);
+const searchDate = ref<DateValue>(today(getLocalTimeZone()));
 const isUploading = ref(false);
 const uploadProgress = ref('');
 
@@ -42,6 +51,16 @@ const dialogOpen = computed({
 
 const canSubmit = computed(() => {
   return sourceName.value.trim() && selectedFile.value && !isUploading.value;
+});
+
+const formattedDate = computed(() => {
+  if (!searchDate.value) return 'Select date';
+  const date = searchDate.value;
+  return new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(date.year, date.month - 1, date.day));
 });
 
 function handleFileSelect(event: Event) {
@@ -66,14 +85,18 @@ async function handleSubmit() {
   try {
     // Read file content
     const fileContent = await readFileAsText(selectedFile.value!);
-    const filename = selectedFile.value!.name;
+
+    // Generate the target filename based on user's source name with the same extension as uploaded file
+    const fileExtension = selectedFile.value!.name.split('.').pop() || 'bib';
+    const sanitizedSourceName = sourceName.value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    const targetFilename = `${sanitizedSourceName}.${fileExtension}`;
 
     uploadProgress.value = 'Uploading file...';
 
-    // Upload the file
+    // Upload the file with the target filename (based on source name, not original filename)
     const uploadResponse = await backend.call<UploadSearchFileResponse>('upload_search_file', {
       project_id: props.projectId,
-      filename: filename,
+      filename: targetFilename,
       content: fileContent,
       encoding: 'utf-8',
     });
@@ -84,12 +107,19 @@ async function handleSubmit() {
 
     uploadProgress.value = 'Adding source...';
 
-    // Add the source configuration
+    // Convert DateValue to ISO string for the run_date
+    const runDateISO = searchDate.value
+      ? new Date(searchDate.value.year, searchDate.value.month - 1, searchDate.value.day).toISOString()
+      : new Date().toISOString();
+
+    // Add the source configuration with run_date
+    // The path returned from upload is used directly
     const addResponse = await backend.call<AddSourceResponse>('add_source', {
       project_id: props.projectId,
       endpoint: 'colrev.unknown_source',
       search_type: 'DB',
       filename: uploadResponse.path,
+      run_date: runDateISO,
     });
 
     if (addResponse.success) {
@@ -119,6 +149,7 @@ function readFileAsText(file: File): Promise<string> {
 function resetForm() {
   sourceName.value = '';
   selectedFile.value = null;
+  searchDate.value = today(getLocalTimeZone());
 }
 
 function handleCancel() {
@@ -176,6 +207,37 @@ function handleCancel() {
           <span class="text-xs text-muted-foreground">
             ({{ (selectedFile.size / 1024).toFixed(1) }} KB)
           </span>
+        </div>
+
+        <!-- Search date picker -->
+        <div class="space-y-2">
+          <label class="text-sm font-medium">Search Date</label>
+          <Popover>
+            <PopoverTrigger as-child>
+              <Button
+                variant="outline"
+                :class="cn(
+                  'w-full justify-start text-left font-normal',
+                  !searchDate && 'text-muted-foreground'
+                )"
+                :disabled="isUploading"
+                data-testid="search-date-picker"
+              >
+                <CalendarIcon class="mr-2 h-4 w-4" />
+                {{ formattedDate }}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent class="w-auto p-0" align="start">
+              <Calendar
+                v-model="searchDate"
+                layout="month-and-year"
+                :max-value="today(getLocalTimeZone())"
+              />
+            </PopoverContent>
+          </Popover>
+          <p class="text-xs text-muted-foreground">
+            When the database search was performed.
+          </p>
         </div>
 
         <!-- Upload progress -->

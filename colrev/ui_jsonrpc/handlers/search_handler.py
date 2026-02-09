@@ -13,9 +13,11 @@ See docs/source/api/jsonrpc/search.rst for full endpoint documentation.
 """
 
 import base64
+import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 import colrev.review_manager
 from colrev.ui_jsonrpc import response_formatter, validation
@@ -98,9 +100,10 @@ class SearchHandler:
 
     def get_sources(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        List all configured search sources.
+        List all configured search sources with metadata.
 
-        Returns the list of search sources configured in the project settings.
+        Returns the list of search sources configured in the project settings,
+        including per-source staleness status, record counts, and timestamps.
 
         Args:
             params: Method parameters containing:
@@ -114,6 +117,10 @@ class SearchHandler:
                     - search_results_path (str): Path to search results file
                     - search_type (str): Type of search (DB, API, etc.)
                     - search_parameters (dict): Source-specific parameters
+                    - record_count (int): Number of records in search results file
+                    - last_run_timestamp (str|null): ISO timestamp of last search run
+                    - is_stale (bool): Whether source settings changed since last run
+                    - stale_reason (str|null): Reason for staleness if applicable
         """
         project_id = params["project_id"]
         logger.info(f"Getting sources for project {project_id}")
@@ -124,6 +131,51 @@ class SearchHandler:
         for source in sources:
             # Use model_dump() for proper serialization
             source_dict = source.model_dump()
+
+            # Get record count from search results file
+            results_path = self.review_manager.path / source.search_results_path
+            record_count = 0
+            if results_path.exists():
+                try:
+                    from colrev.loader import load_utils
+
+                    record_count = load_utils.get_nr_records(results_path)
+                except Exception:
+                    pass
+
+            # Check staleness by comparing current settings with saved history
+            history_path = (
+                self.review_manager.path / source.get_search_history_path()
+            )
+            is_stale, stale_reason = self._check_source_staleness(
+                source, history_path
+            )
+
+            # Get last run timestamp from the history file
+            # Prefer the 'last_run' field if present, otherwise fall back to file mtime
+            last_run_timestamp = None
+            if record_count > 0 and history_path.is_file():
+                try:
+                    with open(history_path, "r", encoding="utf-8") as f:
+                        history_data = json.load(f)
+                    last_run_timestamp = history_data.get("last_run")
+                except (json.JSONDecodeError, OSError):
+                    pass
+                # Fall back to file mtime if last_run not in history
+                if not last_run_timestamp:
+                    mtime = history_path.stat().st_mtime
+                    last_run_timestamp = datetime.fromtimestamp(
+                        mtime, tz=timezone.utc
+                    ).isoformat()
+
+            source_dict.update(
+                {
+                    "record_count": record_count,
+                    "last_run_timestamp": last_run_timestamp,
+                    "is_stale": is_stale,
+                    "stale_reason": stale_reason,
+                }
+            )
             sources_list.append(source_dict)
 
         return {
@@ -132,12 +184,91 @@ class SearchHandler:
             "sources": sources_list,
         }
 
+    def _check_source_staleness(
+        self, source, history_path: Path
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Check if a single source is stale by comparing current settings with saved history.
+
+        Args:
+            source: ExtendedSearchFile object with current settings
+            history_path: Path to the search history JSON file
+
+        Returns:
+            Tuple of (is_stale, stale_reason)
+        """
+        # If no history file exists, search hasn't been run yet
+        if not history_path.is_file():
+            return True, "Search has not been run"
+
+        try:
+            with open(history_path, "r", encoding="utf-8") as f:
+                history = json.load(f)
+
+            # Compare search_string (query)
+            current_query = getattr(source, "search_string", "") or ""
+            history_query = history.get("search_string", "") or ""
+            if current_query != history_query:
+                return True, "Search query changed"
+
+            # Compare search_parameters
+            current_params = getattr(source, "search_parameters", {}) or {}
+            history_params = history.get("search_parameters", {}) or {}
+            if current_params != history_params:
+                return True, "Search parameters changed"
+
+            return False, None
+
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Error reading search history {history_path}: {e}")
+            return True, "Unable to read search history"
+
+    def _save_source_history(
+        self, source, run_date: Optional[str] = None
+    ) -> None:
+        """
+        Save the search history file for a source.
+
+        This marks the source as "run" by creating/updating the history JSON file.
+        For file-based sources (DB type), this should be called immediately after
+        adding the source since the file already contains the search results.
+
+        Args:
+            source: ExtendedSearchFile object
+            run_date: ISO timestamp for when the search was run.
+                     Defaults to current time if not provided.
+        """
+        history_path = self.review_manager.path / source.get_search_history_path()
+
+        # Use provided run_date or default to now
+        if run_date:
+            last_run = run_date
+        else:
+            last_run = datetime.now(tz=timezone.utc).isoformat()
+
+        # Build history data from source
+        history_data = source.to_dict()
+        history_data.pop("search_history_path", None)
+        history_data["last_run"] = last_run
+
+        # Save the history file
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(history_path, "w", encoding="utf-8") as f:
+            json.dump(history_data, f, indent=4, ensure_ascii=False)
+
+        # Stage the history file for git
+        self.review_manager.dataset.git_repo.add_changes(history_path)
+
     def add_source(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Add a new search source.
 
         Adds a search source to the project configuration. The source can be
         an API-based source (like Crossref) or a file-based source.
+
+        For file-based sources (DB type), the search history is automatically
+        saved, marking the source as "run" immediately. This is because the
+        file already contains the search results.
 
         Args:
             params: Method parameters containing:
@@ -148,6 +279,9 @@ class SearchHandler:
                     One of: "DB", "API", "BACKWARD", "FORWARD", "TOC", "OTHER", "FILES", "MD"
                 - search_string (str, optional): Search query string (default: "")
                 - filename (str, optional): Target filename (auto-generated if not provided)
+                - run_date (str, optional): ISO timestamp for when the search was run.
+                    For file-based sources, this is when the database export was performed.
+                    Defaults to current time if not provided.
                 - skip_commit (bool, optional): Skip git commit (default: False)
 
         Returns:
@@ -164,6 +298,7 @@ class SearchHandler:
         search_type = params.get("search_type")
         search_string = validation.get_optional_param(params, "search_string", "")
         filename = validation.get_optional_param(params, "filename", None)
+        run_date = validation.get_optional_param(params, "run_date", None)
         skip_commit = validation.get_optional_param(params, "skip_commit", False)
 
         if not endpoint:
@@ -229,6 +364,11 @@ class SearchHandler:
         # Add to settings
         self.review_manager.settings.sources.append(new_source)
         self.review_manager.save_settings()
+
+        # For file-based sources (DB type), automatically save the search history
+        # This marks the source as "run" since the file already contains results
+        if search_type_enum == SearchType.DB:
+            self._save_source_history(new_source, run_date)
 
         # Create commit if not skipped
         if not skip_commit:
@@ -310,15 +450,13 @@ class SearchHandler:
         # Detect file format
         detected_format = self._detect_file_format(target_path)
 
-        return response_formatter.format_operation_response(
-            operation_name="upload_search_file",
-            project_id=project_id,
-            details={
-                "path": str(target_path.relative_to(self.review_manager.path)),
-                "detected_format": detected_format,
-                "message": f"Uploaded search file: {safe_filename}",
-            },
-        )
+        # Return flat response to match frontend UploadSearchFileResponse interface
+        return {
+            "success": True,
+            "path": str(target_path.relative_to(self.review_manager.path)),
+            "detected_format": detected_format,
+            "message": f"Uploaded search file: {safe_filename}",
+        }
 
     def remove_source(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -404,12 +542,17 @@ class SearchHandler:
         """
         Update an existing search source configuration.
 
+        For file-based sources (DB type), you can provide a run_date to update
+        the search history, which marks the source as freshly "run".
+
         Args:
             params: Method parameters containing:
                 - project_id (str): Project identifier (required)
                 - filename (str): Source filename to update (required)
                 - search_string (str, optional): New search query string
                 - search_parameters (dict, optional): New search parameters
+                - run_date (str, optional): ISO timestamp for when the search was run.
+                    For file-based sources, providing this will update the search history.
                 - skip_commit (bool, optional): Skip git commit (default: False)
 
         Returns:
@@ -426,6 +569,7 @@ class SearchHandler:
         filename = params.get("filename")
         search_string = params.get("search_string")
         search_parameters = params.get("search_parameters")
+        run_date = params.get("run_date")
         skip_commit = validation.get_optional_param(params, "skip_commit", False)
 
         if not filename:
@@ -455,6 +599,20 @@ class SearchHandler:
                 query_changed = True
             source_to_update.search_string = search_string
 
+            # For PubMed API sources, rebuild the URL from the new search string
+            from colrev.constants import SearchType
+
+            if (
+                source_to_update.search_type == SearchType.API
+                and source_to_update.platform == "colrev.pubmed"
+            ):
+                import urllib.parse
+
+                encoded_query = urllib.parse.quote(search_string)
+                pubmed_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={encoded_query}"
+                source_to_update.search_parameters["url"] = pubmed_url
+                logger.info(f"Rebuilt PubMed URL: {pubmed_url}")
+
         if search_parameters is not None:
             # Check if URL parameter changed (main query for API sources)
             if "url" in search_parameters:
@@ -476,6 +634,13 @@ class SearchHandler:
 
         # Save settings
         self.review_manager.save_settings()
+
+        # For file-based sources, if run_date is provided, update the search history
+        # This marks the source as freshly "run" with the specified date
+        from colrev.constants import SearchType
+
+        if run_date and source_to_update.search_type == SearchType.DB:
+            self._save_source_history(source_to_update, run_date)
 
         # Create commit if not skipped
         if not skip_commit:
@@ -626,44 +791,120 @@ class SearchHandler:
         }
 
     def _read_search_file_records(self, file_path: Path) -> List[Dict[str, Any]]:
-        """Read records from a search file (BibTeX format).
+        """Read records from a search file.
 
+        Supports multiple formats: BibTeX, RIS, NBIB, EndNote, etc.
         Used as fallback when records haven't been loaded into records.bib yet.
+
+        Does simple field mapping to extract title, author, year from
+        format-specific field names.
         """
         records = []
 
         try:
-            # Use colrev's bibtex parser
-            from colrev.loader.bib import BIBLoader
+            # Select appropriate loader based on file extension
+            suffix = file_path.suffix.lower()
 
-            loader = BIBLoader(
-                filename=file_path,
-                unique_id_field="ID",
-            )
+            if suffix == ".ris":
+                from colrev.loader.ris import RISLoader
 
-            entries = loader.load_records_list()
-            records = entries
+                loader = RISLoader(filename=file_path, unique_id_field="INCREMENTAL")
+                raw_records = loader.load_records_list()
+                # Map RIS fields to standard fields
+                for i, raw in enumerate(raw_records):
+                    record = {
+                        "ID": raw.get("ID", str(i + 1)),
+                        "ENTRYTYPE": self._ris_type_to_entrytype(raw.get("TY", "")),
+                        "title": raw.get("T1", raw.get("TI", "")),
+                        "author": self._format_ris_authors(raw.get("A1", raw.get("AU", []))),
+                        "year": self._extract_year(raw.get("Y1", raw.get("PY", ""))),
+                        "journal": raw.get("JF", raw.get("T2", "")),
+                        "doi": raw.get("DO", ""),
+                        "abstract": raw.get("N2", raw.get("AB", "")),
+                    }
+                    records.append(record)
+
+            elif suffix == ".nbib":
+                from colrev.loader.nbib import NBIBLoader
+
+                loader = NBIBLoader(filename=file_path, unique_id_field="INCREMENTAL")
+                raw_records = loader.load_records_list()
+                for i, raw in enumerate(raw_records):
+                    record = {
+                        "ID": raw.get("ID", str(i + 1)),
+                        "ENTRYTYPE": "article",
+                        "title": raw.get("TI", ""),
+                        "author": self._format_ris_authors(raw.get("AU", [])),
+                        "year": raw.get("DP", "")[:4] if raw.get("DP") else "",
+                        "journal": raw.get("JT", ""),
+                        "doi": raw.get("AID", ""),
+                        "abstract": raw.get("AB", ""),
+                    }
+                    records.append(record)
+
+            elif suffix in [".enl", ".txt"]:
+                from colrev.loader.enl import ENLLoader
+
+                loader = ENLLoader(filename=file_path, unique_id_field="INCREMENTAL")
+                raw_records = loader.load_records_list()
+                for i, raw in enumerate(raw_records):
+                    record = {
+                        "ID": raw.get("ID", str(i + 1)),
+                        "ENTRYTYPE": "article",
+                        "title": raw.get("%T", ""),
+                        "author": self._format_ris_authors(raw.get("%A", [])),
+                        "year": raw.get("%D", ""),
+                        "journal": raw.get("%B", raw.get("%J", "")),
+                        "abstract": raw.get("%X", ""),
+                    }
+                    records.append(record)
+
+            elif suffix in [".csv", ".xls", ".xlsx"]:
+                from colrev.loader.table import TableLoader
+
+                loader = TableLoader(filename=file_path, unique_id_field="INCREMENTAL")
+                raw_records = loader.load_records_list()
+                # Table files usually have standard field names
+                records = raw_records
+
+            else:
+                # Default to BibTeX for .bib and unknown formats
+                from colrev.loader.bib import BIBLoader
+
+                loader = BIBLoader(filename=file_path, unique_id_field="INCREMENTAL")
+                # BibTeX files have standard field names
+                records = loader.load_records_list()
 
         except Exception as e:
             logger.warning(f"Failed to parse {file_path}: {e}")
-            # Try a simpler approach - just extract basic info
-            try:
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-                import re
-                matches = re.findall(r'@(\w+)\s*\{([^,]+),', content)
-                for entry_type, entry_id in matches:
-                    records.append({
-                        "ID": entry_id.strip(),
-                        "ENTRYTYPE": entry_type.lower(),
-                        "title": "(parsing error)",
-                        "author": "",
-                        "year": "",
-                    })
-            except Exception:
-                pass
 
         return records
+
+    def _ris_type_to_entrytype(self, ris_type: str) -> str:
+        """Convert RIS type (TY field) to standard entry type."""
+        mapping = {
+            "JOUR": "article",
+            "BOOK": "book",
+            "CHAP": "inbook",
+            "CONF": "inproceedings",
+            "THES": "phdthesis",
+            "RPRT": "techreport",
+            "UNPB": "unpublished",
+        }
+        return mapping.get(ris_type.upper(), "misc")
+
+    def _format_ris_authors(self, authors: Any) -> str:
+        """Format RIS author field (list or string) to standard author string."""
+        if isinstance(authors, list):
+            return " and ".join(authors)
+        return str(authors) if authors else ""
+
+    def _extract_year(self, year_field: str) -> str:
+        """Extract year from RIS date field (e.g., '2025//' -> '2025')."""
+        if not year_field:
+            return ""
+        # Take first 4 characters (the year part)
+        return year_field[:4] if len(year_field) >= 4 else year_field
 
     def _detect_file_format(self, file_path: Path) -> str:
         """Detect the format of a search file."""

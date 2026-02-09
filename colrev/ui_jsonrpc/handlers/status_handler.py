@@ -9,7 +9,9 @@ JSON-RPC Endpoints:
 See docs/api/jsonrpc/status.md for full endpoint documentation.
 """
 
+import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import colrev.review_manager
@@ -178,8 +180,8 @@ class StatusHandler:
         Get information about what a specific operation will do.
 
         Provides a preview of an operation before running it, including
-        whether it can run, how many records will be affected, and why
-        it might not be runnable.
+        whether it can run, how many records will be affected, why
+        it might not be runnable, and whether it needs to be re-run.
 
         Args:
             params: Method parameters containing:
@@ -194,6 +196,8 @@ class StatusHandler:
                 - operation (str): Operation name
                 - can_run (bool): Whether operation can be executed
                 - reason (str|null): Why operation cannot run (if can_run=False)
+                - needs_rerun (bool): Whether operation needs to be re-run
+                - needs_rerun_reason (str|null): Why operation needs re-run
                 - affected_records (int): Number of records that will be affected
                 - description (str): Human-readable description of operation
 
@@ -222,11 +226,18 @@ class StatusHandler:
             operation, status_stats
         )
 
+        # Check if operation needs to be re-run
+        needs_rerun, needs_rerun_reason = self._check_needs_rerun(
+            operation, status_stats
+        )
+
         return {
             "success": True,
             "operation": operation,
             "can_run": can_run,
             "reason": reason,
+            "needs_rerun": needs_rerun,
+            "needs_rerun_reason": needs_rerun_reason,
             "affected_records": affected_records,
             "description": OPERATION_DESCRIPTIONS[operation],
         }
@@ -349,3 +360,121 @@ class StatusHandler:
                 return False, reason, 0
 
         return True, None, affected_records
+
+    def _check_needs_rerun(
+        self, operation: str, status_stats
+    ) -> tuple[bool, Optional[str]]:
+        """
+        Check if an operation needs to be re-run due to changed settings.
+
+        For search: Compares current source settings vs search history files.
+        For other operations: Checks if there are records in input states.
+
+        Args:
+            operation: Name of operation to check
+            status_stats: StatusStats object from ReviewManager
+
+        Returns:
+            Tuple of (needs_rerun, reason)
+        """
+        if operation == "search":
+            return self._check_search_needs_rerun()
+
+        # For other operations, check if they have input records to process
+        currently = status_stats.currently
+        input_state = OPERATION_INPUT_STATES.get(operation)
+
+        if input_state is None:
+            return False, None
+
+        # Map input states to their counts
+        state_counts = {
+            RecordState.md_retrieved: currently.md_retrieved,
+            RecordState.md_imported: (
+                currently.md_imported + currently.md_needs_manual_preparation
+            ),
+            RecordState.md_prepared: currently.md_prepared,
+            RecordState.md_processed: currently.md_processed,
+            RecordState.rev_prescreen_included: (
+                currently.rev_prescreen_included + currently.pdf_needs_manual_retrieval
+            ),
+            RecordState.pdf_imported: (
+                currently.pdf_imported + currently.pdf_needs_manual_preparation
+            ),
+            RecordState.pdf_prepared: currently.pdf_prepared,
+            RecordState.rev_included: currently.rev_included,
+        }
+
+        count = state_counts.get(input_state, 0)
+        if count > 0:
+            return True, f"{count} record(s) pending for {operation}"
+
+        return False, None
+
+    def _check_search_needs_rerun(self) -> tuple[bool, Optional[str]]:
+        """
+        Check if search needs to be re-run by comparing current settings
+        with search history files.
+
+        Returns:
+            Tuple of (needs_rerun, reason)
+        """
+        sources = self.review_manager.settings.sources
+
+        if not sources:
+            return False, None
+
+        modified_sources = []
+
+        for source in sources:
+            history_path = self.review_manager.path / source.get_search_history_path()
+
+            # If no history file exists, search hasn't been run yet
+            if not history_path.is_file():
+                modified_sources.append(source.platform)
+                continue
+
+            # Load history and compare with current settings
+            try:
+                with open(history_path, "r", encoding="utf-8") as f:
+                    history = json.load(f)
+
+                # Compare key fields that affect search results
+                if self._source_settings_changed(source, history):
+                    modified_sources.append(source.platform)
+
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Error reading search history {history_path}: {e}")
+                modified_sources.append(source.platform)
+
+        if modified_sources:
+            if len(modified_sources) == 1:
+                return True, f"{modified_sources[0]} settings modified since last run"
+            return True, f"{len(modified_sources)} sources modified since last run"
+
+        return False, None
+
+    def _source_settings_changed(self, source, history: dict) -> bool:
+        """
+        Compare current source settings with saved history.
+
+        Args:
+            source: Current ExtendedSearchFile object
+            history: Saved history dict from JSON file
+
+        Returns:
+            True if settings have changed, False otherwise
+        """
+        # Compare search_string (query)
+        current_query = getattr(source, "search_string", "") or ""
+        history_query = history.get("search_string", "") or ""
+        if current_query != history_query:
+            return True
+
+        # Compare search_parameters if present
+        current_params = getattr(source, "search_parameters", {}) or {}
+        history_params = history.get("search_parameters", {}) or {}
+        if current_params != history_params:
+            return True
+
+        return False

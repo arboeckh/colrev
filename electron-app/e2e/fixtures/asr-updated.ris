@@ -1,0 +1,48 @@
+1.
+TY  - JOUR
+N1  - ASReview_relevant
+N1  - asreview_time: "2025-10-21 19:21:35"
+DB  - APA PsycInfo <2025 - Present>
+ID  - 2025-92821-001
+DO  - https://dx.doi.org/10.1089/cap.2024.0140
+T1  - Medication prescribing patterns at a youth mental health service: A single center retrospective cross-sectional study.
+A1  - Dinh, Angela
+A1  - El-Den, Sarira
+Y1  - 2025//
+N2  - Objective: Rates of mental illness among young people remain elevated.
+KW  - *Drug Therapy
+JF  - Journal of Child and Adolescent Psychopharmacology
+VL  - 35
+ER  -
+
+2.
+TY  - JOUR
+N1  - ASReview_relevant
+N1  - asreview_time: "2025-10-21 19:21:37"
+DB  - APA PsycInfo <2025 - Present>
+ID  - 2023-60263-011
+DO  - https://dx.doi.org/10.1093/ntr/ntac039
+T1  - Prevalence and correlates of tobacco use in young people presenting to Australian primary mental health services.
+A1  - Cotton, Sue M
+A1  - Sharmin, Sonia
+Y1  - 2023//
+N2  - Introduction: In Australian youth primary mental health settings it is unclear as to the rates.
+KW  - *Epidemiology
+JF  - Nicotine & Tobacco Research
+VL  - 25
+ER  -
+
+3.
+TY  - JOUR
+N1  - NEW_RECORD_FOR_UPDATE_TEST
+DB  - Test Database
+ID  - UPDATE-TEST-001
+DO  - https://dx.doi.org/10.9999/test.2025.001
+T1  - This is a new record added to test file update functionality
+A1  - Test, Author
+Y1  - 2025//
+N2  - This record was added to test the file update functionality in CoLRev.
+KW  - *Testing
+JF  - Test Journal
+VL  - 1
+ER  -
