@@ -68,18 +68,17 @@ const stepStatus = computed((): StepStatus => {
     return 'pending';
   }
 
+  // Step has records waiting to be processed - it's active
   if (pendingRecords.value > 0) {
     return 'active';
   }
 
+  // Step has processed records (and none pending) - it's complete
   if (processedRecords.value > 0) {
     return 'complete';
   }
 
-  if (props.operationInfo && !props.operationInfo.can_run && props.operationInfo.reason) {
-    return 'warning';
-  }
-
+  // No records in input or output states - step is pending (disabled/waiting)
   return 'pending';
 });
 </script>
