@@ -61,7 +61,7 @@ const recordCounts = computed(() => {
       <Separator class="my-3" />
 
       <!-- Workflow steps with connecting lines -->
-      <div class="space-y-0">
+      <nav class="flex flex-col pl-2">
         <SidebarItem
           v-for="(step, index) in WORKFLOW_STEPS"
           :key="step.id"
@@ -72,7 +72,7 @@ const recordCounts = computed(() => {
           :is-first="index === 0"
           :is-last="index === WORKFLOW_STEPS.length - 1"
         />
-      </div>
+      </nav>
 
       <Separator class="my-3" />
 

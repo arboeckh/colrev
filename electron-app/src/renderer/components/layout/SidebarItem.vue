@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
-import { Circle, CircleDot, CircleCheck, CircleAlert } from 'lucide-vue-next';
+import { Check, AlertCircle } from 'lucide-vue-next';
 import type { WorkflowStepInfo, RecordCounts } from '@/types/project';
 import type { GetOperationInfoResponse } from '@/types/api';
+import { useProjectsStore } from '@/stores/projects';
 
 const props = defineProps<{
   step: WorkflowStepInfo;
@@ -15,6 +16,7 @@ const props = defineProps<{
 }>();
 
 const route = useRoute();
+const projects = useProjectsStore();
 
 const isActive = computed(() => {
   return route.meta.step === props.step.id;
@@ -41,127 +43,113 @@ const processedRecords = computed(() => {
 });
 
 // Determine step status based on CoLRev record states
-// - 'complete': No pending records AND has processed records (or is search with sources)
-// - 'active': Has pending records to process
-// - 'warning': Operation can't run for an unexpected reason (after having processed records)
-// - 'pending': Not yet reached (no records have entered this stage)
 type StepStatus = 'complete' | 'active' | 'warning' | 'pending';
 
+// Check if search step is complete (for gating subsequent steps)
+const isSearchComplete = computed(() => {
+  const totalRecords = props.recordCounts?.total ?? 0;
+  if (totalRecords === 0) return false;
+  if (projects.hasStaleSearchSources) return false;
+  return true;
+});
+
 const stepStatus = computed((): StepStatus => {
-  // Special case for search: only complete when records have actually been retrieved
-  // and no sources have been modified since the last search
   if (props.step.id === 'search') {
-    // If search needs to be re-run (based on backend state), it's pending
-    if (props.operationInfo?.needs_rerun) {
-      return 'pending';
-    }
-    // Search is "complete" only when there are actual records in the system
-    // (not just because sources exist - the default FILES source always exists)
-    const totalRecords = props.recordCounts?.total ?? 0;
-    if (totalRecords > 0) {
+    // Search is complete only when there are records AND no sources need action
+    if (isSearchComplete.value) {
       return 'complete';
     }
+    // Otherwise search is "active" (in progress / needs work)
+    return 'active';
+  }
+
+  // For all other steps: if search isn't complete, show as pending (greyed out)
+  if (!isSearchComplete.value) {
     return 'pending';
   }
 
-  // If there are records waiting to be processed by this step
   if (pendingRecords.value > 0) {
     return 'active';
   }
 
-  // If this step has processed records and none are pending, it's complete
   if (processedRecords.value > 0) {
     return 'complete';
   }
 
-  // If no records have reached this step (neither pending nor processed), it's pending
-  // This takes priority over warning since the step simply hasn't been reached yet
-  if (pendingRecords.value === 0 && processedRecords.value === 0) {
-    return 'pending';
-  }
-
-  // Check for warning conditions (can't run for reasons other than no records)
-  // This only applies if we have some records but something is blocking the operation
   if (props.operationInfo && !props.operationInfo.can_run && props.operationInfo.reason) {
     return 'warning';
   }
 
-  // Default: not yet reached
   return 'pending';
-});
-
-const statusIcon = computed(() => {
-  switch (stepStatus.value) {
-    case 'complete':
-      return CircleCheck;
-    case 'active':
-      return CircleDot;
-    case 'warning':
-      return CircleAlert;
-    case 'pending':
-    default:
-      return Circle;
-  }
-});
-
-const statusClass = computed(() => {
-  switch (stepStatus.value) {
-    case 'complete':
-      return 'text-green-500';
-    case 'active':
-      return 'text-primary';
-    case 'warning':
-      return 'text-yellow-500';
-    case 'pending':
-    default:
-      return 'text-muted-foreground';
-  }
-});
-
-// Line color matches the step's completion status
-const lineClass = computed(() => {
-  if (stepStatus.value === 'complete') {
-    return 'bg-green-500';
-  }
-  return 'bg-border';
 });
 </script>
 
 <template>
-  <div class="relative">
-    <!-- Connecting line above (except for first item) -->
-    <div
-      v-if="!isFirst"
-      class="absolute left-[22px] -top-1 w-0.5 h-2"
-      :class="lineClass"
-    />
+  <RouterLink
+    :to="routePath"
+    :data-testid="`sidebar-${step.id}`"
+    :data-step-status="stepStatus"
+    class="group relative flex items-center gap-3 py-2 px-2 -mx-2 rounded-lg text-sm transition-all"
+    :class="[
+      isActive
+        ? 'text-foreground font-medium bg-accent/60'
+        : 'text-muted-foreground hover:text-foreground hover:bg-accent/30',
+    ]"
+  >
+    <!-- Vertical line (behind the dot) -->
+    <div class="relative flex flex-col items-center w-5">
+      <!-- Line segment above -->
+      <div
+        v-if="!isFirst"
+        class="absolute bottom-1/2 w-px h-4 -translate-y-0.5"
+        :class="stepStatus === 'complete' ? 'bg-emerald-500' : 'bg-border'"
+      />
+      <!-- Line segment below -->
+      <div
+        v-if="!isLast"
+        class="absolute top-1/2 w-px h-4 translate-y-0.5"
+        :class="stepStatus === 'complete' ? 'bg-emerald-500' : 'bg-border'"
+      />
 
-    <RouterLink
-      :to="routePath"
-      :data-testid="`sidebar-${step.id}`"
-      :data-step-status="stepStatus"
-      class="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors relative"
-      :class="[
-        isActive
-          ? 'bg-accent text-accent-foreground font-medium'
-          : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-      ]"
-    >
-      <component :is="statusIcon" class="h-4 w-4 flex-shrink-0" :class="statusClass" />
+      <!-- Step indicator dot -->
+      <div
+        class="relative z-10 flex h-5 w-5 items-center justify-center rounded-full border-2 transition-all"
+        :class="[
+          stepStatus === 'complete'
+            ? 'border-emerald-500 bg-emerald-500 text-white'
+            : stepStatus === 'active'
+              ? 'border-primary bg-primary text-primary-foreground'
+              : stepStatus === 'warning'
+                ? 'border-amber-500 bg-amber-500 text-white'
+                : isActive
+                  ? 'border-foreground/50 bg-foreground/10'
+                  : 'border-muted-foreground/30 bg-background',
+        ]"
+      >
+        <Check
+          v-if="stepStatus === 'complete'"
+          class="h-3 w-3"
+        />
+        <AlertCircle
+          v-else-if="stepStatus === 'warning'"
+          class="h-3 w-3"
+        />
+        <div
+          v-else-if="stepStatus === 'active'"
+          class="h-1.5 w-1.5 rounded-full bg-current"
+        />
+      </div>
+    </div>
+
+    <!-- Label and count -->
+    <div class="flex flex-1 items-center justify-between min-w-0 pr-2">
       <span class="truncate">{{ step.label }}</span>
       <span
         v-if="pendingRecords > 0"
-        class="ml-auto text-xs tabular-nums text-muted-foreground"
+        class="ml-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary/10 px-1.5 text-xs tabular-nums text-primary font-medium"
       >
         {{ pendingRecords }}
       </span>
-    </RouterLink>
-
-    <!-- Connecting line below (except for last item) -->
-    <div
-      v-if="!isLast"
-      class="absolute left-[22px] -bottom-1 w-0.5 h-2"
-      :class="stepStatus === 'complete' ? 'bg-green-500' : 'bg-border'"
-    />
-  </div>
+    </div>
+  </RouterLink>
 </template>

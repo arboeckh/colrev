@@ -249,12 +249,12 @@ test.describe('Search Source Updates', () => {
     await window.waitForTimeout(2000);
 
     // Verify source was added
-    const sourceCard = await window.$('[data-testid="source-card-unknown_source"]');
+    const sourceCard = await window.$('[data-testid="source-card-test-ris"]');
     expect(sourceCard).not.toBeNull();
     console.log('✅ Initial RIS file source added');
 
     // Count initial records by viewing them
-    let viewButton = await window.$('[data-testid="view-results-unknown_source"]');
+    let viewButton = await window.$('[data-testid="view-results-test-ris"]');
     if (viewButton) {
       await viewButton.click();
       await window.waitForSelector('[data-testid="source-records-modal"]', { timeout: 5000 });
@@ -277,7 +277,7 @@ test.describe('Search Source Updates', () => {
     await clearDebugLogs();
 
     // Delete the existing source
-    await window.click('[data-testid="delete-source-unknown_source"]');
+    await window.click('[data-testid="delete-source-test-ris"]');
     await window.waitForSelector('[data-testid="confirm-delete-source"]', { timeout: 5000 });
     await window.click('[data-testid="confirm-delete-source"]');
     await waitForRpcResponse('remove_source', 30000);
@@ -309,13 +309,13 @@ test.describe('Search Source Updates', () => {
     await waitForRpcResponse('get_sources', 10000);
     await window.waitForTimeout(2000);
 
-    // Verify new source was added
-    const newSourceCard = await window.$('[data-testid="source-card-unknown_source"]');
+    // Verify new source was added (name is "test-ris-updated")
+    const newSourceCard = await window.$('[data-testid="source-card-test-ris-updated"]');
     expect(newSourceCard).not.toBeNull();
     console.log('✅ New RIS file source added');
 
     // View records to verify the new file contents
-    viewButton = await window.$('[data-testid="view-results-unknown_source"]');
+    viewButton = await window.$('[data-testid="view-results-test-ris-updated"]');
     if (viewButton) {
       await viewButton.click();
       await window.waitForSelector('[data-testid="source-records-modal"]', { timeout: 5000 });

@@ -43,6 +43,8 @@ export const useProjectsStore = defineStore('projects', () => {
     screen: null,
     data: null,
   });
+  // Track if any search sources are stale (need re-running)
+  const hasStaleSearchSources = ref(false);
   const isLoadingProject = ref(false);
   const projectError = ref<string | null>(null);
 
@@ -253,6 +255,7 @@ export const useProjectsStore = defineStore('projects', () => {
     currentProjectId.value = null;
     currentProject.value = null;
     projectError.value = null;
+    hasStaleSearchSources.value = false;
     operationInfo.value = {
       search: null,
       load: null,
@@ -266,12 +269,17 @@ export const useProjectsStore = defineStore('projects', () => {
     };
   }
 
+  function setHasStaleSearchSources(value: boolean) {
+    hasStaleSearchSources.value = value;
+  }
+
   return {
     // State
     projects,
     currentProjectId,
     currentProject,
     operationInfo,
+    hasStaleSearchSources,
     isLoadingProject,
     projectError,
     // Computed
@@ -291,5 +299,6 @@ export const useProjectsStore = defineStore('projects', () => {
     refreshCurrentProject,
     refreshGitStatus,
     clearCurrentProject,
+    setHasStaleSearchSources,
   };
 });

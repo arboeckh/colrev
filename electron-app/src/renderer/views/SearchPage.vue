@@ -143,6 +143,19 @@ async function loadSources() {
     });
     if (response.success) {
       sources.value = response.sources;
+      // Update the store with stale status for sidebar to use
+      // A source needs action if:
+      // 1. It's explicitly marked as stale (needs re-run)
+      // 2. It's an API source that has never been run (no records)
+      const hasSourcesNeedingAction = response.sources.some(s => {
+        if (s.search_type === 'FILES') return false;
+        // Explicitly stale
+        if (s.is_stale) return true;
+        // API source that has never been run
+        if (s.search_type === 'API' && (s.record_count ?? 0) === 0) return true;
+        return false;
+      });
+      projects.setHasStaleSearchSources(hasSourcesNeedingAction);
     }
   } catch (err) {
     console.error('Failed to load sources:', err);

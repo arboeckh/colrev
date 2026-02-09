@@ -115,6 +115,11 @@ const isDbSource = computed(() => {
   return props.source.search_type === 'DB';
 });
 
+// Source is completed when it has records and is not stale
+const isCompleted = computed(() => {
+  return (props.source.record_count ?? 0) > 0 && !props.source.is_stale;
+});
+
 // Format relative time for display
 function formatRelativeTime(timestamp: string): string {
   try {
@@ -262,7 +267,13 @@ async function handleUpdateFile() {
   <Card
     :data-testid="`source-card-${sourceName}`"
     :class="cn(
-      isSearching ? 'border-primary/50 bg-primary/5' : source.is_stale ? 'border-yellow-500/50' : 'border-border',
+      isSearching
+        ? 'border-primary/50 bg-primary/5'
+        : source.is_stale
+          ? 'border-yellow-500/50 bg-yellow-500/5'
+          : isCompleted
+            ? 'border-green-500/50 bg-green-500/5'
+            : 'border-border',
       'transition-colors',
       props.class
     )"
@@ -280,6 +291,14 @@ async function handleUpdateFile() {
           >
             <AlertCircle class="h-3 w-3 mr-1" />
             Stale
+          </Badge>
+          <Badge
+            v-else-if="isCompleted"
+            variant="outline"
+            class="text-green-600 border-green-500/50 bg-green-500/10"
+          >
+            <CheckCircle2 class="h-3 w-3 mr-1" />
+            Complete
           </Badge>
         </CardTitle>
         <div class="flex items-center gap-1 shrink-0">
