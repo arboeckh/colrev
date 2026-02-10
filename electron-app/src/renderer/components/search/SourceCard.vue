@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { Database, Globe, Trash2, Settings, Loader2, ExternalLink, AlertCircle, Play, CheckCircle2, Circle, Upload } from 'lucide-vue-next';
+import { Database, Globe, Trash2, Settings, Loader2, ExternalLink, AlertCircle, Play, CheckCircle2, Circle, Upload, Copy, Check } from 'lucide-vue-next';
 import { cn } from '@/lib/utils';
 import {
   Card,
@@ -24,6 +24,7 @@ import { SearchResultsModal } from '@/components/search';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { SearchSource, RemoveSourceResponse, UpdateSourceResponse } from '@/types';
 
 interface SearchProgress {
@@ -69,6 +70,9 @@ const editSearchString = ref('');
 const updateFile = ref<File | null>(null);
 // Use ISO date string format for HTML date input (YYYY-MM-DD)
 const updateSearchDate = ref(new Date().toISOString().split('T')[0]);
+
+// Copy query state
+const copiedQuery = ref(false);
 
 // Computed
 const sourceIcon = computed(() => {
@@ -120,23 +124,47 @@ const isCompleted = computed(() => {
   return (props.source.record_count ?? 0) > 0 && !props.source.is_stale;
 });
 
-// Format relative time for display
-function formatRelativeTime(timestamp: string): string {
+// Format relative time for display with both relative and absolute date
+function formatRelativeTime(timestamp: string): { relative: string; date: string } {
   try {
     const date = new Date(timestamp);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
+    let relative: string;
+    if (diffDays === 0) relative = 'Today';
+    else if (diffDays === 1) relative = 'Yesterday';
+    else if (diffDays < 7) relative = `${diffDays} days ago`;
+    else if (diffDays < 14) relative = '1 week ago';
+    else if (diffDays < 30) relative = `${Math.floor(diffDays / 7)} weeks ago`;
+    else if (diffDays < 60) relative = '1 month ago';
+    else relative = `${Math.floor(diffDays / 30)} months ago`;
+
+    const dateStr = date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+
+    return { relative, date: dateStr };
   } catch {
-    return 'Unknown';
+    return { relative: 'Unknown', date: '' };
+  }
+}
+
+// Copy query to clipboard
+async function copyQuery() {
+  if (!props.source.search_string) return;
+  try {
+    await navigator.clipboard.writeText(props.source.search_string);
+    copiedQuery.value = true;
+    notifications.success('Copied', 'Query copied to clipboard');
+    setTimeout(() => {
+      copiedQuery.value = false;
+    }, 2000);
+  } catch {
+    notifications.error('Failed to copy', 'Could not copy to clipboard');
   }
 }
 
@@ -387,7 +415,16 @@ async function handleUpdateFile() {
               <span class="font-medium text-foreground">{{ source.record_count }}</span> records
             </span>
             <span class="text-muted-foreground">·</span>
-            <span class="text-muted-foreground">{{ formatRelativeTime(source.last_run_timestamp!) }}</span>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <span class="text-muted-foreground cursor-help">{{ formatRelativeTime(source.last_run_timestamp!).relative }}</span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{{ formatRelativeTime(source.last_run_timestamp!).date }}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </template>
           <!-- Stale -->
           <template v-else-if="source.is_stale">
@@ -417,8 +454,23 @@ async function handleUpdateFile() {
 
       <!-- Search string for API sources -->
       <div v-if="hasSearchString" class="space-y-1">
-        <span class="text-xs font-medium text-muted-foreground">Query:</span>
-        <pre class="text-xs bg-muted p-2 rounded overflow-auto max-h-16">{{ source.search_string }}</pre>
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-medium text-muted-foreground">Query:</span>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-6 w-6"
+            :data-testid="`copy-query-${sourceName}`"
+            title="Copy query to clipboard"
+            @click="copyQuery"
+          >
+            <Check v-if="copiedQuery" class="h-3 w-3 text-green-500" />
+            <Copy v-else class="h-3 w-3 text-muted-foreground" />
+          </Button>
+        </div>
+        <div class="relative">
+          <pre class="text-xs bg-muted p-2 rounded overflow-auto max-h-48 whitespace-pre-wrap break-words">{{ source.search_string }}</pre>
+        </div>
       </div>
     </CardContent>
   </Card>

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import { Upload, Loader2, FileText, CalendarIcon } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import {
   Popover,
@@ -39,6 +40,7 @@ const notifications = useNotificationsStore();
 // Form state
 const sourceName = ref('');
 const selectedFile = ref<File | null>(null);
+const searchQuery = ref('');
 const searchDate = ref<DateValue>(today(getLocalTimeZone()));
 const isUploading = ref(false);
 const uploadProgress = ref('');
@@ -50,7 +52,7 @@ const dialogOpen = computed({
 });
 
 const canSubmit = computed(() => {
-  return sourceName.value.trim() && selectedFile.value && !isUploading.value;
+  return sourceName.value.trim() && selectedFile.value && searchQuery.value.trim() && !isUploading.value;
 });
 
 const formattedDate = computed(() => {
@@ -112,7 +114,7 @@ async function handleSubmit() {
       ? new Date(searchDate.value.year, searchDate.value.month - 1, searchDate.value.day).toISOString()
       : new Date().toISOString();
 
-    // Add the source configuration with run_date
+    // Add the source configuration with run_date and search_string
     // The path returned from upload is used directly
     const addResponse = await backend.call<AddSourceResponse>('add_source', {
       project_id: props.projectId,
@@ -120,6 +122,7 @@ async function handleSubmit() {
       search_type: 'DB',
       filename: uploadResponse.path,
       run_date: runDateISO,
+      search_string: searchQuery.value.trim(),
     });
 
     if (addResponse.success) {
@@ -149,6 +152,7 @@ function readFileAsText(file: File): Promise<string> {
 function resetForm() {
   sourceName.value = '';
   selectedFile.value = null;
+  searchQuery.value = '';
   searchDate.value = today(getLocalTimeZone());
 }
 
@@ -207,6 +211,24 @@ function handleCancel() {
           <span class="text-xs text-muted-foreground">
             ({{ (selectedFile.size / 1024).toFixed(1) }} KB)
           </span>
+        </div>
+
+        <!-- Search query -->
+        <div class="space-y-2">
+          <label class="text-sm font-medium">
+            Search Query
+            <span class="text-destructive">*</span>
+          </label>
+          <Textarea
+            v-model="searchQuery"
+            placeholder="e.g., (machine learning OR deep learning) AND healthcare"
+            data-testid="search-query-input"
+            :disabled="isUploading"
+            class="min-h-[80px] resize-y"
+          />
+          <p class="text-xs text-muted-foreground">
+            Document the exact query used in the database export for reproducibility.
+          </p>
         </div>
 
         <!-- Search date picker -->
