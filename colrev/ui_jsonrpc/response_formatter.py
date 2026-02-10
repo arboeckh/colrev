@@ -146,9 +146,12 @@ def format_comprehensive_status_response(
     }
 
     # Extract current counts (records currently in each state)
+    # Note: md_retrieved can be negative due to a bug in CoLRev's _get_currently_md_retrieved
+    # when records have multiple origins (it counts origins, not unique records)
+    # We clamp to 0 to prevent UI issues
     currently = status_stats.currently
     currently_dict = {
-        "md_retrieved": currently.md_retrieved,
+        "md_retrieved": max(0, currently.md_retrieved),
         "md_imported": currently.md_imported,
         "md_needs_manual_preparation": currently.md_needs_manual_preparation,
         "md_prepared": currently.md_prepared,

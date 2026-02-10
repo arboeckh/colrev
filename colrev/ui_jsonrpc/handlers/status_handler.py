@@ -5,6 +5,7 @@ JSON-RPC Endpoints:
     - status: Alias for get_status
     - validate: Validate project state and check for issues
     - get_operation_info: Get information about what a specific operation will do
+    - get_preprocessing_summary: Get preprocessing data for visualization
 
 See docs/api/jsonrpc/status.md for full endpoint documentation.
 """
@@ -478,3 +479,106 @@ class StatusHandler:
             return True
 
         return False
+
+    def get_preprocessing_summary(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Get preprocessing data for visualization.
+
+        Returns comprehensive data about the preprocessing pipeline including
+        search sources, record counts through each stage, duplicates removed,
+        and completion status of each preprocessing stage.
+
+        Args:
+            params: Method parameters containing:
+                - project_id (str): Project identifier (required)
+
+        Returns:
+            Dict containing:
+                - success (bool): Always True on success
+                - project_id (str): Project identifier
+                - sources (list): List of source details with:
+                    - platform (str): Platform/source identifier
+                    - filename (str): Source filename
+                    - search_record_count (int): Records in search file
+                    - loaded_record_count (int): Records loaded into main dataset
+                - pipeline_counts (dict): Record counts at each stage:
+                    - md_retrieved (int): Records waiting in search files
+                    - md_imported (int): Records imported but not prepared
+                    - md_prepared (int): Records prepared but not deduplicated
+                    - md_processed (int): Records fully preprocessed
+                - duplicates_removed (int): Number of duplicate records merged
+                - stage_status (dict): Completion status of each stage:
+                    - load_completed (bool): True if no records waiting to load
+                    - prep_completed (bool): True if no records waiting for prep
+                    - dedupe_completed (bool): True if no records waiting for dedupe
+        """
+        from colrev.constants import Fields
+        from colrev.loader import load_utils
+
+        project_id = params["project_id"]
+        logger.info(f"Getting preprocessing summary for project {project_id}")
+
+        # Get status statistics
+        status_stats = self.review_manager.get_status_stats()
+        currently = status_stats.currently
+
+        # Build sources list with record counts
+        sources_list = []
+        for source in self.review_manager.settings.sources:
+            # Get record count from search results file
+            results_path = self.review_manager.path / source.search_results_path
+            search_record_count = 0
+            if results_path.exists():
+                try:
+                    search_record_count = load_utils.get_nr_records(results_path)
+                except Exception:
+                    pass
+
+            # Count loaded records from this source in main dataset
+            loaded_record_count = 0
+            try:
+                records_dict = self.review_manager.dataset.load_records_dict()
+                if records_dict:
+                    origin_prefix = Path(source.search_results_path).name
+                    for record in records_dict.values():
+                        origins = record.get(Fields.ORIGIN, [])
+                        for origin in origins:
+                            if origin.startswith(origin_prefix):
+                                loaded_record_count += 1
+                                break
+            except Exception:
+                pass
+
+            sources_list.append({
+                "platform": source.platform,
+                "filename": str(source.search_results_path),
+                "search_record_count": search_record_count,
+                "loaded_record_count": loaded_record_count,
+            })
+
+        # Build pipeline counts
+        pipeline_counts = {
+            "md_retrieved": currently.md_retrieved,
+            "md_imported": currently.md_imported + currently.md_needs_manual_preparation,
+            "md_prepared": currently.md_prepared,
+            "md_processed": currently.md_processed,
+        }
+
+        # Determine stage completion status
+        stage_status = {
+            "load_completed": currently.md_retrieved == 0,
+            "prep_completed": (
+                currently.md_imported == 0
+                and currently.md_needs_manual_preparation == 0
+            ),
+            "dedupe_completed": currently.md_prepared == 0,
+        }
+
+        return {
+            "success": True,
+            "project_id": project_id,
+            "sources": sources_list,
+            "pipeline_counts": pipeline_counts,
+            "duplicates_removed": status_stats.md_duplicates_removed,
+            "stage_status": stage_status,
+        }

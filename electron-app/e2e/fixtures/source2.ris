@@ -1,0 +1,41 @@
+TY  - JOUR
+TI  - Machine learning applications in healthcare: A systematic review
+AU  - Smith, J.
+AU  - Johnson, M.
+PY  - 2023
+JF  - Journal of Medical Informatics
+VL  - 15
+IS  - 2
+SP  - 100
+EP  - 115
+DO  - 10.1234/jmi.2023.001
+AB  - This systematic review examines machine learning applications in healthcare.
+ER  -
+
+TY  - JOUR
+TI  - Artificial intelligence in radiology diagnosis
+AU  - Garcia, Maria
+AU  - Martinez, Carlos
+PY  - 2023
+JF  - Radiology AI
+VL  - 5
+IS  - 3
+SP  - 150
+EP  - 175
+DO  - 10.1234/rai.2023.004
+AB  - AI systems are transforming radiology diagnosis workflows.
+ER  -
+
+TY  - JOUR
+TI  - Predictive analytics for patient outcomes
+AU  - Lee, Sarah
+AU  - Kim, David
+PY  - 2022
+JF  - Healthcare Analytics
+VL  - 3
+IS  - 2
+SP  - 80
+EP  - 95
+DO  - 10.1234/ha.2022.005
+AB  - Predictive models for patient outcome forecasting are analyzed.
+ER  -

@@ -144,9 +144,14 @@ class UnknownSearchSource(base_classes.SearchSourcePackageBaseClass):
             key_maps = {
                 ENTRYTYPES.ARTICLE: {
                     "PY": Fields.YEAR,
+                    "Y1": Fields.YEAR,  # Primary Date (alternative)
                     "AU": Fields.AUTHOR,
+                    "A1": Fields.AUTHOR,  # Primary Author (alternative)
                     "TI": Fields.TITLE,
+                    "T1": Fields.TITLE,  # Primary Title (alternative)
                     "T2": Fields.JOURNAL,
+                    "JF": Fields.JOURNAL,  # Journal Full Name (common RIS field)
+                    "JA": Fields.JOURNAL,  # Journal Abbreviation (fallback)
                     "AB": Fields.ABSTRACT,
                     "VL": Fields.VOLUME,
                     "IS": Fields.NUMBER,
@@ -160,8 +165,11 @@ class UnknownSearchSource(base_classes.SearchSourcePackageBaseClass):
                 },
                 ENTRYTYPES.INPROCEEDINGS: {
                     "PY": Fields.YEAR,
+                    "Y1": Fields.YEAR,  # Primary Date (alternative)
                     "AU": Fields.AUTHOR,
+                    "A1": Fields.AUTHOR,  # Primary Author (alternative)
                     "TI": Fields.TITLE,
+                    "T1": Fields.TITLE,  # Primary Title (alternative)
                     # "secondary_title": Fields.BOOKTITLE,
                     "DO": Fields.DOI,
                     "UR": Fields.URL,
@@ -172,7 +180,11 @@ class UnknownSearchSource(base_classes.SearchSourcePackageBaseClass):
                 },
                 ENTRYTYPES.INBOOK: {
                     "PY": Fields.YEAR,
+                    "Y1": Fields.YEAR,  # Primary Date (alternative)
                     "AU": Fields.AUTHOR,
+                    "A1": Fields.AUTHOR,  # Primary Author (alternative)
+                    "TI": Fields.TITLE,
+                    "T1": Fields.TITLE,  # Primary Title (alternative)
                     # "primary_title": Fields.CHAPTER,
                     # "secondary_title": Fields.TITLE,
                     "DO": Fields.DOI,
@@ -185,7 +197,11 @@ class UnknownSearchSource(base_classes.SearchSourcePackageBaseClass):
                 },
                 ENTRYTYPES.BOOK: {
                     "PY": Fields.YEAR,
+                    "Y1": Fields.YEAR,  # Primary Date (alternative)
                     "AU": Fields.AUTHOR,
+                    "A1": Fields.AUTHOR,  # Primary Author (alternative)
+                    "TI": Fields.TITLE,
+                    "T1": Fields.TITLE,  # Primary Title (alternative)
                     # "primary_title": Fields.CHAPTER,
                     # "secondary_title": Fields.TITLE,
                     "DO": Fields.DOI,
@@ -198,14 +214,20 @@ class UnknownSearchSource(base_classes.SearchSourcePackageBaseClass):
                 },
                 ENTRYTYPES.PHDTHESIS: {
                     "PY": Fields.YEAR,
+                    "Y1": Fields.YEAR,  # Primary Date (alternative)
                     "AU": Fields.AUTHOR,
+                    "A1": Fields.AUTHOR,  # Primary Author (alternative)
                     "TI": Fields.TITLE,
+                    "T1": Fields.TITLE,  # Primary Title (alternative)
                     "UR": Fields.URL,
                 },
                 ENTRYTYPES.TECHREPORT: {
                     "PY": Fields.YEAR,
+                    "Y1": Fields.YEAR,  # Primary Date (alternative)
                     "AU": Fields.AUTHOR,
+                    "A1": Fields.AUTHOR,  # Primary Author (alternative)
                     "TI": Fields.TITLE,
+                    "T1": Fields.TITLE,  # Primary Title (alternative)
                     "UR": Fields.URL,
                     # "fulltext": Fields.FULLTEXT,
                     "KW": Fields.KEYWORDS,
@@ -214,8 +236,11 @@ class UnknownSearchSource(base_classes.SearchSourcePackageBaseClass):
                 },
                 ENTRYTYPES.MISC: {
                     "PY": Fields.YEAR,
+                    "Y1": Fields.YEAR,  # Primary Date (alternative)
                     "AU": Fields.AUTHOR,
+                    "A1": Fields.AUTHOR,  # Primary Author (alternative)
                     "TI": Fields.TITLE,
+                    "T1": Fields.TITLE,  # Primary Title (alternative)
                     "UR": Fields.URL,
                     # "fulltext": Fields.FULLTEXT,
                     "KW": Fields.KEYWORDS,
@@ -247,6 +272,14 @@ class UnknownSearchSource(base_classes.SearchSourcePackageBaseClass):
                 record_dict[Fields.KEYWORDS], list
             ):
                 record_dict[Fields.KEYWORDS] = ", ".join(record_dict[Fields.KEYWORDS])
+
+            # Clean year field (Y1 format can be "2025//" or "2025/01/15")
+            if Fields.YEAR in record_dict:
+                year_val = str(record_dict[Fields.YEAR])
+                # Extract 4-digit year from start of string
+                year_match = re.match(r"^(\d{4})", year_val)
+                if year_match:
+                    record_dict[Fields.YEAR] = year_match.group(1)
 
             record_dict.pop("TY", None)
             record_dict.pop("Y2", None)
@@ -519,7 +552,7 @@ class UnknownSearchSource(base_classes.SearchSourcePackageBaseClass):
         for record in records.values():
             for key in list(record.keys()):
                 if key not in FieldSet.STANDARDIZED_FIELD_KEYS:
-                    record[f"colrev.unknonwn_source.{key}"] = record.pop(key)
+                    record[f"colrev.unknown_source.{key.lower()}"] = record.pop(key)
 
         return records
 

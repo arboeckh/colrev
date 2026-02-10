@@ -4,6 +4,7 @@ import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-rou
 const LandingPage = () => import('@/views/LandingPage.vue');
 const ProjectOverview = () => import('@/views/ProjectOverview.vue');
 const SearchPage = () => import('@/views/SearchPage.vue');
+const PreprocessingPage = () => import('@/views/PreprocessingPage.vue');
 const LoadPage = () => import('@/views/LoadPage.vue');
 const PrepPage = () => import('@/views/PrepPage.vue');
 const DedupePage = () => import('@/views/DedupePage.vue');
@@ -48,6 +49,15 @@ const routes: RouteRecordRaw[] = [
         meta: {
           title: 'Search',
           step: 'search',
+        },
+      },
+      {
+        path: 'preprocessing',
+        name: 'project-preprocessing',
+        component: PreprocessingPage,
+        meta: {
+          title: 'Preprocessing',
+          step: 'preprocessing',
         },
       },
       {

@@ -107,7 +107,7 @@ class JSONRPCHandler:
         # Methods that require an existing project
 
         # Status operations
-        elif method in ["get_status", "status", "validate", "get_operation_info"]:
+        elif method in ["get_status", "status", "validate", "get_operation_info", "get_preprocessing_summary"]:
             return self._handle_with_review_manager(
                 method, params, StatusHandler
             )

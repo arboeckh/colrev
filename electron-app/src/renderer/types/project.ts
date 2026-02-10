@@ -196,6 +196,7 @@ export interface ScreenCriterion {
 // Workflow step definitions
 export type WorkflowStep =
   | 'search'
+  | 'preprocessing'
   | 'load'
   | 'prep'
   | 'dedupe'
@@ -216,9 +217,14 @@ export interface WorkflowStepInfo {
   // Record states that indicate this step has processed records
   // Used to determine if the step has ever been run
   outputStates: (keyof RecordCounts)[];
+  // Whether this is a grouped/combined step
+  isGrouped?: boolean;
+  // Sub-steps if this is a grouped step
+  subSteps?: WorkflowStep[];
 }
 
-export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
+// Full workflow steps including the individual load/prep/dedupe for backwards compatibility
+export const ALL_WORKFLOW_STEPS: WorkflowStepInfo[] = [
   {
     id: 'search',
     label: 'Search',
@@ -250,6 +256,69 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     route: 'dedupe',
     inputStates: ['md_prepared'],
     outputStates: ['md_processed'],
+  },
+  {
+    id: 'prescreen',
+    label: 'Prescreen',
+    description: 'Title/abstract screening',
+    route: 'prescreen',
+    inputStates: ['md_processed'],
+    outputStates: ['rev_prescreen_included', 'rev_prescreen_excluded'],
+  },
+  {
+    id: 'pdf_get',
+    label: 'PDF Get',
+    description: 'Retrieve PDFs',
+    route: 'pdf-get',
+    inputStates: ['rev_prescreen_included', 'pdf_needs_manual_retrieval'],
+    outputStates: ['pdf_imported', 'pdf_not_available'],
+  },
+  {
+    id: 'pdf_prep',
+    label: 'PDF Prep',
+    description: 'Prepare PDFs',
+    route: 'pdf-prep',
+    inputStates: ['pdf_imported', 'pdf_needs_manual_preparation'],
+    outputStates: ['pdf_prepared'],
+  },
+  {
+    id: 'screen',
+    label: 'Screen',
+    description: 'Full-text screening',
+    route: 'screen',
+    inputStates: ['pdf_prepared'],
+    outputStates: ['rev_included', 'rev_excluded'],
+  },
+  {
+    id: 'data',
+    label: 'Data',
+    description: 'Data extraction',
+    route: 'data',
+    inputStates: ['rev_included'],
+    outputStates: ['rev_synthesized'],
+  },
+];
+
+// Grouped workflow steps for sidebar display (combines load/prep/dedupe into preprocessing)
+export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
+  {
+    id: 'search',
+    label: 'Search',
+    description: 'Configure and run searches',
+    route: 'search',
+    inputStates: [],
+    outputStates: ['md_retrieved'],
+  },
+  {
+    id: 'preprocessing',
+    label: 'Preprocessing',
+    description: 'Load, prepare, and deduplicate records',
+    route: 'preprocessing',
+    // Combined input states from load/prep/dedupe
+    inputStates: ['md_retrieved', 'md_imported', 'md_needs_manual_preparation', 'md_prepared'],
+    outputStates: ['md_processed'],
+    isGrouped: true,
+    subSteps: ['load', 'prep', 'dedupe'],
   },
   {
     id: 'prescreen',

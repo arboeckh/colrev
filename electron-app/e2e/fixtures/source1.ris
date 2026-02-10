@@ -1,0 +1,41 @@
+TY  - JOUR
+TI  - Machine learning applications in healthcare: A systematic review
+AU  - Smith, John
+AU  - Johnson, Mary
+PY  - 2023
+JF  - Journal of Medical Informatics
+VL  - 15
+IS  - 2
+SP  - 100
+EP  - 115
+DO  - 10.1234/jmi.2023.001
+AB  - This systematic review examines machine learning applications in healthcare settings.
+ER  -
+
+TY  - JOUR
+TI  - Deep learning for medical image analysis
+AU  - Brown, Alice
+AU  - Davis, Robert
+PY  - 2023
+JF  - Medical Imaging Research
+VL  - 8
+IS  - 4
+SP  - 200
+EP  - 220
+DO  - 10.1234/mir.2023.002
+AB  - Deep learning techniques have revolutionized medical image analysis.
+ER  -
+
+TY  - JOUR
+TI  - Natural language processing in clinical notes
+AU  - Wilson, Emma
+AU  - Taylor, James
+PY  - 2022
+JF  - Clinical Informatics Journal
+VL  - 12
+IS  - 1
+SP  - 50
+EP  - 65
+DO  - 10.1234/cij.2022.003
+AB  - NLP methods for extracting information from clinical notes are reviewed.
+ER  -

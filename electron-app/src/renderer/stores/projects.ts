@@ -34,6 +34,7 @@ export const useProjectsStore = defineStore('projects', () => {
   const currentProject = ref<Project | null>(null);
   const operationInfo = ref<Record<WorkflowStep, GetOperationInfoResponse | null>>({
     search: null,
+    preprocessing: null,
     load: null,
     prep: null,
     dedupe: null,
@@ -237,8 +238,34 @@ export const useProjectsStore = defineStore('projects', () => {
   }
 
   async function refreshCurrentProject(): Promise<void> {
-    if (currentProjectId.value) {
-      await loadProject(currentProjectId.value);
+    if (!currentProjectId.value || !currentProject.value) return;
+
+    const id = currentProjectId.value;
+
+    // Refresh WITHOUT showing loading spinner (keeps current content visible)
+    try {
+      // Load all project data in parallel
+      const [status, gitStatus, settings] = await Promise.all([
+        loadProjectStatus(id),
+        loadProjectGitStatus(id),
+        loadProjectSettings(id),
+      ]);
+
+      if (status) {
+        // Update current project in place (no flicker)
+        currentProject.value = {
+          ...currentProject.value,
+          status,
+          gitStatus: gitStatus ?? currentProject.value.gitStatus,
+          settings: settings ?? currentProject.value.settings,
+        };
+      }
+
+      // Refresh operation info
+      await loadAllOperationInfo(id);
+    } catch (err) {
+      console.error('Failed to refresh project:', err);
+      // Keep existing data on error - don't clear
     }
   }
 
@@ -258,6 +285,7 @@ export const useProjectsStore = defineStore('projects', () => {
     hasStaleSearchSources.value = false;
     operationInfo.value = {
       search: null,
+      preprocessing: null,
       load: null,
       prep: null,
       dedupe: null,

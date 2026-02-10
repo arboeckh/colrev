@@ -145,9 +145,8 @@ export async function failFastOnBackendError(
   }
 
   // Also check backend stderr logs for ERROR patterns (Python tracebacks)
-  // Ignore expected warnings like "Keys should be lower case" from RIS file loading
-  const ignoredPatterns = [
-    'Keys should be lower case', // Expected when loading RIS files
+  const ignoredPatterns: string[] = [
+    // Add patterns here for known warnings that should not fail tests
   ];
   const recentBackendLogs = debugData.backendLogs.slice(-30);
   const backendErrorLogs = recentBackendLogs.filter(

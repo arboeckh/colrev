@@ -84,7 +84,7 @@ const isSearchComplete = computed(() => {
 
 function goToNextStep() {
   if (projects.currentProjectId) {
-    router.push(`/project/${projects.currentProjectId}/load`);
+    router.push(`/project/${projects.currentProjectId}/preprocessing`);
   }
 }
 
@@ -284,7 +284,7 @@ onMounted(() => {
             <span class="text-sm font-medium">{{ totalSourceRecords.toLocaleString() }} records</span>
           </div>
           <Button data-testid="next-step-button" @click="goToNextStep">
-            Next: Load
+            Next: Preprocessing
             <ArrowRight class="h-4 w-4 ml-2" />
           </Button>
         </template>
