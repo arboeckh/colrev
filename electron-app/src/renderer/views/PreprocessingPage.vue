@@ -71,11 +71,13 @@ const stageStatus = computed(() => {
   // Load is completed when no records are in md_retrieved state
   const loadCompleted = currently.md_retrieved === 0 && status.total_records > 0;
 
-  // Prep is completed when no records are in md_imported or md_needs_manual_preparation
+  // Prep is completed when no records are in md_imported state.
+  // Records in md_needs_manual_preparation are a valid prep outcome
+  // (e.g. unknown_source records missing journal/volume/number) —
+  // the automated prep step has done its job.
   const prepCompleted =
     loadCompleted &&
-    currently.md_imported === 0 &&
-    currently.md_needs_manual_preparation === 0;
+    currently.md_imported === 0;
 
   // Dedupe is completed when no records are in md_prepared (all moved to md_processed)
   const dedupeCompleted = prepCompleted && currently.md_prepared === 0;

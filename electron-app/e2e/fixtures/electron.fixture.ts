@@ -1,5 +1,6 @@
 import { test as base, _electron as electron, ElectronApplication, Page } from '@playwright/test';
 import path from 'path';
+import fs from 'fs';
 
 /**
  * Debug log entry structure - matches the Pinia debug store
@@ -72,8 +73,24 @@ export const test = base.extend<ElectronFixtures>({
       },
     });
 
+    // Get the userData path before closing so we can clean up test projects
+    const userDataPath = await electronApp.evaluate(({ app }) => app.getPath('userData'));
+
     await use(electronApp);
     await electronApp.close();
+
+    // Clean up test projects created during this test run
+    const projectsDir = path.join(userDataPath, 'projects');
+    if (fs.existsSync(projectsDir)) {
+      const entries = fs.readdirSync(projectsDir);
+      for (const entry of entries) {
+        const fullPath = path.join(projectsDir, entry);
+        if (fs.statSync(fullPath).isDirectory()) {
+          fs.rmSync(fullPath, { recursive: true, force: true });
+        }
+      }
+      console.log(`Cleaned up ${entries.length} test project(s) from ${projectsDir}`);
+    }
   },
 
   // Get the first window (renderer process)
