@@ -96,7 +96,7 @@ function truncate(text: string, maxLength: number): string {
 
 <template>
   <Dialog v-model:open="isOpen">
-    <DialogContent class="max-w-4xl max-h-[80vh] flex flex-col" data-testid="source-records-modal">
+    <DialogContent class="w-[80vw] max-w-[80vw] sm:max-w-[80vw] max-h-[80vh] flex flex-col" data-testid="source-records-modal">
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           Search Results: {{ sourceName }}

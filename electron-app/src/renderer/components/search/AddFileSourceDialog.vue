@@ -164,7 +164,7 @@ function handleCancel() {
 
 <template>
   <Dialog v-model:open="dialogOpen">
-    <DialogContent>
+    <DialogContent class="w-[80vw] max-w-[80vw] sm:max-w-[80vw]">
       <DialogHeader>
         <DialogTitle>Add File Source</DialogTitle>
         <DialogDescription>
@@ -224,7 +224,7 @@ function handleCancel() {
             placeholder="e.g., (machine learning OR deep learning) AND healthcare"
             data-testid="search-query-input"
             :disabled="isUploading"
-            class="min-h-[80px] resize-y"
+            class="min-h-20 resize-y"
           />
           <p class="text-xs text-muted-foreground">
             Document the exact query used in the database export for reproducibility.

@@ -82,7 +82,7 @@ function handleCancel() {
 
 <template>
   <Dialog v-model:open="dialogOpen">
-    <DialogContent>
+    <DialogContent class="w-[80vw] max-w-[80vw] sm:max-w-[80vw]">
       <DialogHeader>
         <DialogTitle>Add PubMed Search</DialogTitle>
         <DialogDescription>

@@ -477,7 +477,7 @@ async function handleUpdateFile() {
 
   <!-- Delete Confirmation Dialog -->
   <Dialog v-model:open="showDeleteDialog">
-    <DialogContent>
+    <DialogContent class="w-[80vw] max-w-[80vw] sm:max-w-[80vw]">
       <DialogHeader>
         <DialogTitle>Delete Source</DialogTitle>
         <DialogDescription>
@@ -509,7 +509,7 @@ async function handleUpdateFile() {
 
   <!-- Edit Dialog (for API sources) -->
   <Dialog v-model:open="showEditDialog">
-    <DialogContent>
+    <DialogContent class="w-[80vw] max-w-[80vw] sm:max-w-[80vw]">
       <DialogHeader>
         <DialogTitle>Edit {{ sourceName }} Search</DialogTitle>
         <DialogDescription>
@@ -550,7 +550,7 @@ async function handleUpdateFile() {
 
   <!-- Update File Dialog (for DB sources) -->
   <Dialog v-model:open="showUpdateFileDialog">
-    <DialogContent>
+    <DialogContent class="w-[80vw] max-w-[80vw] sm:max-w-[80vw]">
       <DialogHeader>
         <DialogTitle>Update {{ sourceName }} Source</DialogTitle>
         <DialogDescription>
