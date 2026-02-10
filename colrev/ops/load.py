@@ -289,8 +289,8 @@ class Load(colrev.process.operation.Operation):
 
         if re.findall(
             r"^TI ", data, re.MULTILINE
-        ) and source.search_source.get_search_history_path().suffix not in [".ris"]:
-            new_filename = source.search_source.get_search_history_path().with_suffix(
+        ) and source.search_source.search_results_path.suffix not in [".ris"]:
+            new_filename = source.search_source.search_results_path.with_suffix(
                 ".ris"
             )
             self.review_manager.logger.info(
@@ -298,15 +298,15 @@ class Load(colrev.process.operation.Operation):
                 f"(because the format is .ris){Colors.END}"
             )
             shutil.move(
-                str(source.search_source.get_search_history_path()), str(new_filename)
+                str(source.search_source.search_results_path), str(new_filename)
             )
             self.review_manager.dataset.git_repo.add_changes(
-                source.search_source.get_search_history_path(), remove=True
+                source.search_source.search_results_path, remove=True
             )
-            # source.search_source.get_search_history_path() = new_filename
+            source.search_source.search_results_path = new_filename
             self.review_manager.dataset.git_repo.add_changes(new_filename)
             self.review_manager.create_commit(
-                msg=f"Rename {source.search_source.get_search_history_path()}",
+                msg=f"Rename {source.search_source.search_results_path}",
             )
 
     def setup_source_for_load(
