@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
@@ -477,7 +478,7 @@ async function handleUpdateFile() {
 
   <!-- Delete Confirmation Dialog -->
   <Dialog v-model:open="showDeleteDialog">
-    <DialogContent class="w-[80vw] max-w-[80vw] sm:max-w-[80vw]">
+    <DialogContent class="max-w-prose">
       <DialogHeader>
         <DialogTitle>Delete Source</DialogTitle>
         <DialogDescription>
@@ -509,7 +510,7 @@ async function handleUpdateFile() {
 
   <!-- Edit Dialog (for API sources) -->
   <Dialog v-model:open="showEditDialog">
-    <DialogContent class="w-[80vw] max-w-[80vw] sm:max-w-[80vw]">
+    <DialogContent class="max-w-prose">
       <DialogHeader>
         <DialogTitle>Edit {{ sourceName }} Search</DialogTitle>
         <DialogDescription>
@@ -519,11 +520,12 @@ async function handleUpdateFile() {
       <div class="space-y-4 py-4">
         <div class="space-y-2">
           <label class="text-sm font-medium">Search Query</label>
-          <Input
+          <Textarea
             v-model="editSearchString"
             placeholder="Enter search query"
             data-testid="edit-query-input"
             :disabled="isUpdating"
+            class="min-h-24 resize-y"
           />
         </div>
       </div>
@@ -550,7 +552,7 @@ async function handleUpdateFile() {
 
   <!-- Update File Dialog (for DB sources) -->
   <Dialog v-model:open="showUpdateFileDialog">
-    <DialogContent class="w-[80vw] max-w-[80vw] sm:max-w-[80vw]">
+    <DialogContent class="max-w-prose">
       <DialogHeader>
         <DialogTitle>Update {{ sourceName }} Source</DialogTitle>
         <DialogDescription>

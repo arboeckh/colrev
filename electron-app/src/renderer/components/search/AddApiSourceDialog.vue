@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue';
 import { Globe, Loader2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
@@ -82,7 +82,7 @@ function handleCancel() {
 
 <template>
   <Dialog v-model:open="dialogOpen">
-    <DialogContent class="w-[80vw] max-w-[80vw] sm:max-w-[80vw]">
+    <DialogContent class="max-w-prose">
       <DialogHeader>
         <DialogTitle>Add PubMed Search</DialogTitle>
         <DialogDescription>
@@ -94,12 +94,12 @@ function handleCancel() {
         <!-- Search query -->
         <div class="space-y-2">
           <label class="text-sm font-medium">Search Query</label>
-          <Input
+          <Textarea
             v-model="searchQuery"
             placeholder="e.g., machine learning AND cancer[MeSH]"
             data-testid="pubmed-query-input"
             :disabled="isAdding"
-            @keyup.enter="handleSubmit"
+            class="min-h-24 resize-y"
           />
           <p class="text-xs text-muted-foreground">
             Use PubMed search syntax. Supports boolean operators (AND, OR, NOT) and field tags.

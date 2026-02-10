@@ -164,7 +164,7 @@ function handleCancel() {
 
 <template>
   <Dialog v-model:open="dialogOpen">
-    <DialogContent class="w-[80vw] max-w-[80vw] sm:max-w-[80vw]">
+    <DialogContent class="max-w-prose">
       <DialogHeader>
         <DialogTitle>Add File Source</DialogTitle>
         <DialogDescription>
