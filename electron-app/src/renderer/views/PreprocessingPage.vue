@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { Play, Loader2, Layers, Check, ArrowRight, Eye } from 'lucide-vue-next';
+import { Play, Loader2, Layers, Check, ArrowRight, Eye, Info, Database } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
@@ -21,12 +21,13 @@ interface Stage {
   id: StageId;
   label: string;
   shortLabel: string;
+  description: string;
 }
 
 const stageDefinitions: Stage[] = [
-  { id: 'load', label: 'Loading', shortLabel: 'Load' },
-  { id: 'prep', label: 'Preparing', shortLabel: 'Prep' },
-  { id: 'dedupe', label: 'Deduplicating', shortLabel: 'Dedupe' },
+  { id: 'load', label: 'Loading', shortLabel: 'Load', description: 'Import records from search result files into a unified dataset format.' },
+  { id: 'prep', label: 'Preparing', shortLabel: 'Prep', description: 'Clean and standardize metadata — fix formatting, resolve inconsistencies, and enrich records.' },
+  { id: 'dedupe', label: 'Deduplicating', shortLabel: 'Dedupe', description: 'Identify and merge duplicate records that appear across multiple sources.' },
 ];
 
 // State
@@ -247,92 +248,56 @@ watch(
 <template>
   <div class="p-6 space-y-6" data-testid="preprocessing-page">
     <!-- Page header -->
-    <div class="flex items-center justify-between">
-      <div>
-        <h2 class="text-2xl font-bold flex items-center gap-2">
-          <Layers class="h-6 w-6" />
-          Preprocessing
-        </h2>
-        <p class="text-muted-foreground">
-          Load, prepare, and deduplicate records from search sources
-        </p>
-      </div>
-
-      <Button
-        :disabled="!canRunPreprocessing || isRunning"
-        data-testid="preprocessing-run-all-button"
-        @click="runAllStages"
-      >
-        <Loader2 v-if="isRunning" class="h-4 w-4 mr-2 animate-spin" />
-        <Play v-else class="h-4 w-4 mr-2" />
-        Run All
-      </Button>
+    <div>
+      <h2 class="text-2xl font-bold flex items-center gap-2">
+        <Layers class="h-6 w-6" />
+        Preprocessing
+      </h2>
+      <p class="text-muted-foreground">
+        Load, prepare, and deduplicate records from search sources
+      </p>
     </div>
 
     <Separator />
 
-    <!-- Progress indicators -->
-    <div class="flex items-center justify-center gap-2" data-testid="preprocessing-progress">
-      <template v-for="(stage, index) in stageDefinitions" :key="stage.id">
-        <div
-          class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-300"
-          :class="{
-            'bg-primary text-primary-foreground': getStageVisualStatus(stage.id) === 'running',
-            'bg-emerald-500 text-white': getStageVisualStatus(stage.id) === 'complete',
-            'bg-muted text-muted-foreground': getStageVisualStatus(stage.id) === 'pending',
-          }"
-          :data-testid="`preprocessing-step-${stage.id}`"
-          :data-status="getStageVisualStatus(stage.id)"
+    <!-- Data Flow Diagram with Run All -->
+    <div
+      class="flex flex-col w-fit mx-auto rounded-lg border border-border bg-muted/20"
+      data-testid="preprocessing-flow-diagram"
+    >
+      <!-- Run All top bar -->
+      <div v-if="visibleSources.length > 0" class="flex justify-end px-4 pt-3">
+        <Button
+          size="sm"
+          :disabled="!canRunPreprocessing || isRunning"
+          data-testid="preprocessing-run-all-button"
+          @click="runAllStages"
         >
-          <Loader2
-            v-if="getStageVisualStatus(stage.id) === 'running'"
-            class="h-4 w-4 animate-spin"
-          />
-          <Check
-            v-else-if="getStageVisualStatus(stage.id) === 'complete'"
-            class="h-4 w-4"
-          />
-          <span
-            v-else
-            class="h-4 w-4 flex items-center justify-center text-xs"
-          >{{ index + 1 }}</span>
-          {{ stage.shortLabel }}
-        </div>
+          <Loader2 v-if="isRunning" class="h-4 w-4 mr-1 animate-spin" />
+          <Play v-else class="h-4 w-4 mr-1" />
+          Run All
+        </Button>
+      </div>
 
-        <ArrowRight
-          v-if="index < stageDefinitions.length - 1"
-          class="h-4 w-4 text-muted-foreground"
-        />
-      </template>
-    </div>
-
-    <!-- Data Flow Diagram -->
-    <Card>
-      <CardHeader>
-        <CardTitle>Data Flow</CardTitle>
-        <CardDescription>
-          Records flow from search sources through preprocessing to your final dataset
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div
-          class="flex items-center justify-center gap-4 p-6"
-          data-testid="preprocessing-flow-diagram"
-        >
+      <!-- Flow diagram -->
+      <div class="flex items-center justify-center gap-4 p-6 pt-3">
           <!-- Source nodes -->
           <div class="flex flex-col gap-2" v-if="visibleSources.length > 0">
             <div
               v-for="source in visibleSources"
               :key="source.filename || source.search_results_path"
-              class="flex flex-col items-center p-3 bg-muted/50 rounded-lg border border-border min-w-24"
+              class="flex items-center gap-2 p-3 bg-muted/50 rounded-lg border border-border min-w-24"
               :data-testid="`preprocessing-source-${getSourceDisplayName(source).toLowerCase()}`"
             >
-              <span class="text-xs font-medium truncate max-w-full">
-                {{ getSourceDisplayName(source) }}
-              </span>
-              <span class="text-xs text-muted-foreground tabular-nums">
-                {{ source.record_count ?? 0 }} records
-              </span>
+              <Database class="h-4 w-4 text-muted-foreground shrink-0" />
+              <div class="flex flex-col">
+                <span class="text-xs font-medium truncate max-w-full">
+                  {{ getSourceDisplayName(source) }}
+                </span>
+                <span class="text-xs text-muted-foreground tabular-nums">
+                  {{ source.record_count ?? 0 }} records
+                </span>
+              </div>
             </div>
           </div>
 
@@ -345,51 +310,99 @@ watch(
             <span class="text-xs">Add sources in the Search step</span>
           </div>
 
-          <!-- Arrow to final -->
-          <ArrowRight v-if="visibleSources.length > 0" class="h-5 w-5 text-muted-foreground flex-shrink-0" />
+          <!-- Arrow from sources to steps -->
+          <ArrowRight v-if="visibleSources.length > 0" class="h-5 w-5 text-muted-foreground shrink-0" />
+
+          <!-- Processing steps -->
+          <TooltipProvider v-if="visibleSources.length > 0">
+            <div class="flex items-center gap-2" data-testid="preprocessing-progress">
+              <template v-for="(stage, index) in stageDefinitions" :key="stage.id">
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <div
+                      class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-300 cursor-default"
+                      :class="{
+                        'bg-primary text-primary-foreground': getStageVisualStatus(stage.id) === 'running',
+                        'bg-emerald-500 text-white': getStageVisualStatus(stage.id) === 'complete',
+                        'bg-muted text-muted-foreground': getStageVisualStatus(stage.id) === 'pending',
+                      }"
+                      :data-testid="`preprocessing-step-${stage.id}`"
+                      :data-status="getStageVisualStatus(stage.id)"
+                    >
+                      <Loader2
+                        v-if="getStageVisualStatus(stage.id) === 'running'"
+                        class="h-3.5 w-3.5 animate-spin"
+                      />
+                      <Check
+                        v-else-if="getStageVisualStatus(stage.id) === 'complete'"
+                        class="h-3.5 w-3.5"
+                      />
+                      <span
+                        v-else
+                        class="h-3.5 w-3.5 flex items-center justify-center text-xs"
+                      >{{ index + 1 }}</span>
+                      {{ stage.shortLabel }}
+                      <Info class="h-3 w-3 opacity-50" />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" class="max-w-60">
+                    <p>{{ stage.description }}</p>
+                  </TooltipContent>
+                </Tooltip>
+
+                <ArrowRight
+                  v-if="index < stageDefinitions.length - 1"
+                  class="h-4 w-4 text-muted-foreground"
+                />
+              </template>
+            </div>
+          </TooltipProvider>
+
+          <!-- Arrow from steps to final -->
+          <ArrowRight v-if="visibleSources.length > 0" class="h-5 w-5 text-muted-foreground shrink-0" />
 
           <!-- Final node -->
           <div
             v-if="visibleSources.length > 0"
-            class="flex flex-col items-center p-4 rounded-lg border min-w-32 transition-all duration-300"
+            class="flex flex-col items-center p-4 rounded-lg border min-w-36 transition-all duration-300"
             :class="isPreprocessingComplete
               ? 'bg-emerald-500/10 border-emerald-500/30'
               : 'bg-muted/50 border-border'"
           >
-            <span class="text-xs font-medium text-muted-foreground">
-              {{ isPreprocessingComplete ? 'Final' : 'Records' }}
-            </span>
-            <span
-              class="text-lg font-bold tabular-nums"
-              :class="isPreprocessingComplete ? 'text-emerald-600 dark:text-emerald-400' : ''"
-            >
-              {{ finalRecordCount }}
-            </span>
-            <span class="text-xs text-muted-foreground">records</span>
+            <template v-if="isPreprocessingComplete">
+              <span class="text-xs font-medium text-muted-foreground">Final Dataset</span>
+              <span class="text-lg font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
+                {{ finalRecordCount }}
+              </span>
+              <span class="text-xs text-muted-foreground">records</span>
 
-            <Badge
-              v-if="duplicatesRemoved > 0"
-              variant="secondary"
-              class="mt-2 text-xs"
-            >
-              -{{ duplicatesRemoved }} duplicates
-            </Badge>
+              <Badge
+                v-if="duplicatesRemoved > 0"
+                variant="secondary"
+                class="mt-2 text-xs"
+              >
+                -{{ duplicatesRemoved }} duplicates
+              </Badge>
 
-            <Button
-              v-if="isPreprocessingComplete"
-              variant="outline"
-              size="sm"
-              class="mt-2"
-              data-testid="view-results-button"
-              @click="showResultsModal = true"
-            >
-              <Eye class="h-4 w-4 mr-1" />
-              View Results
-            </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                class="mt-2"
+                data-testid="view-results-button"
+                @click="showResultsModal = true"
+              >
+                <Eye class="h-4 w-4 mr-1" />
+                View Results
+              </Button>
+            </template>
+
+            <template v-else>
+              <span class="text-xs font-medium text-muted-foreground">Pending</span>
+              <span class="text-sm text-muted-foreground">Run preprocessing</span>
+            </template>
           </div>
-        </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
 
     <!-- Results Modal -->
     <PreprocessingResultsModal

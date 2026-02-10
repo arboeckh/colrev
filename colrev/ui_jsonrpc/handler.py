@@ -202,16 +202,20 @@ class JSONRPCHandler:
         # Save current directory and change to project directory
         original_cwd = os.getcwd()
 
-        # Capture stdout to prevent CoLRev operations from polluting JSON-RPC responses
+        # OS-level fd redirect: captures output from child processes (e.g. bib_dedupe
+        # multiprocessing workers) that bypass Python-level sys.stdout redirects.
+        saved_stdout_fd = os.dup(1)
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull_fd, 1)
+        os.close(devnull_fd)
+
+        # Python-level redirect as belt-and-suspenders
         original_stdout = sys.stdout
         stdout_buffer = io.StringIO()
+        sys.stdout = stdout_buffer
 
         try:
             os.chdir(project_path)
-
-            # Redirect stdout to a buffer (not stderr, to avoid TTY issues)
-            # JSON-RPC responses use the real stdout, so operations must not print there
-            sys.stdout = stdout_buffer
 
             # Create ReviewManager
             review_manager = colrev.review_manager.ReviewManager(
@@ -241,6 +245,8 @@ class JSONRPCHandler:
                 )
 
         finally:
-            # Always restore original stdout and directory
+            # Restore Python-level stdout first, then OS-level fd 1
             sys.stdout = original_stdout
+            os.dup2(saved_stdout_fd, 1)
+            os.close(saved_stdout_fd)
             os.chdir(original_cwd)

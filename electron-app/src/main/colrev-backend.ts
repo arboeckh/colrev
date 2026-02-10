@@ -159,8 +159,11 @@ export class ColrevBackend extends EventEmitter {
   }
 
   private handleResponse(line: string): void {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
     try {
-      const response = JSON.parse(line);
+      const response = JSON.parse(trimmed);
       const pending = this.pending.get(response.id);
 
       if (pending) {
@@ -176,7 +179,8 @@ export class ColrevBackend extends EventEmitter {
         }
       }
     } catch (err) {
-      this.emit('error', new Error(`Failed to parse response: ${line}`));
+      // Non-JSON output from Python subprocess (e.g., library debug messages)
+      this.emit('log', `[python-stdout] ${trimmed}`);
     }
   }
 

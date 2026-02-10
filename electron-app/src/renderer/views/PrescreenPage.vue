@@ -240,7 +240,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-6 h-full flex flex-col">
+  <div class="p-6 h-full flex flex-col" data-testid="prescreen-page">
     <!-- Page header -->
     <div class="flex items-center justify-between mb-4">
       <div>
@@ -251,7 +251,7 @@ onMounted(() => {
         <p class="text-muted-foreground">Screen records by title and abstract</p>
       </div>
 
-      <Badge variant="secondary" class="text-lg px-3 py-1">
+      <Badge variant="secondary" class="text-lg px-3 py-1" data-testid="prescreen-remaining-count">
         {{ totalCount }} remaining
       </Badge>
     </div>
@@ -269,15 +269,15 @@ onMounted(() => {
     <!-- Screening interface -->
     <div v-else class="flex-1 flex flex-col min-h-0">
       <!-- Current record card -->
-      <Card v-if="currentRecord" class="flex-1 flex flex-col min-h-0">
+      <Card v-if="currentRecord" class="flex-1 flex flex-col min-h-0" data-testid="prescreen-record-card">
         <CardHeader class="pb-2">
           <div class="flex items-center justify-between">
-            <Badge variant="outline" class="font-mono">{{ currentRecord.id }}</Badge>
-            <span class="text-sm text-muted-foreground">
+            <Badge variant="outline" class="font-mono" data-testid="prescreen-record-id">{{ currentRecord.id }}</Badge>
+            <span class="text-sm text-muted-foreground" data-testid="prescreen-record-counter">
               {{ currentIndex + 1 }} of {{ queue.length }}
             </span>
           </div>
-          <CardTitle class="text-lg leading-tight">{{ currentRecord.title }}</CardTitle>
+          <CardTitle class="text-lg leading-tight" data-testid="prescreen-record-title">{{ currentRecord.title }}</CardTitle>
           <CardDescription>
             {{ currentRecord.author }} ({{ currentRecord.year }})
             <span v-if="currentRecord.journal" class="block">{{ currentRecord.journal }}</span>
@@ -308,7 +308,7 @@ onMounted(() => {
 
       <!-- Decision buttons -->
       <div class="flex items-center justify-center gap-4 mt-4 py-4 border-t">
-        <Button variant="outline" size="lg" :disabled="currentIndex === 0" @click="prevRecord">
+        <Button variant="outline" size="lg" data-testid="prescreen-btn-previous" :disabled="currentIndex === 0" @click="prevRecord">
           Previous
         </Button>
 
@@ -316,6 +316,7 @@ onMounted(() => {
           variant="destructive"
           size="lg"
           class="min-w-[120px]"
+          data-testid="prescreen-btn-exclude"
           :disabled="!currentRecord || isDeciding || !isCurrentRecordReady"
           @click="makeDecision('exclude')"
         >
@@ -328,6 +329,7 @@ onMounted(() => {
           variant="default"
           size="lg"
           class="min-w-[120px] bg-green-600 hover:bg-green-700"
+          data-testid="prescreen-btn-include"
           :disabled="!currentRecord || isDeciding || !isCurrentRecordReady"
           @click="makeDecision('include')"
         >
@@ -339,6 +341,7 @@ onMounted(() => {
         <Button
           variant="outline"
           size="lg"
+          data-testid="prescreen-btn-skip"
           :disabled="currentIndex >= queue.length - 1 || !isNextRecordReady"
           @click="nextRecord"
         >

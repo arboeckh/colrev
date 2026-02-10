@@ -396,6 +396,10 @@ class PrescreenHandler:
                 except Exception as e:
                     logger.warning(f"PubMed enrichment failed for {record_id}: {e}")
 
+        # Restore original status — prep_link_md resets it to md_prepared
+        # as part of its normal prep workflow, but we only want the metadata fields
+        record.data[Fields.STATUS] = record_dict.get(Fields.STATUS)
+
         # Check what fields were enriched
         new_abstract = record.data.get(Fields.ABSTRACT, "")
         if new_abstract and new_abstract != original_abstract:
