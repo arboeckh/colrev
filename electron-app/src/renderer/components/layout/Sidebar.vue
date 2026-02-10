@@ -38,6 +38,13 @@ const recordCounts = computed(() => {
     total: status.total_records ?? 0,
   };
 });
+
+// Overall counts: records that have *ever been* in each state
+// Used by SidebarItem to detect steps completed in the past
+// (e.g. preprocessing is complete even after prescreen moves records past md_processed)
+const overallCounts = computed(() => {
+  return projects.currentStatus?.overall ?? null;
+});
 </script>
 
 <template>
@@ -69,6 +76,7 @@ const recordCounts = computed(() => {
           :project-id="projectId"
           :operation-info="getOperationInfo(step.id)"
           :record-counts="recordCounts"
+          :overall-counts="overallCounts"
           :is-first="index === 0"
           :is-last="index === WORKFLOW_STEPS.length - 1"
         />

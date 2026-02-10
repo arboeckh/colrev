@@ -380,6 +380,25 @@ export interface BatchEnrichRecordsResponse extends SuccessResponse {
   records: BatchEnrichRecordResult[];
 }
 
+// Update Prescreen Decisions
+export interface UpdatePrescreenDecisionsParams {
+  project_id: string;
+  changes: Array<{
+    record_id: string;
+    decision: 'include' | 'exclude';
+  }>;
+  base_path?: string;
+}
+
+export interface UpdatePrescreenDecisionsResponse extends SuccessResponse {
+  changes_count: number;
+  skipped: Array<{
+    record_id: string;
+    reason: string;
+  }>;
+  updated_records: string[];
+}
+
 // PDF Get
 export interface PdfGetParams {
   project_id: string;
@@ -387,6 +406,35 @@ export interface PdfGetParams {
 }
 
 export interface PdfGetResponse extends SuccessResponse {}
+
+// Upload PDF
+export interface UploadPdfParams {
+  project_id: string;
+  record_id: string;
+  filename: string;
+  content: string;
+  skip_commit?: boolean;
+  base_path?: string;
+}
+
+export interface UploadPdfResponse extends SuccessResponse {
+  record_id: string;
+  file_path: string;
+  new_status: string;
+}
+
+// Mark PDF Not Available
+export interface MarkPdfNotAvailableParams {
+  project_id: string;
+  record_id: string;
+  skip_commit?: boolean;
+  base_path?: string;
+}
+
+export interface MarkPdfNotAvailableResponse extends SuccessResponse {
+  record_id: string;
+  new_status: string;
+}
 
 // PDF Prep
 export interface PdfPrepParams {

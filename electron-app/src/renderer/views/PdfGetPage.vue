@@ -1,29 +1,204 @@
 <script setup lang="ts">
-import { FileDown, AlertCircle } from 'lucide-vue-next';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ref, computed, onMounted } from 'vue';
+import {
+  FileDown,
+  Search,
+  Loader2,
+  FileUp,
+} from 'lucide-vue-next';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { OperationButton } from '@/components/common';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { OperationButton, EmptyState } from '@/components/common';
+import PdfRecordTable from '@/components/pdf-get/PdfRecordTable.vue';
+import BatchUploadDialog from '@/components/pdf-get/BatchUploadDialog.vue';
+import type { PdfRecord } from '@/components/pdf-get/PdfRecordTable.vue';
 import { useProjectsStore } from '@/stores/projects';
+import { useBackendStore } from '@/stores/backend';
+import { useNotificationsStore } from '@/stores/notifications';
+import type { GetRecordsResponse, UploadPdfResponse, MarkPdfNotAvailableResponse } from '@/types/api';
 
 const projects = useProjectsStore();
+const backend = useBackendStore();
+const notifications = useNotificationsStore();
 
 const operationInfo = projects.operationInfo.pdf_get;
 
-async function handlePdfGetComplete() {
-  await projects.refreshCurrentProject();
+const records = ref<PdfRecord[]>([]);
+const isLoading = ref(false);
+const searchText = ref('');
+const activeTab = ref('needs_pdf');
+const uploadingRecordId = ref<string | null>(null);
+const markingRecordId = ref<string | null>(null);
+const showBatchUpload = ref(false);
+
+// Status counts from project status
+const statusCounts = computed(() => projects.currentStatus?.currently ?? null);
+const needsPdfCount = computed(() => statusCounts.value?.pdf_needs_manual_retrieval ?? 0);
+const pdfImportedCount = computed(() => statusCounts.value?.pdf_imported ?? 0);
+const pdfNotAvailableCount = computed(() => statusCounts.value?.pdf_not_available ?? 0);
+
+// Filter records by tab
+const filteredRecords = computed(() => {
+  let filtered = records.value;
+
+  // Tab filter
+  if (activeTab.value === 'needs_pdf') {
+    filtered = filtered.filter((r) => r.colrev_status === 'pdf_needs_manual_retrieval');
+  } else if (activeTab.value === 'retrieved') {
+    filtered = filtered.filter((r) =>
+      ['pdf_imported', 'pdf_prepared', 'pdf_not_available'].includes(r.colrev_status),
+    );
+  }
+
+  // Search filter
+  if (searchText.value) {
+    const q = searchText.value.toLowerCase();
+    filtered = filtered.filter(
+      (r) =>
+        r.title?.toLowerCase().includes(q) ||
+        r.author?.toLowerCase().includes(q) ||
+        r.ID.toLowerCase().includes(q),
+    );
+  }
+
+  return filtered;
+});
+
+// Records needing PDF (for batch upload matching)
+const needsPdfRecords = computed(() =>
+  records.value.filter((r) => r.colrev_status === 'pdf_needs_manual_retrieval'),
+);
+
+async function loadRecords() {
+  if (!projects.currentProjectId || !backend.isRunning) return;
+
+  isLoading.value = true;
+  try {
+    const response = await backend.call<GetRecordsResponse>('get_records', {
+      project_id: projects.currentProjectId,
+      filters: {
+        status: [
+          'pdf_needs_manual_retrieval',
+          'pdf_imported',
+          'pdf_not_available',
+          'pdf_prepared',
+        ],
+      },
+      pagination: { offset: 0, limit: 500 },
+      fields: ['ID', 'title', 'author', 'year', 'colrev_status', 'journal', 'booktitle', 'doi'],
+    });
+
+    if (response.success) {
+      records.value = response.records as unknown as PdfRecord[];
+    }
+  } catch (err) {
+    console.error('Failed to load PDF records:', err);
+  } finally {
+    isLoading.value = false;
+  }
 }
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadPdfForRecord(recordId: string) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.pdf';
+
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file || !projects.currentProjectId) return;
+
+    uploadingRecordId.value = recordId;
+    try {
+      const content = await readFileAsBase64(file);
+      const response = await backend.call<UploadPdfResponse>('upload_pdf', {
+        project_id: projects.currentProjectId,
+        record_id: recordId,
+        filename: file.name,
+        content,
+      });
+
+      if (response.success) {
+        notifications.success('PDF uploaded', `PDF linked to ${recordId}`);
+        await refresh();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      notifications.error('Upload failed', message);
+    } finally {
+      uploadingRecordId.value = null;
+    }
+  };
+
+  input.click();
+}
+
+async function markNotAvailable(recordId: string) {
+  if (!projects.currentProjectId) return;
+
+  markingRecordId.value = recordId;
+  try {
+    const response = await backend.call<MarkPdfNotAvailableResponse>('mark_pdf_not_available', {
+      project_id: projects.currentProjectId,
+      record_id: recordId,
+    });
+
+    if (response.success) {
+      notifications.success('Marked not available', `${recordId} → ${response.new_status}`);
+      await refresh();
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    notifications.error('Failed', message);
+  } finally {
+    markingRecordId.value = null;
+  }
+}
+
+async function refresh() {
+  await Promise.all([loadRecords(), projects.refreshCurrentProject()]);
+}
+
+async function handlePdfGetComplete() {
+  await refresh();
+}
+
+async function handleBatchUploadComplete() {
+  showBatchUpload.value = false;
+  await refresh();
+}
+
+onMounted(async () => {
+  await projects.refreshCurrentProject();
+  await loadRecords();
+});
 </script>
 
 <template>
-  <div class="p-6 space-y-6">
-    <!-- Page header -->
-    <div class="flex items-center justify-between">
+  <div class="p-6 h-full flex flex-col" data-testid="pdf-get-page">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-3">
       <div>
         <h2 class="text-2xl font-bold flex items-center gap-2">
           <FileDown class="h-6 w-6" />
           PDF Get
         </h2>
-        <p class="text-muted-foreground">Retrieve PDF documents for included records</p>
+        <p class="text-muted-foreground text-sm">Retrieve PDF documents for included records</p>
       </div>
 
       <OperationButton
@@ -36,69 +211,124 @@ async function handlePdfGetComplete() {
       />
     </div>
 
-    <Separator />
+    <Separator class="mb-4" />
 
-    <!-- Operation info -->
-    <Card>
-      <CardHeader>
-        <CardTitle>Operation Status</CardTitle>
-        <CardDescription>
-          {{ operationInfo?.description || 'Download PDF files for records' }}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div class="space-y-4">
-          <div class="flex items-center justify-between">
-            <span class="text-muted-foreground">Can run</span>
-            <span :class="operationInfo?.can_run ? 'text-green-500' : 'text-muted-foreground'">
-              {{ operationInfo?.can_run ? 'Yes' : 'No' }}
-            </span>
-          </div>
+    <!-- Summary badges -->
+    <div class="flex items-center gap-3 mb-4" data-testid="pdf-get-summary">
+      <Badge
+        variant="destructive"
+        class="px-3 py-1"
+        data-testid="pdf-get-needs-count"
+      >
+        {{ needsPdfCount }} Need PDF
+      </Badge>
+      <Badge
+        variant="secondary"
+        class="px-3 py-1"
+        data-testid="pdf-get-imported-count"
+      >
+        {{ pdfImportedCount }} Imported
+      </Badge>
+      <Badge
+        variant="outline"
+        class="px-3 py-1"
+        data-testid="pdf-get-not-available-count"
+      >
+        {{ pdfNotAvailableCount }} Not Available
+      </Badge>
+    </div>
 
-          <div v-if="operationInfo?.affected_records" class="flex items-center justify-between">
-            <span class="text-muted-foreground">Records to process</span>
-            <span class="font-medium tabular-nums">{{ operationInfo.affected_records }}</span>
-          </div>
+    <!-- Tabs + Search + Batch Upload -->
+    <Tabs v-model="activeTab" class="flex-1 flex flex-col min-h-0">
+      <div class="flex items-center justify-between mb-3">
+        <TabsList>
+          <TabsTrigger value="needs_pdf" data-testid="pdf-get-tab-needs">
+            Needs PDF ({{ needsPdfCount }})
+          </TabsTrigger>
+          <TabsTrigger value="retrieved" data-testid="pdf-get-tab-retrieved">
+            Retrieved ({{ pdfImportedCount + pdfNotAvailableCount }})
+          </TabsTrigger>
+          <TabsTrigger value="all" data-testid="pdf-get-tab-all">
+            All
+          </TabsTrigger>
+        </TabsList>
 
-          <div v-if="operationInfo?.reason" class="flex items-start gap-2 p-3 bg-muted rounded-md">
-            <AlertCircle class="h-4 w-4 text-yellow-500 mt-0.5" />
-            <span class="text-sm">{{ operationInfo.reason }}</span>
+        <div class="flex items-center gap-2">
+          <div class="relative">
+            <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              v-model="searchText"
+              placeholder="Search records..."
+              class="pl-9 w-64"
+              data-testid="pdf-get-search"
+            />
           </div>
+          <Button
+            v-if="needsPdfRecords.length > 0"
+            variant="outline"
+            data-testid="pdf-get-batch-upload-btn"
+            @click="showBatchUpload = true"
+          >
+            <FileUp class="h-4 w-4 mr-2" />
+            Batch Upload PDFs
+          </Button>
         </div>
-      </CardContent>
-    </Card>
+      </div>
 
-    <!-- PDF settings -->
-    <Card v-if="projects.currentSettings?.pdf_get">
-      <CardHeader>
-        <CardTitle>PDF Settings</CardTitle>
-        <CardDescription>Current PDF retrieval configuration</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div class="space-y-3">
-          <div class="flex items-center justify-between">
-            <span class="text-muted-foreground">Path type</span>
-            <span>{{ projects.currentSettings.pdf_get.pdf_path_type }}</span>
-          </div>
-          <div class="flex items-center justify-between">
-            <span class="text-muted-foreground">Required for screen</span>
-            <span>{{ projects.currentSettings.pdf_get.pdf_required_for_screen_and_synthesis ? 'Yes' : 'No' }}</span>
-          </div>
+      <!-- Loading state -->
+      <div v-if="isLoading" class="flex-1 flex items-center justify-center">
+        <Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
 
-          <Separator />
+      <!-- Empty state -->
+      <EmptyState
+        v-else-if="records.length === 0"
+        :icon="FileDown"
+        title="No PDF records"
+        description="Run PDF Get to start retrieving PDFs for your included records."
+      />
 
-          <h4 class="text-sm font-medium">Retrieval Packages</h4>
-          <ul class="space-y-2">
-            <li
-              v-for="pkg in projects.currentSettings.pdf_get.pdf_get_package_endpoints"
-              :key="pkg.endpoint"
-              class="p-2 bg-muted rounded-md font-mono text-sm"
-            >
-              {{ pkg.endpoint }}
-            </li>
-          </ul>
-        </div>
-      </CardContent>
-    </Card>
+      <!-- Records tables -->
+      <template v-else>
+        <TabsContent value="needs_pdf" class="flex-1 min-h-0 mt-0">
+          <ScrollArea class="h-full">
+            <PdfRecordTable
+              :records="filteredRecords"
+              :uploading-record-id="uploadingRecordId"
+              :marking-record-id="markingRecordId"
+              show-actions
+              @upload="uploadPdfForRecord"
+              @mark-not-available="markNotAvailable"
+            />
+          </ScrollArea>
+        </TabsContent>
+
+        <TabsContent value="retrieved" class="flex-1 min-h-0 mt-0">
+          <ScrollArea class="h-full">
+            <PdfRecordTable :records="filteredRecords" />
+          </ScrollArea>
+        </TabsContent>
+
+        <TabsContent value="all" class="flex-1 min-h-0 mt-0">
+          <ScrollArea class="h-full">
+            <PdfRecordTable
+              :records="filteredRecords"
+              :uploading-record-id="uploadingRecordId"
+              :marking-record-id="markingRecordId"
+              show-actions
+              @upload="uploadPdfForRecord"
+              @mark-not-available="markNotAvailable"
+            />
+          </ScrollArea>
+        </TabsContent>
+      </template>
+    </Tabs>
+
+    <!-- Batch Upload Dialog -->
+    <BatchUploadDialog
+      v-model:open="showBatchUpload"
+      :records="needsPdfRecords"
+      @complete="handleBatchUploadComplete"
+    />
   </div>
 </template>

@@ -155,13 +155,14 @@ class JSONRPCHandler:
             "prescreen",
             "get_prescreen_queue",
             "prescreen_record",
+            "update_prescreen_decisions",
             "enrich_record_metadata",
             "batch_enrich_records",
         ]:
             return self._handle_with_review_manager(method, params, PrescreenHandler)
 
         # PDF get operations
-        elif method in ["pdf_get"]:
+        elif method in ["pdf_get", "upload_pdf", "mark_pdf_not_available"]:
             return self._handle_with_review_manager(method, params, PDFGetHandler)
 
         # PDF prep operations

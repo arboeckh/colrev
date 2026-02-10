@@ -2,28 +2,42 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import {
   Filter,
-  ThumbsUp,
-  ThumbsDown,
+  Check,
+  X,
   Loader2,
   ChevronLeft,
   ChevronRight,
   ArrowRight,
+  CircleCheck,
+  Pencil,
+  Search,
 } from 'lucide-vue-next';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { EmptyState } from '@/components/common';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import type {
   GetPrescreenQueueResponse,
+  GetRecordsResponse,
   PrescreenQueueRecord,
   PrescreenRecordResponse,
   EnrichRecordMetadataResponse,
   BatchEnrichRecordsResponse,
+  UpdatePrescreenDecisionsResponse,
 } from '@/types/api';
 
 // Enrichment status tracking
@@ -53,6 +67,37 @@ const isDragging = ref(false);
 // Number of records to prefetch in background
 const PREFETCH_BATCH_SIZE = 10;
 
+// --- Edit mode state ---
+interface EditRecord {
+  id: string;
+  title: string;
+  author: string;
+  year: string;
+  originalDecision: 'include' | 'exclude';
+  newDecision: 'include' | 'exclude';
+}
+
+const isEditMode = ref(false);
+const editRecords = ref<EditRecord[]>([]);
+const editSearchText = ref('');
+const isLoadingEditRecords = ref(false);
+const isSavingEdits = ref(false);
+
+const filteredEditRecords = computed(() => {
+  if (!editSearchText.value) return editRecords.value;
+  const q = editSearchText.value.toLowerCase();
+  return editRecords.value.filter(
+    (r) =>
+      r.title.toLowerCase().includes(q) ||
+      r.author.toLowerCase().includes(q) ||
+      r.id.toLowerCase().includes(q),
+  );
+});
+
+const editChangesCount = computed(
+  () => editRecords.value.filter((r) => r.newDecision !== r.originalDecision).length,
+);
+
 const currentRecord = computed(() => queue.value[currentIndex.value] || null);
 
 // Decision tracking
@@ -71,6 +116,14 @@ const nextUndecidedIndex = computed(() => {
   return -1;
 });
 
+// Completion detection from project status (for when user navigates back after finishing)
+const statusCounts = computed(() => projects.currentStatus?.currently ?? null);
+const isPrescreenComplete = computed(() => {
+  if (!statusCounts.value) return false;
+  const { rev_prescreen_included, rev_prescreen_excluded, md_processed } = statusCounts.value;
+  return md_processed === 0 && (rev_prescreen_included > 0 || rev_prescreen_excluded > 0);
+});
+
 // Progress bar: thumb position as percentage
 const thumbPercent = computed(() => {
   const n = queue.value.length;
@@ -80,7 +133,7 @@ const thumbPercent = computed(() => {
 });
 
 // Track width: full width, or capped when few items so segments aren't absurdly wide
-const SEGMENT_MAX_PX = 18;
+const SEGMENT_MAX_PX = 28;
 const trackWidthStyle = computed(() => {
   const n = queue.value.length;
   if (n === 0) return '0px';
@@ -290,6 +343,10 @@ async function makeDecision(decision: 'include' | 'exclude') {
         currentIndex.value = nextUndecidedIndex.value;
       } else if (response.remaining_count > 0) {
         await loadQueue();
+      } else {
+        // All done — clear queue and refresh status for completion screen
+        queue.value = [];
+        await projects.refreshCurrentProject();
       }
     }
   } catch (err) {
@@ -324,8 +381,96 @@ function skipToNextUndecided() {
   }
 }
 
+// --- Edit mode functions ---
+
+async function enterEditMode() {
+  if (!projects.currentProjectId || !backend.isRunning) return;
+
+  isEditMode.value = true;
+  isLoadingEditRecords.value = true;
+  editSearchText.value = '';
+
+  try {
+    const response = await backend.call<GetRecordsResponse>('get_records', {
+      project_id: projects.currentProjectId,
+      filters: { status: ['rev_prescreen_included', 'rev_prescreen_excluded'] },
+      pagination: { offset: 0, limit: 500 },
+      fields: ['ID', 'title', 'author', 'year', 'colrev_status'],
+    });
+
+    if (response.success) {
+      editRecords.value = response.records.map((r: any) => {
+        const isIncluded = r.colrev_status === 'rev_prescreen_included';
+        return {
+          id: r.ID,
+          title: r.title || '',
+          author: r.author || '',
+          year: r.year || '',
+          originalDecision: isIncluded ? 'include' : 'exclude',
+          newDecision: isIncluded ? 'include' : 'exclude',
+        } as EditRecord;
+      });
+    }
+  } catch (err) {
+    console.error('Failed to load records for edit mode:', err);
+    notifications.error('Failed to load records', err instanceof Error ? err.message : 'Unknown error');
+    isEditMode.value = false;
+  } finally {
+    isLoadingEditRecords.value = false;
+  }
+}
+
+function toggleDecision(recordId: string) {
+  const record = editRecords.value.find((r) => r.id === recordId);
+  if (!record) return;
+  record.newDecision = record.newDecision === 'include' ? 'exclude' : 'include';
+}
+
+async function saveEdits() {
+  if (!projects.currentProjectId || isSavingEdits.value) return;
+
+  const changed = editRecords.value.filter((r) => r.newDecision !== r.originalDecision);
+  if (changed.length === 0) return;
+
+  isSavingEdits.value = true;
+  try {
+    const response = await backend.call<UpdatePrescreenDecisionsResponse>(
+      'update_prescreen_decisions',
+      {
+        project_id: projects.currentProjectId,
+        changes: changed.map((r) => ({
+          record_id: r.id,
+          decision: r.newDecision,
+        })),
+      },
+    );
+
+    if (response.success) {
+      notifications.success(
+        'Decisions updated',
+        `${response.changes_count} record(s) updated`,
+      );
+      await projects.refreshCurrentProject();
+      isEditMode.value = false;
+      editRecords.value = [];
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    notifications.error('Save failed', message);
+  } finally {
+    isSavingEdits.value = false;
+  }
+}
+
+function cancelEdits() {
+  isEditMode.value = false;
+  editRecords.value = [];
+  editSearchText.value = '';
+}
+
 function handleKeydown(e: KeyboardEvent) {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+  if (isEditMode.value) return;
 
   switch (e.key) {
     case 'ArrowLeft':
@@ -351,8 +496,10 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
-onMounted(() => {
-  loadQueue();
+onMounted(async () => {
+  // Refresh status first so completion state is accurate when navigating back
+  await projects.refreshCurrentProject();
+  await loadQueue();
   window.addEventListener('keydown', handleKeydown);
 });
 
@@ -370,13 +517,13 @@ onUnmounted(() => {
         <h2 class="text-xl font-semibold" data-testid="prescreen-title">Prescreen</h2>
       </div>
 
-      <div class="flex items-center gap-3">
+      <div v-if="queue.length > 0" class="flex items-center gap-3">
         <Badge variant="secondary" class="px-2.5 py-0.5" data-testid="prescreen-included-count">
-          <ThumbsUp class="h-3 w-3 mr-1" />
+          <Check class="h-3 w-3 mr-1" />
           {{ includedCount }}
         </Badge>
         <Badge variant="outline" class="px-2.5 py-0.5" data-testid="prescreen-excluded-count">
-          <ThumbsDown class="h-3 w-3 mr-1" />
+          <X class="h-3 w-3 mr-1" />
           {{ excludedCount }}
         </Badge>
         <Badge variant="secondary" class="px-2.5 py-0.5" data-testid="prescreen-remaining-count">
@@ -387,12 +534,174 @@ onUnmounted(() => {
 
     <Separator class="mb-3" />
 
-    <!-- Empty state -->
+    <!-- Edit mode -->
+    <div
+      v-if="isEditMode"
+      class="flex-1 flex flex-col min-h-0"
+      data-testid="prescreen-edit-mode"
+    >
+      <!-- Edit mode header -->
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <h3 class="text-base font-medium">Edit Prescreen Decisions</h3>
+          <Badge v-if="editChangesCount > 0" variant="secondary" class="px-2 py-0.5">
+            {{ editChangesCount }} change{{ editChangesCount !== 1 ? 's' : '' }}
+          </Badge>
+        </div>
+        <div class="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            data-testid="prescreen-edit-cancel-btn"
+            @click="cancelEdits"
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            data-testid="prescreen-edit-save-btn"
+            :disabled="editChangesCount === 0 || isSavingEdits"
+            @click="saveEdits"
+          >
+            <Loader2 v-if="isSavingEdits" class="h-4 w-4 mr-1.5 animate-spin" />
+            Save {{ editChangesCount }} change{{ editChangesCount !== 1 ? 's' : '' }}
+          </Button>
+        </div>
+      </div>
+
+      <!-- Search input -->
+      <div class="relative mb-3">
+        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          v-model="editSearchText"
+          placeholder="Filter by title, author, or ID..."
+          class="pl-9"
+          data-testid="prescreen-edit-search"
+        />
+      </div>
+
+      <!-- Loading state -->
+      <div v-if="isLoadingEditRecords" class="flex-1 flex items-center justify-center">
+        <Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+
+      <!-- Records table -->
+      <ScrollArea v-else class="flex-1">
+        <Table class="table-fixed w-full">
+          <TableHeader>
+            <TableRow>
+              <TableHead class="w-[45%]">Title</TableHead>
+              <TableHead class="w-[25%]">Authors</TableHead>
+              <TableHead class="w-[50px]">Year</TableHead>
+              <TableHead class="w-[110px] text-right">Decision</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow
+              v-for="record in filteredEditRecords"
+              :key="record.id"
+              :class="{ 'bg-muted/50': record.newDecision !== record.originalDecision }"
+              :data-testid="`prescreen-edit-row-${record.id}`"
+            >
+              <TableCell class="overflow-hidden">
+                <div class="font-medium text-sm leading-tight truncate">{{ record.title }}</div>
+                <div class="text-xs text-muted-foreground font-mono mt-0.5 truncate">{{ record.id }}</div>
+              </TableCell>
+              <TableCell class="text-sm overflow-hidden">
+                <span class="block truncate">{{ record.author }}</span>
+              </TableCell>
+              <TableCell class="text-sm">{{ record.year }}</TableCell>
+              <TableCell class="text-right">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  :class="
+                    record.newDecision === 'include'
+                      ? 'border-green-600/50 text-green-500 hover:bg-green-600/10'
+                      : 'border-destructive/50 text-red-400 hover:bg-destructive/10'
+                  "
+                  :data-testid="`prescreen-edit-toggle-${record.id}`"
+                  @click="toggleDecision(record.id)"
+                >
+                  <Check v-if="record.newDecision === 'include'" class="h-3.5 w-3.5 mr-1" />
+                  <X v-else class="h-3.5 w-3.5 mr-1" />
+                  {{ record.newDecision === 'include' ? 'Included' : 'Excluded' }}
+                </Button>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </ScrollArea>
+    </div>
+
+    <!-- Completion state -->
+    <div
+      v-else-if="!isLoading && queue.length === 0 && isPrescreenComplete"
+      class="flex-1 flex flex-col items-center justify-center text-center"
+      data-testid="prescreen-complete"
+    >
+      <div class="rounded-full bg-green-600/15 p-4 mb-4">
+        <CircleCheck class="h-8 w-8 text-green-500" />
+      </div>
+      <h3 class="text-lg font-medium mb-1">Prescreening complete</h3>
+      <p class="text-sm text-muted-foreground mb-6">
+        All records have been reviewed.
+      </p>
+
+      <div class="flex items-center gap-6">
+        <div class="flex flex-col items-center gap-1">
+          <span
+            class="text-2xl font-semibold text-green-500"
+            data-testid="prescreen-complete-included"
+          >
+            {{ statusCounts?.rev_prescreen_included ?? 0 }}
+          </span>
+          <span class="text-xs text-muted-foreground flex items-center gap-1">
+            <Check class="h-3 w-3" /> Included
+          </span>
+        </div>
+        <Separator orientation="vertical" class="h-10" />
+        <div class="flex flex-col items-center gap-1">
+          <span
+            class="text-2xl font-semibold text-red-400"
+            data-testid="prescreen-complete-excluded"
+          >
+            {{ statusCounts?.rev_prescreen_excluded ?? 0 }}
+          </span>
+          <span class="text-xs text-muted-foreground flex items-center gap-1">
+            <X class="h-3 w-3" /> Excluded
+          </span>
+        </div>
+        <Separator orientation="vertical" class="h-10" />
+        <div class="flex flex-col items-center gap-1">
+          <span class="text-2xl font-semibold" data-testid="prescreen-complete-total">
+            {{
+              (statusCounts?.rev_prescreen_included ?? 0) +
+              (statusCounts?.rev_prescreen_excluded ?? 0)
+            }}
+          </span>
+          <span class="text-xs text-muted-foreground">Total reviewed</span>
+        </div>
+      </div>
+
+      <Button
+        variant="outline"
+        size="sm"
+        class="mt-6"
+        data-testid="prescreen-edit-decisions-btn"
+        @click="enterEditMode"
+      >
+        <Pencil class="h-4 w-4 mr-1.5" />
+        Edit Decisions
+      </Button>
+    </div>
+
+    <!-- Empty state (no records available yet) -->
     <EmptyState
-      v-if="!isLoading && queue.length === 0"
+      v-else-if="!isLoading && queue.length === 0"
       :icon="Filter"
       title="No records to prescreen"
-      description="All records have been prescreened or there are no records ready for prescreening."
+      description="There are no records ready for prescreening yet. Run preprocessing first."
     />
 
     <!-- Screening interface -->
@@ -413,7 +722,7 @@ onUnmounted(() => {
             @click="makeDecision('exclude')"
           >
             <Loader2 v-if="isDeciding" class="h-5 w-5 mr-2 animate-spin" />
-            <ThumbsDown v-else class="h-5 w-5 mr-2" />
+            <X v-else class="h-5 w-5 mr-2" />
             Exclude
             <kbd class="ml-2 text-xs opacity-60 bg-white/20 px-1.5 py-0.5 rounded">&larr;</kbd>
           </Button>
@@ -426,7 +735,7 @@ onUnmounted(() => {
             @click="makeDecision('include')"
           >
             <Loader2 v-if="isDeciding" class="h-5 w-5 mr-2 animate-spin" />
-            <ThumbsUp v-else class="h-5 w-5 mr-2" />
+            <Check v-else class="h-5 w-5 mr-2" />
             Include
             <kbd class="ml-2 text-xs opacity-60 bg-white/20 px-1.5 py-0.5 rounded">&rarr;</kbd>
           </Button>
@@ -443,8 +752,8 @@ onUnmounted(() => {
             "
             data-testid="prescreen-decision-indicator"
           >
-            <ThumbsUp v-if="currentRecord._decision === 'included'" class="h-5 w-5" />
-            <ThumbsDown v-else class="h-5 w-5" />
+            <Check v-if="currentRecord._decision === 'included'" class="h-5 w-5" />
+            <X v-else class="h-5 w-5" />
             <span class="font-medium text-sm">
               {{ currentRecord._decision === 'included' ? 'Included' : 'Excluded' }}
             </span>
@@ -464,22 +773,22 @@ onUnmounted(() => {
       </div>
 
       <!-- Zone 3: Progress Bar — fixed height prevents jitter -->
-      <div class="h-[44px] shrink-0 mb-2" data-testid="prescreen-progress-bar">
+      <div class="h-[48px] shrink-0 mb-2" data-testid="prescreen-progress-bar">
         <!-- Draggable track -->
         <div
           ref="trackRef"
-          class="relative h-5 select-none touch-none cursor-pointer"
+          class="relative h-6 select-none touch-none cursor-pointer"
           :style="{ width: trackWidthStyle }"
           @pointerdown="onTrackPointerDown"
         >
           <!-- Track background (full width, muted) -->
           <div
-            class="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[6px] rounded-full bg-muted"
+            class="absolute inset-x-0 top-1/2 -translate-y-1/2 h-2.5 rounded-full bg-muted"
           />
 
           <!-- Colored segments overlay -->
           <div
-            class="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[6px] flex rounded-full overflow-hidden"
+            class="absolute inset-x-0 top-1/2 -translate-y-1/2 h-2.5 flex rounded-full overflow-hidden"
           >
             <div
               v-for="(record, index) in queue"
@@ -498,7 +807,7 @@ onUnmounted(() => {
 
           <!-- Draggable thumb -->
           <div
-            class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-10 w-4 h-4 rounded-full bg-foreground border-2 border-background shadow-md"
+            class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-10 w-[18px] h-[18px] rounded-full bg-foreground border-2 border-background shadow-md"
             :class="isDragging ? 'cursor-grabbing scale-110' : 'cursor-grab transition-[left] duration-150'"
             :style="{ left: thumbPercent + '%' }"
             data-testid="prescreen-progress-thumb"

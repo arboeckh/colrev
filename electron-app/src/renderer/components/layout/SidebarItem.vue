@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import { Check, AlertCircle } from 'lucide-vue-next';
-import type { WorkflowStepInfo, RecordCounts } from '@/types/project';
+import type { WorkflowStepInfo, RecordCounts, OverallRecordCounts } from '@/types/project';
 import type { GetOperationInfoResponse } from '@/types/api';
 import { useProjectsStore } from '@/stores/projects';
 
@@ -11,6 +11,7 @@ const props = defineProps<{
   projectId: string;
   operationInfo?: GetOperationInfoResponse | null;
   recordCounts?: RecordCounts | null;
+  overallCounts?: OverallRecordCounts | null;
   isFirst?: boolean;
   isLast?: boolean;
 }>();
@@ -39,6 +40,16 @@ const processedRecords = computed(() => {
   if (!props.recordCounts) return 0;
   return props.step.outputStates.reduce((sum, state) => {
     return sum + (props.recordCounts?.[state] ?? 0);
+  }, 0);
+});
+
+// Records that have *ever been* in output states (survives downstream processing)
+// e.g. preprocessing produced md_processed records even if prescreen moved them on
+const everProcessedRecords = computed(() => {
+  if (!props.overallCounts) return 0;
+  return props.step.outputStates.reduce((sum, state) => {
+    const key = state as keyof OverallRecordCounts;
+    return sum + (props.overallCounts?.[key] ?? 0);
   }, 0);
 });
 
@@ -75,6 +86,12 @@ const stepStatus = computed((): StepStatus => {
 
   // Step has processed records (and none pending) - it's complete
   if (processedRecords.value > 0) {
+    return 'complete';
+  }
+
+  // Step was completed in the past but records have moved to later steps
+  // (e.g. preprocessing produced md_processed, but prescreen moved them on)
+  if (everProcessedRecords.value > 0) {
     return 'complete';
   }
 
