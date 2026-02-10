@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { Filter, ThumbsUp, ThumbsDown, AlertCircle } from 'lucide-vue-next';
+import { ref, computed, watch, onMounted } from 'vue';
+import { Filter, ThumbsUp, ThumbsDown, Loader2 } from 'lucide-vue-next';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,21 +10,60 @@ import { EmptyState } from '@/components/common';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
-import type { GetPrescreenQueueResponse, PrescreenQueueRecord, PrescreenRecordResponse } from '@/types/api';
+import type {
+  GetPrescreenQueueResponse,
+  PrescreenQueueRecord,
+  PrescreenRecordResponse,
+  EnrichRecordMetadataResponse,
+  BatchEnrichRecordsResponse,
+} from '@/types/api';
+
+// Enrichment status tracking
+type EnrichmentStatus = 'pending' | 'loading' | 'complete' | 'failed';
+
+interface EnrichedRecord extends PrescreenQueueRecord {
+  _enrichmentStatus: EnrichmentStatus;
+}
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
 
-const queue = ref<PrescreenQueueRecord[]>([]);
+const queue = ref<EnrichedRecord[]>([]);
 const totalCount = ref(0);
 const isLoading = ref(false);
 const currentIndex = ref(0);
 const isDeciding = ref(false);
 
+// Number of records to prefetch in background
+const PREFETCH_BATCH_SIZE = 10;
+
 const currentRecord = computed(() => queue.value[currentIndex.value] || null);
 
-import { computed } from 'vue';
+// Check if current record is ready to display (has abstract or enrichment complete/failed)
+const isCurrentRecordReady = computed(() => {
+  const record = currentRecord.value;
+  if (!record) return false;
+  // Ready if: has abstract, or enrichment is complete/failed, or can't be enriched
+  return (
+    record.abstract ||
+    record._enrichmentStatus === 'complete' ||
+    record._enrichmentStatus === 'failed' ||
+    !record.can_enrich
+  );
+});
+
+// Check if next record is ready
+const isNextRecordReady = computed(() => {
+  const nextRecord = queue.value[currentIndex.value + 1];
+  if (!nextRecord) return true; // No next record means ready to proceed
+  return (
+    nextRecord.abstract ||
+    nextRecord._enrichmentStatus === 'complete' ||
+    nextRecord._enrichmentStatus === 'failed' ||
+    !nextRecord.can_enrich
+  );
+});
 
 async function loadQueue() {
   if (!projects.currentProjectId || !backend.isRunning) return;
@@ -36,9 +75,20 @@ async function loadQueue() {
       limit: 50,
     });
     if (response.success) {
-      queue.value = response.records;
+      // Mark records with enrichment status
+      queue.value = response.records.map((record) => ({
+        ...record,
+        _enrichmentStatus: record.abstract
+          ? 'complete'
+          : record.can_enrich
+            ? 'pending'
+            : 'complete',
+      }));
       totalCount.value = response.total_count;
       currentIndex.value = 0;
+
+      // Start background enrichment for first batch
+      startBackgroundEnrichment();
     }
   } catch (err) {
     console.error('Failed to load prescreen queue:', err);
@@ -46,6 +96,92 @@ async function loadQueue() {
     isLoading.value = false;
   }
 }
+
+async function startBackgroundEnrichment() {
+  // Get first N records that need enrichment
+  const recordsToEnrich = queue.value
+    .slice(0, PREFETCH_BATCH_SIZE)
+    .filter((r) => r._enrichmentStatus === 'pending')
+    .map((r) => r.id);
+
+  if (recordsToEnrich.length === 0) return;
+
+  // Mark as loading
+  recordsToEnrich.forEach((id) => {
+    const record = queue.value.find((r) => r.id === id);
+    if (record) record._enrichmentStatus = 'loading';
+  });
+
+  try {
+    const response = await backend.call<BatchEnrichRecordsResponse>('batch_enrich_records', {
+      project_id: projects.currentProjectId!,
+      record_ids: recordsToEnrich,
+      skip_commit: true,
+    });
+
+    if (response.success) {
+      // Update queue with enriched data
+      for (const result of response.records) {
+        const queueRecord = queue.value.find((r) => r.id === result.id);
+        if (queueRecord && result.record) {
+          // Update record data
+          queueRecord.abstract = result.record.abstract;
+          queueRecord.can_enrich = false;
+          queueRecord._enrichmentStatus = result.success ? 'complete' : 'failed';
+        } else if (queueRecord) {
+          queueRecord._enrichmentStatus = 'failed';
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Background enrichment failed:', err);
+    // Mark all as failed
+    recordsToEnrich.forEach((id) => {
+      const record = queue.value.find((r) => r.id === id);
+      if (record) record._enrichmentStatus = 'failed';
+    });
+  }
+}
+
+async function enrichSingleRecord(recordId: string) {
+  const record = queue.value.find((r) => r.id === recordId);
+  if (!record || record._enrichmentStatus !== 'pending') return;
+
+  record._enrichmentStatus = 'loading';
+
+  try {
+    const response = await backend.call<EnrichRecordMetadataResponse>('enrich_record_metadata', {
+      project_id: projects.currentProjectId!,
+      record_id: recordId,
+      skip_commit: true,
+    });
+
+    if (response.success && response.record) {
+      record.abstract = response.record.abstract;
+      record.can_enrich = false;
+      record._enrichmentStatus = 'complete';
+    } else {
+      record._enrichmentStatus = 'failed';
+    }
+  } catch (err) {
+    console.error(`Failed to enrich record ${recordId}:`, err);
+    record._enrichmentStatus = 'failed';
+  }
+}
+
+// Watch for index changes to prefetch next record
+watch(currentIndex, async (newIndex) => {
+  const nextRecord = queue.value[newIndex + 1];
+  if (nextRecord && nextRecord._enrichmentStatus === 'pending') {
+    await enrichSingleRecord(nextRecord.id);
+  }
+
+  // Also ensure current record is enriched if needed
+  const current = queue.value[newIndex];
+  if (current && current._enrichmentStatus === 'pending') {
+    await enrichSingleRecord(current.id);
+  }
+});
 
 async function makeDecision(decision: 'include' | 'exclude') {
   if (!currentRecord.value || !projects.currentProjectId || isDeciding.value) return;
@@ -145,14 +281,25 @@ onMounted(() => {
           <CardDescription>
             {{ currentRecord.author }} ({{ currentRecord.year }})
             <span v-if="currentRecord.journal" class="block">{{ currentRecord.journal }}</span>
-            <span v-else-if="currentRecord.booktitle" class="block">{{ currentRecord.booktitle }}</span>
+            <span v-else-if="currentRecord.booktitle" class="block">{{
+              currentRecord.booktitle
+            }}</span>
           </CardDescription>
         </CardHeader>
 
         <CardContent class="flex-1 min-h-0 flex flex-col">
           <h4 class="text-sm font-medium mb-2">Abstract</h4>
           <ScrollArea class="flex-1 pr-4">
-            <p class="text-sm text-muted-foreground whitespace-pre-wrap">
+            <!-- Loading state for abstract enrichment -->
+            <div
+              v-if="currentRecord._enrichmentStatus === 'loading'"
+              class="flex items-center gap-2 text-sm text-muted-foreground"
+            >
+              <Loader2 class="h-4 w-4 animate-spin" />
+              <span>Loading abstract...</span>
+            </div>
+            <!-- Abstract content -->
+            <p v-else class="text-sm text-muted-foreground whitespace-pre-wrap">
               {{ currentRecord.abstract || 'No abstract available' }}
             </p>
           </ScrollArea>
@@ -161,12 +308,7 @@ onMounted(() => {
 
       <!-- Decision buttons -->
       <div class="flex items-center justify-center gap-4 mt-4 py-4 border-t">
-        <Button
-          variant="outline"
-          size="lg"
-          :disabled="currentIndex === 0"
-          @click="prevRecord"
-        >
+        <Button variant="outline" size="lg" :disabled="currentIndex === 0" @click="prevRecord">
           Previous
         </Button>
 
@@ -174,10 +316,11 @@ onMounted(() => {
           variant="destructive"
           size="lg"
           class="min-w-[120px]"
-          :disabled="!currentRecord || isDeciding"
+          :disabled="!currentRecord || isDeciding || !isCurrentRecordReady"
           @click="makeDecision('exclude')"
         >
-          <ThumbsDown class="h-5 w-5 mr-2" />
+          <Loader2 v-if="isDeciding" class="h-5 w-5 mr-2 animate-spin" />
+          <ThumbsDown v-else class="h-5 w-5 mr-2" />
           Exclude
         </Button>
 
@@ -185,19 +328,24 @@ onMounted(() => {
           variant="default"
           size="lg"
           class="min-w-[120px] bg-green-600 hover:bg-green-700"
-          :disabled="!currentRecord || isDeciding"
+          :disabled="!currentRecord || isDeciding || !isCurrentRecordReady"
           @click="makeDecision('include')"
         >
-          <ThumbsUp class="h-5 w-5 mr-2" />
+          <Loader2 v-if="isDeciding" class="h-5 w-5 mr-2 animate-spin" />
+          <ThumbsUp v-else class="h-5 w-5 mr-2" />
           Include
         </Button>
 
         <Button
           variant="outline"
           size="lg"
-          :disabled="currentIndex >= queue.length - 1"
+          :disabled="currentIndex >= queue.length - 1 || !isNextRecordReady"
           @click="nextRecord"
         >
+          <Loader2
+            v-if="!isNextRecordReady"
+            class="h-4 w-4 mr-2 animate-spin"
+          />
           Skip
         </Button>
       </div>

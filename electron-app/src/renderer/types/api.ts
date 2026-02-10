@@ -304,9 +304,12 @@ export interface PrescreenQueueRecord {
   title: string;
   author: string;
   year: string;
-  abstract: string;
+  abstract?: string;
   journal?: string;
   booktitle?: string;
+  doi?: string;
+  pubmedid?: string;
+  can_enrich?: boolean;
 }
 
 export interface GetPrescreenQueueResponse extends SuccessResponse {
@@ -335,6 +338,46 @@ export interface PrescreenParams {
 
 export interface PrescreenResponse extends SuccessResponse {
   split_str: string;
+}
+
+// Enrich Record Metadata
+export interface EnrichRecordMetadataParams {
+  project_id: string;
+  record_id: string;
+  fields?: string[];
+  skip_commit?: boolean;
+  base_path?: string;
+}
+
+export interface EnrichRecordMetadataResponse extends SuccessResponse {
+  record: PrescreenQueueRecord;
+  enriched_fields: string[];
+  source?: string;
+}
+
+// Batch Enrich Records
+export interface BatchEnrichRecordsParams {
+  project_id: string;
+  record_ids: string[];
+  fields?: string[];
+  skip_commit?: boolean;
+  base_path?: string;
+}
+
+export interface BatchEnrichRecordResult {
+  id: string;
+  success: boolean;
+  enriched_fields?: string[];
+  source?: string;
+  record?: PrescreenQueueRecord;
+  error?: string;
+  message?: string;
+}
+
+export interface BatchEnrichRecordsResponse extends SuccessResponse {
+  enriched_count: number;
+  failed_count: number;
+  records: BatchEnrichRecordResult[];
 }
 
 // PDF Get

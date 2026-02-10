@@ -1,29 +1,28 @@
 """Main JSON-RPC request handler and router."""
-
 import io
 import logging
 import os
 import sys
-from typing import Any, Dict, Optional
+from typing import Any
+from typing import Dict
 
 import colrev.review_manager
-from colrev.ui_jsonrpc import error_handler, validation
-from colrev.ui_jsonrpc.handlers import (
-    DataHandler,
-    DedupeHandler,
-    GitHandler,
-    InitHandler,
-    LoadHandler,
-    PDFGetHandler,
-    PDFPrepHandler,
-    PrepHandler,
-    PrescreenHandler,
-    RecordsHandler,
-    ScreenHandler,
-    SearchHandler,
-    SettingsHandler,
-    StatusHandler,
-)
+from colrev.ui_jsonrpc import error_handler
+from colrev.ui_jsonrpc import validation
+from colrev.ui_jsonrpc.handlers import DataHandler
+from colrev.ui_jsonrpc.handlers import DedupeHandler
+from colrev.ui_jsonrpc.handlers import GitHandler
+from colrev.ui_jsonrpc.handlers import InitHandler
+from colrev.ui_jsonrpc.handlers import LoadHandler
+from colrev.ui_jsonrpc.handlers import PDFGetHandler
+from colrev.ui_jsonrpc.handlers import PDFPrepHandler
+from colrev.ui_jsonrpc.handlers import PrepHandler
+from colrev.ui_jsonrpc.handlers import PrescreenHandler
+from colrev.ui_jsonrpc.handlers import RecordsHandler
+from colrev.ui_jsonrpc.handlers import ScreenHandler
+from colrev.ui_jsonrpc.handlers import SearchHandler
+from colrev.ui_jsonrpc.handlers import SettingsHandler
+from colrev.ui_jsonrpc.handlers import StatusHandler
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,6 @@ class JSONRPCHandler:
     def __init__(self):
         """Initialize the JSON-RPC handler."""
         # Handlers will be initialized per-project as needed
-        pass
 
     def handle_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -107,82 +105,76 @@ class JSONRPCHandler:
         # Methods that require an existing project
 
         # Status operations
-        elif method in ["get_status", "status", "validate", "get_operation_info", "get_preprocessing_summary"]:
-            return self._handle_with_review_manager(
-                method, params, StatusHandler
-            )
+        elif method in [
+            "get_status",
+            "status",
+            "validate",
+            "get_operation_info",
+            "get_preprocessing_summary",
+        ]:
+            return self._handle_with_review_manager(method, params, StatusHandler)
 
         # Settings operations
         elif method in ["get_settings", "update_settings"]:
-            return self._handle_with_review_manager(
-                method, params, SettingsHandler
-            )
+            return self._handle_with_review_manager(method, params, SettingsHandler)
 
         # Records operations
         elif method in ["get_records", "get_record", "update_record"]:
-            return self._handle_with_review_manager(
-                method, params, RecordsHandler
-            )
+            return self._handle_with_review_manager(method, params, RecordsHandler)
 
         # Git operations
         elif method in ["get_git_status"]:
-            return self._handle_with_review_manager(
-                method, params, GitHandler
-            )
+            return self._handle_with_review_manager(method, params, GitHandler)
 
         # Search operations
-        elif method in ["search", "get_sources", "add_source", "update_source", "remove_source", "upload_search_file", "get_source_records"]:
-            return self._handle_with_review_manager(
-                method, params, SearchHandler
-            )
+        elif method in [
+            "search",
+            "get_sources",
+            "add_source",
+            "update_source",
+            "remove_source",
+            "upload_search_file",
+            "get_source_records",
+        ]:
+            return self._handle_with_review_manager(method, params, SearchHandler)
 
         # Load operations
         elif method in ["load"]:
-            return self._handle_with_review_manager(
-                method, params, LoadHandler
-            )
+            return self._handle_with_review_manager(method, params, LoadHandler)
 
         # Prep operations
         elif method in ["prep"]:
-            return self._handle_with_review_manager(
-                method, params, PrepHandler
-            )
+            return self._handle_with_review_manager(method, params, PrepHandler)
 
         # Dedupe operations
         elif method in ["dedupe"]:
-            return self._handle_with_review_manager(
-                method, params, DedupeHandler
-            )
+            return self._handle_with_review_manager(method, params, DedupeHandler)
 
         # Prescreen operations
-        elif method in ["prescreen", "get_prescreen_queue", "prescreen_record"]:
-            return self._handle_with_review_manager(
-                method, params, PrescreenHandler
-            )
+        elif method in [
+            "prescreen",
+            "get_prescreen_queue",
+            "prescreen_record",
+            "enrich_record_metadata",
+            "batch_enrich_records",
+        ]:
+            return self._handle_with_review_manager(method, params, PrescreenHandler)
 
         # PDF get operations
         elif method in ["pdf_get"]:
-            return self._handle_with_review_manager(
-                method, params, PDFGetHandler
-            )
+            return self._handle_with_review_manager(method, params, PDFGetHandler)
 
         # PDF prep operations
         elif method in ["pdf_prep"]:
-            return self._handle_with_review_manager(
-                method, params, PDFPrepHandler
-            )
+            return self._handle_with_review_manager(method, params, PDFPrepHandler)
 
         # Screen operations
         elif method in ["screen", "get_screen_queue", "screen_record"]:
-            return self._handle_with_review_manager(
-                method, params, ScreenHandler
-            )
+            return self._handle_with_review_manager(method, params, ScreenHandler)
 
         # Data operations
         elif method in ["data"]:
-            return self._handle_with_review_manager(
-                method, params, DataHandler
-            )
+            return self._handle_with_review_manager(method, params, DataHandler)
 
         else:
             raise ValueError(f"Method '{method}' not found")
@@ -244,7 +236,9 @@ class JSONRPCHandler:
 
                 return result
             else:
-                raise ValueError(f"Handler {handler_class.__name__} does not support method '{method}'")
+                raise ValueError(
+                    f"Handler {handler_class.__name__} does not support method '{method}'"
+                )
 
         finally:
             # Always restore original stdout and directory

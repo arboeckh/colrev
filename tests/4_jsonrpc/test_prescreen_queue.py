@@ -4,6 +4,8 @@
 Tests cover the following endpoints:
     - get_prescreen_queue: Get records awaiting prescreening
     - prescreen_record: Submit prescreening decision for a single record
+    - enrich_record_metadata: Enrich a single record with API data
+    - batch_enrich_records: Enrich multiple records in one call
 """
 from __future__ import annotations
 
@@ -261,3 +263,201 @@ class TestPrescreenRecordEndpoint:
         response = self.handler.handle_request(request)
 
         assert "error" in response
+
+
+class TestEnrichRecordMetadataEndpoint:
+    """Tests for the enrich_record_metadata endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def setup_project(self, tmp_path, mocker):
+        """Set up a test project for each test."""
+        self.base_path = tmp_path
+        self.project_id = "enrich_metadata_test_project"
+        self.test_dir = self.base_path / self.project_id
+        self.test_dir.mkdir()
+
+        mocker.patch(
+            "colrev.env.environment_manager.EnvironmentManager.get_name_mail_from_git",
+            return_value=("Test User", "test@example.com"),
+        )
+
+        mocker.patch.object(
+            colrev.constants.Filepaths,
+            "REGISTRY_FILE",
+            self.test_dir / "reg.json",
+        )
+
+        original_cwd = os.getcwd()
+        os.chdir(self.test_dir)
+        try:
+            colrev.ops.init.Initializer(
+                review_type="literature_review",
+                target_path=self.test_dir,
+                light=True,
+            )
+        finally:
+            os.chdir(original_cwd)
+
+        self.handler = JSONRPCHandler()
+
+    def test_enrich_record_metadata_missing_record_id_returns_error(self):
+        """Test that missing record_id parameter returns error."""
+        request = {
+            "jsonrpc": "2.0",
+            "method": "enrich_record_metadata",
+            "params": {
+                "project_id": self.project_id,
+                "base_path": str(self.base_path),
+            },
+            "id": 1,
+        }
+
+        response = self.handler.handle_request(request)
+
+        assert "error" in response
+        assert "record_id" in response["error"]["message"].lower()
+
+    def test_enrich_record_metadata_nonexistent_record_returns_error(self):
+        """Test that non-existent record returns error."""
+        request = {
+            "jsonrpc": "2.0",
+            "method": "enrich_record_metadata",
+            "params": {
+                "project_id": self.project_id,
+                "base_path": str(self.base_path),
+                "record_id": "nonexistent_record_id",
+            },
+            "id": 1,
+        }
+
+        response = self.handler.handle_request(request)
+
+        assert "error" in response
+
+    def test_enrich_record_metadata_with_invalid_project_returns_error(self):
+        """Test that enrich_record_metadata returns error for non-existent project."""
+        request = {
+            "jsonrpc": "2.0",
+            "method": "enrich_record_metadata",
+            "params": {
+                "project_id": "nonexistent_project",
+                "base_path": str(self.base_path),
+                "record_id": "some_record",
+            },
+            "id": 1,
+        }
+
+        response = self.handler.handle_request(request)
+
+        assert "error" in response
+
+
+class TestBatchEnrichRecordsEndpoint:
+    """Tests for the batch_enrich_records endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def setup_project(self, tmp_path, mocker):
+        """Set up a test project for each test."""
+        self.base_path = tmp_path
+        self.project_id = "batch_enrich_test_project"
+        self.test_dir = self.base_path / self.project_id
+        self.test_dir.mkdir()
+
+        mocker.patch(
+            "colrev.env.environment_manager.EnvironmentManager.get_name_mail_from_git",
+            return_value=("Test User", "test@example.com"),
+        )
+
+        mocker.patch.object(
+            colrev.constants.Filepaths,
+            "REGISTRY_FILE",
+            self.test_dir / "reg.json",
+        )
+
+        original_cwd = os.getcwd()
+        os.chdir(self.test_dir)
+        try:
+            colrev.ops.init.Initializer(
+                review_type="literature_review",
+                target_path=self.test_dir,
+                light=True,
+            )
+        finally:
+            os.chdir(original_cwd)
+
+        self.handler = JSONRPCHandler()
+
+    def test_batch_enrich_records_missing_record_ids_returns_error(self):
+        """Test that missing record_ids parameter returns error."""
+        request = {
+            "jsonrpc": "2.0",
+            "method": "batch_enrich_records",
+            "params": {
+                "project_id": self.project_id,
+                "base_path": str(self.base_path),
+            },
+            "id": 1,
+        }
+
+        response = self.handler.handle_request(request)
+
+        assert "error" in response
+        assert "record_ids" in response["error"]["message"].lower()
+
+    def test_batch_enrich_records_empty_record_ids_returns_error(self):
+        """Test that empty record_ids list returns error."""
+        request = {
+            "jsonrpc": "2.0",
+            "method": "batch_enrich_records",
+            "params": {
+                "project_id": self.project_id,
+                "base_path": str(self.base_path),
+                "record_ids": [],
+            },
+            "id": 1,
+        }
+
+        response = self.handler.handle_request(request)
+
+        assert "error" in response
+        assert "record_ids" in response["error"]["message"].lower()
+
+    def test_batch_enrich_records_with_invalid_project_returns_error(self):
+        """Test that batch_enrich_records returns error for non-existent project."""
+        request = {
+            "jsonrpc": "2.0",
+            "method": "batch_enrich_records",
+            "params": {
+                "project_id": "nonexistent_project",
+                "base_path": str(self.base_path),
+                "record_ids": ["record1", "record2"],
+            },
+            "id": 1,
+        }
+
+        response = self.handler.handle_request(request)
+
+        assert "error" in response
+
+    def test_batch_enrich_records_nonexistent_records_returns_failed_count(self):
+        """Test that non-existent records are counted in failed_count."""
+        request = {
+            "jsonrpc": "2.0",
+            "method": "batch_enrich_records",
+            "params": {
+                "project_id": self.project_id,
+                "base_path": str(self.base_path),
+                "record_ids": ["nonexistent1", "nonexistent2"],
+            },
+            "id": 1,
+        }
+
+        response = self.handler.handle_request(request)
+
+        assert "error" not in response, f"Unexpected error: {response.get('error')}"
+        result = response["result"]
+
+        assert result["success"] is True
+        assert result["failed_count"] == 2
+        assert result["enriched_count"] == 0
+        assert len(result["records"]) == 2
