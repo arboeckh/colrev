@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { Play, Loader2, Layers, Check, ArrowRight } from 'lucide-vue-next';
+import { Play, Loader2, Layers, Check, ArrowRight, Eye } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
+import PreprocessingResultsModal from '@/components/preprocessing/PreprocessingResultsModal.vue';
 import type { GetSourcesResponse, SearchSource } from '@/types';
 
 const projects = useProjectsStore();
@@ -34,6 +35,7 @@ const currentStage = ref<StageId | null>(null);
 const completedStages = ref<Set<StageId>>(new Set());
 const sources = ref<SearchSource[]>([]);
 const isLoadingSources = ref(false);
+const showResultsModal = ref(false);
 
 // Filter out FILES type sources (like files_dir)
 const visibleSources = computed(() => {
@@ -372,9 +374,27 @@ watch(
             >
               -{{ duplicatesRemoved }} duplicates
             </Badge>
+
+            <Button
+              v-if="isPreprocessingComplete"
+              variant="outline"
+              size="sm"
+              class="mt-2"
+              data-testid="view-results-button"
+              @click="showResultsModal = true"
+            >
+              <Eye class="h-4 w-4 mr-1" />
+              View Results
+            </Button>
           </div>
         </div>
       </CardContent>
     </Card>
+
+    <!-- Results Modal -->
+    <PreprocessingResultsModal
+      v-model:open="showResultsModal"
+      :project-id="projects.currentProjectId || ''"
+    />
   </div>
 </template>
