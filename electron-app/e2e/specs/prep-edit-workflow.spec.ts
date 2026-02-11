@@ -183,15 +183,11 @@ test.describe('Prep Edit Workflow', () => {
     console.log(`Ready records: ${readyCount}`);
 
     // ============================================================
-    // NEEDS ATTENTION: Switch to attention tab
+    // NEEDS ATTENTION: Check attention tab (opens by default)
     // ============================================================
     console.log('\n' + '='.repeat(60));
     console.log('NEEDS ATTENTION: Check for records needing attention');
     console.log('='.repeat(60));
-
-    // Click "Needs Attention" tab
-    await window.click('[data-testid="tab-attention"]');
-    await window.waitForTimeout(1500);
 
     // Check if there are attention records
     const attentionBadge = await window.$('[data-testid="tab-attention"] .inline-flex');
@@ -465,6 +461,45 @@ test.describe('Prep Edit Workflow', () => {
         console.log('ℹ️ Save button is disabled - no changes detected');
       }
     }
+
+    // ============================================================
+    // VERIFY: Record moves from Attention to Ready after edit
+    // ============================================================
+    console.log('\n' + '='.repeat(60));
+    console.log('VERIFY: Record moved from Attention to Ready after edit + auto-dedupe');
+    console.log('='.repeat(60));
+
+    // Wait for auto-dedupe to complete (triggered by onRecordUpdated)
+    await waitForRpcResponse('dedupe', 30000);
+    console.log('✅ Auto-dedupe completed');
+
+    // Wait a moment for the Ready tab to reload after dedupe
+    await window.waitForTimeout(2000);
+
+    // Check updated attention count - should have decreased
+    const updatedAttentionBadge = await window.$('[data-testid="tab-attention"] .inline-flex');
+    const updatedAttentionCount = updatedAttentionBadge ? await updatedAttentionBadge.textContent() : '0';
+    const updatedAttentionNum = parseInt(updatedAttentionCount?.trim() || '0', 10);
+    console.log(`Attention count: ${attentionCountNum} → ${updatedAttentionNum}`);
+    expect(updatedAttentionNum).toBeLessThan(attentionCountNum);
+    console.log('✅ Attention count decreased');
+
+    // Switch to Ready tab and verify count increased
+    await window.click('[data-testid="tab-ready"]');
+    await window.waitForTimeout(1500);
+
+    const updatedReadyBadge = await window.$('[data-testid="tab-ready"] .inline-flex');
+    const updatedReadyCount = updatedReadyBadge ? await updatedReadyBadge.textContent() : '0';
+    const updatedReadyNum = parseInt(updatedReadyCount?.trim() || '0', 10);
+    const initialReadyNum = parseInt(readyCount?.trim() || '0', 10);
+    console.log(`Ready count: ${initialReadyNum} → ${updatedReadyNum}`);
+    expect(updatedReadyNum).toBeGreaterThan(initialReadyNum);
+    console.log('✅ Ready count increased');
+
+    // Verify the ready records table is visible with records
+    const readyTableAfterEdit = await window.$('[data-testid="ready-records-table"]');
+    expect(readyTableAfterEdit).not.toBeNull();
+    console.log('✅ Ready records table is visible with records');
 
     // ============================================================
     // SUMMARY

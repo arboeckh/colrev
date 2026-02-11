@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { Play, Loader2, Layers, Check, ArrowRight, Eye, Info, Database } from 'lucide-vue-next';
+import { Play, Loader2, Layers, Check, ArrowRight, Eye, Info, Database, AlertTriangle } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
@@ -100,6 +100,11 @@ const finalRecordCount = computed(() => {
 // Duplicates removed
 const duplicatesRemoved = computed(() => {
   return projects.currentStatus?.duplicates_removed ?? 0;
+});
+
+// Records needing manual attention
+const needsAttentionCount = computed(() => {
+  return projects.currentStatus?.currently?.md_needs_manual_preparation ?? 0;
 });
 
 // Check if we can run preprocessing
@@ -232,6 +237,13 @@ function getStageVisualStatus(stageId: StageId): 'pending' | 'running' | 'comple
 
 onMounted(() => {
   loadSources();
+});
+
+// Refresh status when results modal closes (records may have been edited)
+watch(showResultsModal, (newVal, oldVal) => {
+  if (!newVal && oldVal) {
+    projects.refreshCurrentProject();
+  }
 });
 
 watch(
@@ -385,6 +397,15 @@ watch(
               >
                 -{{ duplicatesRemoved }} duplicates
               </Badge>
+
+              <div
+                v-if="needsAttentionCount > 0"
+                class="flex items-center gap-1.5 mt-2 px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400"
+                data-testid="attention-indicator"
+              >
+                <AlertTriangle class="h-3.5 w-3.5 shrink-0" />
+                <span class="text-xs font-medium">{{ needsAttentionCount }} need{{ needsAttentionCount === 1 ? 's' : '' }} attention</span>
+              </div>
 
               <Button
                 variant="outline"

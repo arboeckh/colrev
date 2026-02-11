@@ -27,7 +27,7 @@ const emit = defineEmits<{
 const backend = useBackendStore();
 
 // State for each tab
-const activeTab = ref<'ready' | 'attention'>('ready');
+const activeTab = ref<'attention' | 'ready'>('attention');
 
 // Ready records (md_processed)
 const readyRecords = ref<Record[]>([]);
@@ -154,8 +154,14 @@ function openEditDialog(recordId: string) {
   showEditDialog.value = true;
 }
 
-function onRecordUpdated() {
+async function onRecordUpdated() {
   loadAttentionRecords();
+  // Auto-run dedupe to transition md_prepared → md_processed
+  try {
+    await backend.call('dedupe', { project_id: props.projectId });
+  } catch (err) {
+    console.error('Auto-dedupe after edit failed:', err);
+  }
   loadReadyRecords();
 }
 
@@ -178,127 +184,28 @@ function truncate(text: string | undefined, maxLength: number): string {
 
       <Tabs v-model="activeTab" class="flex-1 flex flex-col min-h-0 overflow-hidden">
         <TabsList class="w-fit shrink-0">
+          <TabsTrigger
+            value="attention"
+            class="flex items-center gap-2"
+            :class="attentionTotalCount > 0 ? 'data-[state=active]:bg-amber-500/15 data-[state=active]:text-amber-700 dark:data-[state=active]:text-amber-400' : ''"
+            data-testid="tab-attention"
+          >
+            <AlertCircle class="h-4 w-4" />
+            Needs Attention
+            <Badge
+              :variant="attentionTotalCount > 0 ? 'default' : 'secondary'"
+              :class="attentionTotalCount > 0 ? 'bg-amber-500/80 text-white hover:bg-amber-500/80 ml-1' : 'ml-1'"
+            >{{ attentionTotalCount }}</Badge>
+          </TabsTrigger>
           <TabsTrigger value="ready" class="flex items-center gap-2" data-testid="tab-ready">
             <CheckCircle2 class="h-4 w-4" />
             Ready
             <Badge variant="secondary" class="ml-1">{{ readyTotalCount }}</Badge>
           </TabsTrigger>
-          <TabsTrigger value="attention" class="flex items-center gap-2" data-testid="tab-attention">
-            <AlertCircle class="h-4 w-4" />
-            Needs Attention
-            <Badge variant="secondary" class="ml-1">{{ attentionTotalCount }}</Badge>
-          </TabsTrigger>
         </TabsList>
 
         <!-- Tab content wrapper - fixed height container -->
         <div class="flex-1 min-h-0 relative mt-4">
-          <!-- Ready Tab -->
-          <TabsContent value="ready" class="absolute inset-0 flex flex-col m-0 data-[state=inactive]:hidden">
-          <div class="flex-1 overflow-auto min-h-0">
-            <!-- Loading state -->
-            <div v-if="isLoadingReady" class="flex items-center justify-center py-12">
-              <Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-
-            <!-- Empty state -->
-            <div v-else-if="readyRecords.length === 0" class="flex flex-col items-center justify-center py-12 text-muted-foreground">
-              <CheckCircle2 class="h-12 w-12 mb-4 text-muted-foreground/50" />
-              <p>No records ready for prescreening yet.</p>
-              <p class="text-sm">Run preprocessing to prepare records.</p>
-            </div>
-
-            <!-- Records table -->
-            <div v-else class="border rounded-lg overflow-hidden">
-              <table class="w-full text-sm" data-testid="ready-records-table">
-                <thead class="bg-muted/50">
-                  <tr>
-                    <th class="px-4 py-3 text-left font-medium w-16">#</th>
-                    <th class="px-4 py-3 text-left font-medium">Title</th>
-                    <th class="px-4 py-3 text-left font-medium w-48">Authors</th>
-                    <th class="px-4 py-3 text-left font-medium w-20">Year</th>
-                    <th class="px-4 py-3 text-left font-medium w-32">Type</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-border">
-                  <tr
-                    v-for="(record, index) in readyRecords"
-                    :key="record.ID"
-                    class="hover:bg-muted/30"
-                    :data-testid="`ready-record-row-${index}`"
-                  >
-                    <td class="px-4 py-3 text-muted-foreground">
-                      {{ (readyCurrentPage - 1) * pageSize + index + 1 }}
-                    </td>
-                    <td class="px-4 py-3">
-                      <div class="space-y-1">
-                        <div class="font-medium" :title="record.title">
-                          {{ truncate(record.title, 80) }}
-                        </div>
-                        <div v-if="record.journal || record.booktitle" class="text-xs text-muted-foreground">
-                          {{ record.journal || record.booktitle }}
-                        </div>
-                        <div v-if="record.doi" class="text-xs">
-                          <a
-                            :href="`https://doi.org/${record.doi}`"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            class="text-primary hover:underline inline-flex items-center gap-1"
-                            @click.stop
-                          >
-                            {{ record.doi }}
-                            <ExternalLink class="h-3 w-3" />
-                          </a>
-                        </div>
-                      </div>
-                    </td>
-                    <td class="px-4 py-3 text-muted-foreground" :title="record.author">
-                      {{ truncate(record.author, 30) }}
-                    </td>
-                    <td class="px-4 py-3">
-                      {{ record.year || '-' }}
-                    </td>
-                    <td class="px-4 py-3">
-                      <Badge variant="outline" class="text-xs">
-                        {{ record.ENTRYTYPE }}
-                      </Badge>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-            <!-- Pagination -->
-            <div v-if="readyTotalPages > 1" class="flex items-center justify-between pt-4 border-t shrink-0">
-              <div class="text-sm text-muted-foreground">
-                Showing {{ (readyCurrentPage - 1) * pageSize + 1 }}-{{ Math.min(readyCurrentPage * pageSize, readyTotalCount) }} of {{ readyTotalCount }}
-              </div>
-              <div class="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  :disabled="readyCurrentPage === 1 || isLoadingReady"
-                  @click="goToPreviousReadyPage"
-                >
-                  <ChevronLeft class="h-4 w-4" />
-                  Previous
-                </Button>
-                <span class="text-sm text-muted-foreground px-2">
-                  Page {{ readyCurrentPage }} of {{ readyTotalPages }}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  :disabled="readyCurrentPage === readyTotalPages || isLoadingReady"
-                  @click="goToNextReadyPage"
-                >
-                  Next
-                  <ChevronRight class="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </TabsContent>
-
           <!-- Attention Tab -->
           <TabsContent value="attention" class="absolute inset-0 flex flex-col m-0 data-[state=inactive]:hidden">
           <div class="flex-1 overflow-auto min-h-0">
@@ -403,6 +310,113 @@ function truncate(text: string | undefined, maxLength: number): string {
                   size="sm"
                   :disabled="attentionCurrentPage === attentionTotalPages || isLoadingAttention"
                   @click="goToNextAttentionPage"
+                >
+                  Next
+                  <ChevronRight class="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </TabsContent>
+
+          <!-- Ready Tab -->
+          <TabsContent value="ready" class="absolute inset-0 flex flex-col m-0 data-[state=inactive]:hidden">
+          <div class="flex-1 overflow-auto min-h-0">
+            <!-- Loading state -->
+            <div v-if="isLoadingReady" class="flex items-center justify-center py-12">
+              <Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+
+            <!-- Empty state -->
+            <div v-else-if="readyRecords.length === 0" class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+              <CheckCircle2 class="h-12 w-12 mb-4 text-muted-foreground/50" />
+              <p>No records ready for prescreening yet.</p>
+              <p class="text-sm">Run preprocessing to prepare records.</p>
+            </div>
+
+            <!-- Records table -->
+            <div v-else class="border rounded-lg overflow-hidden">
+              <table class="w-full text-sm" data-testid="ready-records-table">
+                <thead class="bg-muted/50">
+                  <tr>
+                    <th class="px-4 py-3 text-left font-medium w-16">#</th>
+                    <th class="px-4 py-3 text-left font-medium">Title</th>
+                    <th class="px-4 py-3 text-left font-medium w-48">Authors</th>
+                    <th class="px-4 py-3 text-left font-medium w-20">Year</th>
+                    <th class="px-4 py-3 text-left font-medium w-32">Type</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-border">
+                  <tr
+                    v-for="(record, index) in readyRecords"
+                    :key="record.ID"
+                    class="hover:bg-muted/30"
+                    :data-testid="`ready-record-row-${index}`"
+                  >
+                    <td class="px-4 py-3 text-muted-foreground">
+                      {{ (readyCurrentPage - 1) * pageSize + index + 1 }}
+                    </td>
+                    <td class="px-4 py-3">
+                      <div class="space-y-1">
+                        <div class="font-medium" :title="record.title">
+                          {{ truncate(record.title, 80) }}
+                        </div>
+                        <div v-if="record.journal || record.booktitle" class="text-xs text-muted-foreground">
+                          {{ record.journal || record.booktitle }}
+                        </div>
+                        <div v-if="record.doi" class="text-xs">
+                          <a
+                            :href="`https://doi.org/${record.doi}`"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="text-primary hover:underline inline-flex items-center gap-1"
+                            @click.stop
+                          >
+                            {{ record.doi }}
+                            <ExternalLink class="h-3 w-3" />
+                          </a>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="px-4 py-3 text-muted-foreground" :title="record.author">
+                      {{ truncate(record.author, 30) }}
+                    </td>
+                    <td class="px-4 py-3">
+                      {{ record.year || '-' }}
+                    </td>
+                    <td class="px-4 py-3">
+                      <Badge variant="outline" class="text-xs">
+                        {{ record.ENTRYTYPE }}
+                      </Badge>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+            <!-- Pagination -->
+            <div v-if="readyTotalPages > 1" class="flex items-center justify-between pt-4 border-t shrink-0">
+              <div class="text-sm text-muted-foreground">
+                Showing {{ (readyCurrentPage - 1) * pageSize + 1 }}-{{ Math.min(readyCurrentPage * pageSize, readyTotalCount) }} of {{ readyTotalCount }}
+              </div>
+              <div class="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  :disabled="readyCurrentPage === 1 || isLoadingReady"
+                  @click="goToPreviousReadyPage"
+                >
+                  <ChevronLeft class="h-4 w-4" />
+                  Previous
+                </Button>
+                <span class="text-sm text-muted-foreground px-2">
+                  Page {{ readyCurrentPage }} of {{ readyTotalPages }}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  :disabled="readyCurrentPage === readyTotalPages || isLoadingReady"
+                  @click="goToNextReadyPage"
                 >
                   Next
                   <ChevronRight class="h-4 w-4" />
