@@ -56,12 +56,14 @@ export function useProject() {
   function navigateToStep(step: WorkflowStep) {
     const stepRoutes: Record<WorkflowStep, string> = {
       search: 'search',
+      preprocessing: 'preprocessing',
       load: 'load',
       prep: 'prep',
       dedupe: 'dedupe',
       prescreen: 'prescreen',
-      pdf_get: 'pdf-get',
-      pdf_prep: 'pdf-prep',
+      pdfs: 'pdfs',
+      pdf_get: 'pdfs',
+      pdf_prep: 'pdfs',
       screen: 'screen',
       data: 'data',
     };

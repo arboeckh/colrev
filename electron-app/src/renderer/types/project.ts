@@ -201,6 +201,7 @@ export type WorkflowStep =
   | 'prep'
   | 'dedupe'
   | 'prescreen'
+  | 'pdfs'
   | 'pdf_get'
   | 'pdf_prep'
   | 'screen'
@@ -299,7 +300,7 @@ export const ALL_WORKFLOW_STEPS: WorkflowStepInfo[] = [
   },
 ];
 
-// Grouped workflow steps for sidebar display (combines load/prep/dedupe into preprocessing)
+// Grouped workflow steps for sidebar display (combines load/prep/dedupe into preprocessing, pdf_get/pdf_prep into pdfs)
 export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
   {
     id: 'search',
@@ -329,20 +330,14 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     outputStates: ['rev_prescreen_included', 'rev_prescreen_excluded'],
   },
   {
-    id: 'pdf_get',
-    label: 'PDF Get',
-    description: 'Retrieve PDFs',
-    route: 'pdf-get',
-    inputStates: ['rev_prescreen_included', 'pdf_needs_manual_retrieval'],
-    outputStates: ['pdf_imported', 'pdf_not_available'],
-  },
-  {
-    id: 'pdf_prep',
-    label: 'PDF Prep',
-    description: 'Prepare PDFs',
-    route: 'pdf-prep',
-    inputStates: ['pdf_imported', 'pdf_needs_manual_preparation'],
-    outputStates: ['pdf_prepared'],
+    id: 'pdfs',
+    label: 'PDFs',
+    description: 'Retrieve and prepare PDFs',
+    route: 'pdfs',
+    inputStates: ['rev_prescreen_included', 'pdf_needs_manual_retrieval', 'pdf_imported', 'pdf_needs_manual_preparation'],
+    outputStates: ['pdf_prepared', 'pdf_not_available'],
+    isGrouped: true,
+    subSteps: ['pdf_get', 'pdf_prep'],
   },
   {
     id: 'screen',

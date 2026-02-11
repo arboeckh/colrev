@@ -6,9 +6,11 @@ from pathlib import Path
 from typing import Any, Dict
 
 import colrev.ops.pdf_get_man
+import colrev.ops.pdf_prep
 import colrev.record.record
 import colrev.review_manager
-from colrev.constants import Fields, RecordState
+from colrev.constants import EndpointType, Fields, RecordState
+from colrev.package_manager.package_manager import PackageManager
 from colrev.ui_jsonrpc import response_formatter, validation
 
 logger = logging.getLogger(__name__)
@@ -105,9 +107,16 @@ class PDFGetHandler:
             raise ValueError(f"Record '{record_id}' not found")
 
         record_dict = records[record_id]
-        if record_dict[Fields.STATUS] != RecordState.pdf_needs_manual_retrieval:
+        is_reupload = (
+            record_dict[Fields.STATUS] == RecordState.pdf_needs_manual_preparation
+        )
+        if record_dict[Fields.STATUS] not in (
+            RecordState.pdf_needs_manual_retrieval,
+            RecordState.pdf_needs_manual_preparation,
+        ):
             raise ValueError(
-                f"Record '{record_id}' is not in pdf_needs_manual_retrieval state "
+                f"Record '{record_id}' is not in pdf_needs_manual_retrieval or "
+                f"pdf_needs_manual_preparation state "
                 f"(current: {record_dict[Fields.STATUS]})"
             )
 
@@ -125,14 +134,90 @@ class PDFGetHandler:
         with open(target_path, "wb") as f:
             f.write(pdf_bytes)
 
-        # Use PDFGetMan to link the PDF to the record
-        record = colrev.record.record.Record(record_dict)
-        pdf_get_man.pdf_get_man_record(record=record, filepath=target_path)
+        if is_reupload:
+            # Re-upload: overwrite the PDF, clear file provenance defects,
+            # and reset status to pdf_imported so auto-prep runs fresh
+            record = colrev.record.record.Record(record_dict)
+            record.data[Fields.D_PROV]["file"] = {
+                "source": "manual-upload",
+                "note": "",
+            }
+            record.set_status(target_state=RecordState.pdf_imported, force=True)
+            self.review_manager.dataset.save_records_dict(
+                {record_id: record.data}, partial=True
+            )
+        else:
+            # First upload: use PDFGetMan to link the PDF to the record
+            record = colrev.record.record.Record(record_dict)
+            pdf_get_man.pdf_get_man_record(record=record, filepath=target_path)
+
+        # Auto-run PDF prep on the uploaded record
+        prep_status = "skipped"
+        prep_message = None
+        try:
+            pdf_prep_operation = colrev.ops.pdf_prep.PDFPrep(
+                review_manager=self.review_manager,
+                notify_state_transition_operation=False,
+            )
+
+            # Set up package endpoints (same pattern as PDFPrep.main())
+            package_manager = PackageManager()
+            pdf_prep_operation.pdf_prep_package_endpoints = {}
+            for pdf_prep_pe in (
+                self.review_manager.settings.pdf_prep.pdf_prep_package_endpoints
+            ):
+                pdf_prep_class = package_manager.get_package_endpoint_class(
+                    package_type=EndpointType.pdf_prep,
+                    package_identifier=pdf_prep_pe["endpoint"],
+                )
+                pdf_prep_operation.pdf_prep_package_endpoints[
+                    pdf_prep_pe["endpoint"]
+                ] = pdf_prep_class(
+                    pdf_prep_operation=pdf_prep_operation,
+                    settings=pdf_prep_pe,
+                )
+
+            # Re-load the record after pdf_get_man saved it
+            fresh_records = self.review_manager.dataset.load_records_dict()
+            fresh_record_dict = fresh_records[record_id]
+
+            # Run prep on this single record
+            prepped_record_dict = pdf_prep_operation.prepare_pdf(
+                {"record": fresh_record_dict}
+            )
+
+            # Save the prepped record
+            self.review_manager.dataset.save_records_dict(
+                {record_id: prepped_record_dict}, partial=True
+            )
+
+            prep_status = str(prepped_record_dict.get(Fields.STATUS, ""))
+
+            # Extract defect notes if prep failed
+            if prep_status == str(RecordState.pdf_needs_manual_preparation):
+                provenance = prepped_record_dict.get(
+                    Fields.D_PROV, {}
+                )
+                file_prov = provenance.get("file", {})
+                note = file_prov.get("note", "") if isinstance(file_prov, dict) else ""
+                if note:
+                    prep_message = note
+                else:
+                    prep_message = "PDF needs manual preparation"
+
+        except Exception as e:
+            logger.warning(f"PDF prep failed for {record_id}: {e}")
+            prep_status = "skipped"
+            prep_message = str(e)
+
+        # Determine final status
+        final_records = self.review_manager.dataset.load_records_dict()
+        final_status = str(final_records[record_id].get(Fields.STATUS, "pdf_imported"))
 
         # Commit if requested
         if not skip_commit:
             self.review_manager.create_commit(
-                msg=f"Upload PDF for {record_id}",
+                msg=f"Upload and prepare PDF for {record_id}",
                 manual_author=True,
             )
 
@@ -140,7 +225,9 @@ class PDFGetHandler:
             "success": True,
             "record_id": record_id,
             "file_path": str(target_path.relative_to(self.review_manager.path)),
-            "new_status": "pdf_imported",
+            "new_status": final_status,
+            "prep_status": prep_status,
+            "prep_message": prep_message,
         }
 
     def mark_pdf_not_available(self, params: Dict[str, Any]) -> Dict[str, Any]:

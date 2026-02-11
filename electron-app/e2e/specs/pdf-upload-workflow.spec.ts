@@ -220,8 +220,8 @@ test.describe('PDF Upload Workflow', () => {
 
     await clearDebugLogs();
 
-    await window.click('[data-testid="sidebar-pdf_get"]');
-    await window.waitForSelector('[data-testid="pdf-get-page"]', { timeout: 10000 });
+    await window.click('[data-testid="sidebar-pdfs"]');
+    await window.waitForSelector('[data-testid="pdfs-page"]', { timeout: 10000 });
     console.log('PDF Get page loaded');
 
     // Wait a moment for status to load
@@ -248,7 +248,7 @@ test.describe('PDF Upload Workflow', () => {
       debugData.backendLogs.slice(-10).forEach(l => console.log(l));
 
       // Try refreshing status
-      await window.click('[data-testid="sidebar-pdf_get"]');
+      await window.click('[data-testid="sidebar-pdfs"]');
       await window.waitForTimeout(3000);
     }
 
@@ -285,17 +285,17 @@ test.describe('PDF Upload Workflow', () => {
     console.log('='.repeat(60));
 
     // Refresh the page to get updated records
-    await window.click('[data-testid="sidebar-pdf_get"]');
-    await window.waitForSelector('[data-testid="pdf-get-page"]', { timeout: 10000 });
+    await window.click('[data-testid="sidebar-pdfs"]');
+    await window.waitForSelector('[data-testid="pdfs-page"]', { timeout: 10000 });
     await window.waitForTimeout(3000);
 
     // Check needs count
-    const needsCountBadge = await window.$('[data-testid="pdf-get-needs-count"]');
+    const needsCountBadge = await window.$('[data-testid="pdfs-needs-count"]');
     const needsCountText = await needsCountBadge?.textContent();
     console.log(`Needs PDF badge: "${needsCountText}"`);
 
     // Check imported count
-    const importedCountBadge = await window.$('[data-testid="pdf-get-imported-count"]');
+    const importedCountBadge = await window.$('[data-testid="pdfs-imported-count"]');
     const importedCountText = await importedCountBadge?.textContent();
     console.log(`Imported badge: "${importedCountText}"`);
 
@@ -325,7 +325,7 @@ test.describe('PDF Upload Workflow', () => {
     console.log(`${needsCount} records need manual PDF retrieval`);
 
     // Click on "Needs PDF" tab to ensure it's selected
-    await window.click('[data-testid="pdf-get-tab-needs"]');
+    await window.click('[data-testid="pdfs-tab-needs"]');
     await window.waitForTimeout(1000);
 
     // Look for record rows
@@ -375,39 +375,131 @@ test.describe('PDF Upload Workflow', () => {
     console.log('upload_pdf RPC completed');
 
     // ============================================================
-    // VERIFY: Record moved to Retrieved tab
+    // VERIFY: Record moved to Retrieved tab (auto-prep runs)
     // ============================================================
     console.log('\n' + '='.repeat(60));
-    console.log('VERIFY: Record moved to Retrieved tab');
+    console.log('VERIFY: Record moved to Retrieved tab after auto-prep');
     console.log('='.repeat(60));
 
-    // Wait for UI to update
-    await window.waitForTimeout(3000);
+    // Wait for UI to update (auto-prep runs + 2s delay before refresh)
+    await window.waitForTimeout(5000);
 
-    // Check updated counts
-    const updatedNeedsText = await (await window.$('[data-testid="pdf-get-needs-count"]'))?.textContent();
-    const updatedImportedText = await (await window.$('[data-testid="pdf-get-imported-count"]'))?.textContent();
-    console.log(`Updated Needs: "${updatedNeedsText}", Updated Imported: "${updatedImportedText}"`);
+    // Check updated counts - with auto-prep, record goes to pdf_prepared
+    // or pdf_needs_manual_preparation (not pdf_imported)
+    const updatedNeedsText = await (await window.$('[data-testid="pdfs-needs-count"]'))?.textContent();
+    const updatedImportedText = await (await window.$('[data-testid="pdfs-imported-count"]'))?.textContent();
+    const updatedPreparedText = await (await window.$('[data-testid="pdfs-prepared-count"]'))?.textContent();
+    const updatedNeedsPrepBadge = await window.$('[data-testid="pdfs-needs-prep-count"]');
+    const updatedNeedsPrepText = updatedNeedsPrepBadge ? await updatedNeedsPrepBadge.textContent() : '0';
+    console.log(`Updated Needs: "${updatedNeedsText}", Imported: "${updatedImportedText}", Prepared: "${updatedPreparedText}", Needs Prep: "${updatedNeedsPrepText}"`);
 
     const updatedNeedsCount = parseInt(updatedNeedsText?.match(/(\d+)/)?.[1] || '0');
-    const updatedImportedCount = parseInt(updatedImportedText?.match(/(\d+)/)?.[1] || '0');
+    const updatedPreparedCount = parseInt(updatedPreparedText?.match(/(\d+)/)?.[1] || '0');
+    const updatedNeedsPrepCount = parseInt(updatedNeedsPrepText?.match(/(\d+)/)?.[1] || '0');
 
-    // After uploading one PDF, imported count should increase
-    expect(updatedImportedCount).toBeGreaterThan(importedCount);
-    console.log(`Imported count increased: ${importedCount} -> ${updatedImportedCount}`);
+    // After upload + auto-prep, the record should have moved out of needs_pdf.
+    // It will be in either prepared (Retrieved tab) or needs_manual_preparation (Needs Prep tab).
+    const movedCount = updatedPreparedCount + updatedNeedsPrepCount;
+    console.log(`Records that moved past import: prepared=${updatedPreparedCount}, needs_prep=${updatedNeedsPrepCount}`);
+    expect(movedCount).toBeGreaterThan(0);
 
-    // Switch to Retrieved tab to verify the record appears there
-    await window.click('[data-testid="pdf-get-tab-retrieved"]');
-    await window.waitForTimeout(1000);
+    // Check the appropriate tab based on where the record ended up
+    if (updatedPreparedCount > 0) {
+      // Record was fully prepared - check Retrieved tab
+      await window.click('[data-testid="pdfs-tab-retrieved"]');
+      await window.waitForTimeout(1000);
 
-    const retrievedRows = await window.$$('[data-testid^="pdf-record-row-"]');
-    console.log(`Found ${retrievedRows.length} records in Retrieved tab`);
-    expect(retrievedRows.length).toBeGreaterThan(0);
+      const retrievedRows = await window.$$('[data-testid^="pdf-record-row-"]');
+      console.log(`Found ${retrievedRows.length} records in Retrieved tab`);
+      expect(retrievedRows.length).toBeGreaterThan(0);
 
-    // Verify the uploaded record is in the retrieved tab
-    const uploadedRecordRow = await window.$(`[data-testid="pdf-record-row-${recordId}"]`);
-    expect(uploadedRecordRow).not.toBeNull();
-    console.log(`Record ${recordId} found in Retrieved tab`);
+      const uploadedRecordRow = await window.$(`[data-testid="pdf-record-row-${recordId}"]`);
+      expect(uploadedRecordRow).not.toBeNull();
+      console.log(`Record ${recordId} found in Retrieved tab`);
+    } else {
+      // Record needs manual preparation - check Needs Prep tab
+      await window.click('[data-testid="pdfs-tab-needs-prep"]');
+      await window.waitForTimeout(1000);
+
+      const needsPrepRows = await window.$$('[data-testid^="pdf-record-row-"]');
+      console.log(`Found ${needsPrepRows.length} records in Needs Prep tab`);
+      expect(needsPrepRows.length).toBeGreaterThan(0);
+
+      const uploadedRecordRow = await window.$(`[data-testid="pdf-record-row-${recordId}"]`);
+      expect(uploadedRecordRow).not.toBeNull();
+      console.log(`Record ${recordId} found in Needs Prep tab`);
+
+      // ============================================================
+      // VERIFY: Defect badges visible for needs-prep record
+      // ============================================================
+      console.log('\n' + '='.repeat(60));
+      console.log('VERIFY: Defect badges visible in Needs Prep tab');
+      console.log('='.repeat(60));
+
+      const defectsContainer = await window.$(`[data-testid="pdf-defects-${recordId}"]`);
+      if (defectsContainer) {
+        const defectBadges = await defectsContainer.$$('[data-testid^="pdf-defect-badge-"]');
+        console.log(`Found ${defectBadges.length} defect badge(s) for record ${recordId}`);
+        for (const badge of defectBadges) {
+          const text = await badge.textContent();
+          console.log(`  Defect: ${text?.trim()}`);
+        }
+        expect(defectBadges.length).toBeGreaterThan(0);
+      } else {
+        console.log('No defect badges found (provenance may not have defect notes)');
+      }
+
+      // ============================================================
+      // VERIFY: Re-upload button visible for needs-prep record
+      // ============================================================
+      console.log('\n' + '='.repeat(60));
+      console.log('VERIFY: Re-upload button available');
+      console.log('='.repeat(60));
+
+      const reuploadBtn = await window.$(`[data-testid="pdf-reupload-btn-${recordId}"]`);
+      expect(reuploadBtn).not.toBeNull();
+      const reuploadBtnText = await reuploadBtn?.textContent();
+      console.log(`Re-upload button found with text: "${reuploadBtnText?.trim()}"`);
+
+      // ============================================================
+      // RE-UPLOAD: Upload a new PDF for the needs-prep record
+      // ============================================================
+      console.log('\n' + '='.repeat(60));
+      console.log(`RE-UPLOAD: Re-upload PDF for record ${recordId}`);
+      console.log('='.repeat(60));
+
+      await clearDebugLogs();
+
+      const reuploadBtnSelector = `[data-testid="pdf-reupload-btn-${recordId}"]`;
+      const pdfReuploadPath = path.join(__dirname, '../fixtures/2601.00044v1.pdf');
+      const [reuploadFileChooser] = await Promise.all([
+        window.waitForEvent('filechooser'),
+        window.click(reuploadBtnSelector),
+      ]);
+      console.log('Re-upload file chooser intercepted');
+
+      await reuploadFileChooser.setFiles(pdfReuploadPath);
+      console.log('PDF file set for re-upload');
+
+      await window.waitForTimeout(2000);
+      await failFastOnBackendError(getDebugData, 'PDF re-upload');
+
+      const reuploadResponse = await waitForRpcResponse('upload_pdf', 30000);
+      expect(reuploadResponse).not.toBeNull();
+      await failFastOnBackendError(getDebugData, 'PDF re-upload response');
+
+      console.log('Re-upload upload_pdf RPC completed');
+
+      // Wait for UI to update
+      await window.waitForTimeout(5000);
+
+      // Check final counts after re-upload
+      const finalNeedsText = await (await window.$('[data-testid="pdfs-needs-count"]'))?.textContent();
+      const finalPreparedText = await (await window.$('[data-testid="pdfs-prepared-count"]'))?.textContent();
+      const finalNeedsPrepBadge = await window.$('[data-testid="pdfs-needs-prep-count"]');
+      const finalNeedsPrepText = finalNeedsPrepBadge ? await finalNeedsPrepBadge.textContent() : '0';
+      console.log(`After re-upload - Needs: "${finalNeedsText}", Prepared: "${finalPreparedText}", Needs Prep: "${finalNeedsPrepText}"`);
+    }
 
     // ============================================================
     // SUMMARY

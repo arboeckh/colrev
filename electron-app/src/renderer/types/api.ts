@@ -421,6 +421,8 @@ export interface UploadPdfResponse extends SuccessResponse {
   record_id: string;
   file_path: string;
   new_status: string;
+  prep_status?: string;
+  prep_message?: string;
 }
 
 // Mark PDF Not Available

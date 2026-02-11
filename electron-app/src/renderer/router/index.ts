@@ -9,8 +9,7 @@ const LoadPage = () => import('@/views/LoadPage.vue');
 const PrepPage = () => import('@/views/PrepPage.vue');
 const DedupePage = () => import('@/views/DedupePage.vue');
 const PrescreenPage = () => import('@/views/PrescreenPage.vue');
-const PdfGetPage = () => import('@/views/PdfGetPage.vue');
-const PdfPrepPage = () => import('@/views/PdfPrepPage.vue');
+const PdfsPage = () => import('@/views/PdfsPage.vue');
 const ScreenPage = () => import('@/views/ScreenPage.vue');
 const DataPage = () => import('@/views/DataPage.vue');
 const SettingsPage = () => import('@/views/SettingsPage.vue');
@@ -97,22 +96,21 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
-        path: 'pdf-get',
-        name: 'project-pdf-get',
-        component: PdfGetPage,
+        path: 'pdfs',
+        name: 'project-pdfs',
+        component: PdfsPage,
         meta: {
-          title: 'PDF Get',
-          step: 'pdf_get',
+          title: 'PDFs',
+          step: 'pdfs',
         },
       },
       {
+        path: 'pdf-get',
+        redirect: (to) => ({ name: 'project-pdfs', params: { id: to.params.id } }),
+      },
+      {
         path: 'pdf-prep',
-        name: 'project-pdf-prep',
-        component: PdfPrepPage,
-        meta: {
-          title: 'PDF Prep',
-          step: 'pdf_prep',
-        },
+        redirect: (to) => ({ name: 'project-pdfs', params: { id: to.params.id } }),
       },
       {
         path: 'screen',
