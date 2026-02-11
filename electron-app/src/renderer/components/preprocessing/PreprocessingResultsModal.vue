@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { ChevronLeft, ChevronRight, Loader2, ExternalLink, AlertCircle, CheckCircle2 } from 'lucide-vue-next';
+import { ChevronLeft, ChevronRight, Loader2, ExternalLink, AlertCircle, CheckCircle2, Pencil } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useBackendStore } from '@/stores/backend';
+import RecordEditDialog from '@/components/preprocessing/RecordEditDialog.vue';
 import type { GetRecordsResponse, Record } from '@/types';
 
 const props = defineProps<{
@@ -39,6 +40,10 @@ const attentionRecords = ref<Record[]>([]);
 const attentionTotalCount = ref(0);
 const attentionCurrentPage = ref(1);
 const isLoadingAttention = ref(false);
+
+// Edit dialog state
+const showEditDialog = ref(false);
+const selectedRecordId = ref<string | null>(null);
 
 const pageSize = 20;
 
@@ -143,6 +148,16 @@ watch(() => props.open, (newValue) => {
     loadAttentionRecords();
   }
 });
+
+function openEditDialog(recordId: string) {
+  selectedRecordId.value = recordId;
+  showEditDialog.value = true;
+}
+
+function onRecordUpdated() {
+  loadAttentionRecords();
+  loadReadyRecords();
+}
 
 function truncate(text: string | undefined, maxLength: number): string {
   if (!text) return '';
@@ -309,14 +324,16 @@ function truncate(text: string | undefined, maxLength: number): string {
                     <th class="px-4 py-3 text-left font-medium w-48">Authors</th>
                     <th class="px-4 py-3 text-left font-medium w-20">Year</th>
                     <th class="px-4 py-3 text-left font-medium w-32">Type</th>
+                    <th class="px-4 py-3 text-left font-medium w-16"></th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-border">
                   <tr
                     v-for="(record, index) in attentionRecords"
                     :key="record.ID"
-                    class="hover:bg-muted/30"
+                    class="hover:bg-muted/30 cursor-pointer"
                     :data-testid="`attention-record-row-${index}`"
+                    @click="openEditDialog(record.ID)"
                   >
                     <td class="px-4 py-3 text-muted-foreground">
                       {{ (attentionCurrentPage - 1) * pageSize + index + 1 }}
@@ -353,6 +370,9 @@ function truncate(text: string | undefined, maxLength: number): string {
                       <Badge variant="outline" class="text-xs">
                         {{ record.ENTRYTYPE }}
                       </Badge>
+                    </td>
+                    <td class="px-4 py-3 text-muted-foreground">
+                      <Pencil class="h-4 w-4" />
                     </td>
                   </tr>
                 </tbody>
@@ -394,4 +414,12 @@ function truncate(text: string | undefined, maxLength: number): string {
       </Tabs>
     </DialogContent>
   </Dialog>
+
+  <!-- Edit Dialog (rendered outside the main dialog to avoid z-index issues) -->
+  <RecordEditDialog
+    v-model:open="showEditDialog"
+    :project-id="props.projectId"
+    :record-id="selectedRecordId"
+    @record-updated="onRecordUpdated"
+  />
 </template>

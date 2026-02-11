@@ -509,6 +509,18 @@ export interface DataParams {
 
 export interface DataResponse extends SuccessResponse {}
 
+// Prep Man Update Record
+export interface PrepManUpdateRecordResponse extends SuccessResponse {
+  operation: string;
+  project_id: string;
+  details: {
+    record: Record;
+    new_status: string;
+    remaining_defects?: globalThis.Record<string, string[]>;
+    message: string;
+  };
+}
+
 // Operation Info
 export interface GetOperationInfoParams {
   project_id: string;

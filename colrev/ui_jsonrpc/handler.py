@@ -17,6 +17,7 @@ from colrev.ui_jsonrpc.handlers import LoadHandler
 from colrev.ui_jsonrpc.handlers import PDFGetHandler
 from colrev.ui_jsonrpc.handlers import PDFPrepHandler
 from colrev.ui_jsonrpc.handlers import PrepHandler
+from colrev.ui_jsonrpc.handlers import PrepManHandler
 from colrev.ui_jsonrpc.handlers import PrescreenHandler
 from colrev.ui_jsonrpc.handlers import RecordsHandler
 from colrev.ui_jsonrpc.handlers import ScreenHandler
@@ -145,6 +146,10 @@ class JSONRPCHandler:
         # Prep operations
         elif method in ["prep"]:
             return self._handle_with_review_manager(method, params, PrepHandler)
+
+        # Prep man operations
+        elif method in ["prep_man_update_record"]:
+            return self._handle_with_review_manager(method, params, PrepManHandler)
 
         # Dedupe operations
         elif method in ["dedupe"]:
