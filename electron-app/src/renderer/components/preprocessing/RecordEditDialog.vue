@@ -52,6 +52,7 @@ const EDITABLE_FIELDS = [
   { key: 'title', label: 'Title' },
   { key: 'author', label: 'Author' },
   { key: 'year', label: 'Year' },
+  { key: 'language', label: 'Language' },
   { key: 'ENTRYTYPE', label: 'Entry Type' },
   { key: 'journal', label: 'Journal' },
   { key: 'booktitle', label: 'Book Title' },
@@ -75,6 +76,38 @@ const ENTRY_TYPES = [
   'proceedings',
 ];
 
+// Common ISO 639-3 language codes
+const LANGUAGES = [
+  { code: '', label: 'Not set' },
+  { code: 'eng', label: 'English' },
+  { code: 'fra', label: 'French' },
+  { code: 'deu', label: 'German' },
+  { code: 'spa', label: 'Spanish' },
+  { code: 'por', label: 'Portuguese' },
+  { code: 'ita', label: 'Italian' },
+  { code: 'zho', label: 'Chinese' },
+  { code: 'jpn', label: 'Japanese' },
+  { code: 'kor', label: 'Korean' },
+  { code: 'ara', label: 'Arabic' },
+  { code: 'rus', label: 'Russian' },
+  { code: 'hin', label: 'Hindi' },
+  { code: 'tur', label: 'Turkish' },
+  { code: 'pol', label: 'Polish' },
+  { code: 'nld', label: 'Dutch' },
+  { code: 'swe', label: 'Swedish' },
+  { code: 'dan', label: 'Danish' },
+  { code: 'nor', label: 'Norwegian' },
+  { code: 'fin', label: 'Finnish' },
+  { code: 'ces', label: 'Czech' },
+  { code: 'heb', label: 'Hebrew' },
+  { code: 'ell', label: 'Greek' },
+  { code: 'hun', label: 'Hungarian' },
+  { code: 'ron', label: 'Romanian' },
+  { code: 'ind', label: 'Indonesian' },
+  { code: 'tha', label: 'Thai' },
+  { code: 'vie', label: 'Vietnamese' },
+];
+
 // Human-readable labels for defect codes
 const DEFECT_LABELS: globalThis.Record<string, string> = {
   'missing': 'This field is required',
@@ -94,7 +127,7 @@ const DEFECT_LABELS: globalThis.Record<string, string> = {
   'doi-not-matching-pattern': 'DOI format invalid',
   'page-range': 'Page range format issue',
   'record-not-in-toc': 'Record not in table of contents',
-  'language-unknown': 'Language could not be determined',
+  'language-unknown': 'Language could not be auto-detected — please select it',
   'language-format-error': 'Language format error',
 };
 
@@ -126,7 +159,13 @@ function parseDefects(mdProv: globalThis.Record<string, { source: string; note: 
         .split(',')
         .map((n: string) => n.trim())
         .filter((n: string) => n && !n.startsWith('IGNORE:'));
-      if (codes.length > 0) result[field] = codes;
+      for (const code of codes) {
+        // Remap language-unknown from title to the language field
+        // so the defect shows next to the Language dropdown where the user can fix it
+        const targetField = code === 'language-unknown' ? 'language' : field;
+        if (!result[targetField]) result[targetField] = [];
+        result[targetField].push(code);
+      }
     }
   }
   return result;
@@ -326,6 +365,20 @@ watch(
               >
                 <option v-for="et in ENTRY_TYPES" :key="et" :value="et">
                   {{ et }}
+                </option>
+              </NativeSelect>
+
+              <!-- Language uses a select -->
+              <NativeSelect
+                v-else-if="fieldDef.key === 'language'"
+                :id="`field-${fieldDef.key}`"
+                v-model="editFields[fieldDef.key]"
+                :data-testid="`record-edit-field-${fieldDef.key}`"
+                class="w-full"
+                :class="{ 'border-amber-500/50': defects[fieldDef.key] }"
+              >
+                <option v-for="lang in LANGUAGES" :key="lang.code" :value="lang.code">
+                  {{ lang.label }} {{ lang.code ? `(${lang.code})` : '' }}
                 </option>
               </NativeSelect>
 

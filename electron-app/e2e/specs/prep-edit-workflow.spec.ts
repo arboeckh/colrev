@@ -294,10 +294,10 @@ test.describe('Prep Edit Workflow', () => {
       const defectText = await defectBanner.textContent();
       console.log(`✅ Defect banner: ${defectText?.trim()}`);
 
-      // Check for language-unknown defect specifically
-      const hasLanguageDefect = defectText?.includes('Language could not be determined');
+      // Check for language-unknown defect specifically (now remapped to Language field)
+      const hasLanguageDefect = defectText?.includes('Language could not be auto-detected');
       if (hasLanguageDefect) {
-        console.log('✅ "Language could not be determined" defect detected');
+        console.log('✅ Language defect shown with actionable message');
       }
     } else {
       console.log('ℹ️ No defect banner (record may have other issues)');
@@ -365,6 +365,22 @@ test.describe('Prep Edit Workflow', () => {
     console.log('='.repeat(60));
 
     await clearDebugLogs();
+
+    // Verify language defect hint is shown on the Language field (not Title)
+    const langDefectHint = await window.$('[data-testid="record-edit-defect-language"]');
+    if (langDefectHint) {
+      const langDefectText = await langDefectHint.textContent();
+      console.log(`Language field defect hint: ${langDefectText?.trim()}`);
+      expect(langDefectText).toContain('auto-detected');
+      console.log('✅ Language defect hint correctly shown on Language field');
+    }
+
+    // Set language to English via the dropdown
+    const languageSelect = await window.$('[data-testid="record-edit-field-language"]');
+    if (languageSelect) {
+      await window.selectOption('[data-testid="record-edit-field-language"]', 'eng');
+      console.log('Set language to "eng" (English)');
+    }
 
     // Change fields to fix the defects
     // Journal is required - set it for arxiv preprints
