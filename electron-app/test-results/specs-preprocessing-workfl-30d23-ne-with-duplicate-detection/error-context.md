@@ -1,0 +1,127 @@
+# Page snapshot
+
+```yaml
+- generic:
+  - generic:
+    - generic:
+      - region "Notifications alt+T":
+        - list
+      - button:
+        - img
+        - generic: "1"
+      - generic:
+        - banner:
+          - generic:
+            - generic:
+              - button:
+                - img
+                - generic: Projects
+              - heading [level=1]: preproc-test-1770834827575
+            - generic:
+              - button:
+                - img
+                - generic: Toggle theme
+              - button:
+                - img
+        - generic:
+          - complementary:
+            - generic:
+              - generic:
+                - generic:
+                  - link:
+                    - /url: "#/project/preproc-test-1770834827575"
+                    - img
+                    - generic: Overview
+                  - navigation:
+                    - link:
+                      - /url: "#/project/preproc-test-1770834827575/search"
+                      - generic:
+                        - generic: Search
+                    - link:
+                      - /url: "#/project/preproc-test-1770834827575/preprocessing"
+                      - generic:
+                        - generic: Preprocessing
+                    - link:
+                      - /url: "#/project/preproc-test-1770834827575/prescreen"
+                      - generic:
+                        - generic: Prescreen
+                    - link:
+                      - /url: "#/project/preproc-test-1770834827575/pdf-get"
+                      - generic:
+                        - generic: PDF Get
+                    - link:
+                      - /url: "#/project/preproc-test-1770834827575/pdf-prep"
+                      - generic:
+                        - generic: PDF Prep
+                    - link:
+                      - /url: "#/project/preproc-test-1770834827575/screen"
+                      - generic:
+                        - generic: Screen
+                    - link:
+                      - /url: "#/project/preproc-test-1770834827575/data"
+                      - generic:
+                        - generic: Data
+                  - link:
+                    - /url: "#/project/preproc-test-1770834827575/settings"
+                    - img
+                    - generic: Settings
+          - main:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - heading [level=2]:
+                      - img
+                      - text: Search
+                    - paragraph: Configure and execute searches for literature
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: No sources configured
+                - generic:
+                  - generic:
+                    - heading [level=3]: Search Sources
+                    - generic: 0 sources
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - img
+                        - paragraph: Add Source
+  - dialog "Add File Source" [ref=e2]:
+    - generic [ref=e3]:
+      - heading "Add File Source" [level=2] [ref=e4]
+      - paragraph [ref=e5]: Upload a search results file (BibTeX, RIS, NBIB, etc.) from a database export.
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - text: Source Name
+        - textbox "e.g., scopus, web-of-science" [ref=e8]: source1
+        - paragraph [ref=e9]: A descriptive name for this search source.
+      - generic [ref=e10]:
+        - text: Search Results File
+        - button "Choose File" [active] [ref=e12]
+        - paragraph [ref=e13]: "Supported formats: BibTeX (.bib), RIS (.ris), NBIB (.nbib), EndNote (.enl), CSV, Excel"
+      - generic [ref=e14]:
+        - img [ref=e15]
+        - generic [ref=e18]: source1.ris
+        - generic [ref=e19]: (0.9 KB)
+      - generic [ref=e20]:
+        - generic [ref=e21]: Search Query *
+        - textbox "e.g., (machine learning OR deep learning) AND healthcare" [ref=e22]
+        - paragraph [ref=e23]: Document the exact query used in the database export for reproducibility.
+      - generic [ref=e24]:
+        - text: Search Date
+        - button "Feb 11, 2026" [ref=e25]:
+          - img
+          - text: Feb 11, 2026
+        - paragraph [ref=e26]: When the database search was performed.
+    - generic [ref=e27]:
+      - button "Cancel" [ref=e28]
+      - button "Add Source" [disabled]:
+        - img
+        - text: Add Source
+    - button "Close" [ref=e29]:
+      - img
+      - generic [ref=e30]: Close
+```

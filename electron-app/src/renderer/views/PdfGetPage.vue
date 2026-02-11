@@ -34,6 +34,8 @@ const activeTab = ref('needs_pdf');
 const uploadingRecordId = ref<string | null>(null);
 const markingRecordId = ref<string | null>(null);
 const showBatchUpload = ref(false);
+const pdfFileInput = ref<HTMLInputElement | null>(null);
+const pendingUploadRecordId = ref<string | null>(null);
 
 // Status counts from project status
 const statusCounts = computed(() => projects.currentStatus?.currently ?? null);
@@ -114,38 +116,41 @@ function readFileAsBase64(file: File): Promise<string> {
   });
 }
 
-async function uploadPdfForRecord(recordId: string) {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.pdf';
+function uploadPdfForRecord(recordId: string) {
+  pendingUploadRecordId.value = recordId;
+  if (pdfFileInput.value) {
+    pdfFileInput.value.value = '';
+    pdfFileInput.value.click();
+  }
+}
 
-  input.onchange = async () => {
-    const file = input.files?.[0];
-    if (!file || !projects.currentProjectId) return;
+async function handlePdfFileSelected(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  const recordId = pendingUploadRecordId.value;
+  if (!file || !recordId || !projects.currentProjectId) return;
 
-    uploadingRecordId.value = recordId;
-    try {
-      const content = await readFileAsBase64(file);
-      const response = await backend.call<UploadPdfResponse>('upload_pdf', {
-        project_id: projects.currentProjectId,
-        record_id: recordId,
-        filename: file.name,
-        content,
-      });
+  uploadingRecordId.value = recordId;
+  try {
+    const content = await readFileAsBase64(file);
+    const response = await backend.call<UploadPdfResponse>('upload_pdf', {
+      project_id: projects.currentProjectId,
+      record_id: recordId,
+      filename: file.name,
+      content,
+    });
 
-      if (response.success) {
-        notifications.success('PDF uploaded', `PDF linked to ${recordId}`);
-        await refresh();
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      notifications.error('Upload failed', message);
-    } finally {
-      uploadingRecordId.value = null;
+    if (response.success) {
+      notifications.success('PDF uploaded', `PDF linked to ${recordId}`);
+      await refresh();
     }
-  };
-
-  input.click();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    notifications.error('Upload failed', message);
+  } finally {
+    uploadingRecordId.value = null;
+    pendingUploadRecordId.value = null;
+  }
 }
 
 async function markNotAvailable(recordId: string) {
@@ -323,6 +328,16 @@ onMounted(async () => {
         </TabsContent>
       </template>
     </Tabs>
+
+    <!-- Hidden file input for single PDF upload (sr-only keeps it in DOM flow) -->
+    <input
+      ref="pdfFileInput"
+      type="file"
+      accept=".pdf"
+      class="sr-only"
+      data-testid="pdf-file-input"
+      @change="handlePdfFileSelected"
+    />
 
     <!-- Batch Upload Dialog -->
     <BatchUploadDialog

@@ -1,0 +1,146 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - region "Notifications alt+T":
+    - list
+  - button "50" [ref=e4]:
+    - img
+    - generic [ref=e5]: "50"
+  - generic [ref=e6]:
+    - banner [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e9]:
+          - button "Projects" [ref=e10]:
+            - img
+            - generic [ref=e11]: Projects
+          - heading "e2e-test-1770834725484" [level=1] [ref=e13]
+        - generic [ref=e14]:
+          - button "Toggle theme" [ref=e15]:
+            - img
+            - generic [ref=e16]: Toggle theme
+          - button [ref=e17]:
+            - img
+    - generic [ref=e18]:
+      - complementary [ref=e19]:
+        - generic [ref=e22]:
+          - link "Overview" [ref=e23] [cursor=pointer]:
+            - /url: "#/project/e2e-test-1770834725484"
+            - img [ref=e24]
+            - generic [ref=e29]: Overview
+          - navigation [ref=e30]:
+            - link "Search" [ref=e31] [cursor=pointer]:
+              - /url: "#/project/e2e-test-1770834725484/search"
+              - generic [ref=e37]: Search
+            - link "Preprocessing" [ref=e38] [cursor=pointer]:
+              - /url: "#/project/e2e-test-1770834725484/preprocessing"
+              - generic [ref=e44]: Preprocessing
+            - link "Prescreen" [ref=e45] [cursor=pointer]:
+              - /url: "#/project/e2e-test-1770834725484/prescreen"
+              - generic [ref=e51]: Prescreen
+            - link "PDF Get" [ref=e52] [cursor=pointer]:
+              - /url: "#/project/e2e-test-1770834725484/pdf-get"
+              - generic [ref=e58]: PDF Get
+            - link "PDF Prep" [ref=e59] [cursor=pointer]:
+              - /url: "#/project/e2e-test-1770834725484/pdf-prep"
+              - generic [ref=e65]: PDF Prep
+            - link "Screen" [ref=e66] [cursor=pointer]:
+              - /url: "#/project/e2e-test-1770834725484/screen"
+              - generic [ref=e72]: Screen
+            - link "Data" [ref=e73] [cursor=pointer]:
+              - /url: "#/project/e2e-test-1770834725484/data"
+              - generic [ref=e78]: Data
+          - link "Settings" [ref=e79] [cursor=pointer]:
+            - /url: "#/project/e2e-test-1770834725484/settings"
+            - img [ref=e80]
+            - generic [ref=e83]: Settings
+      - main [ref=e84]:
+        - generic [ref=e86]:
+          - generic [ref=e87]:
+            - heading "Project Overview" [level=2] [ref=e88]
+            - paragraph [ref=e89]: e2e-test-1770834725484
+          - generic [ref=e90]:
+            - generic [ref=e92]:
+              - paragraph [ref=e93]: Total Records
+              - heading "0" [level=3] [ref=e94]
+            - generic [ref=e96]:
+              - paragraph [ref=e97]: Included (Prescreen)
+              - heading "0" [level=3] [ref=e98]
+            - generic [ref=e100]:
+              - paragraph [ref=e101]: With PDF
+              - heading "0" [level=3] [ref=e102]
+            - generic [ref=e104]:
+              - paragraph [ref=e105]: Final Included
+              - heading "0" [level=3] [ref=e106]
+          - generic [ref=e107]:
+            - generic [ref=e108]:
+              - heading "Workflow Progress" [level=3] [ref=e109]
+              - paragraph [ref=e110]: Status of each step in the review process
+            - generic [ref=e112]:
+              - generic [ref=e113] [cursor=pointer]:
+                - img [ref=e115]
+                - generic [ref=e118]:
+                  - generic [ref=e119]:
+                    - generic [ref=e120]: Search
+                    - generic [ref=e121]: 1 pending
+                  - paragraph [ref=e122]: Configure and run searches
+                - generic [ref=e123]: 0%
+              - generic [ref=e125] [cursor=pointer]:
+                - generic [ref=e127]:
+                  - generic [ref=e129]: Preprocessing
+                  - paragraph [ref=e130]: Load, prepare, and deduplicate records
+                - generic [ref=e131]: 0%
+              - generic [ref=e133] [cursor=pointer]:
+                - img [ref=e135]
+                - generic [ref=e137]:
+                  - generic [ref=e139]: Prescreen
+                  - paragraph [ref=e140]: Title/abstract screening
+                - generic [ref=e141]: 0%
+              - generic [ref=e143] [cursor=pointer]:
+                - img [ref=e145]
+                - generic [ref=e149]:
+                  - generic [ref=e151]: PDF Get
+                  - paragraph [ref=e152]: Retrieve PDFs
+                - generic [ref=e153]: 0%
+              - generic [ref=e155] [cursor=pointer]:
+                - img [ref=e157]
+                - generic [ref=e161]:
+                  - generic [ref=e163]: PDF Prep
+                  - paragraph [ref=e164]: Prepare PDFs
+                - generic [ref=e165]: 0%
+              - generic [ref=e167] [cursor=pointer]:
+                - img [ref=e169]
+                - generic [ref=e172]:
+                  - generic [ref=e174]: Screen
+                  - paragraph [ref=e175]: Full-text screening
+                - generic [ref=e176]: 0%
+              - generic [ref=e178] [cursor=pointer]:
+                - img [ref=e180]
+                - generic [ref=e184]:
+                  - generic [ref=e186]: Data
+                  - paragraph [ref=e187]: Data extraction
+                - generic [ref=e188]: 0%
+          - generic [ref=e190]:
+            - generic [ref=e191]:
+              - heading "Record Status" [level=3] [ref=e192]
+              - paragraph [ref=e193]: Breakdown of records by current status
+            - generic [ref=e195]:
+              - generic [ref=e196]:
+                - text: Imported
+                - paragraph [ref=e197]: "0"
+              - generic [ref=e198]:
+                - text: Prepared
+                - paragraph [ref=e199]: "0"
+              - generic [ref=e200]:
+                - text: Pre-Included
+                - paragraph [ref=e201]: "0"
+              - generic [ref=e202]:
+                - text: Pre-Excluded
+                - paragraph [ref=e203]: "0"
+              - generic [ref=e204]:
+                - text: Final Included
+                - paragraph [ref=e205]: "0"
+              - generic [ref=e206]:
+                - text: Final Excluded
+                - paragraph [ref=e207]: "0"
+```

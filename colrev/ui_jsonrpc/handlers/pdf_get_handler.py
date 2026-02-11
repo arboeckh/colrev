@@ -92,6 +92,13 @@ class PDFGetHandler:
 
         logger.info(f"Uploading PDF for record {record_id} in project {project_id}")
 
+        # Instantiate PDFGetMan first to notify the review manager
+        # (required before load_records_dict can be called)
+        pdf_get_man = colrev.ops.pdf_get_man.PDFGetMan(
+            review_manager=self.review_manager,
+            notify_state_transition_operation=False,
+        )
+
         # Load records and verify record exists
         records = self.review_manager.dataset.load_records_dict()
         if record_id not in records:
@@ -120,10 +127,6 @@ class PDFGetHandler:
 
         # Use PDFGetMan to link the PDF to the record
         record = colrev.record.record.Record(record_dict)
-        pdf_get_man = colrev.ops.pdf_get_man.PDFGetMan(
-            review_manager=self.review_manager,
-            notify_state_transition_operation=False,
-        )
         pdf_get_man.pdf_get_man_record(record=record, filepath=target_path)
 
         # Commit if requested
@@ -167,6 +170,13 @@ class PDFGetHandler:
             f"Marking PDF not available for record {record_id} in project {project_id}"
         )
 
+        # Instantiate PDFGetMan first to notify the review manager
+        # (required before load_records_dict can be called)
+        pdf_get_man = colrev.ops.pdf_get_man.PDFGetMan(
+            review_manager=self.review_manager,
+            notify_state_transition_operation=False,
+        )
+
         # Load records and verify record exists
         records = self.review_manager.dataset.load_records_dict()
         if record_id not in records:
@@ -181,10 +191,6 @@ class PDFGetHandler:
 
         # Use PDFGetMan with filepath=None to mark as not available
         record = colrev.record.record.Record(record_dict)
-        pdf_get_man = colrev.ops.pdf_get_man.PDFGetMan(
-            review_manager=self.review_manager,
-            notify_state_transition_operation=False,
-        )
         pdf_get_man.pdf_get_man_record(record=record, filepath=None)
 
         # Determine the new status from the record
