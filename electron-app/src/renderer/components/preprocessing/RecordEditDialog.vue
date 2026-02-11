@@ -4,7 +4,6 @@ import { Loader2, AlertTriangle, Check } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Dialog,
   DialogContent,
@@ -255,7 +254,7 @@ watch(
 <template>
   <Dialog v-model:open="isOpen">
     <DialogContent
-      class="w-[600px] max-w-[90vw] max-h-[85vh] flex flex-col"
+      class="w-[600px] max-w-[90vw] max-h-[85vh] flex flex-col overflow-hidden"
       data-testid="record-edit-dialog"
     >
       <DialogHeader>
@@ -271,9 +270,9 @@ watch(
       </div>
 
       <!-- Content -->
-      <template v-else-if="record">
+      <div v-if="!isLoading && record" class="flex flex-col flex-1 min-h-0 gap-4">
         <!-- Record ID + status -->
-        <div class="flex items-center gap-2 text-sm text-muted-foreground">
+        <div class="flex items-center gap-2 text-sm text-muted-foreground shrink-0">
           <span class="font-mono">{{ record.ID }}</span>
           <Badge variant="outline" data-testid="record-edit-status-badge">
             {{ record.colrev_status }}
@@ -283,7 +282,7 @@ watch(
         <!-- Defect summary banner -->
         <div
           v-if="allDefectSummary.length > 0"
-          class="flex gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm"
+          class="flex gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm shrink-0 max-h-[30vh] overflow-auto"
           data-testid="record-edit-defect-banner"
         >
           <AlertTriangle class="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
@@ -299,8 +298,8 @@ watch(
           </div>
         </div>
 
-        <!-- Edit form -->
-        <ScrollArea class="flex-1 min-h-0 -mx-6 px-6">
+        <!-- Edit form (scrollable) -->
+        <div class="flex-1 min-h-0 overflow-y-auto -mx-6 px-6" data-testid="record-edit-form-scroll">
           <div class="space-y-4 py-2">
             <div v-for="fieldDef in EDITABLE_FIELDS" :key="fieldDef.key" class="space-y-1.5">
               <label
@@ -352,16 +351,16 @@ watch(
               </div>
             </div>
           </div>
-        </ScrollArea>
+        </div>
 
         <!-- Error message -->
         <div
           v-if="saveError"
-          class="text-sm p-2 rounded bg-destructive/10 text-destructive border border-destructive/30"
+          class="text-sm p-2 rounded bg-destructive/10 text-destructive border border-destructive/30 shrink-0"
         >
           {{ saveError }}
         </div>
-      </template>
+      </div>
 
       <!-- Footer -->
       <DialogFooter v-if="record && !isLoading">
