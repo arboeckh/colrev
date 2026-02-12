@@ -9,6 +9,14 @@ export interface ColrevAPI {
   onClose: (callback: (code: number | null) => void) => () => void;
 }
 
+export interface FileOpsAPI {
+  saveDialog: (options: {
+    defaultName: string;
+    content: string;
+    filters?: { name: string; extensions: string[] }[];
+  }) => Promise<{ success: boolean; filePath?: string; canceled?: boolean; error?: string }>;
+}
+
 export interface AppInfoAPI {
   get: () => Promise<{
     isPackaged: boolean;
@@ -22,6 +30,7 @@ export interface AppInfoAPI {
 declare global {
   interface Window {
     colrev: ColrevAPI;
+    fileOps: FileOpsAPI;
     appInfo: AppInfoAPI;
   }
 }

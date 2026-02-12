@@ -51,6 +51,14 @@ contextBridge.exposeInMainWorld('colrev', {
 });
 
 /**
+ * Expose file operations API.
+ */
+contextBridge.exposeInMainWorld('fileOps', {
+  saveDialog: (options: { defaultName: string; content: string; filters?: { name: string; extensions: string[] }[] }) =>
+    ipcRenderer.invoke('file:save-dialog', options),
+});
+
+/**
  * Expose app info API.
  */
 contextBridge.exposeInMainWorld('appInfo', {

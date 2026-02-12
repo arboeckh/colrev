@@ -130,7 +130,12 @@ class DataHandler:
             if isinstance(f, dict):
                 field_dicts.append(f)
             else:
-                field_dicts.append({"name": f.name, "explanation": f.explanation, "data_type": f.data_type})
+                fd = {"name": f.name, "explanation": f.explanation, "data_type": f.data_type}
+                if hasattr(f, "options") and f.options:
+                    fd["options"] = f.options
+                if hasattr(f, "optional") and f.optional:
+                    fd["optional"] = True
+                field_dicts.append(fd)
 
         field_names = [f["name"] for f in field_dicts]
 
@@ -303,6 +308,40 @@ class DataHandler:
             "message": f"Extraction saved for {record_id}",
         }
 
+    def export_data_csv(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Return the contents of the structured data CSV file as a string.
+
+        Args:
+            params: Method parameters containing:
+                - project_id (str): Project identifier (required)
+
+        Returns:
+            Dict containing:
+                - success (bool): Always True on success
+                - csv_content (str): The CSV file contents
+                - filename (str): Suggested filename for download
+        """
+        project_id = params["project_id"]
+
+        logger.info(f"Exporting data CSV for project {project_id}")
+
+        ep_settings = self._find_structured_endpoint()
+        if ep_settings is None:
+            raise ValueError("colrev.structured endpoint is not configured")
+
+        data_path = self._get_structured_data_path(ep_settings)
+        if not data_path.is_file():
+            raise ValueError("No data CSV file found")
+
+        csv_content = data_path.read_text(encoding="utf-8")
+
+        return {
+            "success": True,
+            "csv_content": csv_content,
+            "filename": data_path.name,
+        }
+
     def configure_structured_endpoint(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Add or update the colrev.structured endpoint with given fields.
@@ -330,7 +369,7 @@ class DataHandler:
             raise ValueError("fields parameter is required and must be a non-empty list")
 
         # Validate fields
-        valid_types = {"str", "int", "double"}
+        valid_types = {"str", "int", "double", "select", "multi_select"}
         for i, field in enumerate(fields):
             if not isinstance(field, dict):
                 raise ValueError(f"Field {i} must be a dict")
@@ -345,10 +384,14 @@ class DataHandler:
         logger.info(f"Configuring structured endpoint for project {project_id}")
 
         # Normalize fields
-        normalized_fields = [
-            {"name": f["name"], "explanation": f["explanation"], "data_type": f.get("data_type", "str")}
-            for f in fields
-        ]
+        normalized_fields = []
+        for f in fields:
+            nf = {"name": f["name"], "explanation": f["explanation"], "data_type": f.get("data_type", "str")}
+            if f.get("options"):
+                nf["options"] = f["options"]
+            if f.get("optional"):
+                nf["optional"] = True
+            normalized_fields.append(nf)
 
         # Find or create the endpoint
         ep_settings = self._find_structured_endpoint()

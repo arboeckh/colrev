@@ -1,23 +1,17 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { BookOpen, Save, Plus, ArrowRight, Loader2 } from 'lucide-vue-next';
+import { BookOpen, ArrowRight, Check, X } from 'lucide-vue-next';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
-import {
-  CriteriaList,
-  AddCriterionDialog,
-  EditCriterionDialog,
-  KeywordEditor,
-} from '@/components/review-definition';
+import { CriteriaList, KeywordEditor } from '@/components/review-definition';
 import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
 import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
-import type { ScreenCriterionDefinition } from '@/types/api';
 
 const router = useRouter();
 const store = useReviewDefinitionStore();
@@ -27,10 +21,21 @@ const notifications = useNotificationsStore();
 // Local form state
 const protocolUrl = ref('');
 const objectives = ref('');
-const showAddCriterion = ref(false);
-const showEditCriterion = ref(false);
-const editCriterionName = ref('');
-const editCriterionData = ref<ScreenCriterionDefinition | null>(null);
+
+// Auto-save state
+const protocolSaveTimer = ref<number | null>(null);
+const objectivesSaveTimer = ref<number | null>(null);
+const protocolSaveStatus = ref<'idle' | 'saving' | 'saved'>('idle');
+const objectivesSaveStatus = ref<'idle' | 'saving' | 'saved'>('idle');
+
+// Quick stats
+const criteriaCount = computed(() => {
+  return Object.keys(store.definition?.criteria || {}).length;
+});
+
+const lastUpdated = computed(() => {
+  return new Date().toLocaleDateString();
+});
 
 onMounted(async () => {
   await store.loadDefinition();
@@ -40,23 +45,51 @@ onMounted(async () => {
   }
 });
 
-async function saveProtocol() {
-  const success = await store.updateDefinition({ protocol_url: protocolUrl.value });
-  if (success) {
-    notifications.success('Saved', 'Protocol URL updated');
-  } else {
-    notifications.error('Save failed', 'Could not update protocol URL');
+// Auto-save for Protocol URL
+watch(protocolUrl, (newValue) => {
+  if (protocolSaveTimer.value) {
+    clearTimeout(protocolSaveTimer.value);
   }
-}
 
-async function saveObjectives() {
-  const success = await store.updateDefinition({ objectives: objectives.value });
-  if (success) {
-    notifications.success('Saved', 'Objectives updated');
-  } else {
-    notifications.error('Save failed', 'Could not update objectives');
+  protocolSaveStatus.value = 'idle';
+
+  protocolSaveTimer.value = window.setTimeout(async () => {
+    protocolSaveStatus.value = 'saving';
+    const success = await store.updateDefinition({ protocol_url: newValue });
+    if (success) {
+      protocolSaveStatus.value = 'saved';
+      setTimeout(() => {
+        protocolSaveStatus.value = 'idle';
+      }, 2000);
+    } else {
+      protocolSaveStatus.value = 'idle';
+      notifications.error('Save failed', 'Could not update protocol URL');
+    }
+  }, 1000);
+});
+
+// Auto-save for Objectives
+watch(objectives, (newValue) => {
+  if (objectivesSaveTimer.value) {
+    clearTimeout(objectivesSaveTimer.value);
   }
-}
+
+  objectivesSaveStatus.value = 'idle';
+
+  objectivesSaveTimer.value = window.setTimeout(async () => {
+    objectivesSaveStatus.value = 'saving';
+    const success = await store.updateDefinition({ objectives: newValue });
+    if (success) {
+      objectivesSaveStatus.value = 'saved';
+      setTimeout(() => {
+        objectivesSaveStatus.value = 'idle';
+      }, 2000);
+    } else {
+      objectivesSaveStatus.value = 'idle';
+      notifications.error('Save failed', 'Could not update objectives');
+    }
+  }, 1000);
+});
 
 async function handleKeywordsUpdate(keywords: string[]) {
   const success = await store.updateDefinition({ keywords });
@@ -75,35 +108,29 @@ async function handleAddCriterion(data: {
 }) {
   const success = await store.addCriterion(data);
   if (success) {
-    showAddCriterion.value = false;
     notifications.success('Added', `Criterion "${data.name}" added`);
   } else {
     notifications.error('Failed', 'Could not add criterion');
   }
 }
 
-function openEditCriterion(name: string, criterion: ScreenCriterionDefinition) {
-  editCriterionName.value = name;
-  editCriterionData.value = criterion;
-  showEditCriterion.value = true;
-}
-
-async function handleEditCriterion(data: {
-  criterion_name: string;
-  explanation?: string;
+async function handleUpdateCriterion(name: string, data: {
+  explanation: string;
   comment?: string;
-  criterion_type?: 'inclusion_criterion' | 'exclusion_criterion';
+  criterion_type: 'inclusion_criterion' | 'exclusion_criterion';
 }) {
-  const success = await store.updateCriterion(data);
+  const success = await store.updateCriterion({
+    criterion_name: name,
+    ...data,
+  });
   if (success) {
-    showEditCriterion.value = false;
-    notifications.success('Updated', `Criterion "${data.criterion_name}" updated`);
+    notifications.success('Updated', `Criterion "${name}" updated`);
   } else {
     notifications.error('Failed', 'Could not update criterion');
   }
 }
 
-async function handleRemoveCriterion(name: string) {
+async function handleDeleteCriterion(name: string) {
   const success = await store.removeCriterion(name);
   if (success) {
     notifications.success('Removed', `Criterion "${name}" removed`);
@@ -131,143 +158,139 @@ function goToSearch() {
 
     <Separator class="mb-6" />
 
-    <div class="max-w-2xl space-y-6">
-      <!-- Review Type -->
-      <Card>
-        <CardHeader class="pb-3">
-          <CardTitle class="text-base">Review Type</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Badge variant="secondary" class="text-sm" data-testid="review-type-badge">
-            {{ store.definition?.review_type || 'Not set' }}
-          </Badge>
-        </CardContent>
-      </Card>
-
-      <!-- Protocol -->
-      <Card>
-        <CardHeader class="pb-3">
-          <CardTitle class="text-base">Protocol</CardTitle>
-          <CardDescription>Link to your review protocol (e.g., PROSPERO registration)</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div class="flex gap-2">
-            <Input
-              v-model="protocolUrl"
-              placeholder="https://..."
-              class="flex-1"
-              data-testid="protocol-url-input"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              :disabled="store.isSaving"
-              data-testid="protocol-save-btn"
-              @click="saveProtocol"
-            >
-              <Loader2 v-if="store.isSaving" class="h-4 w-4 mr-1 animate-spin" />
-              <Save v-else class="h-4 w-4 mr-1" />
-              Save
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <!-- Keywords -->
-      <Card>
-        <CardHeader class="pb-3">
-          <CardTitle class="text-base">Keywords</CardTitle>
-          <CardDescription>Keywords describing the review scope</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <KeywordEditor
-            :keywords="store.definition?.keywords || []"
-            @update="handleKeywordsUpdate"
-          />
-        </CardContent>
-      </Card>
-
-      <!-- Objectives -->
-      <Card>
-        <CardHeader class="pb-3">
-          <CardTitle class="text-base">Objectives</CardTitle>
-          <CardDescription>Research question or review objectives</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div class="space-y-2">
-            <Textarea
-              v-model="objectives"
-              placeholder="Describe the research question or objectives of this review..."
-              rows="4"
-              data-testid="objectives-textarea"
-            />
-            <div class="flex justify-end">
-              <Button
-                variant="outline"
-                size="sm"
-                :disabled="store.isSaving"
-                data-testid="objectives-save-btn"
-                @click="saveObjectives"
-              >
-                <Loader2 v-if="store.isSaving" class="h-4 w-4 mr-1 animate-spin" />
-                <Save v-else class="h-4 w-4 mr-1" />
-                Save
-              </Button>
+    <!-- Dashboard Grid Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+      <!-- Left Column: Overview (3/5 width on large screens) -->
+      <div class="lg:col-span-3">
+        <Card class="h-full">
+          <CardHeader>
+            <div class="flex items-center gap-2 mb-2">
+              <CardTitle class="text-2xl">Overview</CardTitle>
+              <Badge variant="secondary" class="text-sm" data-testid="review-type-badge">
+                {{ store.definition?.review_type || 'Not set' }}
+              </Badge>
             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <!-- Screening Criteria -->
-      <Card>
-        <CardHeader class="pb-3">
-          <div class="flex items-center justify-between">
+            <CardDescription>
+              Core information about your literature review
+            </CardDescription>
+          </CardHeader>
+          <CardContent class="space-y-6">
+            <!-- Title (read-only from project) -->
             <div>
-              <CardTitle class="text-base">Screening Criteria</CardTitle>
-              <CardDescription>Criteria used for full-text screening decisions</CardDescription>
+              <label class="text-sm font-medium text-muted-foreground">Title</label>
+              <p class="text-base mt-1.5">{{ store.definition?.title || 'Untitled Review' }}</p>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              data-testid="add-criterion-btn"
-              @click="showAddCriterion = true"
-            >
-              <Plus class="h-4 w-4 mr-1" />
-              Add Criterion
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <CriteriaList
-            :criteria="store.definition?.criteria || {}"
-            @edit="openEditCriterion"
-            @remove="handleRemoveCriterion"
-          />
-        </CardContent>
-      </Card>
 
-      <!-- Next Step -->
-      <div class="flex justify-end pt-4 pb-8">
+            <!-- Protocol URL (auto-save) -->
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="text-sm font-medium">Protocol URL</label>
+                <div
+                  v-if="protocolSaveStatus !== 'idle'"
+                  class="flex items-center gap-1 text-xs"
+                  :class="protocolSaveStatus === 'saved' ? 'text-green-600' : 'text-muted-foreground'"
+                >
+                  <Check v-if="protocolSaveStatus === 'saved'" class="h-3 w-3" />
+                  <span>{{ protocolSaveStatus === 'saved' ? 'Saved' : 'Saving...' }}</span>
+                </div>
+              </div>
+              <Input
+                v-model="protocolUrl"
+                placeholder="https://... (e.g., PROSPERO registration)"
+                data-testid="protocol-url-input"
+              />
+            </div>
+
+            <!-- Objectives (auto-save) -->
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="text-sm font-medium">Research Question & Objectives</label>
+                <div
+                  v-if="objectivesSaveStatus !== 'idle'"
+                  class="flex items-center gap-1 text-xs"
+                  :class="objectivesSaveStatus === 'saved' ? 'text-green-600' : 'text-muted-foreground'"
+                >
+                  <Check v-if="objectivesSaveStatus === 'saved'" class="h-3 w-3" />
+                  <span>{{ objectivesSaveStatus === 'saved' ? 'Saved' : 'Saving...' }}</span>
+                </div>
+              </div>
+              <Textarea
+                v-model="objectives"
+                placeholder="Describe the research question or objectives of this review..."
+                rows="6"
+                data-testid="objectives-textarea"
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <!-- Right Column: Keywords & Stats (2/5 width on large screens) -->
+      <div class="lg:col-span-2 space-y-6">
+        <!-- Keywords Section -->
+        <Card>
+          <CardHeader class="pb-3">
+            <CardTitle class="text-base">Keywords</CardTitle>
+            <CardDescription>Keywords describing the review scope</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <KeywordEditor
+              :keywords="store.definition?.keywords || []"
+              @update="handleKeywordsUpdate"
+            />
+          </CardContent>
+        </Card>
+
+        <!-- Quick Stats Section -->
+        <Card>
+          <CardHeader class="pb-3">
+            <CardTitle class="text-sm font-medium">Quick Stats</CardTitle>
+          </CardHeader>
+          <CardContent class="text-sm text-muted-foreground space-y-2">
+            <div class="flex items-center justify-between">
+              <span>Screening Criteria:</span>
+              <span class="font-medium text-foreground">{{ criteriaCount }}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span>Keywords:</span>
+              <span class="font-medium text-foreground">{{ store.definition?.keywords?.length || 0 }}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span>Last Updated:</span>
+              <span class="font-medium text-foreground">{{ lastUpdated }}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <!-- Bottom Row: Screening Criteria (full width) -->
+      <div class="lg:col-span-5">
+        <Card>
+          <CardHeader>
+            <CardTitle class="text-xl">Screening Criteria</CardTitle>
+            <CardDescription>
+              Define inclusion and exclusion criteria for screening decisions
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CriteriaList
+              :criteria="store.definition?.criteria || {}"
+              :is-saving="store.isSaving"
+              @add-criterion="handleAddCriterion"
+              @update-criterion="handleUpdateCriterion"
+              @delete-criterion="handleDeleteCriterion"
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      <!-- Next Step Button (full width) -->
+      <div class="lg:col-span-5 flex justify-end pt-4 pb-8">
         <Button data-testid="goto-search-btn" @click="goToSearch">
           Continue to Search
           <ArrowRight class="h-4 w-4 ml-2" />
         </Button>
       </div>
     </div>
-
-    <!-- Dialogs -->
-    <AddCriterionDialog
-      v-model:open="showAddCriterion"
-      :is-saving="store.isSaving"
-      @submit="handleAddCriterion"
-    />
-
-    <EditCriterionDialog
-      v-model:open="showEditCriterion"
-      :criterion-name="editCriterionName"
-      :criterion="editCriterionData"
-      :is-saving="store.isSaving"
-      @submit="handleEditCriterion"
-    />
   </div>
 </template>

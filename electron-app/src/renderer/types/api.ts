@@ -544,7 +544,9 @@ export interface DataResponse extends SuccessResponse {}
 export interface DataField {
   name: string;
   explanation: string;
-  data_type: 'str' | 'int' | 'double';
+  data_type: 'str' | 'int' | 'double' | 'select' | 'multi_select';
+  options?: string[];
+  optional?: boolean;
 }
 
 export interface DataExtractionRecord {

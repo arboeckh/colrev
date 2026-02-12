@@ -1,69 +1,79 @@
 <script setup lang="ts">
-import { Pencil, Trash2 } from 'lucide-vue-next';
-import { Badge } from '@/components/ui/badge';
+import { ref } from 'vue';
+import { Plus } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
+import InlineCriterionEditor from './InlineCriterionEditor.vue';
 import type { ScreenCriterionDefinition } from '@/types/api';
 
 defineProps<{
   criteria: Record<string, ScreenCriterionDefinition>;
+  isSaving?: boolean;
 }>();
 
 const emit = defineEmits<{
-  edit: [name: string, criterion: ScreenCriterionDefinition];
-  remove: [name: string];
+  'add-criterion': [data: {
+    name: string;
+    explanation: string;
+    comment?: string;
+    criterion_type: 'inclusion_criterion' | 'exclusion_criterion';
+  }];
+  'update-criterion': [name: string, data: {
+    explanation: string;
+    comment?: string;
+    criterion_type: 'inclusion_criterion' | 'exclusion_criterion';
+  }];
+  'delete-criterion': [name: string];
 }>();
+
+const showAddForm = ref(false);
+
+function handleAddCriterion(data: any) {
+  emit('add-criterion', data);
+  showAddForm.value = false;
+}
 </script>
 
 <template>
-  <div class="space-y-2">
-    <div
+  <div class="space-y-3">
+    <!-- Existing Criteria -->
+    <InlineCriterionEditor
       v-for="(criterion, name) in criteria"
       :key="name"
-      class="flex items-start justify-between gap-3 p-3 bg-muted rounded-lg"
-      :data-testid="`criterion-item-${name}`"
-    >
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2 mb-1">
-          <span class="font-medium text-sm">{{ name }}</span>
-          <Badge
-            :variant="criterion.criterion_type === 'inclusion_criterion' ? 'default' : 'destructive'"
-            class="text-xs"
-            :class="criterion.criterion_type === 'inclusion_criterion' ? 'bg-green-600 hover:bg-green-700' : ''"
-          >
-            {{ criterion.criterion_type === 'inclusion_criterion' ? 'Inclusion' : 'Exclusion' }}
-          </Badge>
-        </div>
-        <p class="text-sm text-muted-foreground">{{ criterion.explanation }}</p>
-        <p v-if="criterion.comment" class="text-xs text-muted-foreground/70 mt-1">
-          {{ criterion.comment }}
-        </p>
-      </div>
-      <div class="flex items-center gap-1 shrink-0">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          :data-testid="`criterion-edit-${name}`"
-          @click="emit('edit', name as string, criterion)"
-        >
-          <Pencil class="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          class="text-destructive hover:text-destructive"
-          :data-testid="`criterion-remove-${name}`"
-          @click="emit('remove', name as string)"
-        >
-          <Trash2 class="h-3.5 w-3.5" />
-        </Button>
-      </div>
-    </div>
+      :criterion="{ name: name as string, ...criterion }"
+      :is-saving="isSaving"
+      mode="view"
+      @save="(data) => emit('update-criterion', name as string, data)"
+      @delete="emit('delete-criterion', name as string)"
+    />
 
-    <div
-      v-if="Object.keys(criteria).length === 0"
-      class="text-sm text-muted-foreground text-center py-4"
+    <!-- Add New Criterion -->
+    <InlineCriterionEditor
+      v-if="showAddForm"
+      :is-saving="isSaving"
+      mode="add"
+      @save="handleAddCriterion"
+      @cancel="showAddForm = false"
+    />
+
+    <!-- Add Button (shown when not adding) -->
+    <Button
+      v-if="!showAddForm"
+      variant="outline"
+      class="w-full"
+      data-testid="add-criterion-inline-btn"
+      @click="showAddForm = true"
     >
-      No screening criteria defined yet.
+      <Plus class="h-4 w-4 mr-2" />
+      Add Screening Criterion
+    </Button>
+
+    <!-- Empty State -->
+    <div
+      v-if="Object.keys(criteria).length === 0 && !showAddForm"
+      class="text-sm text-muted-foreground text-center py-8 border-2 border-dashed rounded-lg"
+    >
+      <p class="mb-2">No screening criteria defined yet.</p>
+      <p class="text-xs">Add your first criterion to define inclusion/exclusion rules for screening.</p>
     </div>
   </div>
 </template>

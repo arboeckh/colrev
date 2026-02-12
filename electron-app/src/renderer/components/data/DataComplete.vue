@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { CircleCheck, Settings } from 'lucide-vue-next';
+import { CircleCheck, Download, Pencil, Table2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 
 defineProps<{
   completedCount: number;
   totalCount: number;
+  isExporting?: boolean;
 }>();
 
 const emit = defineEmits<{
-  configureFields: [];
+  viewData: [];
+  exportCsv: [];
+  editExtractions: [];
 }>();
 </script>
 
@@ -46,14 +49,35 @@ const emit = defineEmits<{
     </div>
 
     <Button
-      variant="outline"
-      size="sm"
       class="mt-6"
-      data-testid="data-complete-configure-btn"
-      @click="emit('configureFields')"
+      data-testid="data-export-csv-btn"
+      :disabled="isExporting"
+      @click="emit('exportCsv')"
     >
-      <Settings class="h-4 w-4 mr-1.5" />
-      Configure Fields
+      <Download class="h-4 w-4 mr-1.5" />
+      {{ isExporting ? 'Exporting...' : 'Export CSV' }}
     </Button>
+
+    <div class="flex items-center gap-2 mt-3">
+      <Button
+        variant="ghost"
+        size="sm"
+        data-testid="data-complete-view-btn"
+        @click="emit('viewData')"
+      >
+        <Table2 class="h-4 w-4 mr-1.5" />
+        View Data
+      </Button>
+      <Separator orientation="vertical" class="h-4" />
+      <Button
+        variant="ghost"
+        size="sm"
+        data-testid="data-complete-edit-btn"
+        @click="emit('editExtractions')"
+      >
+        <Pencil class="h-4 w-4 mr-1.5" />
+        Edit Extractions
+      </Button>
+    </div>
   </div>
 </template>

@@ -11,6 +11,7 @@ import {
   DataExtractionPanel,
   DataComplete,
   DataFieldsConfigDialog,
+  DataTableDialog,
 } from '@/components/data';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
@@ -43,17 +44,28 @@ const localValues = ref<Record<string, string>>({});
 const isLoading = ref(false);
 const isSaving = ref(false);
 const isSavingFields = ref(false);
+const isExporting = ref(false);
+const isEditing = ref(false);
 const showFieldsDialog = ref(false);
+const showDataTable = ref(false);
 
 // --- Computed ---
 const currentRecord = computed(() => queue.value[currentIndex.value] || null);
 
+function isFieldComplete(f: DataField): boolean {
+  if (f.optional) return true;
+  const val = localValues.value[f.name];
+  return !!val && val.trim() !== '' && val !== 'TODO';
+}
+
+const incompleteFields = computed(() => {
+  if (!currentRecord.value) return [];
+  return fields.value.filter((f) => !isFieldComplete(f)).map((f) => f.name);
+});
+
 const canSave = computed(() => {
   if (!currentRecord.value || fields.value.length === 0) return false;
-  return fields.value.every((f) => {
-    const val = localValues.value[f.name];
-    return val && val.trim() !== '' && val !== 'TODO';
-  });
+  return incompleteFields.value.length === 0;
 });
 
 const isComplete = computed(
@@ -131,6 +143,12 @@ async function saveExtraction() {
       currentRecord.value.extraction_values = { ...localValues.value };
       completedCount.value = totalCount.value - response.remaining_count;
 
+      // If all complete, go to completion page
+      if (response.remaining_count === 0 && completedCount.value >= totalCount.value) {
+        isEditing.value = false;
+        return;
+      }
+
       // Auto-advance to next pending
       skipToNextPending();
     }
@@ -167,8 +185,14 @@ function skipToNextPending() {
       return;
     }
   }
-  // All complete — refresh
-  loadQueue();
+  // All complete — if editing, advance to next record; otherwise refresh
+  if (isEditing.value) {
+    const next = (currentIndex.value + 1) % queue.value.length;
+    currentIndex.value = next;
+    syncLocalValues();
+  } else {
+    loadQueue();
+  }
 }
 
 function updateValue(fieldName: string, value: string) {
@@ -198,6 +222,31 @@ async function handleFieldsConfigured(configuredFields: DataField[]) {
     console.error('Configuration failed:', message);
   } finally {
     isSavingFields.value = false;
+  }
+}
+
+// --- Export ---
+async function exportCsv() {
+  if (!projects.currentProjectId || isExporting.value) return;
+
+  isExporting.value = true;
+  try {
+    const response = await backend.call<{ success: boolean; csv_content: string; filename: string }>(
+      'export_data_csv',
+      { project_id: projects.currentProjectId },
+    );
+
+    if (response.success) {
+      await window.fileOps.saveDialog({
+        defaultName: response.filename,
+        content: response.csv_content,
+        filters: [{ name: 'CSV Files', extensions: ['csv'] }],
+      });
+    }
+  } catch (err) {
+    console.error('Export failed:', err);
+  } finally {
+    isExporting.value = false;
   }
 }
 
@@ -246,10 +295,13 @@ onMounted(async () => {
 
     <!-- Completion state -->
     <DataComplete
-      v-else-if="!isLoading && isComplete"
+      v-else-if="!isLoading && isComplete && !isEditing"
       :completed-count="completedCount"
       :total-count="totalCount"
-      @configure-fields="showFieldsDialog = true"
+      :is-exporting="isExporting"
+      @view-data="showDataTable = true"
+      @export-csv="exportCsv"
+      @edit-extractions="isEditing = true"
     />
 
     <!-- No records available (screening not done) -->
@@ -279,6 +331,7 @@ onMounted(async () => {
           :completed-count="completedCount"
           :is-saving="isSaving"
           :can-save="canSave"
+          :incomplete-fields="incompleteFields"
           :queue-records="queue"
           :current-index="currentIndex"
           @update-value="updateValue"
@@ -296,6 +349,13 @@ onMounted(async () => {
       :existing-fields="fields"
       :is-saving="isSavingFields"
       @configured="handleFieldsConfigured"
+    />
+
+    <!-- Data table dialog -->
+    <DataTableDialog
+      v-model:open="showDataTable"
+      :fields="fields"
+      :records="queue"
     />
   </div>
 </template>

@@ -19,6 +19,7 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
   const definition = ref<ReviewDefinitionData | null>(null);
   const isLoading = ref(false);
   const isSaving = ref(false);
+  const hasBeenVisited = ref(false);
 
   async function loadDefinition() {
     if (!projects.currentProjectId || !backend.isRunning) return;
@@ -39,11 +40,30 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
           criteria: response.criteria,
         };
       }
+
+      // Load visited status from localStorage
+      loadVisitedStatus(projects.currentProjectId);
     } catch (err) {
       console.error('Failed to load review definition:', err);
     } finally {
       isLoading.value = false;
     }
+  }
+
+  function markAsVisited() {
+    if (!projects.currentProjectId) return;
+
+    hasBeenVisited.value = true;
+    // Persist to localStorage
+    localStorage.setItem(
+      `definition-visited-${projects.currentProjectId}`,
+      'true',
+    );
+  }
+
+  function loadVisitedStatus(projectId: string) {
+    const visited = localStorage.getItem(`definition-visited-${projectId}`);
+    hasBeenVisited.value = visited === 'true';
   }
 
   async function updateDefinition(updates: {
@@ -186,10 +206,13 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
     definition,
     isLoading,
     isSaving,
+    hasBeenVisited,
     loadDefinition,
     updateDefinition,
     addCriterion,
     updateCriterion,
     removeCriterion,
+    markAsVisited,
+    loadVisitedStatus,
   };
 });

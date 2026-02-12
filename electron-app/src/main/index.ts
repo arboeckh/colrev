@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, protocol, net } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, protocol, net } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ColrevBackend } from './colrev-backend';
@@ -114,6 +114,26 @@ function setupIPC() {
     }
     return { success: true };
   });
+
+  // Save file dialog
+  ipcMain.handle(
+    'file:save-dialog',
+    async (_, options: { defaultName: string; content: string; filters?: { name: string; extensions: string[] }[] }) => {
+      if (!mainWindow) return { success: false, error: 'No window' };
+
+      const result = await dialog.showSaveDialog(mainWindow, {
+        defaultPath: options.defaultName,
+        filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
+      });
+
+      if (result.canceled || !result.filePath) {
+        return { success: false, canceled: true };
+      }
+
+      fs.writeFileSync(result.filePath, options.content, 'utf-8');
+      return { success: true, filePath: result.filePath };
+    },
+  );
 
   // Get app info
   ipcMain.handle('app:info', () => {

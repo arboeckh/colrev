@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
-import { Check, AlertCircle } from 'lucide-vue-next';
+import { Check, AlertCircle, FileText } from 'lucide-vue-next';
 import type { WorkflowStepInfo, RecordCounts, OverallRecordCounts } from '@/types/project';
 import type { GetOperationInfoResponse } from '@/types/api';
 import { useProjectsStore } from '@/stores/projects';
@@ -66,7 +66,7 @@ const isSearchComplete = computed(() => {
 
 const stepStatus = computed((): StepStatus => {
   if (props.step.id === 'review_definition') {
-    // Review definition is always accessible
+    // Review definition is always accessible and doesn't have a completion state
     return 'active';
   }
 
@@ -139,7 +139,9 @@ const stepStatus = computed((): StepStatus => {
           stepStatus === 'complete'
             ? 'border-emerald-500 bg-emerald-500 text-white'
             : stepStatus === 'active'
-              ? 'border-primary bg-primary text-primary-foreground'
+              ? step.id === 'review_definition'
+                ? 'border-blue-500 bg-blue-500 text-white'
+                : 'border-primary bg-primary text-primary-foreground'
               : stepStatus === 'warning'
                 ? 'border-amber-500 bg-amber-500 text-white'
                 : isActive
@@ -153,6 +155,10 @@ const stepStatus = computed((): StepStatus => {
         />
         <AlertCircle
           v-else-if="stepStatus === 'warning'"
+          class="h-3 w-3"
+        />
+        <FileText
+          v-else-if="step.id === 'review_definition'"
           class="h-3 w-3"
         />
         <div
