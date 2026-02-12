@@ -51,7 +51,7 @@ async function discoverProjects() {
   isLoadingProjects.value = true;
 
   try {
-    // First, discover existing projects from disk
+    // Discover existing projects from disk
     const response = await backend.call<ListProjectsResponse>('list_projects', {});
 
     if (response.success && response.projects) {
@@ -62,17 +62,12 @@ async function discoverProjects() {
     }
   } catch (err) {
     console.error('Failed to discover projects:', err);
+  } finally {
+    isLoadingProjects.value = false;
   }
 
-  // Then load status for all projects
-  await Promise.all(
-    projects.projects.map(async (project) => {
-      await projects.loadProjectStatus(project.id);
-      await projects.loadProjectGitStatus(project.id);
-    })
-  );
-
-  isLoadingProjects.value = false;
+  // Projects are displayed immediately
+  // Status/git status will be loaded on-demand when viewing individual projects
 }
 
 async function createProject() {
