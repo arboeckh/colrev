@@ -540,6 +540,41 @@ export interface DataParams {
 
 export interface DataResponse extends SuccessResponse {}
 
+// Data Extraction
+export interface DataField {
+  name: string;
+  explanation: string;
+  data_type: 'str' | 'int' | 'double';
+}
+
+export interface DataExtractionRecord {
+  id: string;
+  title: string;
+  author: string;
+  year: string;
+  journal?: string;
+  booktitle?: string;
+  pdf_path?: string;
+  extraction_values: globalThis.Record<string, string>;
+}
+
+export interface GetDataExtractionQueueResponse extends SuccessResponse {
+  configured: boolean;
+  fields: DataField[];
+  records: DataExtractionRecord[];
+  total_count: number;
+  completed_count: number;
+}
+
+export interface SaveDataExtractionResponse extends SuccessResponse {
+  record_id: string;
+  remaining_count: number;
+}
+
+export interface ConfigureStructuredEndpointResponse extends SuccessResponse {
+  fields: DataField[];
+}
+
 // Prep Man Update Record
 export interface PrepManUpdateRecordResponse extends SuccessResponse {
   operation: string;

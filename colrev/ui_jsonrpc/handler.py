@@ -199,7 +199,7 @@ class JSONRPCHandler:
             return self._handle_with_review_manager(method, params, ScreenHandler)
 
         # Data operations
-        elif method in ["data"]:
+        elif method in ["data", "get_data_extraction_queue", "save_data_extraction", "configure_structured_endpoint"]:
             return self._handle_with_review_manager(method, params, DataHandler)
 
         else:
