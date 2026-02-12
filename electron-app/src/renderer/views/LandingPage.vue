@@ -13,8 +13,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { ProjectsTable } from '@/components/project';
-import { EmptyState, ThemeToggle } from '@/components/common';
+import { ThemeToggle } from '@/components/common';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
@@ -231,22 +230,31 @@ async function createProject() {
       </div>
 
       <!-- Empty state -->
-      <EmptyState
+      <div
         v-else-if="projects.projects.length === 0"
-        :icon="FolderOpen"
-        title="No projects yet"
-        description="Create your first literature review project to get started."
+        class="text-center py-12"
+        data-testid="empty-state"
       >
-        <template #action>
-          <Button :disabled="!backend.isRunning" @click="showNewProjectDialog = true">
-            <Plus class="h-4 w-4 mr-2" />
-            Create Project
-          </Button>
-        </template>
-      </EmptyState>
+        <p class="text-muted-foreground mb-4">No projects yet. Create one to get started.</p>
+        <Button :disabled="!backend.isRunning" @click="showNewProjectDialog = true">
+          <Plus class="h-4 w-4 mr-2" />
+          Create Project
+        </Button>
+      </div>
 
-      <!-- Projects table -->
-      <ProjectsTable v-else :projects="projects.projects" />
+      <!-- Project list -->
+      <ul v-else data-testid="project-list" class="space-y-1">
+        <li
+          v-for="project in projects.projects"
+          :key="project.id"
+          class="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-muted cursor-pointer text-sm"
+          :data-testid="`project-item-${project.id}`"
+          @click="router.push(`/project/${project.id}`)"
+        >
+          <FolderOpen class="h-4 w-4 text-muted-foreground flex-shrink-0" />
+          <span>{{ project.title || project.id }}</span>
+        </li>
+      </ul>
     </main>
   </div>
 </template>
