@@ -44,8 +44,7 @@ const currentStep = computed(() => {
 });
 
 const projectTitle = computed(() => {
-  // Try to get title from status, fall back to ID
-  return props.project.id;
+  return props.project.title || props.project.id;
 });
 
 function openProject() {
@@ -152,7 +151,7 @@ async function confirmDelete() {
       <DialogHeader>
         <DialogTitle>Delete Project</DialogTitle>
         <DialogDescription>
-          Are you sure you want to delete "{{ project.id }}"? This action cannot be undone
+          Are you sure you want to delete "{{ projectTitle }}"? This action cannot be undone
           and will permanently remove all project files.
         </DialogDescription>
       </DialogHeader>

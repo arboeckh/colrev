@@ -78,7 +78,7 @@ async function handleRemove(name: string) {
   <Dialog :open="open" @update:open="(v) => emit('update:open', v)">
     <DialogContent class="sm:max-w-[550px]">
       <DialogHeader>
-        <div class="flex items-center justify-between">
+        <div class="flex items-center justify-between pr-8">
           <DialogTitle>Manage Screening Criteria</DialogTitle>
           <Button
             variant="outline"

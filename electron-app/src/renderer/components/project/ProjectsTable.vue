@@ -129,7 +129,7 @@ function getUncommittedCount(project: ProjectListItem): number {
           <TableCell class="font-medium">
             <div class="flex items-center gap-2">
               <FolderOpen class="h-4 w-4 text-muted-foreground flex-shrink-0" />
-              <span class="truncate" :data-testid="`project-name-${project.id}`">{{ project.id }}</span>
+              <span class="truncate" :data-testid="`project-name-${project.id}`">{{ project.title || project.id }}</span>
               <Loader2 v-if="project.loading" class="h-3 w-3 animate-spin text-muted-foreground" />
             </div>
             <div v-if="project.error" class="flex items-center gap-1 text-destructive text-xs mt-1">
@@ -209,7 +209,7 @@ function getUncommittedCount(project: ProjectListItem): number {
       <DialogHeader>
         <DialogTitle>Delete Project</DialogTitle>
         <DialogDescription>
-          Are you sure you want to delete "{{ projectToDelete?.id }}"? This action cannot be undone
+          Are you sure you want to delete "{{ projectToDelete?.title || projectToDelete?.id }}"? This action cannot be undone
           and will permanently remove all project files.
         </DialogDescription>
       </DialogHeader>

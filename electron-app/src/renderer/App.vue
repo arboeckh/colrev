@@ -35,7 +35,7 @@ async function discoverProjects() {
     const response = await backend.call<ListProjectsResponse>('list_projects', {});
     if (response.success && response.projects) {
       for (const proj of response.projects) {
-        projects.addProject(proj.id, proj.path);
+        projects.addProject(proj.id, proj.path, proj.title);
       }
     }
     // Load status for all discovered projects

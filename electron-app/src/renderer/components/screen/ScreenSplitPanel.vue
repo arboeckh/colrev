@@ -5,7 +5,7 @@ const props = defineProps<{
   defaultSplit?: number; // percent for left panel, default 60
 }>();
 
-const splitPercent = ref(props.defaultSplit ?? 60);
+const splitPercent = ref(props.defaultSplit ?? 65);
 const isDragging = ref(false);
 const containerRef = ref<HTMLElement | null>(null);
 

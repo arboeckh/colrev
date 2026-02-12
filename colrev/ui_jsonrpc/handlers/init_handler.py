@@ -1,5 +1,6 @@
 """Handler for project initialization operations."""
 
+import json
 import logging
 import os
 import shutil
@@ -40,9 +41,10 @@ class InitHandler:
         Note:
             Pre-commit hooks are automatically installed for data quality validation.
         """
-        # Validate and get project path
+        # Validate and get project path (uses sanitized ID for folder name)
         target_path = validation.validate_project_path(params)
-        project_id = params["project_id"]
+        project_id = validation.sanitize_project_id(params["project_id"])
+        title = params.get("title", project_id)
 
         # Get optional parameters
         review_type = validation.get_optional_param(
@@ -78,6 +80,15 @@ class InitHandler:
             )
 
             logger.info(f"Project {project_id} initialized successfully")
+
+            # Store the user's readable title in settings.json
+            settings_path = target_path / "settings.json"
+            if settings_path.exists() and title != project_id:
+                with open(settings_path) as f:
+                    settings = json.load(f)
+                settings["project"]["title"] = title
+                with open(settings_path, "w") as f:
+                    json.dump(settings, f, indent=4)
 
             # Format and return response
             return response_formatter.format_init_response(
@@ -134,9 +145,20 @@ class InitHandler:
             settings_file = item / "settings.json"
             if settings_file.exists():
                 project_id = item.name
+
+                # Read title from settings.json
+                title = project_id
+                try:
+                    with open(settings_file) as f:
+                        settings = json.load(f)
+                    title = settings.get("project", {}).get("title", project_id)
+                except (json.JSONDecodeError, KeyError):
+                    pass
+
                 projects.append({
                     "id": project_id,
                     "path": str(item.resolve()),
+                    "title": title,
                 })
                 logger.debug(f"Found project: {project_id}")
 

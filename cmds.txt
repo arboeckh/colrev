@@ -1,0 +1,6 @@
+conda run -n colrev pytest tests/4_jsonrpc/test_prep_man_handler.py -v 2>&1 | head -100
+source ~/miniforge3/etc/profile.d/conda.sh && conda activate colrev && pytest tests/4_jsonrpc/test_prep_man_handler.py -v 2>&1 | head -120
+source ~/miniforge3/etc/profile.d/conda.sh && conda activate colrev && pip install -e /Users/ab/.claude-worktrees/colrev/ecstatic-almeida 2>&1 | tail -5
+npm install 2>&1 | tail -15
+git add 
+git checkout

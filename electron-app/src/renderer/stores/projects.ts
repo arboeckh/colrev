@@ -18,6 +18,7 @@ import type {
 
 export interface ProjectListItem {
   id: string;
+  title: string;
   path: string;
   status: ProjectStatus | null;
   gitStatus: GitStatus | null;
@@ -65,11 +66,12 @@ export const useProjectsStore = defineStore('projects', () => {
   });
 
   // Actions
-  function addProject(id: string, path?: string) {
+  function addProject(id: string, path?: string, title?: string) {
     const existingIndex = projects.value.findIndex((p) => p.id === id);
     if (existingIndex === -1) {
       projects.value.push({
         id,
+        title: title || id,
         path: path || `${backend.basePath}/${id}`,
         status: null,
         gitStatus: null,

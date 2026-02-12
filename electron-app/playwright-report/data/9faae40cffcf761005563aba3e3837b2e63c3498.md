@@ -1,0 +1,143 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - region "Notifications alt+T":
+    - list:
+      - listitem [ref=e4]:
+        - img [ref=e6]
+        - generic [ref=e9]:
+          - generic [ref=e10]: Source added
+          - generic [ref=e11]: Added test-export (ris)
+  - button "16" [ref=e12]:
+    - img
+    - generic [ref=e13]: "16"
+  - generic [ref=e14]:
+    - banner [ref=e15]:
+      - generic [ref=e16]:
+        - generic [ref=e17]:
+          - button "Projects" [ref=e18]:
+            - img
+            - generic [ref=e19]: Projects
+          - heading "search-status-test-1770909039231" [level=1] [ref=e21]
+        - generic [ref=e22]:
+          - button "Toggle theme" [ref=e23]:
+            - img
+            - generic [ref=e24]: Toggle theme
+          - button [ref=e25]:
+            - img
+    - generic [ref=e26]:
+      - complementary [ref=e27]:
+        - generic [ref=e30]:
+          - link "Overview" [ref=e31] [cursor=pointer]:
+            - /url: "#/project/search-status-test-1770909039231"
+            - img [ref=e32]
+            - generic [ref=e37]: Overview
+          - navigation [ref=e38]:
+            - link "Definition" [ref=e39] [cursor=pointer]:
+              - /url: "#/project/search-status-test-1770909039231/review-definition"
+              - generic [ref=e45]: Definition
+            - link "Search" [ref=e46] [cursor=pointer]:
+              - /url: "#/project/search-status-test-1770909039231/search"
+              - generic [ref=e53]: Search
+            - link "Preprocessing 10" [ref=e54] [cursor=pointer]:
+              - /url: "#/project/search-status-test-1770909039231/preprocessing"
+              - generic [ref=e59]:
+                - generic [ref=e60]: Preprocessing
+                - generic [ref=e61]: "10"
+            - link "Prescreen" [ref=e62] [cursor=pointer]:
+              - /url: "#/project/search-status-test-1770909039231/prescreen"
+              - generic [ref=e68]: Prescreen
+            - link "PDFs" [ref=e69] [cursor=pointer]:
+              - /url: "#/project/search-status-test-1770909039231/pdfs"
+              - generic [ref=e75]: PDFs
+            - link "Screen" [ref=e76] [cursor=pointer]:
+              - /url: "#/project/search-status-test-1770909039231/screen"
+              - generic [ref=e82]: Screen
+            - link "Data" [ref=e83] [cursor=pointer]:
+              - /url: "#/project/search-status-test-1770909039231/data"
+              - generic [ref=e88]: Data
+          - link "Settings" [ref=e89] [cursor=pointer]:
+            - /url: "#/project/search-status-test-1770909039231/settings"
+            - img [ref=e90]
+            - generic [ref=e93]: Settings
+      - main [ref=e94]:
+        - generic [ref=e96]:
+          - generic [ref=e97]:
+            - generic [ref=e98]:
+              - heading "Search" [level=2] [ref=e99]:
+                - img [ref=e100]
+                - text: Search
+              - paragraph [ref=e103]: Configure and execute searches for literature
+            - generic [ref=e104]:
+              - generic [ref=e105]:
+                - img [ref=e106]
+                - generic [ref=e109]: 10 records
+              - 'button "Next: Preprocessing" [ref=e110]':
+                - text: "Next: Preprocessing"
+                - img
+          - generic [ref=e111]:
+            - generic [ref=e112]:
+              - heading "Search Sources" [level=3] [ref=e113]
+              - generic [ref=e114]: 2 sources
+            - button "Run All Searches" [ref=e115]:
+              - img
+              - text: Run All Searches
+          - generic [ref=e116]:
+            - generic [ref=e117]:
+              - generic [ref=e119]:
+                - heading "test-export DB Complete" [level=3] [ref=e120]:
+                  - img [ref=e121]
+                  - text: test-export
+                  - generic [ref=e125]: DB
+                  - generic [ref=e126]:
+                    - img
+                    - text: Complete
+                - generic [ref=e127]:
+                  - button "Update source file" [ref=e128]:
+                    - img
+                  - button "Delete source" [ref=e129]:
+                    - img
+              - generic [ref=e130]:
+                - generic [ref=e131]:
+                  - generic [ref=e132]:
+                    - img [ref=e133]
+                    - generic [ref=e136]: 10 records
+                    - generic [ref=e137]: ·
+                    - generic [ref=e138]: Today
+                  - button "View" [ref=e139]:
+                    - text: View
+                    - img
+                - generic [ref=e140]:
+                  - generic [ref=e141]:
+                    - generic [ref=e142]: "Query:"
+                    - button "Copy query to clipboard" [ref=e143]:
+                      - img
+                  - generic [ref=e145]: test query 2024
+            - generic [ref=e146]:
+              - generic [ref=e148]:
+                - heading "pubmed API" [level=3] [ref=e149]:
+                  - img [ref=e150]
+                  - text: pubmed
+                  - generic [ref=e153]: API
+                - generic [ref=e154]:
+                  - button "Run search for this source" [ref=e155]:
+                    - img
+                  - button "Edit search query" [ref=e156]:
+                    - img
+                  - button "Delete source" [ref=e157]:
+                    - img
+              - generic [ref=e158]:
+                - generic [ref=e160]:
+                  - img [ref=e161]
+                  - generic [ref=e163]: Not run yet
+                - generic [ref=e164]:
+                  - generic [ref=e165]:
+                    - generic [ref=e166]: "Query:"
+                    - button "Copy query to clipboard" [ref=e167]:
+                      - img
+                  - generic [ref=e169]: test query 2024
+            - generic [ref=e172] [cursor=pointer]:
+              - img [ref=e174]
+              - paragraph [ref=e175]: Add Source
+```

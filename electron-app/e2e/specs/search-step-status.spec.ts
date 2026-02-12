@@ -109,6 +109,9 @@ test.describe('Search Step Status', () => {
     await fileChooser.setFiles(path.join(__dirname, '../fixtures/asr.ris'));
     await window.waitForSelector('text=asr.ris', { timeout: 5000 });
 
+    // Fill required search query field
+    await window.fill('[data-testid="search-query-input"]', 'test query 2024');
+
     await clickWhenEnabled(window, '[data-testid="submit-add-source"]');
     await waitForRpcResponse('upload_search_file', 30000);
     await waitForRpcResponse('add_source', 30000);

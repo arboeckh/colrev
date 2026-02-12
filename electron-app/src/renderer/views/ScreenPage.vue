@@ -1,23 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import {
-  CheckSquare,
-  Check,
-  X,
-  Loader2,
-  ArrowRight,
-  Pencil,
-  Settings2,
-} from 'lucide-vue-next';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { CheckSquare } from 'lucide-vue-next';
 import { EmptyState } from '@/components/common';
 import {
   PdfViewerPanel,
   ScreenSplitPanel,
   ScreenRecordPanel,
-  ScreenProgressBar,
   ScreenEditMode,
   ScreenComplete,
   CriteriaManagementDialog,
@@ -287,64 +275,18 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="px-4 py-2 h-full flex flex-col" data-testid="screen-page">
-    <!-- Header -->
-    <div class="flex items-center justify-between mb-1">
-      <div class="flex items-center gap-2">
-        <CheckSquare class="h-5 w-5 text-muted-foreground" />
-        <h2 class="text-lg font-semibold" data-testid="screen-title">Screen</h2>
-      </div>
-
-      <div class="flex items-center gap-3">
-        <template v-if="queue.length > 0 && mode === 'screening'">
-          <Badge variant="secondary" class="px-2.5 py-0.5" data-testid="screen-included-count">
-            <Check class="h-3 w-3 mr-1" />
-            {{ includedCount }}
-          </Badge>
-          <Badge variant="outline" class="px-2.5 py-0.5" data-testid="screen-excluded-count">
-            <X class="h-3 w-3 mr-1" />
-            {{ excludedCount }}
-          </Badge>
-          <Badge variant="secondary" class="px-2.5 py-0.5" data-testid="screen-remaining-count">
-            {{ totalCount }} remaining
-          </Badge>
-        </template>
-
-        <Button
-          v-if="mode === 'screening' && queue.length > 0"
-          variant="ghost"
-          size="sm"
-          data-testid="screen-manage-criteria-btn"
-          @click="showCriteriaDialog = true"
-        >
-          <Settings2 class="h-4 w-4 mr-1" />
-          Criteria
-        </Button>
-
-        <Button
-          v-if="mode === 'screening' && decidedCount > 0"
-          variant="ghost"
-          size="sm"
-          data-testid="screen-edit-mode-btn"
-          @click="enterEditMode"
-        >
-          <Pencil class="h-4 w-4 mr-1" />
-          Edit Decisions
-        </Button>
-      </div>
-    </div>
-
-    <!-- No separator - maximize vertical space -->
-
+  <div class="h-full flex flex-col" data-testid="screen-page">
     <!-- Edit mode -->
     <ScreenEditMode
       v-if="mode === 'edit'"
+      class="px-4 py-2"
       @close="exitEditMode"
     />
 
     <!-- Completion state -->
     <ScreenComplete
       v-else-if="(mode === 'complete' || (!isLoading && queue.length === 0 && isScreenComplete))"
+      class="px-4 py-2"
       :included-count="statusCounts?.rev_included ?? 0"
       :excluded-count="statusCounts?.rev_excluded ?? 0"
       @edit-decisions="enterEditMode"
@@ -358,136 +300,44 @@ onUnmounted(() => {
       description="There are no records ready for full-text screening yet. Complete PDF preparation first."
     />
 
-    <!-- Screening interface -->
-    <div v-else class="flex-1 flex flex-col min-h-0">
-      <!-- Decision bar -->
-      <div
-        class="flex items-center justify-center gap-4 h-[40px] shrink-0 mb-1"
-        data-testid="screen-decision-bar"
-      >
-        <!-- Undecided: show buttons -->
-        <template v-if="currentRecord && !isCurrentDecided">
-          <!-- No criteria mode: simple include/exclude -->
-          <template v-if="!hasCriteria">
-            <Button
-              variant="destructive"
-              size="sm"
-              class="min-w-[120px] h-8"
-              data-testid="screen-btn-exclude"
-              :disabled="!currentRecord || isDeciding"
-              @click="makeDecision('exclude')"
-            >
-              <Loader2 v-if="isDeciding" class="h-4 w-4 mr-1.5 animate-spin" />
-              <X v-else class="h-4 w-4 mr-1.5" />
-              Exclude
-              <kbd class="ml-1.5 text-xs opacity-60 bg-white/20 px-1 py-0.5 rounded">&larr;</kbd>
-            </Button>
-
-            <Button
-              size="sm"
-              class="min-w-[120px] h-8 bg-green-600 hover:bg-green-700 text-white"
-              data-testid="screen-btn-include"
-              :disabled="!currentRecord || isDeciding"
-              @click="makeDecision('include')"
-            >
-              <Loader2 v-if="isDeciding" class="h-4 w-4 mr-1.5 animate-spin" />
-              <Check v-else class="h-4 w-4 mr-1.5" />
-              Include
-              <kbd class="ml-1.5 text-xs opacity-60 bg-white/20 px-1 py-0.5 rounded">&rarr;</kbd>
-            </Button>
-          </template>
-
-          <!-- Criteria mode: submit derived decision -->
-          <template v-else>
-            <Button
-              v-if="derivedDecision"
-              size="sm"
-              class="min-w-[140px] h-8"
-              :class="derivedDecision === 'include'
-                ? 'bg-green-600 hover:bg-green-700 text-white'
-                : 'bg-destructive hover:bg-destructive/90 text-white'
-              "
-              data-testid="screen-btn-submit-criteria"
-              :disabled="!canSubmitCriteria || isDeciding"
-              @click="submitCriteriaDecision"
-            >
-              <Loader2 v-if="isDeciding" class="h-4 w-4 mr-1.5 animate-spin" />
-              <Check v-else-if="derivedDecision === 'include'" class="h-4 w-4 mr-1.5" />
-              <X v-else class="h-4 w-4 mr-1.5" />
-              {{ derivedDecision === 'include' ? 'Include' : 'Exclude' }}
-            </Button>
-            <span v-else class="text-sm text-muted-foreground">
-              Evaluate all criteria to submit a decision
-            </span>
-          </template>
-        </template>
-
-        <!-- Decided: show indicator -->
-        <template v-else-if="currentRecord && isCurrentDecided">
-          <div
-            class="flex items-center gap-2 px-4 py-2 rounded-lg"
-            :class="
-              currentRecord._decision === 'included'
-                ? 'bg-green-600/15 text-green-500 border border-green-600/30'
-                : 'bg-destructive/15 text-red-400 border border-destructive/30'
-            "
-            data-testid="screen-decision-indicator"
-          >
-            <Check v-if="currentRecord._decision === 'included'" class="h-5 w-5" />
-            <X v-else class="h-5 w-5" />
-            <span class="font-medium text-sm">
-              {{ currentRecord._decision === 'included' ? 'Included' : 'Excluded' }}
-            </span>
-          </div>
-
-          <Button
-            v-if="nextUndecidedIndex !== -1"
-            variant="outline"
-            size="lg"
-            data-testid="screen-btn-skip-to-undecided"
-            @click="skipToNextUndecided"
-          >
-            <ArrowRight class="h-4 w-4 mr-2" />
-            Next undecided
-          </Button>
-        </template>
-      </div>
-
-      <!-- Progress bar -->
-      <ScreenProgressBar
-        :records="queue"
-        :current-index="currentIndex"
-        class="mb-1"
-        @navigate="goToRecord"
-      />
-
-      <!-- Main content: split panel with PDF and record details -->
-      <Card
-        v-if="currentRecord"
-        class="flex-1 min-h-0 overflow-hidden"
-        :class="{
-          'border-green-600/40': currentRecord._decision === 'included',
-          'border-destructive/40': currentRecord._decision === 'excluded',
-        }"
-        data-testid="screen-record-card"
-      >
-        <ScreenSplitPanel>
-          <template #left>
-            <PdfViewerPanel :pdf-path="currentRecord.pdf_path" />
-          </template>
-          <template #right>
-            <ScreenRecordPanel
-              :key="currentRecord.id"
-              :record="currentRecord"
-              :criteria="criteria"
-              :criteria-decisions="currentRecord._criteriaDecisions"
-              :has-criteria="hasCriteria"
-              @toggle-criterion="toggleCriterion"
-            />
-          </template>
-        </ScreenSplitPanel>
-      </Card>
-    </div>
+    <!-- Screening interface: split panel takes full height -->
+    <ScreenSplitPanel
+      v-else-if="currentRecord"
+      class="flex-1 min-h-0"
+      data-testid="screen-record-card"
+    >
+      <template #left>
+        <PdfViewerPanel :pdf-path="currentRecord.pdf_path" />
+      </template>
+      <template #right>
+        <ScreenRecordPanel
+          :key="currentRecord.id"
+          :record="currentRecord"
+          :criteria="criteria"
+          :criteria-decisions="currentRecord._criteriaDecisions"
+          :has-criteria="hasCriteria"
+          :decided-count="decidedCount"
+          :included-count="includedCount"
+          :excluded-count="excludedCount"
+          :total-count="totalCount"
+          :is-deciding="isDeciding"
+          :is-current-decided="isCurrentDecided"
+          :derived-decision="derivedDecision"
+          :can-submit-criteria="canSubmitCriteria"
+          :next-undecided-index="nextUndecidedIndex"
+          :mode="mode"
+          :queue-records="queue"
+          :current-index="currentIndex"
+          @toggle-criterion="toggleCriterion"
+          @make-decision="makeDecision"
+          @submit-criteria-decision="submitCriteriaDecision"
+          @skip-to-next-undecided="skipToNextUndecided"
+          @enter-edit-mode="enterEditMode"
+          @show-criteria-dialog="showCriteriaDialog = true"
+          @navigate="goToRecord"
+        />
+      </template>
+    </ScreenSplitPanel>
 
     <!-- Criteria management dialog -->
     <CriteriaManagementDialog

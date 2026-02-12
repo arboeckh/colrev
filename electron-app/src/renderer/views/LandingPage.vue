@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { Plus, FolderOpen, Loader2, RefreshCw } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
@@ -27,8 +27,20 @@ const notifications = useNotificationsStore();
 
 // New project dialog state
 const showNewProjectDialog = ref(false);
-const newProjectId = ref('');
+const newProjectName = ref('');
 const isCreatingProject = ref(false);
+
+// Auto-generate slug from project name
+const generatedSlug = computed(() => {
+  const name = newProjectName.value.trim();
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+});
 
 // Loading state for project list
 const isLoadingProjects = ref(false);
@@ -45,7 +57,7 @@ async function discoverProjects() {
     if (response.success && response.projects) {
       // Add discovered projects to the store
       for (const proj of response.projects) {
-        projects.addProject(proj.id, proj.path);
+        projects.addProject(proj.id, proj.path, proj.title);
       }
     }
   } catch (err) {
@@ -64,16 +76,20 @@ async function discoverProjects() {
 }
 
 async function createProject() {
-  if (!newProjectId.value.trim()) {
-    notifications.error('Project ID required', 'Please enter a project ID');
+  if (!generatedSlug.value) {
+    notifications.error('Project name required', 'Please enter a project name');
     return;
   }
 
   isCreatingProject.value = true;
 
+  const title = newProjectName.value.trim();
+  const slug = generatedSlug.value;
+
   try {
     const result = await backend.call<InitProjectResponse>('init_project', {
-      project_id: newProjectId.value.trim(),
+      project_id: slug,
+      title,
       review_type: 'colrev.literature_review',
       example: false,
       force_mode: false,
@@ -81,16 +97,16 @@ async function createProject() {
     });
 
     if (result.success) {
-      notifications.success('Project created', `Created ${result.project_id}`);
+      notifications.success('Project created', `Created ${title}`);
 
       // Add to projects list and load its status
-      projects.addProject(result.project_id, result.path);
+      projects.addProject(result.project_id, result.path, title);
       await projects.loadProjectStatus(result.project_id);
       await projects.loadProjectGitStatus(result.project_id);
 
       // Reset dialog
       showNewProjectDialog.value = false;
-      newProjectId.value = '';
+      newProjectName.value = '';
 
       // Navigate to the new project
       router.push({ name: 'project-overview', params: { id: result.project_id } });
@@ -159,22 +175,22 @@ async function createProject() {
                 <DialogHeader>
                   <DialogTitle>Create New Project</DialogTitle>
                   <DialogDescription>
-                    Enter a unique identifier for your literature review project.
+                    Give your literature review project a name.
                   </DialogDescription>
                 </DialogHeader>
 
                 <div class="space-y-4 py-4">
                   <div class="space-y-2">
-                    <label class="text-sm font-medium">Project ID</label>
+                    <label class="text-sm font-medium">Project Name</label>
                     <Input
-                      v-model="newProjectId"
-                      placeholder="my-literature-review"
+                      v-model="newProjectName"
+                      placeholder="My Literature Review"
                       data-testid="project-id-input"
                       :disabled="isCreatingProject"
                       @keyup.enter="createProject"
                     />
-                    <p class="text-xs text-muted-foreground">
-                      Use lowercase letters, numbers, and hyphens only.
+                    <p v-if="generatedSlug" class="text-xs text-muted-foreground">
+                      ID: {{ generatedSlug }}
                     </p>
                   </div>
                 </div>
@@ -189,7 +205,7 @@ async function createProject() {
                     Cancel
                   </Button>
                   <Button
-                    :disabled="isCreatingProject || !newProjectId.trim()"
+                    :disabled="isCreatingProject || !generatedSlug"
                     data-testid="submit-create-project"
                     @click="createProject"
                   >

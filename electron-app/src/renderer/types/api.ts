@@ -22,6 +22,7 @@ export interface ListProjectsResponse extends SuccessResponse {
   projects: Array<{
     id: string;
     path: string;
+    title?: string;
   }>;
 }
 
@@ -38,6 +39,7 @@ export interface DeleteProjectResponse extends SuccessResponse {
 // Init Project
 export interface InitProjectParams {
   project_id: string;
+  title?: string;
   review_type?: string;
   example?: boolean;
   force_mode?: boolean;
