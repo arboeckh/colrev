@@ -20,6 +20,7 @@ from colrev.ui_jsonrpc.handlers import PrepHandler
 from colrev.ui_jsonrpc.handlers import PrepManHandler
 from colrev.ui_jsonrpc.handlers import PrescreenHandler
 from colrev.ui_jsonrpc.handlers import RecordsHandler
+from colrev.ui_jsonrpc.handlers import ReviewDefinitionHandler
 from colrev.ui_jsonrpc.handlers import ScreenHandler
 from colrev.ui_jsonrpc.handlers import SearchHandler
 from colrev.ui_jsonrpc.handlers import SettingsHandler
@@ -174,8 +175,27 @@ class JSONRPCHandler:
         elif method in ["pdf_prep"]:
             return self._handle_with_review_manager(method, params, PDFPrepHandler)
 
+        # Review definition operations
+        elif method in [
+            "get_review_definition",
+            "update_review_definition",
+            "get_screening_criteria",
+            "add_screening_criterion",
+            "update_screening_criterion",
+            "remove_screening_criterion",
+        ]:
+            return self._handle_with_review_manager(
+                method, params, ReviewDefinitionHandler
+            )
+
         # Screen operations
-        elif method in ["screen", "get_screen_queue", "screen_record"]:
+        elif method in [
+            "screen",
+            "get_screen_queue",
+            "screen_record",
+            "update_screen_decisions",
+            "include_all_screen",
+        ]:
             return self._handle_with_review_manager(method, params, ScreenHandler)
 
         # Data operations

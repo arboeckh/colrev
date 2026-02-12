@@ -55,6 +55,7 @@ export function useProject() {
   // Navigate to a step page
   function navigateToStep(step: WorkflowStep) {
     const stepRoutes: Record<WorkflowStep, string> = {
+      review_definition: 'review-definition',
       search: 'search',
       preprocessing: 'preprocessing',
       load: 'load',

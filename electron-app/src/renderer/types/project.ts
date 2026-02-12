@@ -100,7 +100,7 @@ export interface ProjectStatus {
   has_changes: boolean;
   duplicates_removed: number;
   nr_origins: number;
-  screening_statistics: Record<string, unknown>;
+  screening_statistics: globalThis.Record<string, unknown>;
   // Legacy field for backwards compatibility (maps to 'currently')
   records?: RecordCounts;
 }
@@ -116,6 +116,7 @@ export interface Project {
 export interface ProjectSettings {
   project: {
     title: string;
+    review_type?: string;
     authors: Array<{
       name: string;
       initials: string;
@@ -164,7 +165,7 @@ export interface ProjectSettings {
     screen_package_endpoints: Array<{
       endpoint: string;
     }>;
-    criteria?: Record<string, ScreenCriterion>;
+    criteria?: globalThis.Record<string, ScreenCriterion>;
   };
   data: {
     data_package_endpoints: Array<{
@@ -176,7 +177,7 @@ export interface ProjectSettings {
 export interface SearchSource {
   endpoint: string;
   search_type: 'API' | 'DB' | 'TOC' | 'BACKWARD_SEARCH' | 'FORWARD_SEARCH' | 'OTHER' | 'FILES' | 'MD';
-  search_parameters: Record<string, unknown>;
+  search_parameters: globalThis.Record<string, unknown>;
   filename: string;
   search_string?: string;
   search_results_path?: string;
@@ -191,10 +192,12 @@ export interface SearchSource {
 export interface ScreenCriterion {
   explanation: string;
   comment?: string;
+  criterion_type?: 'inclusion_criterion' | 'exclusion_criterion';
 }
 
 // Workflow step definitions
 export type WorkflowStep =
+  | 'review_definition'
   | 'search'
   | 'preprocessing'
   | 'load'
@@ -226,6 +229,14 @@ export interface WorkflowStepInfo {
 
 // Full workflow steps including the individual load/prep/dedupe for backwards compatibility
 export const ALL_WORKFLOW_STEPS: WorkflowStepInfo[] = [
+  {
+    id: 'review_definition',
+    label: 'Definition',
+    description: 'Define review scope and criteria',
+    route: 'review-definition',
+    inputStates: [],
+    outputStates: [],
+  },
   {
     id: 'search',
     label: 'Search',
@@ -302,6 +313,14 @@ export const ALL_WORKFLOW_STEPS: WorkflowStepInfo[] = [
 
 // Grouped workflow steps for sidebar display (combines load/prep/dedupe into preprocessing, pdf_get/pdf_prep into pdfs)
 export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
+  {
+    id: 'review_definition',
+    label: 'Definition',
+    description: 'Define review scope and criteria',
+    route: 'review-definition',
+    inputStates: [],
+    outputStates: [],
+  },
   {
     id: 'search',
     label: 'Search',

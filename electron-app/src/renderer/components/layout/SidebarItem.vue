@@ -65,6 +65,11 @@ const isSearchComplete = computed(() => {
 });
 
 const stepStatus = computed((): StepStatus => {
+  if (props.step.id === 'review_definition') {
+    // Review definition is always accessible
+    return 'active';
+  }
+
   if (props.step.id === 'search') {
     // Search is complete only when there are records AND no sources need action
     if (isSearchComplete.value) {

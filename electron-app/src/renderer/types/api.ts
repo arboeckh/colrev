@@ -220,7 +220,7 @@ export interface UpdateSourceParams {
   project_id: string;
   filename: string;
   search_string?: string;
-  search_parameters?: Record<string, unknown>;
+  search_parameters?: globalThis.Record<string, unknown>;
   skip_commit?: boolean;
   base_path?: string;
 }
@@ -463,19 +463,22 @@ export interface ScreenQueueRecord {
   title: string;
   author: string;
   year: string;
-  abstract: string;
+  abstract?: string;
+  journal?: string;
+  booktitle?: string;
   pdf_path?: string;
-  current_criteria?: Record<string, string>;
+  current_criteria?: globalThis.Record<string, string>;
 }
 
 export interface ScreenCriterionDefinition {
   explanation: string;
   comment?: string;
+  criterion_type?: 'inclusion_criterion' | 'exclusion_criterion';
 }
 
 export interface GetScreenQueueResponse extends SuccessResponse {
   records: ScreenQueueRecord[];
-  criteria: Record<string, ScreenCriterionDefinition>;
+  criteria: globalThis.Record<string, ScreenCriterionDefinition>;
   total_count: number;
 }
 
@@ -483,7 +486,7 @@ export interface ScreenRecordParams {
   project_id: string;
   record_id: string;
   decision: 'include' | 'exclude';
-  criteria_decisions?: Record<string, 'in' | 'out'>;
+  criteria_decisions?: globalThis.Record<string, 'in' | 'out'>;
   skip_commit?: boolean;
   base_path?: string;
 }
@@ -522,6 +525,111 @@ export interface PrepManUpdateRecordResponse extends SuccessResponse {
     message: string;
   };
 }
+
+// Review Definition
+export interface GetReviewDefinitionParams {
+  project_id: string;
+  base_path?: string;
+}
+
+export interface ReviewDefinitionData {
+  review_type: string;
+  title: string;
+  protocol_url: string;
+  keywords: string[];
+  objectives: string;
+  criteria: globalThis.Record<string, ScreenCriterionDefinition>;
+}
+
+export interface GetReviewDefinitionResponse extends SuccessResponse {
+  project_id: string;
+  review_type: string;
+  title: string;
+  protocol_url: string;
+  keywords: string[];
+  objectives: string;
+  criteria: globalThis.Record<string, ScreenCriterionDefinition>;
+}
+
+export interface UpdateReviewDefinitionParams {
+  project_id: string;
+  protocol_url?: string;
+  keywords?: string[];
+  objectives?: string;
+  skip_commit?: boolean;
+  base_path?: string;
+}
+
+export interface UpdateReviewDefinitionResponse extends SuccessResponse {
+  updated_fields: string[];
+}
+
+export interface AddScreeningCriterionParams {
+  project_id: string;
+  name: string;
+  explanation: string;
+  comment?: string;
+  criterion_type: 'inclusion_criterion' | 'exclusion_criterion';
+  skip_commit?: boolean;
+  base_path?: string;
+}
+
+export interface AddScreeningCriterionResponse extends SuccessResponse {
+  criterion_name: string;
+}
+
+export interface UpdateScreeningCriterionParams {
+  project_id: string;
+  criterion_name: string;
+  explanation?: string;
+  comment?: string;
+  criterion_type?: 'inclusion_criterion' | 'exclusion_criterion';
+  skip_commit?: boolean;
+  base_path?: string;
+}
+
+export interface UpdateScreeningCriterionResponse extends SuccessResponse {
+  criterion_name: string;
+}
+
+export interface RemoveScreeningCriterionParams {
+  project_id: string;
+  criterion_name: string;
+  skip_commit?: boolean;
+  base_path?: string;
+}
+
+export interface RemoveScreeningCriterionResponse extends SuccessResponse {
+  criterion_name: string;
+}
+
+// Update Screen Decisions
+export interface UpdateScreenDecisionsParams {
+  project_id: string;
+  changes: Array<{
+    record_id: string;
+    decision: 'include' | 'exclude';
+  }>;
+  base_path?: string;
+}
+
+export interface UpdateScreenDecisionsResponse extends SuccessResponse {
+  changes_count: number;
+  skipped: Array<{
+    record_id: string;
+    reason: string;
+  }>;
+  updated_records: string[];
+}
+
+// Include All Screen
+export interface IncludeAllScreenParams {
+  project_id: string;
+  skip_commit?: boolean;
+  base_path?: string;
+}
+
+export interface IncludeAllScreenResponse extends SuccessResponse {}
 
 // Operation Info
 export interface GetOperationInfoParams {

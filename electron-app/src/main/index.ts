@@ -1,7 +1,21 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, net } from 'electron';
 import * as path from 'path';
+import * as fs from 'fs';
 import { ColrevBackend } from './colrev-backend';
 import { setupGitEnvironment } from './git-env';
+
+// Register custom protocol scheme before app is ready
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'colrev-pdf',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+    },
+  },
+]);
 
 let mainWindow: BrowserWindow | null = null;
 let backend: ColrevBackend | null = null;
@@ -117,6 +131,35 @@ function setupIPC() {
 }
 
 app.whenReady().then(() => {
+  // Register colrev-pdf:// protocol handler for serving PDFs from project directories
+  // URL format: colrev-pdf://pdf/<project-id>/<relative-path>
+  protocol.handle('colrev-pdf', (request) => {
+    const url = new URL(request.url);
+    // With standard protocol, "pdf" in colrev-pdf://pdf/... is the hostname
+    // pathname: /<project-id>/<relative-path>
+    const parts = url.pathname.split('/').filter(Boolean);
+    // parts[0] = projectId, parts[1...] = relative path
+    if (url.hostname !== 'pdf' || parts.length < 2) {
+      return new Response('Invalid PDF URL', { status: 400 });
+    }
+
+    const projectId = decodeURIComponent(parts[0]);
+    const relativePath = parts.slice(1).map(decodeURIComponent).join('/');
+    const projectsPath = path.join(app.getPath('userData'), 'projects');
+    const filePath = path.resolve(projectsPath, projectId, relativePath);
+
+    // Security: verify resolved path stays within projects directory
+    if (!filePath.startsWith(path.resolve(projectsPath))) {
+      return new Response('Access denied', { status: 403 });
+    }
+
+    if (!fs.existsSync(filePath)) {
+      return new Response('PDF not found', { status: 404 });
+    }
+
+    return net.fetch(`file://${filePath}`);
+  });
+
   setupIPC();
   createWindow();
 });

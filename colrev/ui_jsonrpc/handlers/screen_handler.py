@@ -107,14 +107,16 @@ class ScreenHandler:
 
         # Get screening criteria from settings
         screen_settings = self.review_manager.settings.screen
-        criteria = []
+        criteria = {}
         if hasattr(screen_settings, 'criteria') and screen_settings.criteria:
             for criterion_name, criterion in screen_settings.criteria.items():
-                criteria.append({
-                    "name": criterion_name,
+                criteria[criterion_name] = {
                     "explanation": getattr(criterion, 'explanation', ''),
                     "comment": getattr(criterion, 'comment', ''),
-                })
+                    "criterion_type": getattr(criterion, 'criterion_type', '').value
+                    if hasattr(getattr(criterion, 'criterion_type', ''), 'value')
+                    else str(getattr(criterion, 'criterion_type', '')),
+                }
 
         # Need to get an operation to enable record loading
         self.review_manager.get_screen_operation(notify_state_transition_operation=True)
@@ -148,6 +150,10 @@ class ScreenHandler:
             # Include optional fields if present
             if Fields.ABSTRACT in record:
                 formatted["abstract"] = record[Fields.ABSTRACT]
+            if Fields.JOURNAL in record:
+                formatted["journal"] = record[Fields.JOURNAL]
+            if Fields.BOOKTITLE in record:
+                formatted["booktitle"] = record[Fields.BOOKTITLE]
             if Fields.FILE in record:
                 formatted["pdf_path"] = record[Fields.FILE]
 
@@ -287,6 +293,158 @@ class ScreenHandler:
                 "remaining_count": remaining_count,
                 "message": f"Record {record_id} screened as {decision}",
             },
+        )
+
+    def update_screen_decisions(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update screen decisions for records already in screen states.
+
+        Allows flipping records between rev_included and rev_excluded
+        after the initial screen is complete.
+
+        Args:
+            params: Method parameters containing:
+                - project_id (str): Project identifier (required)
+                - changes (list): List of dicts with:
+                    - record_id (str): Record ID
+                    - decision (str): "include" or "exclude"
+
+        Returns:
+            Dict containing:
+                - success (bool): Always True on success
+                - changes_count (int): Number of records actually updated
+                - skipped (list): Records that were skipped with reasons
+                - updated_records (list): IDs of records that were updated
+                - message (str): Summary message
+
+        Raises:
+            ValueError: If changes is missing or empty
+        """
+        project_id = params["project_id"]
+        changes = params.get("changes")
+
+        if not changes or not isinstance(changes, list):
+            raise ValueError(
+                "changes parameter is required and must be a non-empty list"
+            )
+
+        for change in changes:
+            if not isinstance(change, dict):
+                raise ValueError(
+                    "Each change must be a dict with record_id and decision"
+                )
+            if not change.get("record_id"):
+                raise ValueError("Each change must have a record_id")
+            if change.get("decision") not in ("include", "exclude"):
+                raise ValueError(
+                    "Each change decision must be 'include' or 'exclude'"
+                )
+
+        logger.info(
+            f"Updating {len(changes)} screen decisions in project {project_id}"
+        )
+
+        self.review_manager.get_screen_operation(
+            notify_state_transition_operation=True
+        )
+
+        records_dict = self.review_manager.dataset.load_records_dict()
+        if records_dict is None:
+            records_dict = {}
+
+        valid_states = {RecordState.rev_included, RecordState.rev_excluded}
+        records_to_save = {}
+        skipped: List[Dict[str, str]] = []
+        updated_ids: List[str] = []
+
+        for change in changes:
+            record_id = change["record_id"]
+            decision = change["decision"]
+
+            if record_id not in records_dict:
+                skipped.append(
+                    {"record_id": record_id, "reason": "Record not found"}
+                )
+                continue
+
+            record_dict = records_dict[record_id]
+            current_status = record_dict.get(Fields.STATUS)
+
+            if current_status not in valid_states:
+                skipped.append(
+                    {
+                        "record_id": record_id,
+                        "reason": f"Invalid state: {current_status}",
+                    }
+                )
+                continue
+
+            target_state = (
+                RecordState.rev_included
+                if decision == "include"
+                else RecordState.rev_excluded
+            )
+
+            if current_status == target_state:
+                continue
+
+            record = colrev.record.record.Record(record_dict)
+            record.set_status(target_state)
+            records_to_save[record_id] = record.get_data()
+            updated_ids.append(record_id)
+
+        if records_to_save:
+            self.review_manager.dataset.save_records_dict(
+                records_to_save,
+                partial=True,
+            )
+            self.review_manager.create_commit(
+                msg=f"Screen (edit): updated {len(records_to_save)} record(s)",
+            )
+
+        return {
+            "success": True,
+            "changes_count": len(updated_ids),
+            "skipped": skipped,
+            "updated_records": updated_ids,
+            "message": f"Updated {len(updated_ids)} record(s)"
+            + (f", skipped {len(skipped)}" if skipped else ""),
+        }
+
+    def include_all_screen(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Include all records in screen.
+
+        Delegates to screen_operation.include_all_in_screen().
+
+        Args:
+            params: Method parameters containing:
+                - project_id (str): Project identifier (required)
+                - skip_commit (bool, optional): Skip git commit (default: False)
+
+        Returns:
+            Dict containing:
+                - success (bool): Always True on success
+                - message (str): Success message
+        """
+        project_id = params["project_id"]
+
+        logger.info(f"Including all records in screen for project {project_id}")
+
+        screen_operation = self.review_manager.get_screen_operation(
+            notify_state_transition_operation=True
+        )
+
+        screen_operation.include_all_in_screen(persist=False)
+
+        self.review_manager.create_commit(
+            msg="Screen: include all records",
+        )
+
+        return response_formatter.format_operation_response(
+            operation_name="include_all_screen",
+            project_id=project_id,
+            details={"message": "All records included in screen"},
         )
 
     def _parse_criteria_string(self, criteria_str: str) -> Dict[str, str]:

@@ -42,6 +42,31 @@ This document tracks implemented frontend features, their test coverage, and pla
 
 ---
 
+## 0. Review Definition
+
+| Feature | Status | Test Section |
+|---------|--------|--------------|
+| Page navigation | ✅ | - |
+| Display review type | ✅ | - |
+| Edit protocol URL | ✅ | - |
+| Edit keywords (add/remove) | ✅ | - |
+| Edit objectives | ✅ | - |
+| List screening criteria | ✅ | - |
+| Add screening criterion | ✅ | - |
+| Edit screening criterion | ✅ | - |
+| Delete screening criterion | ✅ | - |
+| Navigate to Search step | ✅ | - |
+
+**data-testid attributes:**
+- `review-definition-page` - Page container
+- `protocol-url-input` - Protocol URL input
+- `save-protocol-button` - Save protocol button
+- `save-objectives-button` - Save objectives button
+- `add-criterion-button` - Add criterion button
+- `continue-to-search` - Continue to Search button
+
+---
+
 ## 1. Search
 
 | Feature | Status | Test Section |
@@ -155,10 +180,29 @@ This document tracks implemented frontend features, their test coverage, and pla
 |---------|--------|--------------|
 | Page navigation | ✅ | `NAVIGATION: Workflow Steps` |
 | Load screen queue (paginated) | ✅ | - |
-| Display record details | ✅ | - |
-| Display screening criteria panel | ✅ | - |
-| Include/Exclude decision buttons | ✅ | - |
-| Open PDF viewer | ❌ | - |
+| Display record details (metadata panel) | ✅ | - |
+| Embedded PDF viewer (split panel) | ✅ | - |
+| Resizable split panel (drag handle) | ✅ | - |
+| Per-criterion checkboxes (cycle: TODO→in→out) | ✅ | - |
+| Auto-derived decision from criteria | ✅ | - |
+| Simple Include/Exclude buttons (no-criteria mode) | ✅ | - |
+| Keyboard shortcuts (ArrowLeft/Right/Up/Down) | ✅ | - |
+| Progress bar with draggable thumb | ✅ | - |
+| Edit decisions mode (table view) | ✅ | - |
+| Bulk save edited decisions | ✅ | - |
+| Include all remaining records | ✅ | - |
+| Completion summary screen | ✅ | - |
+| Criteria management dialog (add/edit/delete) | ✅ | - |
+
+**data-testid attributes:**
+- `screen-page` - Page container
+- `screen-edit-mode-button` - Toggle edit mode
+- `screen-criteria-button` - Open criteria management dialog
+- `screen-include-button` - Include decision button
+- `screen-exclude-button` - Exclude decision button
+- `screen-confirm-button` - Confirm criteria-based decision
+- `screen-skip-button` - Skip record
+- `screen-include-all-button` - Include all remaining
 
 ---
 
@@ -183,6 +227,7 @@ This document tracks implemented frontend features, their test coverage, and pla
 | Status updates after load | ✅ | `LOAD PAGE: Run Load Operation` |
 
 **data-testid attributes:**
+- `sidebar-review_definition` - Review Definition step
 - `sidebar-search` - Search step (with `data-step-status`)
 - `sidebar-load` - Load step (with `data-step-status`)
 - `sidebar-prep` - Prep step (with `data-step-status`)
@@ -200,9 +245,13 @@ This document tracks implemented frontend features, their test coverage, and pla
 | Feature | Status | Test Section |
 |---------|--------|--------------|
 | Display project info | ✅ | - |
+| Display review type | ✅ | - |
 | Display authors | ✅ | - |
 | Display Git repository info | ✅ | - |
 | Edit project settings | ⏳ | - |
+
+**data-testid attributes:**
+- `settings-page` - Page container
 
 ---
 

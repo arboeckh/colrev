@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Settings, Save, User, FileText, GitBranch } from 'lucide-vue-next';
+import { computed } from 'vue';
+import { Settings, User, FileText, GitBranch } from 'lucide-vue-next';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -9,25 +9,18 @@ import { useProjectsStore } from '@/stores/projects';
 
 const projects = useProjectsStore();
 
-const settings = projects.currentSettings;
+const settings = computed(() => projects.currentSettings);
 </script>
 
 <template>
-  <div class="p-6 space-y-6">
+  <div class="p-6 space-y-6" data-testid="settings-page">
     <!-- Page header -->
-    <div class="flex items-center justify-between">
-      <div>
-        <h2 class="text-2xl font-bold flex items-center gap-2">
-          <Settings class="h-6 w-6" />
-          Settings
-        </h2>
-        <p class="text-muted-foreground">Project configuration and preferences</p>
-      </div>
-
-      <Button disabled>
-        <Save class="h-4 w-4 mr-2" />
-        Save Changes
-      </Button>
+    <div>
+      <h2 class="text-2xl font-bold flex items-center gap-2">
+        <Settings class="h-6 w-6" />
+        Settings
+      </h2>
+      <p class="text-muted-foreground">Project configuration and preferences</p>
     </div>
 
     <Separator />
@@ -49,6 +42,13 @@ const settings = projects.currentSettings;
               disabled
               placeholder="Project title"
             />
+          </div>
+
+          <div v-if="settings?.project?.review_type" class="space-y-2">
+            <label class="text-sm font-medium">Review Type</label>
+            <div>
+              <Badge variant="secondary">{{ settings.project.review_type }}</Badge>
+            </div>
           </div>
 
           <div class="space-y-2">

@@ -3,6 +3,7 @@ import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-rou
 // Lazy load views for better performance
 const LandingPage = () => import('@/views/LandingPage.vue');
 const ProjectOverview = () => import('@/views/ProjectOverview.vue');
+const ReviewDefinitionPage = () => import('@/views/ReviewDefinitionPage.vue');
 const SearchPage = () => import('@/views/SearchPage.vue');
 const PreprocessingPage = () => import('@/views/PreprocessingPage.vue');
 const LoadPage = () => import('@/views/LoadPage.vue');
@@ -39,6 +40,15 @@ const routes: RouteRecordRaw[] = [
         meta: {
           title: 'Overview',
           step: null,
+        },
+      },
+      {
+        path: 'review-definition',
+        name: 'project-review-definition',
+        component: ReviewDefinitionPage,
+        meta: {
+          title: 'Definition',
+          step: 'review_definition',
         },
       },
       {

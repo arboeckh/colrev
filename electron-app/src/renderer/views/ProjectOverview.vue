@@ -12,6 +12,9 @@ import {
   CheckSquare,
   Database,
   ArrowRight,
+  BookOpen,
+  Layers,
+  Files,
 } from 'lucide-vue-next';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,12 +27,15 @@ const router = useRouter();
 const projects = useProjectsStore();
 
 // Step icons mapping
-const stepIcons: Record<WorkflowStep, typeof Search> = {
+const stepIcons: Partial<Record<WorkflowStep, typeof Search>> = {
+  review_definition: BookOpen,
   search: Search,
+  preprocessing: Layers,
   load: Download,
   prep: FileEdit,
   dedupe: Copy,
   prescreen: Filter,
+  pdfs: Files,
   pdf_get: FileDown,
   pdf_prep: FileCheck,
   screen: CheckSquare,

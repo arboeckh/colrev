@@ -1,30 +1,121 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { CheckSquare, ThumbsUp, ThumbsDown, FileText } from 'lucide-vue-next';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import {
+  CheckSquare,
+  Check,
+  X,
+  Loader2,
+  ArrowRight,
+  Pencil,
+  Settings2,
+} from 'lucide-vue-next';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { EmptyState } from '@/components/common';
+import {
+  PdfViewerPanel,
+  ScreenSplitPanel,
+  ScreenRecordPanel,
+  ScreenProgressBar,
+  ScreenEditMode,
+  ScreenComplete,
+  CriteriaManagementDialog,
+} from '@/components/screen';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
-import type { GetScreenQueueResponse, ScreenQueueRecord, ScreenRecordResponse, ScreenCriterionDefinition } from '@/types/api';
+import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
+import type {
+  GetScreenQueueResponse,
+  ScreenQueueRecord,
+  ScreenRecordResponse,
+  ScreenCriterionDefinition,
+} from '@/types/api';
 
+// --- Types ---
+type DecisionState = 'undecided' | 'included' | 'excluded';
+type ScreenMode = 'screening' | 'edit' | 'complete';
+
+interface ScreenEnrichedRecord extends ScreenQueueRecord {
+  _decision: DecisionState;
+  _criteriaDecisions: Record<string, 'in' | 'out' | 'TODO'>;
+}
+
+// --- Stores ---
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
+const reviewDefStore = useReviewDefinitionStore();
 
-const queue = ref<ScreenQueueRecord[]>([]);
+// --- State ---
+const queue = ref<ScreenEnrichedRecord[]>([]);
+const decisionHistory = ref<ScreenEnrichedRecord[]>([]);
 const criteria = ref<Record<string, ScreenCriterionDefinition>>({});
 const totalCount = ref(0);
 const isLoading = ref(false);
 const currentIndex = ref(0);
 const isDeciding = ref(false);
+const mode = ref<ScreenMode>('screening');
+const showCriteriaDialog = ref(false);
 
+// --- Computed ---
 const currentRecord = computed(() => queue.value[currentIndex.value] || null);
 
+const hasCriteria = computed(() => Object.keys(criteria.value).length > 0);
+
+const decidedCount = computed(
+  () => queue.value.filter((r) => r._decision !== 'undecided').length,
+);
+const includedCount = computed(
+  () => queue.value.filter((r) => r._decision === 'included').length,
+);
+const excludedCount = computed(
+  () => queue.value.filter((r) => r._decision === 'excluded').length,
+);
+
+const isCurrentDecided = computed(() => currentRecord.value?._decision !== 'undecided');
+
+const nextUndecidedIndex = computed(() => {
+  for (let i = currentIndex.value + 1; i < queue.value.length; i++) {
+    if (queue.value[i]._decision === 'undecided') return i;
+  }
+  return -1;
+});
+
+// Auto-derive decision from criteria:
+// - Any exclusion criterion 'out' → exclude immediately
+// - All inclusion criteria 'in' (no exclusion 'out') → include
+// - Otherwise → null (not ready)
+const derivedDecision = computed((): 'include' | 'exclude' | null => {
+  if (!currentRecord.value || !hasCriteria.value) return null;
+  const decisions = currentRecord.value._criteriaDecisions;
+
+  // Any exclusion criterion applies → exclude
+  if (Object.values(decisions).some((v) => v === 'out')) return 'exclude';
+
+  // Check if all inclusion criteria are met
+  const inclusionNames = Object.keys(criteria.value).filter(
+    (name) => criteria.value[name]?.criterion_type !== 'exclusion_criterion',
+  );
+  if (inclusionNames.length > 0 && inclusionNames.every((name) => decisions[name] === 'in')) {
+    return 'include';
+  }
+
+  return null;
+});
+
+const canSubmitCriteria = computed(() => derivedDecision.value !== null);
+
+// Completion detection from project status
+const statusCounts = computed(() => projects.currentStatus?.currently ?? null);
+const isScreenComplete = computed(() => {
+  if (!statusCounts.value) return false;
+  const { rev_included, rev_excluded, pdf_prepared } = statusCounts.value;
+  return pdf_prepared === 0 && (rev_included > 0 || rev_excluded > 0);
+});
+
+// --- Data loading ---
 async function loadQueue() {
   if (!projects.currentProjectId || !backend.isRunning) return;
 
@@ -35,10 +126,26 @@ async function loadQueue() {
       limit: 50,
     });
     if (response.success) {
-      queue.value = response.records;
-      criteria.value = response.criteria;
+      criteria.value = response.criteria || {};
+
+      const criteriaNames = Object.keys(criteria.value);
+      const newRecords: ScreenEnrichedRecord[] = response.records.map((record) => {
+        // Initialize criteria decisions from current_criteria or all TODO
+        const criteriaDecisions: Record<string, 'in' | 'out' | 'TODO'> = {};
+        for (const name of criteriaNames) {
+          criteriaDecisions[name] = record.current_criteria?.[name] as 'in' | 'out' || 'TODO';
+        }
+        return {
+          ...record,
+          _decision: 'undecided' as DecisionState,
+          _criteriaDecisions: criteriaDecisions,
+        };
+      });
+
+      const history = decisionHistory.value;
+      queue.value = [...history, ...newRecords];
       totalCount.value = response.total_count;
-      currentIndex.value = 0;
+      currentIndex.value = history.length;
     }
   } catch (err) {
     console.error('Failed to load screen queue:', err);
@@ -47,35 +154,48 @@ async function loadQueue() {
   }
 }
 
+// --- Decision handling ---
 async function makeDecision(decision: 'include' | 'exclude') {
   if (!currentRecord.value || !projects.currentProjectId || isDeciding.value) return;
+  if (isCurrentDecided.value) return;
 
   isDeciding.value = true;
   try {
+    // Build criteria_decisions from the enriched record
+    const criteriaDecisions: Record<string, 'in' | 'out'> = {};
+    if (hasCriteria.value) {
+      for (const [name, value] of Object.entries(currentRecord.value._criteriaDecisions)) {
+        if (value !== 'TODO') {
+          criteriaDecisions[name] = value;
+        }
+      }
+    }
+
     const response = await backend.call<ScreenRecordResponse>('screen_record', {
       project_id: projects.currentProjectId,
       record_id: currentRecord.value.id,
       decision,
+      criteria_decisions: Object.keys(criteriaDecisions).length > 0 ? criteriaDecisions : undefined,
     });
 
     if (response.success) {
-      notifications.success(
-        decision === 'include' ? 'Included' : 'Excluded',
-        `${response.remaining_count} records remaining`
-      );
-
-      // Remove current record from queue and move to next
-      queue.value.splice(currentIndex.value, 1);
+      currentRecord.value._decision = decision === 'include' ? 'included' : 'excluded';
       totalCount.value = response.remaining_count;
 
-      // Adjust index if we're past the end
-      if (currentIndex.value >= queue.value.length) {
-        currentIndex.value = Math.max(0, queue.value.length - 1);
-      }
+      decisionHistory.value.push({ ...currentRecord.value });
 
-      // Reload queue if empty but more records exist
-      if (queue.value.length === 0 && response.remaining_count > 0) {
+      notifications.success(
+        decision === 'include' ? 'Included' : 'Excluded',
+        `${response.remaining_count} records remaining`,
+      );
+
+      if (nextUndecidedIndex.value !== -1) {
+        currentIndex.value = nextUndecidedIndex.value;
+      } else if (response.remaining_count > 0) {
         await loadQueue();
+      } else {
+        queue.value = [];
+        await projects.refreshCurrentProject();
       }
     }
   } catch (err) {
@@ -86,142 +206,293 @@ async function makeDecision(decision: 'include' | 'exclude') {
   }
 }
 
-function nextRecord() {
-  if (currentIndex.value < queue.value.length - 1) {
-    currentIndex.value++;
+function submitCriteriaDecision() {
+  if (!canSubmitCriteria.value || !derivedDecision.value) return;
+  makeDecision(derivedDecision.value);
+}
+
+function toggleCriterion(name: string, value: 'in' | 'out' | 'TODO') {
+  if (!currentRecord.value) return;
+  currentRecord.value._criteriaDecisions[name] = value;
+}
+
+// --- Navigation ---
+function goToRecord(index: number) {
+  if (index >= 0 && index < queue.value.length) {
+    currentIndex.value = index;
   }
 }
 
-function prevRecord() {
-  if (currentIndex.value > 0) {
-    currentIndex.value--;
+function skipToNextUndecided() {
+  if (nextUndecidedIndex.value !== -1) {
+    currentIndex.value = nextUndecidedIndex.value;
   }
 }
 
-onMounted(() => {
-  loadQueue();
+// --- Mode switching ---
+function enterEditMode() {
+  mode.value = 'edit';
+}
+
+function exitEditMode() {
+  mode.value = isScreenComplete.value ? 'complete' : 'screening';
+}
+
+async function handleCriteriaChanged() {
+  // Reload the queue to get updated criteria
+  await loadQueue();
+}
+
+// --- Keyboard shortcuts ---
+function handleKeydown(e: KeyboardEvent) {
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+  if (mode.value !== 'screening') return;
+
+  switch (e.key) {
+    case 'ArrowUp':
+      e.preventDefault();
+      if (currentIndex.value > 0) currentIndex.value--;
+      break;
+    case 'ArrowDown':
+      e.preventDefault();
+      if (currentIndex.value < queue.value.length - 1) currentIndex.value++;
+      break;
+    case 'ArrowLeft':
+      e.preventDefault();
+      // Only allow keyboard decision in no-criteria mode
+      if (!hasCriteria.value && !isCurrentDecided.value && currentRecord.value) {
+        makeDecision('exclude');
+      }
+      break;
+    case 'ArrowRight':
+      e.preventDefault();
+      if (!hasCriteria.value && !isCurrentDecided.value && currentRecord.value) {
+        makeDecision('include');
+      }
+      break;
+  }
+}
+
+// --- Lifecycle ---
+onMounted(async () => {
+  await projects.refreshCurrentProject();
+  await reviewDefStore.loadDefinition();
+  await loadQueue();
+  window.addEventListener('keydown', handleKeydown);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown);
 });
 </script>
 
 <template>
-  <div class="p-6 h-full flex flex-col">
-    <!-- Page header -->
-    <div class="flex items-center justify-between mb-4">
-      <div>
-        <h2 class="text-2xl font-bold flex items-center gap-2">
-          <CheckSquare class="h-6 w-6" />
-          Screen
-        </h2>
-        <p class="text-muted-foreground">Full-text screening of records</p>
+  <div class="px-4 py-2 h-full flex flex-col" data-testid="screen-page">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-1">
+      <div class="flex items-center gap-2">
+        <CheckSquare class="h-5 w-5 text-muted-foreground" />
+        <h2 class="text-lg font-semibold" data-testid="screen-title">Screen</h2>
       </div>
 
-      <Badge variant="secondary" class="text-lg px-3 py-1">
-        {{ totalCount }} remaining
-      </Badge>
+      <div class="flex items-center gap-3">
+        <template v-if="queue.length > 0 && mode === 'screening'">
+          <Badge variant="secondary" class="px-2.5 py-0.5" data-testid="screen-included-count">
+            <Check class="h-3 w-3 mr-1" />
+            {{ includedCount }}
+          </Badge>
+          <Badge variant="outline" class="px-2.5 py-0.5" data-testid="screen-excluded-count">
+            <X class="h-3 w-3 mr-1" />
+            {{ excludedCount }}
+          </Badge>
+          <Badge variant="secondary" class="px-2.5 py-0.5" data-testid="screen-remaining-count">
+            {{ totalCount }} remaining
+          </Badge>
+        </template>
+
+        <Button
+          v-if="mode === 'screening' && queue.length > 0"
+          variant="ghost"
+          size="sm"
+          data-testid="screen-manage-criteria-btn"
+          @click="showCriteriaDialog = true"
+        >
+          <Settings2 class="h-4 w-4 mr-1" />
+          Criteria
+        </Button>
+
+        <Button
+          v-if="mode === 'screening' && decidedCount > 0"
+          variant="ghost"
+          size="sm"
+          data-testid="screen-edit-mode-btn"
+          @click="enterEditMode"
+        >
+          <Pencil class="h-4 w-4 mr-1" />
+          Edit Decisions
+        </Button>
+      </div>
     </div>
 
-    <Separator class="mb-4" />
+    <!-- No separator - maximize vertical space -->
 
-    <!-- Empty state -->
+    <!-- Edit mode -->
+    <ScreenEditMode
+      v-if="mode === 'edit'"
+      @close="exitEditMode"
+    />
+
+    <!-- Completion state -->
+    <ScreenComplete
+      v-else-if="(mode === 'complete' || (!isLoading && queue.length === 0 && isScreenComplete))"
+      :included-count="statusCounts?.rev_included ?? 0"
+      :excluded-count="statusCounts?.rev_excluded ?? 0"
+      @edit-decisions="enterEditMode"
+    />
+
+    <!-- Empty state (no records available yet) -->
     <EmptyState
-      v-if="!isLoading && queue.length === 0"
+      v-else-if="!isLoading && queue.length === 0"
       :icon="CheckSquare"
       title="No records to screen"
-      description="All records have been screened or there are no records ready for full-text screening."
+      description="There are no records ready for full-text screening yet. Complete PDF preparation first."
     />
 
     <!-- Screening interface -->
-    <div v-else class="flex-1 flex gap-4 min-h-0">
-      <!-- Current record card -->
-      <Card v-if="currentRecord" class="flex-1 flex flex-col min-h-0">
-        <CardHeader class="pb-2">
-          <div class="flex items-center justify-between">
-            <Badge variant="outline" class="font-mono">{{ currentRecord.id }}</Badge>
-            <span class="text-sm text-muted-foreground">
-              {{ currentIndex + 1 }} of {{ queue.length }}
+    <div v-else class="flex-1 flex flex-col min-h-0">
+      <!-- Decision bar -->
+      <div
+        class="flex items-center justify-center gap-4 h-[40px] shrink-0 mb-1"
+        data-testid="screen-decision-bar"
+      >
+        <!-- Undecided: show buttons -->
+        <template v-if="currentRecord && !isCurrentDecided">
+          <!-- No criteria mode: simple include/exclude -->
+          <template v-if="!hasCriteria">
+            <Button
+              variant="destructive"
+              size="sm"
+              class="min-w-[120px] h-8"
+              data-testid="screen-btn-exclude"
+              :disabled="!currentRecord || isDeciding"
+              @click="makeDecision('exclude')"
+            >
+              <Loader2 v-if="isDeciding" class="h-4 w-4 mr-1.5 animate-spin" />
+              <X v-else class="h-4 w-4 mr-1.5" />
+              Exclude
+              <kbd class="ml-1.5 text-xs opacity-60 bg-white/20 px-1 py-0.5 rounded">&larr;</kbd>
+            </Button>
+
+            <Button
+              size="sm"
+              class="min-w-[120px] h-8 bg-green-600 hover:bg-green-700 text-white"
+              data-testid="screen-btn-include"
+              :disabled="!currentRecord || isDeciding"
+              @click="makeDecision('include')"
+            >
+              <Loader2 v-if="isDeciding" class="h-4 w-4 mr-1.5 animate-spin" />
+              <Check v-else class="h-4 w-4 mr-1.5" />
+              Include
+              <kbd class="ml-1.5 text-xs opacity-60 bg-white/20 px-1 py-0.5 rounded">&rarr;</kbd>
+            </Button>
+          </template>
+
+          <!-- Criteria mode: submit derived decision -->
+          <template v-else>
+            <Button
+              v-if="derivedDecision"
+              size="sm"
+              class="min-w-[140px] h-8"
+              :class="derivedDecision === 'include'
+                ? 'bg-green-600 hover:bg-green-700 text-white'
+                : 'bg-destructive hover:bg-destructive/90 text-white'
+              "
+              data-testid="screen-btn-submit-criteria"
+              :disabled="!canSubmitCriteria || isDeciding"
+              @click="submitCriteriaDecision"
+            >
+              <Loader2 v-if="isDeciding" class="h-4 w-4 mr-1.5 animate-spin" />
+              <Check v-else-if="derivedDecision === 'include'" class="h-4 w-4 mr-1.5" />
+              <X v-else class="h-4 w-4 mr-1.5" />
+              {{ derivedDecision === 'include' ? 'Include' : 'Exclude' }}
+            </Button>
+            <span v-else class="text-sm text-muted-foreground">
+              Evaluate all criteria to submit a decision
+            </span>
+          </template>
+        </template>
+
+        <!-- Decided: show indicator -->
+        <template v-else-if="currentRecord && isCurrentDecided">
+          <div
+            class="flex items-center gap-2 px-4 py-2 rounded-lg"
+            :class="
+              currentRecord._decision === 'included'
+                ? 'bg-green-600/15 text-green-500 border border-green-600/30'
+                : 'bg-destructive/15 text-red-400 border border-destructive/30'
+            "
+            data-testid="screen-decision-indicator"
+          >
+            <Check v-if="currentRecord._decision === 'included'" class="h-5 w-5" />
+            <X v-else class="h-5 w-5" />
+            <span class="font-medium text-sm">
+              {{ currentRecord._decision === 'included' ? 'Included' : 'Excluded' }}
             </span>
           </div>
-          <CardTitle class="text-lg leading-tight">{{ currentRecord.title }}</CardTitle>
-          <CardDescription>
-            {{ currentRecord.author }} ({{ currentRecord.year }})
-          </CardDescription>
-        </CardHeader>
 
-        <CardContent class="flex-1 min-h-0 flex flex-col">
-          <h4 class="text-sm font-medium mb-2">Abstract</h4>
-          <ScrollArea class="flex-1 pr-4">
-            <p class="text-sm text-muted-foreground whitespace-pre-wrap">
-              {{ currentRecord.abstract || 'No abstract available' }}
-            </p>
-          </ScrollArea>
+          <Button
+            v-if="nextUndecidedIndex !== -1"
+            variant="outline"
+            size="lg"
+            data-testid="screen-btn-skip-to-undecided"
+            @click="skipToNextUndecided"
+          >
+            <ArrowRight class="h-4 w-4 mr-2" />
+            Next undecided
+          </Button>
+        </template>
+      </div>
 
-          <!-- PDF link -->
-          <div v-if="currentRecord.pdf_path" class="mt-4 p-3 bg-muted rounded-md">
-            <div class="flex items-center gap-2 text-sm">
-              <FileText class="h-4 w-4" />
-              <span class="font-mono text-xs truncate">{{ currentRecord.pdf_path }}</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <!-- Progress bar -->
+      <ScreenProgressBar
+        :records="queue"
+        :current-index="currentIndex"
+        class="mb-1"
+        @navigate="goToRecord"
+      />
 
-      <!-- Criteria panel -->
-      <Card v-if="Object.keys(criteria).length > 0" class="w-72 flex flex-col">
-        <CardHeader class="pb-2">
-          <CardTitle class="text-base">Screening Criteria</CardTitle>
-        </CardHeader>
-        <CardContent class="flex-1 overflow-auto">
-          <div class="space-y-3">
-            <div v-for="(criterion, key) in criteria" :key="key" class="p-2 bg-muted rounded-md">
-              <span class="font-medium text-sm">{{ key }}</span>
-              <p class="text-xs text-muted-foreground mt-1">{{ criterion.explanation }}</p>
-            </div>
-          </div>
-        </CardContent>
+      <!-- Main content: split panel with PDF and record details -->
+      <Card
+        v-if="currentRecord"
+        class="flex-1 min-h-0 overflow-hidden"
+        :class="{
+          'border-green-600/40': currentRecord._decision === 'included',
+          'border-destructive/40': currentRecord._decision === 'excluded',
+        }"
+        data-testid="screen-record-card"
+      >
+        <ScreenSplitPanel>
+          <template #left>
+            <PdfViewerPanel :pdf-path="currentRecord.pdf_path" />
+          </template>
+          <template #right>
+            <ScreenRecordPanel
+              :key="currentRecord.id"
+              :record="currentRecord"
+              :criteria="criteria"
+              :criteria-decisions="currentRecord._criteriaDecisions"
+              :has-criteria="hasCriteria"
+              @toggle-criterion="toggleCriterion"
+            />
+          </template>
+        </ScreenSplitPanel>
       </Card>
     </div>
 
-    <!-- Decision buttons -->
-    <div class="flex items-center justify-center gap-4 mt-4 py-4 border-t">
-      <Button
-        variant="outline"
-        size="lg"
-        :disabled="currentIndex === 0"
-        @click="prevRecord"
-      >
-        Previous
-      </Button>
-
-      <Button
-        variant="destructive"
-        size="lg"
-        class="min-w-[120px]"
-        :disabled="!currentRecord || isDeciding"
-        @click="makeDecision('exclude')"
-      >
-        <ThumbsDown class="h-5 w-5 mr-2" />
-        Exclude
-      </Button>
-
-      <Button
-        variant="default"
-        size="lg"
-        class="min-w-[120px] bg-green-600 hover:bg-green-700"
-        :disabled="!currentRecord || isDeciding"
-        @click="makeDecision('include')"
-      >
-        <ThumbsUp class="h-5 w-5 mr-2" />
-        Include
-      </Button>
-
-      <Button
-        variant="outline"
-        size="lg"
-        :disabled="currentIndex >= queue.length - 1"
-        @click="nextRecord"
-      >
-        Skip
-      </Button>
-    </div>
+    <!-- Criteria management dialog -->
+    <CriteriaManagementDialog
+      v-model:open="showCriteriaDialog"
+      @criteria-changed="handleCriteriaChanged"
+    />
   </div>
 </template>

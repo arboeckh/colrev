@@ -11,6 +11,7 @@ from colrev.ui_jsonrpc.handlers.prep_handler import PrepHandler
 from colrev.ui_jsonrpc.handlers.prep_man_handler import PrepManHandler
 from colrev.ui_jsonrpc.handlers.prescreen_handler import PrescreenHandler
 from colrev.ui_jsonrpc.handlers.records_handler import RecordsHandler
+from colrev.ui_jsonrpc.handlers.review_definition_handler import ReviewDefinitionHandler
 from colrev.ui_jsonrpc.handlers.screen_handler import ScreenHandler
 from colrev.ui_jsonrpc.handlers.search_handler import SearchHandler
 from colrev.ui_jsonrpc.handlers.settings_handler import SettingsHandler
@@ -28,6 +29,7 @@ __all__ = [
     "PrepManHandler",
     "PrescreenHandler",
     "RecordsHandler",
+    "ReviewDefinitionHandler",
     "ScreenHandler",
     "SearchHandler",
     "SettingsHandler",

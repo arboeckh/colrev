@@ -33,6 +33,7 @@ export const useProjectsStore = defineStore('projects', () => {
   const currentProjectId = ref<string | null>(null);
   const currentProject = ref<Project | null>(null);
   const operationInfo = ref<Record<WorkflowStep, GetOperationInfoResponse | null>>({
+    review_definition: null,
     search: null,
     preprocessing: null,
     load: null,
@@ -285,6 +286,7 @@ export const useProjectsStore = defineStore('projects', () => {
     projectError.value = null;
     hasStaleSearchSources.value = false;
     operationInfo.value = {
+      review_definition: null,
       search: null,
       preprocessing: null,
       load: null,
