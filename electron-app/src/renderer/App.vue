@@ -38,13 +38,8 @@ async function discoverProjects() {
         projects.addProject(proj.id, proj.path, proj.title);
       }
     }
-    // Load status for all discovered projects
-    await Promise.all(
-      projects.projects.map(async (project) => {
-        await projects.loadProjectStatus(project.id);
-        await projects.loadProjectGitStatus(project.id);
-      })
-    );
+    // Projects are now displayed immediately
+    // Status/git status will be loaded on-demand when viewing individual projects
   } catch (err) {
     console.error('Failed to discover projects:', err);
   }
