@@ -2,14 +2,18 @@
 
 import base64
 import logging
+import re
+import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
+
+import pymupdf
 
 import colrev.ops.pdf_get_man
 import colrev.ops.pdf_prep
 import colrev.record.record
 import colrev.review_manager
-from colrev.constants import EndpointType, Fields, RecordState
+from colrev.constants import EndpointType, Fields, FieldsRegex, RecordState
 from colrev.package_manager.package_manager import PackageManager
 from colrev.ui_jsonrpc import response_formatter, validation
 
@@ -295,3 +299,256 @@ class PDFGetHandler:
             "record_id": record_id,
             "new_status": new_status,
         }
+
+    def match_pdf_to_records(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract metadata from a PDF and match it against existing records.
+
+        Uses pymupdf to extract PDF document properties (title, author) and
+        first-page text (for DOI regex), then matches against candidate records
+        using similarity scoring. No external services required.
+
+        Args:
+            params: Method parameters containing:
+                - project_id (str): Project identifier (required)
+                - filename (str): Original PDF filename (required)
+                - content (str): Base64-encoded PDF content (required)
+
+        Returns:
+            Dict containing:
+                - success (bool): True on success
+                - filename (str): Original filename
+                - extraction_method (str): 'pdf_metadata', 'filename_only', or 'none'
+                - extracted_metadata (dict or None): Extracted title, author, DOI, etc.
+                - matches (list): Top candidates sorted by similarity
+                - best_match (dict or None): Best match if similarity > 0.5
+        """
+        filename = params.get("filename")
+        content = params.get("content")
+
+        if not filename:
+            raise ValueError("filename parameter is required")
+        if not content:
+            raise ValueError("content parameter is required")
+
+        logger.info(f"Matching PDF '{filename}' to records")
+
+        # Decode base64 PDF to a temp file
+        try:
+            pdf_bytes = base64.b64decode(content)
+        except Exception as e:
+            raise ValueError(f"Invalid base64 content: {e}")
+
+        # Load records that need PDFs
+        colrev.ops.pdf_get_man.PDFGetMan(
+            review_manager=self.review_manager,
+            notify_state_transition_operation=False,
+        )
+        records = self.review_manager.dataset.load_records_dict()
+        candidate_records = {
+            rid: rec
+            for rid, rec in records.items()
+            if rec.get(Fields.STATUS)
+            in (
+                RecordState.pdf_needs_manual_retrieval,
+                RecordState.pdf_needs_manual_preparation,
+            )
+        }
+
+        extraction_method = "none"
+        extracted_metadata: Optional[Dict[str, str]] = None
+        matches: List[Dict[str, Any]] = []
+
+        # Write PDF to temp file for pymupdf
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp.write(pdf_bytes)
+            tmp_path = Path(tmp.name)
+
+        try:
+            pdf_record_dict = self._extract_pdf_metadata(tmp_path)
+
+            if pdf_record_dict:
+                extraction_method = "pdf_metadata"
+                extracted_metadata = {
+                    "title": pdf_record_dict.get(Fields.TITLE, ""),
+                    "author": pdf_record_dict.get(Fields.AUTHOR, ""),
+                    "year": pdf_record_dict.get(Fields.YEAR, ""),
+                    "doi": pdf_record_dict.get(Fields.DOI, ""),
+                }
+
+                # Fast path: exact DOI match
+                extracted_doi = pdf_record_dict.get(Fields.DOI, "").strip()
+                if extracted_doi:
+                    for rid, rec in candidate_records.items():
+                        rec_doi = rec.get(Fields.DOI, "").strip()
+                        if rec_doi and rec_doi.lower() == extracted_doi.lower():
+                            matches.append(
+                                {
+                                    "record_id": rid,
+                                    "similarity": 1.0,
+                                    "title": rec.get(Fields.TITLE, ""),
+                                    "author": rec.get(Fields.AUTHOR, ""),
+                                    "year": rec.get(Fields.YEAR, ""),
+                                }
+                            )
+
+                # Similarity-based matching
+                if not matches and (
+                    pdf_record_dict.get(Fields.TITLE)
+                    or pdf_record_dict.get(Fields.AUTHOR)
+                ):
+                    pdf_record_dict.setdefault("ID", "pdf_extract")
+                    pdf_record_dict.setdefault("ENTRYTYPE", "article")
+                    pdf_record = colrev.record.record.Record(pdf_record_dict)
+
+                    for rid, rec in candidate_records.items():
+                        try:
+                            candidate_record = colrev.record.record.Record(
+                                rec.copy()
+                            )
+                            sim = colrev.record.record.Record.get_record_similarity(
+                                pdf_record, candidate_record
+                            )
+                            if sim > 0.3:
+                                matches.append(
+                                    {
+                                        "record_id": rid,
+                                        "similarity": round(sim, 4),
+                                        "title": rec.get(Fields.TITLE, ""),
+                                        "author": rec.get(Fields.AUTHOR, ""),
+                                        "year": rec.get(Fields.YEAR, ""),
+                                    }
+                                )
+                        except Exception as e:
+                            logger.debug(
+                                f"Similarity check failed for {rid}: {e}"
+                            )
+                            continue
+
+        except Exception as e:
+            logger.info(f"PDF metadata extraction failed for '{filename}': {e}")
+            extraction_method = "filename_only"
+
+        finally:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+        # Fallback: filename-based matching
+        if not matches:
+            if extraction_method != "pdf_metadata":
+                extraction_method = "filename_only"
+            stem = Path(filename).stem.lower()
+
+            # Exact match: filename stem === record ID
+            for rid, rec in candidate_records.items():
+                if rid.lower() == stem:
+                    matches.append(
+                        {
+                            "record_id": rid,
+                            "similarity": 0.9,
+                            "title": rec.get(Fields.TITLE, ""),
+                            "author": rec.get(Fields.AUTHOR, ""),
+                            "year": rec.get(Fields.YEAR, ""),
+                        }
+                    )
+                    break
+
+            # Fuzzy match: filename contains author last name + year
+            if not matches:
+                for rid, rec in candidate_records.items():
+                    author = rec.get(Fields.AUTHOR, "")
+                    year = rec.get(Fields.YEAR, "")
+                    if author and year:
+                        author_last = author.split(",")[0].strip().lower()
+                        if (
+                            author_last
+                            and author_last in stem
+                            and year in stem
+                        ):
+                            matches.append(
+                                {
+                                    "record_id": rid,
+                                    "similarity": 0.6,
+                                    "title": rec.get(Fields.TITLE, ""),
+                                    "author": rec.get(Fields.AUTHOR, ""),
+                                    "year": rec.get(Fields.YEAR, ""),
+                                }
+                            )
+
+        # Sort by similarity descending, take top 5
+        matches.sort(key=lambda m: m["similarity"], reverse=True)
+        matches = matches[:5]
+
+        # Determine best match
+        best_match = None
+        if matches and matches[0]["similarity"] > 0.5:
+            best_match = {
+                "record_id": matches[0]["record_id"],
+                "similarity": matches[0]["similarity"],
+            }
+
+        return {
+            "success": True,
+            "filename": filename,
+            "extraction_method": extraction_method,
+            "extracted_metadata": extracted_metadata,
+            "matches": matches,
+            "best_match": best_match,
+        }
+
+    @staticmethod
+    def _extract_pdf_metadata(pdf_path: Path) -> Optional[Dict[str, str]]:
+        """
+        Extract metadata from a PDF using pymupdf.
+
+        Reads document properties (title, author) and scans first-page text
+        for a DOI. No external services required.
+
+        Args:
+            pdf_path: Path to the PDF file.
+
+        Returns:
+            Dict with extracted fields, or None if extraction failed entirely.
+        """
+        result: Dict[str, str] = {}
+
+        try:
+            with pymupdf.open(pdf_path) as doc:
+                # 1. Document properties (embedded metadata)
+                meta = doc.metadata or {}
+                title = (meta.get("title") or "").strip()
+                author = (meta.get("author") or "").strip()
+
+                if title:
+                    result[Fields.TITLE] = title
+                if author:
+                    result[Fields.AUTHOR] = author
+
+                # 2. Extract first-page text for DOI regex
+                first_page_text = ""
+                for i, page in enumerate(doc):
+                    if i > 1:
+                        break
+                    first_page_text += page.get_text()
+
+                if first_page_text:
+                    doi_matches = FieldsRegex.DOI.findall(first_page_text)
+                    if doi_matches:
+                        result[Fields.DOI] = doi_matches[0].upper()
+
+                    # Try to extract year from text if not in metadata
+                    if Fields.YEAR not in result:
+                        # Look for 4-digit year near common patterns
+                        year_matches = re.findall(
+                            r"\b(19\d{2}|20[0-2]\d)\b", first_page_text[:2000]
+                        )
+                        if year_matches:
+                            result[Fields.YEAR] = year_matches[0]
+
+        except Exception as e:
+            logger.debug(f"pymupdf extraction failed: {e}")
+            return None
+
+        return result if result else None

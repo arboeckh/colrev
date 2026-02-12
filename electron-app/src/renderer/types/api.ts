@@ -427,6 +427,30 @@ export interface UploadPdfResponse extends SuccessResponse {
   prep_message?: string;
 }
 
+// Match PDF to Records
+export interface MatchCandidate {
+  record_id: string;
+  similarity: number;
+  title: string;
+  author: string;
+  year: string;
+}
+
+export interface MatchPdfToRecordsResponse extends SuccessResponse {
+  filename: string;
+  extraction_method: 'pdf_metadata' | 'filename_only' | 'none';
+  extracted_metadata: {
+    title?: string;
+    author?: string;
+    year?: string;
+    doi?: string;
+    journal?: string;
+    booktitle?: string;
+  } | null;
+  matches: MatchCandidate[];
+  best_match: { record_id: string; similarity: number } | null;
+}
+
 // Mark PDF Not Available
 export interface MarkPdfNotAvailableParams {
   project_id: string;
