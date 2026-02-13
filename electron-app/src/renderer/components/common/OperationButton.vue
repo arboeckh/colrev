@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { Play, Loader2 } from 'lucide-vue-next';
+import { Play, Loader2, Lock } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useReadOnly } from '@/composables/useReadOnly';
 
 const props = defineProps<{
   operation: string;
@@ -21,10 +23,11 @@ const emit = defineEmits<{
 
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
+const { isReadOnly, readOnlyReason } = useReadOnly();
 const isRunning = ref(false);
 
 async function run() {
-  if (isRunning.value || props.disabled || !backend.isRunning) return;
+  if (isRunning.value || props.disabled || !backend.isRunning || isReadOnly.value) return;
 
   isRunning.value = true;
 
@@ -47,7 +50,24 @@ async function run() {
 </script>
 
 <template>
+  <TooltipProvider v-if="isReadOnly">
+    <Tooltip>
+      <TooltipTrigger as-child>
+        <Button
+          disabled
+          :data-testid="testId || `run-${operation}-button`"
+        >
+          <Lock class="h-4 w-4 mr-2" />
+          {{ label || operation }}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>{{ readOnlyReason }}</p>
+      </TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
   <Button
+    v-else
     :disabled="disabled || isRunning || !backend.isRunning"
     :data-testid="testId || `run-${operation}-button`"
     @click="run"

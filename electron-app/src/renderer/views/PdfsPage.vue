@@ -20,11 +20,13 @@ import type { PdfRecord, UploadResult } from '@/components/pdf-get/PdfRecordTabl
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useReadOnly } from '@/composables/useReadOnly';
 import type { GetRecordsResponse, UploadPdfResponse, MarkPdfNotAvailableResponse } from '@/types/api';
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
+const { isReadOnly } = useReadOnly();
 
 const pdfGetInfo = projects.operationInfo.pdf_get;
 const pdfPrepInfo = projects.operationInfo.pdf_prep;
@@ -330,7 +332,7 @@ onMounted(async () => {
             />
           </div>
           <Button
-            v-if="needsPdfRecords.length > 0"
+            v-if="needsPdfRecords.length > 0 && !isReadOnly"
             variant="outline"
             data-testid="pdfs-batch-upload-btn"
             @click="showBatchUpload = true"
@@ -363,7 +365,7 @@ onMounted(async () => {
               :uploading-record-id="uploadingRecordId"
               :marking-record-id="markingRecordId"
               :upload-results="uploadResults"
-              show-actions
+              :show-actions="!isReadOnly"
               @upload="uploadPdfForRecord"
               @mark-not-available="markNotAvailable"
             />
@@ -389,7 +391,7 @@ onMounted(async () => {
               :records="filteredRecords"
               :uploading-record-id="uploadingRecordId"
               :upload-results="uploadResults"
-              show-actions
+              :show-actions="!isReadOnly"
               @upload="uploadPdfForRecord"
             />
           </ScrollArea>
@@ -402,7 +404,7 @@ onMounted(async () => {
               :uploading-record-id="uploadingRecordId"
               :marking-record-id="markingRecordId"
               :upload-results="uploadResults"
-              show-actions
+              :show-actions="!isReadOnly"
               @upload="uploadPdfForRecord"
               @mark-not-available="markNotAvailable"
             />

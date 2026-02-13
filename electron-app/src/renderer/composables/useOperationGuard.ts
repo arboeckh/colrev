@@ -22,6 +22,15 @@ export function useOperationGuard() {
   async function guardedOperation<T>(
     operation: () => Promise<T>,
   ): Promise<T | null> {
+    // Block operations on main branch
+    if (git.isOnMain) {
+      notifications.warning(
+        'Read-only on main',
+        'Switch to the dev branch to make changes.',
+      );
+      return null;
+    }
+
     git.isOperationRunning = true;
 
     try {

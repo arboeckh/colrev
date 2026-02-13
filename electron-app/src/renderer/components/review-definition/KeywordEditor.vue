@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 
 const props = defineProps<{
   keywords: string[];
+  readOnly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -48,6 +49,7 @@ function handleKeydown(e: KeyboardEvent) {
       >
         {{ keyword }}
         <button
+          v-if="!readOnly"
           class="ml-1 rounded-full hover:bg-foreground/10 p-0.5"
           :data-testid="`keyword-remove-${index}`"
           @click="removeKeyword(index)"
@@ -63,7 +65,7 @@ function handleKeydown(e: KeyboardEvent) {
       </span>
     </div>
 
-    <div class="flex gap-2">
+    <div v-if="!readOnly" class="flex gap-2">
       <Input
         v-model="newKeyword"
         placeholder="Add keyword..."

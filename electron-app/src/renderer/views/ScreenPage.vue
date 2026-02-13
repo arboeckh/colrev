@@ -14,6 +14,7 @@ import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
+import { useReadOnly } from '@/composables/useReadOnly';
 import type {
   GetScreenQueueResponse,
   ScreenQueueRecord,
@@ -35,6 +36,7 @@ const projects = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
 const reviewDefStore = useReviewDefinitionStore();
+const { isReadOnly } = useReadOnly();
 
 // --- State ---
 const queue = ref<ScreenEnrichedRecord[]>([]);
@@ -289,6 +291,7 @@ onUnmounted(() => {
       class="px-4 py-2"
       :included-count="statusCounts?.rev_included ?? 0"
       :excluded-count="statusCounts?.rev_excluded ?? 0"
+      :read-only="isReadOnly"
       @edit-decisions="enterEditMode"
     />
 
@@ -328,6 +331,7 @@ onUnmounted(() => {
           :mode="mode"
           :queue-records="queue"
           :current-index="currentIndex"
+          :read-only="isReadOnly"
           @toggle-criterion="toggleCriterion"
           @make-decision="makeDecision"
           @submit-criteria-decision="submitCriteriaDecision"

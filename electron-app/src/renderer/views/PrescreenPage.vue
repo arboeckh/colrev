@@ -30,6 +30,7 @@ import { EmptyState } from '@/components/common';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useReadOnly } from '@/composables/useReadOnly';
 import type {
   GetPrescreenQueueResponse,
   GetRecordsResponse,
@@ -52,6 +53,7 @@ interface EnrichedRecord extends PrescreenQueueRecord {
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
+const { isReadOnly } = useReadOnly();
 
 const queue = ref<EnrichedRecord[]>([]);
 const decisionHistory = ref<EnrichedRecord[]>([]);
@@ -560,7 +562,7 @@ onUnmounted(() => {
           <Button
             size="sm"
             data-testid="prescreen-edit-save-btn"
-            :disabled="editChangesCount === 0 || isSavingEdits"
+            :disabled="editChangesCount === 0 || isSavingEdits || isReadOnly"
             @click="saveEdits"
           >
             <Loader2 v-if="isSavingEdits" class="h-4 w-4 mr-1.5 animate-spin" />
@@ -689,6 +691,7 @@ onUnmounted(() => {
         size="sm"
         class="mt-6"
         data-testid="prescreen-edit-decisions-btn"
+        :disabled="isReadOnly"
         @click="enterEditMode"
       >
         <Pencil class="h-4 w-4 mr-1.5" />
@@ -718,7 +721,7 @@ onUnmounted(() => {
             size="lg"
             class="min-w-[140px] h-11 text-base"
             data-testid="prescreen-btn-exclude"
-            :disabled="!currentRecord || isDeciding || !isCurrentRecordReady"
+            :disabled="!currentRecord || isDeciding || !isCurrentRecordReady || isReadOnly"
             @click="makeDecision('exclude')"
           >
             <Loader2 v-if="isDeciding" class="h-5 w-5 mr-2 animate-spin" />
@@ -731,7 +734,7 @@ onUnmounted(() => {
             size="lg"
             class="min-w-[140px] h-11 text-base bg-green-600 hover:bg-green-700 text-white"
             data-testid="prescreen-btn-include"
-            :disabled="!currentRecord || isDeciding || !isCurrentRecordReady"
+            :disabled="!currentRecord || isDeciding || !isCurrentRecordReady || isReadOnly"
             @click="makeDecision('include')"
           >
             <Loader2 v-if="isDeciding" class="h-5 w-5 mr-2 animate-spin" />

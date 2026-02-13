@@ -11,11 +11,13 @@ import { CriteriaList, KeywordEditor } from '@/components/review-definition';
 import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
 import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useReadOnly } from '@/composables/useReadOnly';
 
 const router = useRouter();
 const store = useReviewDefinitionStore();
 const projects = useProjectsStore();
 const notifications = useNotificationsStore();
+const { isReadOnly } = useReadOnly();
 
 // Local form state
 const protocolUrl = ref('');
@@ -42,6 +44,8 @@ onMounted(async () => {
 
 // Auto-save for Protocol URL
 watch(protocolUrl, (newValue) => {
+  if (isReadOnly.value) return;
+
   if (protocolSaveTimer.value) {
     clearTimeout(protocolSaveTimer.value);
   }
@@ -65,6 +69,8 @@ watch(protocolUrl, (newValue) => {
 
 // Auto-save for Objectives
 watch(objectives, (newValue) => {
+  if (isReadOnly.value) return;
+
   if (objectivesSaveTimer.value) {
     clearTimeout(objectivesSaveTimer.value);
   }
@@ -180,6 +186,7 @@ function goToSearch() {
             v-model="protocolUrl"
             placeholder="https://... (e.g., PROSPERO registration)"
             data-testid="protocol-url-input"
+            :disabled="isReadOnly"
           />
         </div>
 
@@ -201,6 +208,7 @@ function goToSearch() {
             placeholder="Describe the research question or objectives of this review..."
             rows="5"
             data-testid="objectives-textarea"
+            :disabled="isReadOnly"
           />
         </div>
       </div>
@@ -212,6 +220,7 @@ function goToSearch() {
           <h3 class="text-sm font-medium text-muted-foreground mb-2">Keywords</h3>
           <KeywordEditor
             :keywords="store.definition?.keywords || []"
+            :read-only="isReadOnly"
             @update="handleKeywordsUpdate"
           />
         </div>
@@ -243,6 +252,7 @@ function goToSearch() {
       <CriteriaList
         :criteria="store.definition?.criteria || {}"
         :is-saving="store.isSaving"
+        :read-only="isReadOnly"
         @add-criterion="handleAddCriterion"
         @update-criterion="handleUpdateCriterion"
         @delete-criterion="handleDeleteCriterion"

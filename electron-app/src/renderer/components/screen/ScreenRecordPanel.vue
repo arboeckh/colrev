@@ -38,6 +38,8 @@ defineProps<{
   // Progress bar props
   queueRecords: Array<{ id: string; _decision: DecisionState }>;
   currentIndex: number;
+  // Read-only mode (main branch)
+  readOnly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -78,7 +80,7 @@ const emit = defineEmits<{
           <Settings2 class="h-3.5 w-3.5" />
         </Button>
 
-        <Button v-if="decidedCount > 0" variant="ghost" size="icon" class="h-7 w-7" data-testid="screen-edit-mode-btn"
+        <Button v-if="decidedCount > 0 && !readOnly" variant="ghost" size="icon" class="h-7 w-7" data-testid="screen-edit-mode-btn"
           @click="emit('enterEditMode')">
           <Pencil class="h-3.5 w-3.5" />
         </Button>
@@ -94,7 +96,7 @@ const emit = defineEmits<{
         <!-- No criteria mode: simple include/exclude -->
         <template v-if="!hasCriteria">
           <Button variant="destructive" size="sm" class="min-w-[100px] h-8" data-testid="screen-btn-exclude"
-            :disabled="isDeciding" @click="emit('makeDecision', 'exclude')">
+            :disabled="isDeciding || readOnly" @click="emit('makeDecision', 'exclude')">
             <Loader2 v-if="isDeciding" class="h-4 w-4 mr-1.5 animate-spin" />
             <X v-else class="h-4 w-4 mr-1.5" />
             Exclude
@@ -102,7 +104,7 @@ const emit = defineEmits<{
           </Button>
 
           <Button size="sm" class="min-w-[100px] h-8 bg-green-600 hover:bg-green-700 text-white"
-            data-testid="screen-btn-include" :disabled="isDeciding" @click="emit('makeDecision', 'include')">
+            data-testid="screen-btn-include" :disabled="isDeciding || readOnly" @click="emit('makeDecision', 'include')">
             <Loader2 v-if="isDeciding" class="h-4 w-4 mr-1.5 animate-spin" />
             <Check v-else class="h-4 w-4 mr-1.5" />
             Include
@@ -115,7 +117,7 @@ const emit = defineEmits<{
           <Button v-if="derivedDecision" size="sm" class="min-w-[120px] h-8" :class="derivedDecision === 'include'
             ? 'bg-green-600 hover:bg-green-700 text-white'
             : 'bg-destructive hover:bg-destructive/90 text-white'
-            " data-testid="screen-btn-submit-criteria" :disabled="!canSubmitCriteria || isDeciding"
+            " data-testid="screen-btn-submit-criteria" :disabled="!canSubmitCriteria || isDeciding || readOnly"
             @click="emit('submitCriteriaDecision')">
             <Loader2 v-if="isDeciding" class="h-4 w-4 mr-1.5 animate-spin" />
             <Check v-else-if="derivedDecision === 'include'" class="h-4 w-4 mr-1.5" />

@@ -6,6 +6,7 @@ import { Separator } from '@/components/ui/separator';
 defineProps<{
   includedCount: number;
   excludedCount: number;
+  readOnly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -64,6 +65,7 @@ const emit = defineEmits<{
       size="sm"
       class="mt-6"
       data-testid="screen-edit-decisions-btn"
+      :disabled="readOnly"
       @click="emit('editDecisions')"
     >
       <Pencil class="h-4 w-4 mr-1.5" />

@@ -43,6 +43,7 @@ const props = defineProps<{
   class?: string;
   isSearching?: boolean;
   searchProgress?: SearchProgress;
+  readOnly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -336,7 +337,7 @@ async function handleUpdateFile() {
             v-if="isApiSource"
             variant="ghost"
             size="icon"
-            :disabled="isSearching"
+            :disabled="isSearching || readOnly"
             :data-testid="`run-search-${sourceName}`"
             title="Run search for this source"
             @click="runSearch"
@@ -346,7 +347,7 @@ async function handleUpdateFile() {
           </Button>
           <!-- Update file (DB sources only) -->
           <Button
-            v-if="isDbSource"
+            v-if="isDbSource && !readOnly"
             variant="ghost"
             size="icon"
             :data-testid="`update-source-${sourceName}`"
@@ -357,7 +358,7 @@ async function handleUpdateFile() {
           </Button>
           <!-- Edit query (API sources only) -->
           <Button
-            v-if="isApiSource"
+            v-if="isApiSource && !readOnly"
             variant="ghost"
             size="icon"
             :data-testid="`edit-source-${sourceName}`"
@@ -368,6 +369,7 @@ async function handleUpdateFile() {
           </Button>
           <!-- Delete -->
           <Button
+            v-if="!readOnly"
             variant="ghost"
             size="icon"
             :data-testid="`delete-source-${sourceName}`"

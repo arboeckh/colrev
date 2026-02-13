@@ -15,6 +15,7 @@ import {
 } from '@/components/data';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
+import { useReadOnly } from '@/composables/useReadOnly';
 // notifications removed — progress bar provides sufficient feedback
 import type {
   DataField,
@@ -32,6 +33,7 @@ interface EnrichedRecord extends DataExtractionRecord {
 // --- Stores ---
 const projects = useProjectsStore();
 const backend = useBackendStore();
+const { isReadOnly } = useReadOnly();
 
 // --- State ---
 const isConfigured = ref(false);
@@ -269,6 +271,7 @@ onMounted(async () => {
       <template #action>
         <Button
           data-testid="data-setup-btn"
+          :disabled="isReadOnly"
           @click="showFieldsDialog = true"
         >
           Configure Fields
@@ -286,6 +289,7 @@ onMounted(async () => {
       <template #action>
         <Button
           data-testid="data-setup-btn"
+          :disabled="isReadOnly"
           @click="showFieldsDialog = true"
         >
           Configure Fields
@@ -330,7 +334,7 @@ onMounted(async () => {
           :total-count="totalCount"
           :completed-count="completedCount"
           :is-saving="isSaving"
-          :can-save="canSave"
+          :can-save="canSave && !isReadOnly"
           :incomplete-fields="incompleteFields"
           :queue-records="queue"
           :current-index="currentIndex"

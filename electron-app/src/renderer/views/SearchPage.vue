@@ -11,12 +11,14 @@ import { AddFileSourceDialog, AddApiSourceDialog, SourceCard } from '@/component
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useReadOnly } from '@/composables/useReadOnly';
 import type { GetSourcesResponse, SearchSource } from '@/types';
 
 const router = useRouter();
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
+const { isReadOnly } = useReadOnly();
 
 const sources = ref<SearchSource[]>([]);
 const isLoadingSources = ref(false);
@@ -368,7 +370,7 @@ onMounted(() => {
 
       <Button
         v-if="visibleSources.length > 0"
-        :disabled="isSearching || !backend.isRunning"
+        :disabled="isSearching || !backend.isRunning || isReadOnly"
         data-testid="run-all-searches-button"
         @click="runSearch"
       >
@@ -388,14 +390,15 @@ onMounted(() => {
         :project-id="projects.currentProjectId!"
         :is-searching="isSearching && (searchingSource === null || searchingSource === (source.filename || source.search_results_path))"
         :search-progress="isSearching && (searchingSource === null || searchingSource === (source.filename || source.search_results_path)) ? { progress: searchProgress, status: searchStatus, fetchedRecords, totalRecords, currentBatch, totalBatches } : undefined"
+        :read-only="isReadOnly"
         class="w-80"
         @deleted="handleSourceDeleted"
         @updated="handleSourceUpdated"
         @run-search="runSourceSearch"
       />
 
-      <!-- Add Source skeleton card -->
-      <div class="relative w-72" data-testid="add-source-card">
+      <!-- Add Source skeleton card (hidden when read-only) -->
+      <div v-if="!isReadOnly" class="relative w-72" data-testid="add-source-card">
         <Card
           class="h-full border-dashed border-2 hover:border-primary/50 hover:bg-accent/50 transition-colors cursor-pointer"
           @click="showAddMenu = !showAddMenu"

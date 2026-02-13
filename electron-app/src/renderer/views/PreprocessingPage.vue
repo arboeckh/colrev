@@ -8,12 +8,14 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useReadOnly } from '@/composables/useReadOnly';
 import PreprocessingResultsModal from '@/components/preprocessing/PreprocessingResultsModal.vue';
 import type { GetSourcesResponse, SearchSource } from '@/types';
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
+const { isReadOnly } = useReadOnly();
 
 // Stage definitions
 type StageId = 'load' | 'prep' | 'dedupe';
@@ -283,7 +285,7 @@ watch(
       <div v-if="visibleSources.length > 0" class="flex justify-end px-4 pt-3">
         <Button
           size="sm"
-          :disabled="!canRunPreprocessing || isRunning"
+          :disabled="!canRunPreprocessing || isRunning || isReadOnly"
           data-testid="preprocessing-run-all-button"
           @click="runAllStages"
         >

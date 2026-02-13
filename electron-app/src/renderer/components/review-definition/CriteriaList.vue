@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button';
 import InlineCriterionEditor from './InlineCriterionEditor.vue';
 import type { ScreenCriterionDefinition } from '@/types/api';
 
-defineProps<{
+const props = defineProps<{
   criteria: Record<string, ScreenCriterionDefinition>;
   isSaving?: boolean;
+  readOnly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -48,16 +49,16 @@ function handleAddCriterion(data: any) {
 
     <!-- Add New Criterion -->
     <InlineCriterionEditor
-      v-if="showAddForm"
+      v-if="showAddForm && !readOnly"
       :is-saving="isSaving"
       mode="add"
       @save="handleAddCriterion"
       @cancel="showAddForm = false"
     />
 
-    <!-- Add Button (shown when not adding) -->
+    <!-- Add Button (shown when not adding and not read-only) -->
     <Button
-      v-if="!showAddForm"
+      v-if="!showAddForm && !readOnly"
       variant="outline"
       class="w-full"
       data-testid="add-criterion-inline-btn"
