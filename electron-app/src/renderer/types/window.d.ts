@@ -62,6 +62,58 @@ export interface AuthAPI {
   onDeviceFlowStatus: (callback: (status: DeviceFlowStatus) => void) => () => void;
 }
 
+export interface GitBranchInfo {
+  name: string;
+  current: boolean;
+  remote: boolean;
+  upstream?: string;
+  ahead: number;
+  behind: number;
+  lastCommitDate?: string;
+}
+
+export interface GitLogEntry {
+  hash: string;
+  shortHash: string;
+  message: string;
+  author: string;
+  date: string;
+}
+
+export interface GitOperationResult {
+  success: boolean;
+  error?: string;
+}
+
+export interface GitBranchListResult extends GitOperationResult {
+  branches: GitBranchInfo[];
+  currentBranch: string;
+}
+
+export interface GitLogResult extends GitOperationResult {
+  commits: GitLogEntry[];
+}
+
+export interface GitDirtyState extends GitOperationResult {
+  isDirty: boolean;
+  uncommittedCount: number;
+  untrackedCount: number;
+}
+
+export interface GitAPI {
+  fetch: (projectPath: string) => Promise<GitOperationResult>;
+  pull: (projectPath: string, ffOnly?: boolean) => Promise<GitOperationResult>;
+  push: (projectPath: string) => Promise<GitOperationResult>;
+  listBranches: (projectPath: string) => Promise<GitBranchListResult>;
+  createBranch: (projectPath: string, name: string, baseBranch?: string) => Promise<GitOperationResult>;
+  checkout: (projectPath: string, branchName: string) => Promise<GitOperationResult>;
+  merge: (projectPath: string, source: string, ffOnly?: boolean) => Promise<GitOperationResult>;
+  log: (projectPath: string, count?: number) => Promise<GitLogResult>;
+  dirtyState: (projectPath: string) => Promise<GitDirtyState>;
+  abortMerge: (projectPath: string) => Promise<GitOperationResult>;
+  hasMergeConflict: (projectPath: string) => Promise<boolean>;
+}
+
 declare global {
   interface Window {
     colrev: ColrevAPI;
@@ -69,6 +121,7 @@ declare global {
     appInfo: AppInfoAPI;
     auth: AuthAPI;
     github: GitHubAPI;
+    git: GitAPI;
   }
 }
 

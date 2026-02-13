@@ -5,6 +5,19 @@ import { ColrevBackend } from './colrev-backend';
 import { setupGitEnvironment } from './git-env';
 import { AuthManager } from './auth-manager';
 import { createRepoAndPush } from './github-manager';
+import {
+  gitFetch,
+  gitPull,
+  gitPush,
+  gitListBranches,
+  gitCreateBranch,
+  gitCheckout,
+  gitMerge,
+  gitLog,
+  gitGetDirtyState,
+  gitAbortMerge,
+  gitHasMergeConflict,
+} from './git-manager';
 
 // Register custom protocol scheme before app is ready
 protocol.registerSchemesAsPrivileged([
@@ -163,6 +176,54 @@ function setupIPC() {
       return createRepoAndPush({ token, ...params });
     },
   );
+
+  // Git operation handlers
+  ipcMain.handle('git:fetch', async (_, projectPath: string) => {
+    const token = authManager.getToken();
+    return gitFetch(projectPath, token);
+  });
+
+  ipcMain.handle('git:pull', async (_, projectPath: string, ffOnly?: boolean) => {
+    const token = authManager.getToken();
+    return gitPull(projectPath, token, ffOnly ?? true);
+  });
+
+  ipcMain.handle('git:push', async (_, projectPath: string) => {
+    const token = authManager.getToken();
+    return gitPush(projectPath, token);
+  });
+
+  ipcMain.handle('git:list-branches', async (_, projectPath: string) => {
+    return gitListBranches(projectPath);
+  });
+
+  ipcMain.handle('git:create-branch', async (_, projectPath: string, name: string, baseBranch?: string) => {
+    return gitCreateBranch(projectPath, name, baseBranch);
+  });
+
+  ipcMain.handle('git:checkout', async (_, projectPath: string, branchName: string) => {
+    return gitCheckout(projectPath, branchName);
+  });
+
+  ipcMain.handle('git:merge', async (_, projectPath: string, source: string, ffOnly?: boolean) => {
+    return gitMerge(projectPath, source, ffOnly ?? true);
+  });
+
+  ipcMain.handle('git:log', async (_, projectPath: string, count?: number) => {
+    return gitLog(projectPath, count);
+  });
+
+  ipcMain.handle('git:dirty-state', async (_, projectPath: string) => {
+    return gitGetDirtyState(projectPath);
+  });
+
+  ipcMain.handle('git:abort-merge', async (_, projectPath: string) => {
+    return gitAbortMerge(projectPath);
+  });
+
+  ipcMain.handle('git:has-merge-conflict', async (_, projectPath: string) => {
+    return gitHasMergeConflict(projectPath);
+  });
 
   // Get app info
   ipcMain.handle('app:info', () => {

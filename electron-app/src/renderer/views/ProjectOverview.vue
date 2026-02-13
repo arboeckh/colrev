@@ -22,9 +22,15 @@ import {
   ExternalLink,
   Loader2,
   HardDrive,
+  GitBranch,
+  GitMerge,
+  Plus,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -33,15 +39,33 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import CreateVersionDialog from '@/components/common/CreateVersionDialog.vue';
+import ActivityFeed from '@/components/common/ActivityFeed.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
+import { useGitStore } from '@/stores/git';
 import { useNotificationsStore } from '@/stores/notifications';
 import { WORKFLOW_STEPS, type WorkflowStep } from '@/types/project';
 
 const router = useRouter();
 const projects = useProjectsStore();
 const auth = useAuthStore();
+const git = useGitStore();
 const notifications = useNotificationsStore();
+
+// Version branch management
+const showCreateVersionDialog = ref(false);
+const isMerging = ref(false);
+
+async function mergeIntoMain() {
+  if (git.currentBranch === 'main') return;
+  isMerging.value = true;
+  try {
+    await git.mergeIntoMain(git.currentBranch);
+  } finally {
+    isMerging.value = false;
+  }
+}
 
 // Push to GitHub dialog state
 const showPushDialog = ref(false);
@@ -260,6 +284,74 @@ function navigateToStep(stepRoute: string) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <!-- Version Branches (only when remote exists) -->
+    <div v-if="git.hasRemote" class="space-y-3">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-medium text-muted-foreground">Version Branches</h3>
+        <Button
+          variant="ghost"
+          size="sm"
+          class="h-7 text-xs gap-1"
+          data-testid="new-version-button"
+          @click="showCreateVersionDialog = true"
+        >
+          <Plus class="h-3.5 w-3.5" />
+          New Version
+        </Button>
+      </div>
+
+      <div v-if="git.versionBranches.length === 0" class="text-sm text-muted-foreground py-2">
+        No version branches yet. Create one to start collaborating.
+      </div>
+
+      <div v-else class="space-y-1">
+        <div
+          v-for="branch in git.versionBranches"
+          :key="branch.name"
+          class="flex items-center justify-between py-2 px-3 rounded-md"
+          :class="branch.name === git.currentBranch ? 'bg-primary/10 border border-primary/20' : 'bg-muted/50'"
+          :data-testid="`version-branch-${branch.name}`"
+        >
+          <div class="flex items-center gap-2">
+            <GitBranch class="h-3.5 w-3.5 text-muted-foreground" />
+            <span class="font-mono text-sm font-medium">{{ branch.name }}</span>
+            <Badge v-if="branch.name === git.currentBranch" variant="secondary" class="text-[10px] px-1.5 py-0">
+              current
+            </Badge>
+          </div>
+          <div class="flex items-center gap-2">
+            <Badge v-if="branch.ahead > 0" variant="outline" class="text-[10px] px-1.5 py-0 gap-0.5">
+              <ArrowUp class="h-2.5 w-2.5" />
+              {{ branch.ahead }}
+            </Badge>
+            <Badge v-if="branch.behind > 0" variant="outline" class="text-[10px] px-1.5 py-0 gap-0.5">
+              <ArrowDown class="h-2.5 w-2.5" />
+              {{ branch.behind }}
+            </Badge>
+          </div>
+        </div>
+      </div>
+
+      <!-- Merge into main button -->
+      <Button
+        v-if="git.currentBranch !== 'main' && /^v\d+$/.test(git.currentBranch)"
+        variant="outline"
+        size="sm"
+        class="gap-1.5"
+        :disabled="isMerging || git.ahead > 0"
+        data-testid="merge-into-main"
+        @click="mergeIntoMain"
+      >
+        <GitMerge class="h-3.5 w-3.5" />
+        {{ isMerging ? 'Merging...' : `Merge ${git.currentBranch} into main` }}
+      </Button>
+    </div>
+
+    <CreateVersionDialog v-model:open="showCreateVersionDialog" />
+
+    <!-- Recent Activity -->
+    <ActivityFeed v-if="git.hasRemote" />
 
     <!-- Step progress -->
     <div class="space-y-1">

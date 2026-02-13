@@ -93,6 +93,26 @@ contextBridge.exposeInMainWorld('github', {
 });
 
 /**
+ * Expose Git operations API.
+ */
+contextBridge.exposeInMainWorld('git', {
+  fetch: (projectPath: string) => ipcRenderer.invoke('git:fetch', projectPath),
+  pull: (projectPath: string, ffOnly?: boolean) => ipcRenderer.invoke('git:pull', projectPath, ffOnly),
+  push: (projectPath: string) => ipcRenderer.invoke('git:push', projectPath),
+  listBranches: (projectPath: string) => ipcRenderer.invoke('git:list-branches', projectPath),
+  createBranch: (projectPath: string, name: string, baseBranch?: string) =>
+    ipcRenderer.invoke('git:create-branch', projectPath, name, baseBranch),
+  checkout: (projectPath: string, branchName: string) =>
+    ipcRenderer.invoke('git:checkout', projectPath, branchName),
+  merge: (projectPath: string, source: string, ffOnly?: boolean) =>
+    ipcRenderer.invoke('git:merge', projectPath, source, ffOnly),
+  log: (projectPath: string, count?: number) => ipcRenderer.invoke('git:log', projectPath, count),
+  dirtyState: (projectPath: string) => ipcRenderer.invoke('git:dirty-state', projectPath),
+  abortMerge: (projectPath: string) => ipcRenderer.invoke('git:abort-merge', projectPath),
+  hasMergeConflict: (projectPath: string) => ipcRenderer.invoke('git:has-merge-conflict', projectPath),
+});
+
+/**
  * Expose app info API.
  */
 contextBridge.exposeInMainWorld('appInfo', {
