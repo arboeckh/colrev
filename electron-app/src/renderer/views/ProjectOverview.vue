@@ -232,10 +232,10 @@ const newRecordFunnel = computed(() => {
   if (!delta || delta.new_record_count === 0) return null;
   const d = delta.delta_by_state;
   return [
-    { label: 'Search', count: delta.new_record_count },
-    { label: 'Prescreen', count: sumDeltaStates(d, PRESCREEN_PASSED) },
-    { label: 'Screen', count: sumDeltaStates(d, SCREEN_PASSED) },
-    { label: 'Data', count: sumDeltaStates(d, DATA_EXTRACTED) },
+    { label: 'Searched', count: delta.new_record_count },
+    { label: 'Prescreened', count: sumDeltaStates(d, PRESCREEN_PASSED) },
+    { label: 'Screened', count: sumDeltaStates(d, SCREEN_PASSED) },
+    { label: 'Synthesized', count: sumDeltaStates(d, DATA_EXTRACTED) },
   ];
 });
 </script>
@@ -666,7 +666,7 @@ const newRecordFunnel = computed(() => {
 
                 <!-- New records breadcrumb funnel -->
                 <div v-if="newRecordFunnel">
-                  <div class="text-[11px] text-muted-foreground mb-1.5">+{{ git.branchDelta.new_record_count }} new on dev</div>
+                  <div class="text-[11px] text-muted-foreground mb-1.5">+{{ git.branchDelta.new_record_count }} new record{{ git.branchDelta.new_record_count !== 1 ? 's' : '' }} on dev — funnel shows how many passed each stage</div>
                   <div class="flex items-center gap-1">
                     <template v-for="(stage, i) in newRecordFunnel" :key="stage.label">
                       <ArrowRight v-if="i > 0" class="h-3 w-3 text-muted-foreground/40 shrink-0" />

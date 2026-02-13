@@ -2,6 +2,12 @@
 import { computed } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import { Check, AlertCircle, BookOpen } from 'lucide-vue-next';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import type { WorkflowStepInfo, RecordCounts, OverallRecordCounts } from '@/types/project';
 import type { GetOperationInfoResponse } from '@/types/api';
 import { useProjectsStore } from '@/stores/projects';
@@ -15,6 +21,7 @@ const props = defineProps<{
   deltaByState?: globalThis.Record<string, number> | null;
   isOnDev?: boolean;
   hasPriorPending?: boolean;
+  downstreamStates?: string[];
   isFirst?: boolean;
   isLast?: boolean;
 }>();
@@ -56,10 +63,11 @@ const everProcessedRecords = computed(() => {
   }, 0);
 });
 
-// Count of new records (from delta) currently in this step's input states
+// Count of new records (from delta) that have reached this step or beyond
 const deltaPendingRecords = computed(() => {
   if (!props.isOnDev || !props.deltaByState) return 0;
-  return props.step.inputStates.reduce((sum, state) => {
+  const states = props.downstreamStates ?? props.step.inputStates;
+  return states.reduce((sum, state) => {
     return sum + (props.deltaByState?.[state] ?? 0);
   }, 0);
 });
@@ -190,18 +198,32 @@ const stepStatus = computed((): StepStatus => {
     <div class="flex flex-1 items-center justify-between min-w-0 pr-2">
       <span class="truncate">{{ step.label }}</span>
       <div class="flex items-center gap-1 ml-2">
-        <span
-          v-if="deltaPendingRecords > 0"
-          class="flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 text-xs tabular-nums text-amber-500 font-medium"
-        >
-          +{{ deltaPendingRecords }}
-        </span>
-        <span
-          v-if="pendingRecords > 0"
-          class="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary/10 px-1.5 text-xs tabular-nums text-primary font-medium"
-        >
-          {{ pendingRecords }}
-        </span>
+        <TooltipProvider :delay-duration="300">
+          <Tooltip v-if="deltaPendingRecords > 0">
+            <TooltipTrigger as-child>
+              <span
+                class="flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 text-xs tabular-nums text-amber-500 font-medium"
+              >
+                +{{ deltaPendingRecords }}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="right" class="max-w-[200px]">
+              <p class="text-xs">{{ deltaPendingRecords }} new record{{ deltaPendingRecords !== 1 ? 's' : '' }} from dev that have reached this step</p>
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip v-if="pendingRecords > 0">
+            <TooltipTrigger as-child>
+              <span
+                class="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary/10 px-1.5 text-xs tabular-nums text-primary font-medium"
+              >
+                {{ pendingRecords }}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="right" class="max-w-[200px]">
+              <p class="text-xs">{{ pendingRecords }} record{{ pendingRecords !== 1 ? 's' : '' }} waiting to be processed</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
     </div>
   </RouterLink>

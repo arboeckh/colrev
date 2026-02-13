@@ -120,6 +120,7 @@ const nextUndecidedIndex = computed(() => {
 
 // Completion detection from project status (for when user navigates back after finishing)
 const statusCounts = computed(() => projects.currentStatus?.currently ?? null);
+const overallCounts = computed(() => projects.currentStatus?.overall ?? null);
 const isPrescreenComplete = computed(() => {
   if (!statusCounts.value) return false;
   const { rev_prescreen_included, rev_prescreen_excluded, md_processed } = statusCounts.value;
@@ -656,7 +657,7 @@ onUnmounted(() => {
             class="text-2xl font-semibold text-green-500"
             data-testid="prescreen-complete-included"
           >
-            {{ statusCounts?.rev_prescreen_included ?? 0 }}
+            {{ overallCounts?.rev_prescreen_included ?? statusCounts?.rev_prescreen_included ?? 0 }}
           </span>
           <span class="text-xs text-muted-foreground flex items-center gap-1">
             <Check class="h-3 w-3" /> Included
@@ -668,7 +669,7 @@ onUnmounted(() => {
             class="text-2xl font-semibold text-red-400"
             data-testid="prescreen-complete-excluded"
           >
-            {{ statusCounts?.rev_prescreen_excluded ?? 0 }}
+            {{ overallCounts?.rev_prescreen_excluded ?? statusCounts?.rev_prescreen_excluded ?? 0 }}
           </span>
           <span class="text-xs text-muted-foreground flex items-center gap-1">
             <X class="h-3 w-3" /> Excluded
@@ -678,8 +679,8 @@ onUnmounted(() => {
         <div class="flex flex-col items-center gap-1">
           <span class="text-2xl font-semibold" data-testid="prescreen-complete-total">
             {{
-              (statusCounts?.rev_prescreen_included ?? 0) +
-              (statusCounts?.rev_prescreen_excluded ?? 0)
+              (overallCounts?.rev_prescreen_included ?? statusCounts?.rev_prescreen_included ?? 0) +
+              (overallCounts?.rev_prescreen_excluded ?? statusCounts?.rev_prescreen_excluded ?? 0)
             }}
           </span>
           <span class="text-xs text-muted-foreground">Total reviewed</span>

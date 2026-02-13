@@ -49,6 +49,18 @@ const overallCounts = computed(() => {
   return projects.currentStatus?.overall ?? null;
 });
 
+// For each step, compute all states at or beyond this step (for cumulative delta counts)
+const downstreamStatesPerStep = computed(() => {
+  return WORKFLOW_STEPS.map((_, index) => {
+    const atOrBeyond = new Set<string>();
+    for (let i = index; i < WORKFLOW_STEPS.length; i++) {
+      WORKFLOW_STEPS[i].inputStates.forEach((s) => atOrBeyond.add(s));
+      WORKFLOW_STEPS[i].outputStates.forEach((s) => atOrBeyond.add(s));
+    }
+    return [...atOrBeyond];
+  });
+});
+
 // For each step index, check whether any prior step has pending records
 const priorStepHasPending = computed(() => {
   return WORKFLOW_STEPS.map((_, index) => {
@@ -86,6 +98,7 @@ const priorStepHasPending = computed(() => {
           :operation-info="getOperationInfo(step.id)" :record-counts="recordCounts" :overall-counts="overallCounts"
           :delta-by-state="git.branchDelta?.delta_by_state ?? null" :is-on-dev="git.isOnDev"
           :has-prior-pending="priorStepHasPending[index]"
+          :downstream-states="downstreamStatesPerStep[index]"
           :is-first="index === 0" :is-last="index === WORKFLOW_STEPS.length - 1" />
       </nav>
 
