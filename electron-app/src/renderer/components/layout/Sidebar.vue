@@ -49,16 +49,22 @@ const overallCounts = computed(() => {
   return projects.currentStatus?.overall ?? null;
 });
 
-// For each step, compute all states at or beyond this step (for cumulative delta counts)
+// For each step, compute states that indicate records have *passed through* this step
+// = all states from the NEXT step onward (excludes rejection states like rev_prescreen_excluded)
 const downstreamStatesPerStep = computed(() => {
   return WORKFLOW_STEPS.map((_, index) => {
-    const atOrBeyond = new Set<string>();
-    for (let i = index; i < WORKFLOW_STEPS.length; i++) {
-      WORKFLOW_STEPS[i].inputStates.forEach((s) => atOrBeyond.add(s));
-      WORKFLOW_STEPS[i].outputStates.forEach((s) => atOrBeyond.add(s));
+    const passed = new Set<string>();
+    for (let i = index + 1; i < WORKFLOW_STEPS.length; i++) {
+      WORKFLOW_STEPS[i].inputStates.forEach((s) => passed.add(s));
+      WORKFLOW_STEPS[i].outputStates.forEach((s) => passed.add(s));
     }
-    return [...atOrBeyond];
+    return [...passed];
   });
+});
+
+// Whether to show the badge legend (only when on dev with new records)
+const showBadgeLegend = computed(() => {
+  return git.isOnDev && git.branchDelta && git.branchDelta.new_record_count > 0;
 });
 
 // For each step index, check whether any prior step has pending records
@@ -91,6 +97,18 @@ const priorStepHasPending = computed(() => {
       </RouterLink>
 
       <Separator class="my-3" />
+
+      <!-- Badge legend -->
+      <div v-if="showBadgeLegend" class="flex flex-col gap-1 mb-2 px-1">
+        <div class="flex items-center gap-1.5">
+          <span class="flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500/15 px-1 text-[10px] tabular-nums text-emerald-500 font-medium">+n</span>
+          <span class="text-[10px] text-muted-foreground/60">new records from dev</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/10 px-1 text-[10px] tabular-nums text-primary font-medium">n</span>
+          <span class="text-[10px] text-muted-foreground/60">waiting to be processed</span>
+        </div>
+      </div>
 
       <!-- Workflow steps with connecting lines -->
       <nav class="flex flex-col pl-2">
