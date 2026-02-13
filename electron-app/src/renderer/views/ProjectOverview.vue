@@ -240,7 +240,7 @@ function formatStateName(state: string): string {
         <div class="flex items-start justify-between gap-4">
           <div>
             <h2 class="text-xl font-semibold">
-              {{ projects.currentSettings?.project?.title || 'Literature Review Project' }}
+              {{ projects.currentSettings?.project?.title || 'Literature Review' }}
             </h2>
             <p class="text-muted-foreground text-sm mt-1">
               <span v-if="totalRecords > 0">{{ totalRecords }} records</span>
@@ -279,7 +279,7 @@ function formatStateName(state: string): string {
                   <HelpCircle class="h-3.5 w-3.5 text-muted-foreground/50 cursor-help" />
                 </TooltipTrigger>
                 <TooltipContent side="bottom" class="max-w-[240px]">
-                  <p class="text-xs">This project only exists on your computer. Push to GitHub to back it up and collaborate with others.</p>
+                  <p class="text-xs">This review only exists on your computer. Push to GitHub to back it up and collaborate with others.</p>
                 </TooltipContent>
               </Tooltip>
               <Button
@@ -334,7 +334,7 @@ function formatStateName(state: string): string {
                   <div>
                     <h4 class="font-medium mb-2">Two branches</h4>
                     <p class="text-muted-foreground leading-relaxed">
-                      Your project uses two branches to keep work organized:
+                      Your review uses two branches to keep work organized:
                     </p>
                     <div class="mt-3 space-y-2">
                       <div class="flex gap-3 items-start p-2.5 rounded-md bg-muted/50">
@@ -351,7 +351,7 @@ function formatStateName(state: string): string {
                         <div>
                           <span class="font-mono text-xs font-medium">main</span>
                           <p class="text-xs text-muted-foreground mt-0.5">
-                            The stable version of your project. Only updated by merging from dev when you're ready to mark a milestone. Think of it as your "published" state.
+                            The stable version of your review. Only updated by merging from dev when you're ready to mark a milestone. Think of it as your "published" state.
                           </p>
                         </div>
                       </div>
@@ -711,7 +711,7 @@ function formatStateName(state: string): string {
                 <HelpCircle class="h-3 w-3 text-muted-foreground/40 cursor-help" />
               </TooltipTrigger>
               <TooltipContent side="top" class="max-w-[200px]">
-                <p class="text-xs">Recent changes made to this project, including operations run by you and your collaborators.</p>
+                <p class="text-xs">Recent changes made to this review, including operations run by you and your collaborators.</p>
               </TooltipContent>
             </Tooltip>
           </div>
@@ -801,7 +801,7 @@ function formatStateName(state: string): string {
           <DialogHeader>
             <DialogTitle>Push to GitHub</DialogTitle>
             <DialogDescription>
-              Create a GitHub repository and push this project. This enables collaboration and backup.
+              Create a GitHub repository and push this review. This enables collaboration and backup.
             </DialogDescription>
           </DialogHeader>
           <div class="space-y-4 py-4">

@@ -67,13 +67,13 @@ async function confirmDelete() {
     });
 
     if (response.success) {
-      notifications.success('Project deleted', `Deleted ${props.project.id}`);
+      notifications.success('Review deleted', `Deleted ${props.project.id}`);
       projects.removeProject(props.project.id);
       emit('deleted', props.project.id);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    notifications.error('Failed to delete project', message);
+    notifications.error('Failed to delete review', message);
   } finally {
     isDeleting.value = false;
     showDeleteDialog.value = false;
@@ -149,10 +149,10 @@ async function confirmDelete() {
   <Dialog v-model:open="showDeleteDialog">
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>Delete Project</DialogTitle>
+        <DialogTitle>Delete Review</DialogTitle>
         <DialogDescription>
           Are you sure you want to delete "{{ projectTitle }}"? This action cannot be undone
-          and will permanently remove all project files.
+          and will permanently remove all review files.
         </DialogDescription>
       </DialogHeader>
       <DialogFooter>
@@ -170,7 +170,7 @@ async function confirmDelete() {
           @click="confirmDelete"
         >
           <Loader2 v-if="isDeleting" class="h-4 w-4 mr-2 animate-spin" />
-          Delete Project
+          Delete Review
         </Button>
       </DialogFooter>
     </DialogContent>

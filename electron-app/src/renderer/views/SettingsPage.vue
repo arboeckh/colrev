@@ -20,7 +20,7 @@ const settings = computed(() => projects.currentSettings);
         <Settings class="h-6 w-6" />
         Settings
       </h2>
-      <p class="text-muted-foreground">Project configuration and preferences</p>
+      <p class="text-muted-foreground">Review configuration and preferences</p>
     </div>
 
     <Separator />
@@ -30,17 +30,17 @@ const settings = computed(() => projects.currentSettings);
       <CardHeader>
         <CardTitle class="flex items-center gap-2">
           <FileText class="h-5 w-5" />
-          Project Information
+          Review Information
         </CardTitle>
       </CardHeader>
       <CardContent class="space-y-4">
         <div class="grid gap-4">
           <div class="space-y-2">
-            <label class="text-sm font-medium">Project Title</label>
+            <label class="text-sm font-medium">Review Title</label>
             <Input
               :model-value="settings?.project?.title || ''"
               disabled
-              placeholder="Project title"
+              placeholder="Review title"
             />
           </div>
 
@@ -77,7 +77,7 @@ const settings = computed(() => projects.currentSettings);
           <User class="h-5 w-5" />
           Authors
         </CardTitle>
-        <CardDescription>Project team members</CardDescription>
+        <CardDescription>Review team members</CardDescription>
       </CardHeader>
       <CardContent>
         <div class="space-y-3">

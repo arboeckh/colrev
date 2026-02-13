@@ -32,7 +32,7 @@ async function loadProjectFromRoute() {
 
     const success = await projects.loadProject(projectId);
     if (!success) {
-      notifications.error('Failed to load project', projects.projectError || undefined);
+      notifications.error('Failed to load review', projects.projectError || undefined);
     } else {
       // Initialize git state after project loads
       await git.initialize();
@@ -143,7 +143,7 @@ onUnmounted(() => {
         <div v-if="projects.isLoadingProject" class="flex items-center justify-center h-full">
           <div class="text-center">
             <div class="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
-            <p class="text-muted-foreground">Loading project...</p>
+            <p class="text-muted-foreground">Loading review...</p>
           </div>
         </div>
 
@@ -151,7 +151,7 @@ onUnmounted(() => {
         <div v-else-if="projects.projectError" class="flex items-center justify-center h-full">
           <div class="text-center max-w-md p-6">
             <div class="text-destructive text-4xl mb-4">!</div>
-            <h2 class="text-lg font-semibold mb-2">Failed to load project</h2>
+            <h2 class="text-lg font-semibold mb-2">Failed to load review</h2>
             <p class="text-muted-foreground">{{ projects.projectError }}</p>
           </div>
         </div>

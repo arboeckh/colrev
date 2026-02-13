@@ -23,7 +23,7 @@ async function handleLoadComplete() {
           <Download class="h-6 w-6" />
           Load
         </h2>
-        <p class="text-muted-foreground">Import search results into the project</p>
+        <p class="text-muted-foreground">Import search results into the review</p>
       </div>
 
       <OperationButton

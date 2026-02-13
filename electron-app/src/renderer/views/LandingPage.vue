@@ -82,7 +82,7 @@ async function discoverProjects() {
 
 async function createProject() {
   if (!generatedSlug.value) {
-    notifications.error('Project name required', 'Please enter a project name');
+    notifications.error('Review name required', 'Please enter a review name');
     return;
   }
 
@@ -116,18 +116,18 @@ async function createProject() {
             isPrivate: isPrivateRepo.value,
           });
           if (ghResult.success) {
-            notifications.success('Project created', `Created ${title} and pushed to GitHub`);
+            notifications.success('Review created', `Created ${title} and pushed to GitHub`);
           } else {
-            notifications.error('GitHub push failed', ghResult.error || 'Unknown error. Project was created locally.');
+            notifications.error('GitHub push failed', ghResult.error || 'Unknown error. Review was created locally.');
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Unknown error';
-          notifications.error('GitHub push failed', msg + '. Project was created locally.');
+          notifications.error('GitHub push failed', msg + '. Review was created locally.');
         } finally {
           isPushingToGitHub.value = false;
         }
       } else {
-        notifications.success('Project created', `Created ${title}`);
+        notifications.success('Review created', `Created ${title}`);
       }
 
       await projects.loadProjectGitStatus(result.project_id);
@@ -152,7 +152,7 @@ async function createProject() {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    notifications.error('Failed to create project', message);
+    notifications.error('Failed to create review', message);
   } finally {
     isCreatingProject.value = false;
   }
@@ -179,7 +179,7 @@ async function createProject() {
           class="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors mb-1 bg-accent text-accent-foreground font-medium"
         >
           <FolderKanban class="h-4 w-4" />
-          <span>Projects</span>
+          <span>Reviews</span>
         </RouterLink>
 
         <!-- Settings nav item (placeholder) -->
@@ -203,7 +203,7 @@ async function createProject() {
       <!-- Header bar -->
       <header class="h-14 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div class="flex h-full items-center justify-between px-6">
-          <h2 class="text-lg font-semibold">Projects</h2>
+          <h2 class="text-lg font-semibold">Reviews</h2>
 
           <div class="flex items-center gap-2">
             <!-- Backend status indicator -->
@@ -238,21 +238,21 @@ async function createProject() {
               <DialogTrigger as-child>
                 <Button :disabled="!backend.isRunning">
                   <Plus class="h-4 w-4 mr-2" />
-                  New Project
+                  New Review
                 </Button>
               </DialogTrigger>
 
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Create New Project</DialogTitle>
+                  <DialogTitle>Create New Review</DialogTitle>
                   <DialogDescription>
-                    Give your literature review project a name.
+                    Give your literature review a name.
                   </DialogDescription>
                 </DialogHeader>
 
                 <div class="space-y-4 py-4">
                   <div class="space-y-2">
-                    <label class="text-sm font-medium">Project Name</label>
+                    <label class="text-sm font-medium">Review Name</label>
                     <Input
                       v-model="newProjectName"
                       placeholder="My Literature Review"
@@ -324,7 +324,7 @@ async function createProject() {
                     @click="createProject"
                   >
                     <Loader2 v-if="isCreatingProject" class="h-4 w-4 mr-2 animate-spin" />
-                    {{ isPushingToGitHub ? 'Pushing to GitHub...' : isCreatingProject ? 'Creating...' : 'Create Project' }}
+                    {{ isPushingToGitHub ? 'Pushing to GitHub...' : isCreatingProject ? 'Creating...' : 'Create Review' }}
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -347,13 +347,13 @@ async function createProject() {
         <EmptyState
           v-else-if="projects.projects.length === 0"
           :icon="FolderOpen"
-          title="No projects yet"
-          description="Create your first literature review project to get started."
+          title="No reviews yet"
+          description="Create your first literature review to get started."
         >
           <template #action>
             <Button :disabled="!backend.isRunning" @click="showNewProjectDialog = true">
               <Plus class="h-4 w-4 mr-2" />
-              Create Project
+              Create Review
             </Button>
           </template>
         </EmptyState>
@@ -366,7 +366,7 @@ async function createProject() {
           <div class="flex items-center justify-between mb-4">
             <div class="flex items-center gap-2">
               <Github class="h-5 w-5 text-muted-foreground" />
-              <h3 class="text-base font-semibold">GitHub Projects</h3>
+              <h3 class="text-base font-semibold">GitHub Reviews</h3>
               <Badge v-if="githubRepos.availableRepos.length > 0" variant="secondary" class="text-xs">
                 {{ githubRepos.availableRepos.length }}
               </Badge>
@@ -395,7 +395,7 @@ async function createProject() {
 
           <!-- Empty state -->
           <p v-else-if="!githubRepos.isLoading && githubRepos.remoteRepos.length > 0 && githubRepos.availableRepos.length === 0" class="text-sm text-muted-foreground py-2">
-            All your GitHub CoLRev projects are already added locally.
+            All your GitHub CoLRev reviews are already added locally.
           </p>
 
           <!-- Repos table -->

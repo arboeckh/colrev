@@ -61,12 +61,12 @@ async function confirmDelete() {
     });
 
     if (response.success) {
-      notifications.success('Project deleted', `Deleted ${projectToDelete.value.id}`);
+      notifications.success('Review deleted', `Deleted ${projectToDelete.value.id}`);
       projectsStore.removeProject(projectToDelete.value.id);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    notifications.error('Failed to delete project', message);
+    notifications.error('Failed to delete review', message);
   } finally {
     isDeleting.value = false;
     showDeleteDialog.value = false;
@@ -109,7 +109,7 @@ function getUncommittedCount(project: ProjectListItem): number {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead class="w-[250px]">Project</TableHead>
+          <TableHead class="w-[250px]">Review</TableHead>
           <TableHead class="text-right w-[100px]">Records</TableHead>
           <TableHead class="w-[150px]">Next Step</TableHead>
           <TableHead class="w-[180px]">Git Status</TableHead>
@@ -207,10 +207,10 @@ function getUncommittedCount(project: ProjectListItem): number {
   <Dialog v-model:open="showDeleteDialog">
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>Delete Project</DialogTitle>
+        <DialogTitle>Delete Review</DialogTitle>
         <DialogDescription>
           Are you sure you want to delete "{{ projectToDelete?.title || projectToDelete?.id }}"? This action cannot be undone
-          and will permanently remove all project files.
+          and will permanently remove all review files.
         </DialogDescription>
       </DialogHeader>
       <DialogFooter>
@@ -228,7 +228,7 @@ function getUncommittedCount(project: ProjectListItem): number {
           @click="confirmDelete"
         >
           <Loader2 v-if="isDeleting" class="h-4 w-4 mr-2 animate-spin" />
-          Delete Project
+          Delete Review
         </Button>
       </DialogFooter>
     </DialogContent>

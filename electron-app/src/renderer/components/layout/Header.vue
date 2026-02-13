@@ -16,7 +16,7 @@ const backend = useBackendStore();
 const git = useGitStore();
 
 const projectTitle = computed(() => {
-  return projects.currentSettings?.project?.title || projects.currentProjectId || 'Project';
+  return projects.currentSettings?.project?.title || projects.currentProjectId || 'Review';
 });
 
 const isRefreshing = computed(() => projects.isLoadingProject);
@@ -44,7 +44,7 @@ async function handlePush() {
       <div class="flex items-center gap-3">
         <Button variant="ghost" size="sm" class="gap-2" @click="goToProjects">
           <ArrowLeft class="h-4 w-4" />
-          <span class="hidden sm:inline">Projects</span>
+          <span class="hidden sm:inline">Reviews</span>
         </Button>
 
         <div class="h-6 w-px bg-border" />
