@@ -205,31 +205,39 @@ function formatDate(dateStr: string) {
   });
 }
 
-// Delta pipeline helpers
-const STATE_COLORS: globalThis.Record<string, string> = {
-  md_retrieved: 'bg-slate-400',
-  md_imported: 'bg-blue-400',
-  md_needs_manual_preparation: 'bg-blue-300',
-  md_prepared: 'bg-indigo-400',
-  md_processed: 'bg-violet-400',
-  rev_prescreen_included: 'bg-purple-400',
-  rev_prescreen_excluded: 'bg-gray-400',
-  pdf_imported: 'bg-pink-400',
-  pdf_prepared: 'bg-rose-400',
-  rev_included: 'bg-emerald-400',
-  rev_excluded: 'bg-gray-400',
-  rev_synthesized: 'bg-green-500',
-};
+// Existing records on main that reached data extraction
+const mainSynthesizedCount = computed(() => {
+  const currently = projects.currentStatus?.currently;
+  const deltaNew = git.branchDelta?.delta_by_state?.rev_synthesized ?? 0;
+  if (!currently) return 0;
+  return (currently.rev_synthesized ?? 0) - deltaNew;
+});
 
-function getDeltaStateColor(state: string): string {
-  return STATE_COLORS[state] ?? 'bg-muted-foreground/40';
+// New record funnel: cumulative counts that passed each gate
+// States that indicate a record has passed each stage (included):
+const PRESCREEN_PASSED = [
+  'rev_prescreen_included', 'pdf_needs_manual_retrieval', 'pdf_imported',
+  'pdf_not_available', 'pdf_needs_manual_preparation', 'pdf_prepared',
+  'rev_included', 'rev_synthesized',
+];
+const SCREEN_PASSED = ['rev_included', 'rev_synthesized'];
+const DATA_EXTRACTED = ['rev_synthesized'];
+
+function sumDeltaStates(deltaByState: globalThis.Record<string, number>, states: string[]): number {
+  return states.reduce((sum, s) => sum + (deltaByState[s] ?? 0), 0);
 }
 
-function formatStateName(state: string): string {
-  return state
-    .replace(/^(md_|rev_|pdf_)/, '')
-    .replace(/_/g, ' ');
-}
+const newRecordFunnel = computed(() => {
+  const delta = git.branchDelta;
+  if (!delta || delta.new_record_count === 0) return null;
+  const d = delta.delta_by_state;
+  return [
+    { label: 'Search', count: delta.new_record_count },
+    { label: 'Prescreen', count: sumDeltaStates(d, PRESCREEN_PASSED) },
+    { label: 'Screen', count: sumDeltaStates(d, SCREEN_PASSED) },
+    { label: 'Data', count: sumDeltaStates(d, DATA_EXTRACTED) },
+  ];
+});
 </script>
 
 <template>
@@ -646,43 +654,38 @@ function formatStateName(state: string): string {
             <!-- Delta data available -->
             <template v-else-if="git.branchDelta">
               <!-- Has changes -->
-              <div v-if="git.branchDelta.new_record_count > 0 || git.branchDelta.changed_record_count > 0 || git.branchDelta.removed_record_count > 0"
-                class="rounded-md border border-border/50 overflow-hidden">
-                <!-- Stats row -->
-                <div class="flex divide-x divide-border/50">
-                  <div v-if="git.branchDelta.new_record_count > 0" class="flex-1 p-3 text-center">
-                    <div class="text-lg font-semibold text-amber-500">+{{ git.branchDelta.new_record_count }}</div>
-                    <div class="text-[11px] text-muted-foreground">New records</div>
-                  </div>
-                  <div v-if="git.branchDelta.changed_record_count > 0" class="flex-1 p-3 text-center">
-                    <div class="text-lg font-semibold text-blue-500">{{ git.branchDelta.changed_record_count }}</div>
-                    <div class="text-[11px] text-muted-foreground">Progressed</div>
-                  </div>
-                  <div v-if="git.branchDelta.removed_record_count > 0" class="flex-1 p-3 text-center">
-                    <div class="text-lg font-semibold text-red-500">-{{ git.branchDelta.removed_record_count }}</div>
-                    <div class="text-[11px] text-muted-foreground">Removed</div>
+              <div v-if="git.branchDelta.new_record_count > 0 || git.branchDelta.removed_record_count > 0"
+                class="rounded-md border border-border/50 overflow-hidden p-3 space-y-3">
+
+                <!-- Records included in review (from main) -->
+                <div v-if="mainSynthesizedCount > 0" class="flex items-baseline gap-1.5">
+                  <span class="text-2xl font-semibold text-foreground">{{ mainSynthesizedCount }}</span>
+                  <span class="text-sm text-muted-foreground">record{{ mainSynthesizedCount !== 1 ? 's' : '' }} included in review</span>
+                </div>
+                <div v-else class="text-sm text-muted-foreground">No records included in review yet</div>
+
+                <!-- New records breadcrumb funnel -->
+                <div v-if="newRecordFunnel">
+                  <div class="text-[11px] text-muted-foreground mb-1.5">+{{ git.branchDelta.new_record_count }} new on dev</div>
+                  <div class="flex items-center gap-1">
+                    <template v-for="(stage, i) in newRecordFunnel" :key="stage.label">
+                      <ArrowRight v-if="i > 0" class="h-3 w-3 text-muted-foreground/40 shrink-0" />
+                      <div class="flex flex-col items-center gap-0.5">
+                        <div
+                          class="rounded-full px-2.5 pb-1 leading-none"
+                          :class="stage.count > 0 ? 'bg-muted/60 text-foreground' : 'bg-muted/30 text-muted-foreground/40'"
+                        >
+                          <span class="text-[10px] leading-none">{{ stage.label }}</span>
+                        </div>
+                        <span class="text-[10px] leading-none tabular-nums" :class="stage.count > 0 ? 'text-muted-foreground' : 'text-muted-foreground/40'">{{ stage.count }}</span>
+                      </div>
+                    </template>
                   </div>
                 </div>
 
-                <!-- Pipeline progress bar for new records -->
-                <div v-if="Object.keys(git.branchDelta.delta_by_state).length > 0" class="px-3 pb-3">
-                  <div class="text-[11px] text-muted-foreground mb-1.5">New records in pipeline</div>
-                  <div class="flex h-2 rounded-full overflow-hidden bg-muted/50">
-                    <div
-                      v-for="(count, state) in git.branchDelta.delta_by_state"
-                      :key="state"
-                      :style="{ width: `${(count / git.branchDelta.new_record_count) * 100}%` }"
-                      :class="getDeltaStateColor(String(state))"
-                      class="h-full transition-all"
-                      :title="`${state}: ${count}`"
-                    />
-                  </div>
-                  <div class="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
-                    <span v-for="(count, state) in git.branchDelta.delta_by_state" :key="state" class="text-[10px] text-muted-foreground flex items-center gap-1">
-                      <span class="h-1.5 w-1.5 rounded-full" :class="getDeltaStateColor(String(state))" />
-                      {{ formatStateName(String(state)) }}: {{ count }}
-                    </span>
-                  </div>
+                <!-- Removed records note -->
+                <div v-if="git.branchDelta.removed_record_count > 0" class="text-xs text-red-500">
+                  -{{ git.branchDelta.removed_record_count }} removed
                 </div>
               </div>
 

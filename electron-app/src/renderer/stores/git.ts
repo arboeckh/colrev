@@ -203,16 +203,6 @@ export const useGitStore = defineStore('git', () => {
     const path = getProjectPath();
     if (!path) return false;
 
-    // Check dirty state
-    const dirty = await window.git.dirtyState(path);
-    if (dirty.isDirty) {
-      notifications.error(
-        'Cannot switch branch',
-        'There are uncommitted changes. Please commit or discard them first.',
-      );
-      return false;
-    }
-
     const result = await window.git.checkout(path, branchName);
     if (!result.success) {
       notifications.error('Branch switch failed', result.error || 'Unknown error');

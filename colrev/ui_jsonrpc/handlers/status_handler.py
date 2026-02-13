@@ -519,6 +519,7 @@ class StatusHandler:
 
         # Load current records
         try:
+            self.review_manager.get_status_operation()
             current_records = self.review_manager.dataset.load_records_dict()
         except Exception:
             current_records = {}
