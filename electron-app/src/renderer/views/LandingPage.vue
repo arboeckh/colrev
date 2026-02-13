@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { useRouter } from 'vue-router';
-import { Plus, FolderOpen, Loader2, RefreshCw } from 'lucide-vue-next';
+import { useRouter, useRoute } from 'vue-router';
+import { Plus, FolderOpen, Loader2, RefreshCw, FolderKanban, Settings } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Dialog,
   DialogContent,
@@ -14,13 +15,14 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { ProjectsTable } from '@/components/project';
-import { EmptyState, ThemeToggle } from '@/components/common';
+import { EmptyState, ThemeToggle, UserMenu } from '@/components/common';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
 import type { InitProjectResponse, ListProjectsResponse } from '@/types/api';
 
 const router = useRouter();
+const route = useRoute();
 const backend = useBackendStore();
 const projects = useProjectsStore();
 const notifications = useNotificationsStore();
@@ -119,15 +121,47 @@ async function createProject() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-background">
-    <!-- Header -->
-    <header class="border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div class="max-w-5xl mx-auto px-6 py-4">
-        <div class="flex items-center justify-between">
-          <div>
-            <h1 class="text-2xl font-bold">CoLRev</h1>
-            <p class="text-sm text-muted-foreground">Collaborative Literature Reviews</p>
-          </div>
+  <div class="flex h-screen bg-background">
+    <!-- Sidebar -->
+    <aside class="w-56 border-r border-border bg-muted/30 flex flex-col">
+      <!-- App branding -->
+      <div class="px-4 py-4">
+        <h1 class="text-lg font-bold">CoLRev</h1>
+        <p class="text-xs text-muted-foreground">Collaborative Literature Reviews</p>
+      </div>
+
+      <ScrollArea class="flex-1 px-3">
+        <!-- Projects nav item -->
+        <RouterLink
+          to="/"
+          class="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors mb-1 bg-accent text-accent-foreground font-medium"
+        >
+          <FolderKanban class="h-4 w-4" />
+          <span>Projects</span>
+        </RouterLink>
+
+        <!-- Settings nav item (placeholder) -->
+        <button
+          disabled
+          class="flex w-full items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground/50 cursor-not-allowed"
+        >
+          <Settings class="h-4 w-4" />
+          <span>Settings</span>
+        </button>
+      </ScrollArea>
+
+      <!-- User menu at the bottom -->
+      <div class="border-t border-border p-2">
+        <UserMenu />
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+      <!-- Header bar -->
+      <header class="h-14 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div class="flex h-full items-center justify-between px-6">
+          <h2 class="text-lg font-semibold">Projects</h2>
 
           <div class="flex items-center gap-2">
             <!-- Backend status indicator -->
@@ -212,36 +246,36 @@ async function createProject() {
             </Dialog>
           </div>
         </div>
-      </div>
-    </header>
+      </header>
 
-    <!-- Main content -->
-    <main class="max-w-5xl mx-auto px-6 py-8">
-      <!-- Backend not running message -->
-      <div v-if="!backend.isRunning && !backend.isStarting" class="text-center py-12">
-        <div class="inline-flex items-center gap-2 text-yellow-500 mb-4">
-          <Loader2 class="h-5 w-5 animate-spin" />
-          <span>Waiting for backend to start...</span>
+      <!-- Page content -->
+      <main class="flex-1 overflow-auto px-6 py-8">
+        <!-- Backend not running message -->
+        <div v-if="!backend.isRunning && !backend.isStarting" class="text-center py-12">
+          <div class="inline-flex items-center gap-2 text-yellow-500 mb-4">
+            <Loader2 class="h-5 w-5 animate-spin" />
+            <span>Waiting for backend to start...</span>
+          </div>
         </div>
-      </div>
 
-      <!-- Empty state -->
-      <EmptyState
-        v-else-if="projects.projects.length === 0"
-        :icon="FolderOpen"
-        title="No projects yet"
-        description="Create your first literature review project to get started."
-      >
-        <template #action>
-          <Button :disabled="!backend.isRunning" @click="showNewProjectDialog = true">
-            <Plus class="h-4 w-4 mr-2" />
-            Create Project
-          </Button>
-        </template>
-      </EmptyState>
+        <!-- Empty state -->
+        <EmptyState
+          v-else-if="projects.projects.length === 0"
+          :icon="FolderOpen"
+          title="No projects yet"
+          description="Create your first literature review project to get started."
+        >
+          <template #action>
+            <Button :disabled="!backend.isRunning" @click="showNewProjectDialog = true">
+              <Plus class="h-4 w-4 mr-2" />
+              Create Project
+            </Button>
+          </template>
+        </EmptyState>
 
-      <!-- Projects table -->
-      <ProjectsTable v-else :projects="projects.projects" />
-    </main>
+        <!-- Projects table -->
+        <ProjectsTable v-else :projects="projects.projects" />
+      </main>
+    </div>
   </div>
 </template>

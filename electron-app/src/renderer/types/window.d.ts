@@ -27,11 +27,38 @@ export interface AppInfoAPI {
   }>;
 }
 
+export interface AuthSession {
+  user: {
+    login: string;
+    name: string | null;
+    avatarUrl: string;
+    email: string | null;
+  };
+  authenticatedAt: string;
+}
+
+export interface DeviceFlowStatus {
+  status: 'awaiting_code' | 'polling' | 'success' | 'error' | 'expired';
+  userCode?: string;
+  verificationUri?: string;
+  error?: string;
+}
+
+export interface AuthAPI {
+  getSession: () => Promise<AuthSession | null>;
+  login: () => Promise<void>;
+  logout: () => Promise<void>;
+  getToken: () => Promise<string | null>;
+  onAuthUpdate: (callback: (session: AuthSession | null) => void) => () => void;
+  onDeviceFlowStatus: (callback: (status: DeviceFlowStatus) => void) => () => void;
+}
+
 declare global {
   interface Window {
     colrev: ColrevAPI;
     fileOps: FileOpsAPI;
     appInfo: AppInfoAPI;
+    auth: AuthAPI;
   }
 }
 

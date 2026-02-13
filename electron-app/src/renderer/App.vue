@@ -7,11 +7,13 @@ import AppLayout from '@/components/layout/AppLayout.vue';
 import DebugPanel from '@/components/common/DebugPanel.vue';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
+import { useAuthStore } from '@/stores/auth';
 import type { ListProjectsResponse } from '@/types/api';
 
 const route = useRoute();
 const backend = useBackendStore();
 const projects = useProjectsStore();
+const auth = useAuthStore();
 
 // Determine which layout to use based on route meta
 const useProjectLayout = computed(() => {
@@ -20,6 +22,9 @@ const useProjectLayout = computed(() => {
 
 // Auto-start backend and discover projects on mount
 onMounted(async () => {
+  // Initialize auth first (checks for stored session)
+  await auth.initialize();
+
   if (backend.canStart) {
     const started = await backend.start();
     if (started) {

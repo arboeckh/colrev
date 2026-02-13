@@ -5,6 +5,7 @@ import { LayoutDashboard, Settings } from 'lucide-vue-next';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import SidebarItem from './SidebarItem.vue';
+import { UserMenu } from '@/components/common';
 import { useProjectsStore } from '@/stores/projects';
 import { WORKFLOW_STEPS, type WorkflowStep } from '@/types/project';
 
@@ -99,5 +100,10 @@ const overallCounts = computed(() => {
         <span>Settings</span>
       </RouterLink>
     </ScrollArea>
+
+    <!-- User menu at the bottom -->
+    <div class="border-t border-border p-2">
+      <UserMenu />
+    </div>
   </aside>
 </template>

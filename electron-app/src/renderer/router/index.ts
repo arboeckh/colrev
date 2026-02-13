@@ -1,7 +1,9 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router';
+import { useAuthStore } from '@/stores/auth';
 
 // Lazy load views for better performance
 const LandingPage = () => import('@/views/LandingPage.vue');
+const LoginPage = () => import('@/views/LoginPage.vue');
 const ProjectOverview = () => import('@/views/ProjectOverview.vue');
 const ReviewDefinitionPage = () => import('@/views/ReviewDefinitionPage.vue');
 const SearchPage = () => import('@/views/SearchPage.vue');
@@ -16,6 +18,16 @@ const DataPage = () => import('@/views/DataPage.vue');
 const SettingsPage = () => import('@/views/SettingsPage.vue');
 
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/login',
+    name: 'login',
+    component: LoginPage,
+    meta: {
+      title: 'Sign In - CoLRev',
+      layout: 'none',
+      public: true,
+    },
+  },
   {
     path: '/',
     name: 'landing',
@@ -163,15 +175,44 @@ const router = createRouter({
   routes,
 });
 
-// Navigation guard for project routes
-router.beforeEach((to, _from, next) => {
+// Navigation guard for auth and title
+router.beforeEach(async (to, _from) => {
   // Update document title
   const title = to.meta.title as string | undefined;
   if (title) {
     document.title = title === 'CoLRev' ? title : `${title} - CoLRev`;
   }
 
-  next();
+  const auth = useAuthStore();
+
+  // Wait for auth to finish loading
+  if (auth.isLoading) {
+    await new Promise<void>((resolve) => {
+      const unwatch = auth.$subscribe(() => {
+        if (!auth.isLoading) {
+          unwatch();
+          resolve();
+        }
+      });
+      // Resolve immediately if already done
+      if (!auth.isLoading) {
+        unwatch();
+        resolve();
+      }
+    });
+  }
+
+  // Public routes (login page)
+  if (to.meta.public) {
+    // If already authenticated, redirect to landing
+    if (auth.hasAccess) return '/';
+    return;
+  }
+
+  // Protected routes — redirect to login if no access
+  if (!auth.hasAccess) {
+    return '/login';
+  }
 });
 
 export default router;
@@ -182,5 +223,6 @@ declare module 'vue-router' {
     title?: string;
     layout?: 'none' | 'project';
     step?: string | null;
+    public?: boolean;
   }
 }

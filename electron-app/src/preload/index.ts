@@ -59,6 +59,28 @@ contextBridge.exposeInMainWorld('fileOps', {
 });
 
 /**
+ * Expose auth API.
+ */
+contextBridge.exposeInMainWorld('auth', {
+  getSession: () => ipcRenderer.invoke('auth:get-session'),
+  login: () => ipcRenderer.invoke('auth:login'),
+  logout: () => ipcRenderer.invoke('auth:logout'),
+  getToken: () => ipcRenderer.invoke('auth:get-token'),
+
+  onAuthUpdate: (callback: (session: unknown) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, session: unknown) => callback(session);
+    ipcRenderer.on('auth:update', handler);
+    return () => ipcRenderer.removeListener('auth:update', handler);
+  },
+
+  onDeviceFlowStatus: (callback: (status: unknown) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, status: unknown) => callback(status);
+    ipcRenderer.on('auth:device-flow-status', handler);
+    return () => ipcRenderer.removeListener('auth:device-flow-status', handler);
+  },
+});
+
+/**
  * Expose app info API.
  */
 contextBridge.exposeInMainWorld('appInfo', {

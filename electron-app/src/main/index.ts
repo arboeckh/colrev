@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { ColrevBackend } from './colrev-backend';
 import { setupGitEnvironment } from './git-env';
+import { AuthManager } from './auth-manager';
 
 // Register custom protocol scheme before app is ready
 protocol.registerSchemesAsPrivileged([
@@ -19,6 +20,7 @@ protocol.registerSchemesAsPrivileged([
 
 let mainWindow: BrowserWindow | null = null;
 let backend: ColrevBackend | null = null;
+const authManager = new AuthManager();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -134,6 +136,19 @@ function setupIPC() {
       return { success: true, filePath: result.filePath };
     },
   );
+
+  // Auth handlers
+  authManager.setAuthUpdateCallback((session) => {
+    mainWindow?.webContents.send('auth:update', session);
+  });
+  authManager.setDeviceFlowCallback((status) => {
+    mainWindow?.webContents.send('auth:device-flow-status', status);
+  });
+
+  ipcMain.handle('auth:get-session', () => authManager.getSession());
+  ipcMain.handle('auth:login', () => authManager.startDeviceFlow());
+  ipcMain.handle('auth:logout', () => authManager.logout());
+  ipcMain.handle('auth:get-token', () => authManager.getToken());
 
   // Get app info
   ipcMain.handle('app:info', () => {
