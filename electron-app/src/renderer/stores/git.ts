@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { useProjectsStore } from './projects';
 import { useNotificationsStore } from './notifications';
-import type { GitBranchInfo, GitLogEntry } from '@/types/window';
+import type { GitBranchInfo, GitLogEntry, GitHubRelease } from '@/types/window';
 
 export const useGitStore = defineStore('git', () => {
   const projects = useProjectsStore();
@@ -25,30 +25,41 @@ export const useGitStore = defineStore('git', () => {
   const hasMergeConflict = ref(false);
   const isOffline = ref(false);
 
+  // New state for dev/release model
+  const releases = ref<GitHubRelease[]>([]);
+  const isLoadingReleases = ref(false);
+  const devAheadOfMain = ref(0);
+  const mainAheadOfDev = ref(0);
+
   let fetchIntervalId: ReturnType<typeof setInterval> | null = null;
 
   // Computed
   const hasRemote = computed(() => remoteUrl.value !== null);
+  const isGitHubRemote = computed(() => remoteUrl.value?.includes('github.com') ?? false);
   const isDiverged = computed(() => ahead.value > 0 && behind.value > 0);
   const hasUnsavedChanges = computed(() => ahead.value > 0);
   const canPush = computed(() => ahead.value > 0 && !isDiverged.value && !isPushing.value);
   const canPull = computed(() => behind.value > 0 && ahead.value === 0 && !isPulling.value);
 
-  const versionBranches = computed(() =>
-    branches.value
-      .filter((b) => /^v\d+$/.test(b.name))
-      .sort((a, b) => {
-        const numA = parseInt(a.name.slice(1), 10);
-        const numB = parseInt(b.name.slice(1), 10);
-        return numA - numB;
-      }),
-  );
+  const hasDevBranch = computed(() => branches.value.some((b) => b.name === 'dev'));
+  const isOnMain = computed(() => currentBranch.value === 'main');
+  const isOnDev = computed(() => currentBranch.value === 'dev');
 
-  const nextVersionName = computed(() => {
-    const existing = versionBranches.value.map((b) => parseInt(b.name.slice(1), 10));
-    const max = existing.length > 0 ? Math.max(...existing) : 0;
-    return `v${max + 1}`;
-  });
+  const latestRelease = computed(() => releases.value.length > 0 ? releases.value[0] : null);
+
+  function nextReleaseVersion(bump: 'minor' | 'major' = 'minor'): string {
+    const latest = latestRelease.value;
+    if (!latest) return 'v1.0';
+
+    const match = latest.tagName.match(/^v?(\d+)\.(\d+)/);
+    if (!match) return 'v1.0';
+
+    const major = parseInt(match[1], 10);
+    const minor = parseInt(match[2], 10);
+
+    if (bump === 'major') return `v${major + 1}.0`;
+    return `v${major}.${minor + 1}`;
+  }
 
   // Helpers
   function getProjectPath(): string | null {
@@ -86,7 +97,7 @@ export const useGitStore = defineStore('git', () => {
         await refreshStatus();
         return true;
       } else {
-        // Network error → offline
+        // Network error -> offline
         if (result.error?.includes('Could not resolve') || result.error?.includes('unable to access')) {
           isOffline.value = true;
         }
@@ -211,37 +222,37 @@ export const useGitStore = defineStore('git', () => {
     return true;
   }
 
-  async function createVersion(baseBranch?: string): Promise<boolean> {
+  /**
+   * Ensure the dev branch exists. Creates from main if it doesn't, pushes to remote.
+   */
+  async function ensureDevBranch(): Promise<boolean> {
     const path = getProjectPath();
     if (!path) return false;
 
-    const name = nextVersionName.value;
-    const base = baseBranch || (versionBranches.value.length > 0 ? currentBranch.value : 'main');
+    if (hasDevBranch.value) return true;
 
-    const result = await window.git.createBranch(path, name, base);
+    const result = await window.git.createBranch(path, 'dev', 'main');
     if (!result.success) {
-      notifications.error('Failed to create version', result.error || 'Unknown error');
+      notifications.error('Failed to create dev branch', result.error || 'Unknown error');
       return false;
     }
 
-    currentBranch.value = name;
+    currentBranch.value = 'dev';
 
     // Push new branch to remote if available
     if (hasRemote.value) {
       await window.git.push(path);
     }
 
-    // Reload project data + branches
-    if (projects.currentProjectId) {
-      await projects.loadProject(projects.currentProjectId);
-    }
     await refreshBranches();
-
-    notifications.success(`Created ${name}`, `Now working on version ${name}`);
+    notifications.success('Created dev branch', 'Development branch created from main');
     return true;
   }
 
-  async function mergeIntoMain(sourceBranch: string): Promise<boolean> {
+  /**
+   * Merge dev into main: checkout main -> merge dev --ff-only -> push -> stay on main.
+   */
+  async function mergeDevIntoMain(): Promise<boolean> {
     const path = getProjectPath();
     if (!path) return false;
 
@@ -252,11 +263,14 @@ export const useGitStore = defineStore('git', () => {
       return false;
     }
 
-    const mergeResult = await window.git.merge(path, sourceBranch, true);
+    const mergeResult = await window.git.merge(path, 'dev', true);
     if (!mergeResult.success) {
-      // Switch back to source branch
-      await window.git.checkout(path, sourceBranch);
-      notifications.error('Merge failed', mergeResult.error || 'Cannot fast-forward merge. Consider creating a Pull Request.');
+      // Switch back to where we were
+      await window.git.checkout(path, 'dev');
+      notifications.error(
+        'Merge failed',
+        mergeResult.error || 'Cannot fast-forward merge. Try rebasing dev onto main first.',
+      );
       return false;
     }
 
@@ -265,12 +279,88 @@ export const useGitStore = defineStore('git', () => {
       await window.git.push(path);
     }
 
-    // Switch back to source branch
-    await window.git.checkout(path, sourceBranch);
-    await refreshBranches();
+    currentBranch.value = 'main';
 
-    notifications.success('Published to main', `${sourceBranch} has been merged into main`);
+    // Reload project data + branches
+    if (projects.currentProjectId) {
+      await projects.loadProject(projects.currentProjectId);
+    }
+    await refreshBranches();
+    await refreshBranchDiff();
+
+    notifications.success('Merged into main', 'dev has been merged into main');
     return true;
+  }
+
+  /**
+   * Refresh the commit difference between dev and main.
+   */
+  async function refreshBranchDiff(): Promise<void> {
+    const path = getProjectPath();
+    if (!path || !hasDevBranch.value) {
+      devAheadOfMain.value = 0;
+      mainAheadOfDev.value = 0;
+      return;
+    }
+
+    try {
+      const [devAhead, mainAhead] = await Promise.all([
+        window.git.revListCount(path, 'main', 'dev'),
+        window.git.revListCount(path, 'dev', 'main'),
+      ]);
+      devAheadOfMain.value = devAhead.success ? devAhead.count : 0;
+      mainAheadOfDev.value = mainAhead.success ? mainAhead.count : 0;
+    } catch {
+      devAheadOfMain.value = 0;
+      mainAheadOfDev.value = 0;
+    }
+  }
+
+  /**
+   * Load GitHub releases for the current project.
+   */
+  async function loadReleases(): Promise<void> {
+    if (!remoteUrl.value || !isGitHubRemote.value) {
+      releases.value = [];
+      return;
+    }
+
+    isLoadingReleases.value = true;
+    try {
+      const result = await window.github.listReleases({ remoteUrl: remoteUrl.value });
+      if (result.success) {
+        releases.value = result.releases;
+      }
+    } catch {
+      // Silently fail — releases are non-critical
+    } finally {
+      isLoadingReleases.value = false;
+    }
+  }
+
+  /**
+   * Create a GitHub release (tag + push + release).
+   */
+  async function createRelease(params: { tagName: string; name: string; body: string }): Promise<boolean> {
+    const path = getProjectPath();
+    if (!path || !remoteUrl.value) return false;
+
+    const result = await window.github.createRelease({
+      remoteUrl: remoteUrl.value,
+      tagName: params.tagName,
+      name: params.name,
+      body: params.body,
+      projectPath: path,
+    });
+
+    if (result.success) {
+      notifications.success('Release created', `${params.tagName} published on GitHub`);
+      await loadReleases();
+      return true;
+    } else {
+      notifications.error('Release failed', result.error || 'Unknown error');
+      return false;
+    }
   }
 
   async function loadRecentCommits(count = 10): Promise<void> {
@@ -330,9 +420,13 @@ export const useGitStore = defineStore('git', () => {
    */
   async function initialize(): Promise<void> {
     await refreshStatus();
+    await refreshBranches();
+    await refreshBranchDiff();
     if (hasRemote.value) {
-      await refreshBranches();
       await fetch();
+      if (isGitHubRemote.value) {
+        loadReleases(); // Fire and forget
+      }
       startBackgroundFetch();
     }
   }
@@ -341,11 +435,14 @@ export const useGitStore = defineStore('git', () => {
     stopBackgroundFetch();
     branches.value = [];
     recentCommits.value = [];
+    releases.value = [];
     ahead.value = 0;
     behind.value = 0;
     isClean.value = true;
     hasMergeConflict.value = false;
     isOffline.value = false;
+    devAheadOfMain.value = 0;
+    mainAheadOfDev.value = 0;
   }
 
   return {
@@ -365,15 +462,23 @@ export const useGitStore = defineStore('git', () => {
     recentCommits,
     hasMergeConflict,
     isOffline,
+    releases,
+    isLoadingReleases,
+    devAheadOfMain,
+    mainAheadOfDev,
     // Computed
     hasRemote,
+    isGitHubRemote,
     isDiverged,
     hasUnsavedChanges,
     canPush,
     canPull,
-    versionBranches,
-    nextVersionName,
+    hasDevBranch,
+    isOnMain,
+    isOnDev,
+    latestRelease,
     // Actions
+    nextReleaseVersion,
     setAutoSave,
     fetch,
     pull,
@@ -381,8 +486,11 @@ export const useGitStore = defineStore('git', () => {
     refreshStatus,
     refreshBranches,
     switchBranch,
-    createVersion,
-    mergeIntoMain,
+    ensureDevBranch,
+    mergeDevIntoMain,
+    refreshBranchDiff,
+    loadReleases,
+    createRelease,
     loadRecentCommits,
     abortMerge,
     autoSyncIfSafe,

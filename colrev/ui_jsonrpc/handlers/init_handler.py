@@ -81,7 +81,7 @@ class InitHandler:
 
             logger.info(f"Project {project_id} initialized successfully")
 
-            # Store the user's readable title in settings.json
+            # Store the user's readable title in settings.json and commit
             settings_path = target_path / "settings.json"
             if settings_path.exists() and title != project_id:
                 with open(settings_path) as f:
@@ -89,6 +89,19 @@ class InitHandler:
                 settings["project"]["title"] = title
                 with open(settings_path, "w") as f:
                     json.dump(settings, f, indent=4)
+
+                # Commit the title change so the working tree stays clean
+                import subprocess
+                subprocess.run(
+                    ["git", "add", "settings.json"],
+                    cwd=str(target_path),
+                    capture_output=True,
+                )
+                subprocess.run(
+                    ["git", "commit", "-m", "Set project title"],
+                    cwd=str(target_path),
+                    capture_output=True,
+                )
 
             # Format and return response
             return response_formatter.format_init_response(

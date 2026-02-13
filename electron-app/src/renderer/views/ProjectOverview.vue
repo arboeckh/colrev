@@ -11,14 +11,17 @@ import {
   HardDrive,
   GitBranch,
   GitMerge,
-  Plus,
+  Tag,
   ArrowUp,
   ArrowDown,
+  CheckCircle2,
+  Info,
 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
@@ -27,7 +30,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import CreateVersionDialog from '@/components/common/CreateVersionDialog.vue';
 import ActivityFeed from '@/components/common/ActivityFeed.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
@@ -41,17 +43,66 @@ const auth = useAuthStore();
 const git = useGitStore();
 const notifications = useNotificationsStore();
 
-// Version branch management
-const showCreateVersionDialog = ref(false);
+// Branch switching
+const isSwitchingBranch = ref(false);
+
+async function switchToBranch(branchName: string) {
+  if (branchName === git.currentBranch || isSwitchingBranch.value) return;
+  isSwitchingBranch.value = true;
+  try {
+    if (branchName === 'dev') {
+      const created = await git.ensureDevBranch();
+      if (!created) return;
+      if (git.currentBranch === 'dev') return;
+    }
+    await git.switchBranch(branchName);
+  } finally {
+    isSwitchingBranch.value = false;
+  }
+}
+
+// Merge dev into main
 const isMerging = ref(false);
 
-async function mergeIntoMain() {
-  if (git.currentBranch === 'main') return;
+async function mergeDevIntoMain() {
   isMerging.value = true;
   try {
-    await git.mergeIntoMain(git.currentBranch);
+    await git.mergeDevIntoMain();
   } finally {
     isMerging.value = false;
+  }
+}
+
+// Release dialog
+const showReleaseDialog = ref(false);
+const releaseBump = ref<'minor' | 'major'>('minor');
+const releaseTitle = ref('');
+const releaseNotes = ref('');
+const isCreatingRelease = ref(false);
+
+const releaseTag = computed(() => git.nextReleaseVersion(releaseBump.value));
+
+function openReleaseDialog() {
+  releaseBump.value = 'minor';
+  releaseTitle.value = '';
+  releaseNotes.value = '';
+  showReleaseDialog.value = true;
+}
+
+async function submitRelease() {
+  isCreatingRelease.value = true;
+  try {
+    const tag = releaseTag.value;
+    const success = await git.createRelease({
+      tagName: tag,
+      name: releaseTitle.value || tag,
+      body: releaseNotes.value,
+    });
+    if (success) {
+      showReleaseDialog.value = false;
+    }
+  } finally {
+    isCreatingRelease.value = false;
   }
 }
 
@@ -114,6 +165,28 @@ function navigateToStep(stepRoute: string) {
   if (projects.currentProjectId) {
     router.push(`/project/${projects.currentProjectId}/${stepRoute}`);
   }
+}
+
+// Branch diff description
+const branchDiffText = computed(() => {
+  if (!git.hasDevBranch) return null;
+  if (git.devAheadOfMain === 0 && git.mainAheadOfDev === 0) return 'in sync';
+  const parts: string[] = [];
+  if (git.devAheadOfMain > 0) {
+    parts.push(`dev is ${git.devAheadOfMain} commit${git.devAheadOfMain !== 1 ? 's' : ''} ahead of main`);
+  }
+  if (git.mainAheadOfDev > 0) {
+    parts.push(`main is ${git.mainAheadOfDev} commit${git.mainAheadOfDev !== 1 ? 's' : ''} ahead of dev`);
+  }
+  return parts.join(', ');
+});
+
+function formatDate(dateStr: string) {
+  return new Date(dateStr).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 </script>
 
@@ -184,80 +257,198 @@ function navigateToStep(stepRoute: string) {
 
     <Separator />
 
-    <!-- Two-column grid: Versions + Activity -->
+    <!-- Two-column grid: Branch Status + Releases / Activity -->
     <div class="grid grid-cols-1 lg:grid-cols-5 gap-0 pt-4">
-      <!-- Versions (3/5 width) -->
+      <!-- Branch Status & Releases (3/5 width) -->
       <div class="lg:col-span-3 lg:pr-5 lg:border-r border-border">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-medium text-muted-foreground">Versions</h3>
-          <Button
-            variant="outline"
-            size="sm"
-            class="h-7 text-xs gap-1"
-            data-testid="new-version-button"
-            @click="showCreateVersionDialog = true"
+        <!-- Branch status section -->
+        <h3 class="text-sm font-medium text-muted-foreground mb-3">Branch Status</h3>
+
+        <div class="border border-border rounded-md overflow-hidden">
+          <!-- Main branch row -->
+          <div
+            class="flex items-center justify-between py-2 px-3 transition-colors hover:bg-muted/40"
+            :class="[git.isOnMain ? 'bg-muted/20' : 'cursor-pointer']"
+            data-testid="branch-status-main"
+            @click="!git.isOnMain && switchToBranch('main')"
           >
-            <Plus class="h-3.5 w-3.5" />
-            New Version
-          </Button>
-        </div>
-
-        <!-- Empty state -->
-        <div v-if="git.versionBranches.length === 0" class="flex flex-col items-center justify-center py-8 text-center">
-          <GitBranch class="h-7 w-7 text-muted-foreground/30 mb-2" />
-          <p class="text-sm text-muted-foreground">No version branches yet</p>
-          <p class="text-xs text-muted-foreground/60 mt-0.5">Create one to start collaborating</p>
-        </div>
-
-        <!-- Branch list -->
-        <div v-else>
-          <div class="border border-border rounded-md overflow-hidden">
-            <div
-              v-for="(branch, index) in git.versionBranches"
-              :key="branch.name"
-              class="flex items-center justify-between py-2 px-3 transition-colors hover:bg-muted/40"
-              :class="[
-                index > 0 ? 'border-t border-border' : '',
-                branch.name === git.currentBranch ? 'bg-muted/20' : '',
-              ]"
-              :data-testid="`version-branch-${branch.name}`"
-            >
-              <div class="flex items-center gap-2">
-                <span
-                  class="h-2 w-2 rounded-full shrink-0"
-                  :class="branch.name === git.currentBranch ? 'bg-green-500' : 'bg-muted-foreground/30'"
-                />
-                <span class="font-mono text-sm">{{ branch.name }}</span>
-                <Badge v-if="branch.name === git.currentBranch" variant="secondary" class="text-[10px] px-1.5 py-0">
-                  current
-                </Badge>
-              </div>
-              <div class="flex items-center gap-1.5">
-                <Badge v-if="branch.ahead > 0" variant="outline" class="text-[10px] px-1.5 py-0 gap-0.5 text-blue-500 border-blue-500/30">
-                  <ArrowUp class="h-2.5 w-2.5" />
-                  {{ branch.ahead }}
-                </Badge>
-                <Badge v-if="branch.behind > 0" variant="outline" class="text-[10px] px-1.5 py-0 gap-0.5 text-orange-500 border-orange-500/30">
-                  <ArrowDown class="h-2.5 w-2.5" />
-                  {{ branch.behind }}
-                </Badge>
-              </div>
+            <div class="flex items-center gap-2">
+              <span
+                class="h-2 w-2 rounded-full shrink-0"
+                :class="git.isOnMain ? 'bg-green-500' : 'bg-muted-foreground/30'"
+              />
+              <span class="font-mono text-sm">main</span>
+              <Badge v-if="git.isOnMain" variant="secondary" class="text-[10px] px-1.5 py-0">
+                current
+              </Badge>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <Badge v-if="git.isOnMain && git.ahead > 0" variant="outline" class="text-[10px] px-1.5 py-0 gap-0.5 text-blue-500 border-blue-500/30">
+                <ArrowUp class="h-2.5 w-2.5" />
+                {{ git.ahead }}
+              </Badge>
+              <Badge v-if="git.isOnMain && git.behind > 0" variant="outline" class="text-[10px] px-1.5 py-0 gap-0.5 text-orange-500 border-orange-500/30">
+                <ArrowDown class="h-2.5 w-2.5" />
+                {{ git.behind }}
+              </Badge>
+              <Button
+                v-if="!git.isOnMain"
+                variant="ghost"
+                size="sm"
+                class="h-6 text-[10px] px-2"
+                :disabled="isSwitchingBranch"
+                data-testid="switch-to-main"
+              >
+                {{ isSwitchingBranch ? 'Switching...' : 'Switch' }}
+              </Button>
             </div>
           </div>
 
-          <!-- Merge into main button -->
+          <!-- Dev branch row -->
+          <div
+            class="flex items-center justify-between py-2 px-3 border-t border-border transition-colors hover:bg-muted/40"
+            :class="[git.isOnDev ? 'bg-muted/20' : 'cursor-pointer']"
+            data-testid="branch-status-dev"
+            @click="!git.isOnDev && switchToBranch('dev')"
+          >
+            <div class="flex items-center gap-2">
+              <span
+                class="h-2 w-2 rounded-full shrink-0"
+                :class="git.isOnDev ? 'bg-green-500' : 'bg-muted-foreground/30'"
+              />
+              <span class="font-mono text-sm">dev</span>
+              <Badge v-if="git.isOnDev" variant="secondary" class="text-[10px] px-1.5 py-0">
+                current
+              </Badge>
+              <Badge v-if="!git.hasDevBranch" variant="outline" class="text-[10px] px-1.5 py-0 text-muted-foreground">
+                not created
+              </Badge>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <Badge v-if="git.isOnDev && git.ahead > 0" variant="outline" class="text-[10px] px-1.5 py-0 gap-0.5 text-blue-500 border-blue-500/30">
+                <ArrowUp class="h-2.5 w-2.5" />
+                {{ git.ahead }}
+              </Badge>
+              <Badge v-if="git.isOnDev && git.behind > 0" variant="outline" class="text-[10px] px-1.5 py-0 gap-0.5 text-orange-500 border-orange-500/30">
+                <ArrowDown class="h-2.5 w-2.5" />
+                {{ git.behind }}
+              </Badge>
+              <Button
+                v-if="!git.isOnDev"
+                variant="ghost"
+                size="sm"
+                class="h-6 text-[10px] px-2"
+                :disabled="isSwitchingBranch"
+                data-testid="switch-to-dev"
+              >
+                {{ isSwitchingBranch ? 'Switching...' : 'Switch' }}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dev <-> Main diff -->
+        <div v-if="branchDiffText" class="flex items-center gap-1.5 mt-2 text-xs text-muted-foreground">
+          <template v-if="branchDiffText === 'in sync'">
+            <CheckCircle2 class="h-3.5 w-3.5 text-green-500" />
+            <span>dev and main are in sync</span>
+          </template>
+          <template v-else>
+            <GitBranch class="h-3.5 w-3.5" />
+            <span>{{ branchDiffText }}</span>
+          </template>
+        </div>
+
+        <!-- Actions when on main -->
+        <div v-if="git.isOnMain" class="mt-4 space-y-4">
+          <!-- Merge dev into main -->
           <Button
-            v-if="git.currentBranch !== 'main' && /^v\d+$/.test(git.currentBranch)"
+            v-if="git.hasDevBranch && git.devAheadOfMain > 0"
             variant="outline"
             size="sm"
-            class="w-full mt-3 gap-1.5"
-            :disabled="isMerging || git.ahead > 0"
-            data-testid="merge-into-main"
-            @click="mergeIntoMain"
+            class="w-full gap-1.5"
+            :disabled="isMerging"
+            data-testid="merge-dev-into-main"
+            @click="mergeDevIntoMain"
           >
             <GitMerge class="h-3.5 w-3.5" />
-            {{ isMerging ? 'Merging...' : `Publish ${git.currentBranch} to main` }}
+            {{ isMerging ? 'Merging...' : `Merge dev into main (${git.devAheadOfMain} commit${git.devAheadOfMain !== 1 ? 's' : ''})` }}
           </Button>
+
+          <!-- Releases section (GitHub only) -->
+          <template v-if="isGitHubRemote">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-medium text-muted-foreground">Releases</h3>
+              <Button
+                variant="outline"
+                size="sm"
+                class="h-7 text-xs gap-1"
+                data-testid="new-release-button"
+                @click="openReleaseDialog"
+              >
+                <Tag class="h-3.5 w-3.5" />
+                New Release
+              </Button>
+            </div>
+
+            <!-- Releases list -->
+            <div v-if="git.isLoadingReleases" class="flex items-center justify-center py-4">
+              <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+
+            <div v-else-if="git.releases.length === 0" class="flex flex-col items-center justify-center py-6 text-center">
+              <Tag class="h-7 w-7 text-muted-foreground/30 mb-2" />
+              <p class="text-sm text-muted-foreground">No releases yet</p>
+              <p class="text-xs text-muted-foreground/60 mt-0.5">Create a release to publish a version</p>
+            </div>
+
+            <div v-else class="border border-border rounded-md overflow-hidden">
+              <div
+                v-for="(release, index) in git.releases"
+                :key="release.id"
+                class="flex items-center justify-between py-2 px-3 hover:bg-muted/40 transition-colors"
+                :class="index > 0 ? 'border-t border-border' : ''"
+                :data-testid="`release-${release.tagName}`"
+              >
+                <div class="flex items-center gap-2 min-w-0">
+                  <Tag class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span class="font-mono text-sm font-medium">{{ release.tagName }}</span>
+                  <span v-if="release.name !== release.tagName" class="text-xs text-muted-foreground truncate">
+                    {{ release.name }}
+                  </span>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <span class="text-xs text-muted-foreground">{{ formatDate(release.createdAt) }}</span>
+                  <a
+                    :href="release.htmlUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-muted-foreground hover:text-foreground"
+                  >
+                    <ExternalLink class="h-3 w-3" />
+                  </a>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- No GitHub remote -->
+          <div v-else-if="!remoteUrl" class="flex items-center gap-2 text-xs text-muted-foreground py-2">
+            <Info class="h-3.5 w-3.5" />
+            Connect to GitHub to manage releases
+          </div>
+
+          <!-- Hint to switch to dev -->
+          <div class="flex items-center gap-2 text-xs text-muted-foreground py-2">
+            <Info class="h-3.5 w-3.5" />
+            Switch to dev to make changes
+          </div>
+        </div>
+
+        <!-- Hint when on dev -->
+        <div v-if="git.isOnDev" class="flex items-center gap-2 mt-4 text-xs text-muted-foreground py-2">
+          <Info class="h-3.5 w-3.5" />
+          Switch to main to create releases
         </div>
       </div>
 
@@ -268,9 +459,80 @@ function navigateToStep(stepRoute: string) {
       </div>
     </div>
 
-    <!-- Dialogs -->
-    <CreateVersionDialog v-model:open="showCreateVersionDialog" />
+    <!-- New Release Dialog -->
+    <Dialog v-model:open="showReleaseDialog">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Create Release</DialogTitle>
+          <DialogDescription>
+            Create a tag and publish a GitHub release.
+          </DialogDescription>
+        </DialogHeader>
+        <div class="space-y-4 py-4">
+          <!-- Version bump toggle -->
+          <div class="space-y-2">
+            <label class="text-sm font-medium">Version</label>
+            <div class="flex items-center gap-2">
+              <Button
+                :variant="releaseBump === 'minor' ? 'default' : 'outline'"
+                size="sm"
+                class="text-xs h-7"
+                @click="releaseBump = 'minor'"
+              >
+                Minor ({{ git.nextReleaseVersion('minor') }})
+              </Button>
+              <Button
+                :variant="releaseBump === 'major' ? 'default' : 'outline'"
+                size="sm"
+                class="text-xs h-7"
+                @click="releaseBump = 'major'"
+              >
+                Major ({{ git.nextReleaseVersion('major') }})
+              </Button>
+            </div>
+            <p class="text-xs text-muted-foreground font-mono">{{ releaseTag }}</p>
+          </div>
 
+          <!-- Title -->
+          <div class="space-y-2">
+            <label class="text-sm font-medium">Title</label>
+            <Input
+              v-model="releaseTitle"
+              :placeholder="releaseTag"
+              :disabled="isCreatingRelease"
+              data-testid="release-title-input"
+            />
+          </div>
+
+          <!-- Notes -->
+          <div class="space-y-2">
+            <label class="text-sm font-medium">Release Notes <span class="text-muted-foreground font-normal">(optional)</span></label>
+            <Textarea
+              v-model="releaseNotes"
+              placeholder="Describe what's changed..."
+              :disabled="isCreatingRelease"
+              rows="4"
+              data-testid="release-notes-input"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" :disabled="isCreatingRelease" @click="showReleaseDialog = false">
+            Cancel
+          </Button>
+          <Button
+            :disabled="isCreatingRelease"
+            data-testid="submit-create-release"
+            @click="submitRelease"
+          >
+            <Loader2 v-if="isCreatingRelease" class="h-4 w-4 mr-2 animate-spin" />
+            {{ isCreatingRelease ? 'Creating...' : `Create ${releaseTag}` }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Push to GitHub Dialog -->
     <Dialog v-model:open="showPushDialog">
       <DialogContent>
         <DialogHeader>

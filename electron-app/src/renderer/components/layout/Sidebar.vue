@@ -52,50 +52,34 @@ const overallCounts = computed(() => {
   <aside class="w-56 border-r border-border bg-muted/30 flex flex-col">
     <ScrollArea class="flex-1 p-3">
       <!-- Overview link -->
-      <RouterLink
-        :to="`/project/${projectId}`"
-        data-testid="sidebar-overview"
-        class="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors mb-1"
-        :class="[
+      <RouterLink :to="`/project/${projectId}`" data-testid="sidebar-overview"
+        class="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors mb-1" :class="[
           isOverviewActive
             ? 'bg-accent text-accent-foreground font-medium'
             : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-        ]"
-      >
+        ]">
         <LayoutDashboard class="h-4 w-4" />
-        <span>Overview</span>
+        <span>Versions</span>
       </RouterLink>
 
       <Separator class="my-3" />
 
       <!-- Workflow steps with connecting lines -->
       <nav class="flex flex-col pl-2">
-        <SidebarItem
-          v-for="(step, index) in WORKFLOW_STEPS"
-          :key="step.id"
-          :step="step"
-          :project-id="projectId"
-          :operation-info="getOperationInfo(step.id)"
-          :record-counts="recordCounts"
-          :overall-counts="overallCounts"
-          :is-first="index === 0"
-          :is-last="index === WORKFLOW_STEPS.length - 1"
-        />
+        <SidebarItem v-for="(step, index) in WORKFLOW_STEPS" :key="step.id" :step="step" :project-id="projectId"
+          :operation-info="getOperationInfo(step.id)" :record-counts="recordCounts" :overall-counts="overallCounts"
+          :is-first="index === 0" :is-last="index === WORKFLOW_STEPS.length - 1" />
       </nav>
 
       <Separator class="my-3" />
 
       <!-- Settings link -->
-      <RouterLink
-        :to="`/project/${projectId}/settings`"
-        data-testid="sidebar-settings"
-        class="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors"
-        :class="[
+      <RouterLink :to="`/project/${projectId}/settings`" data-testid="sidebar-settings"
+        class="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors" :class="[
           isSettingsActive
             ? 'bg-accent text-accent-foreground font-medium'
             : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-        ]"
-      >
+        ]">
         <Settings class="h-4 w-4" />
         <span>Settings</span>
       </RouterLink>

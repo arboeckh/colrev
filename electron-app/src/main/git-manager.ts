@@ -320,6 +320,71 @@ export async function gitAbortMerge(
   return { success: true };
 }
 
+export async function gitAddAndCommit(
+  projectPath: string,
+  message: string,
+): Promise<GitResult> {
+  const { exec } = await import('dugite');
+
+  const addResult = await exec(['add', '-A'], projectPath);
+  if (addResult.exitCode !== 0) {
+    return { success: false, error: addResult.stderr || 'git add failed' };
+  }
+
+  // Check if there's anything to commit
+  const statusResult = await exec(['status', '--porcelain'], projectPath);
+  if (statusResult.stdout.trim() === '') {
+    return { success: true }; // Nothing to commit
+  }
+
+  const commitResult = await exec(['commit', '-m', message], projectPath);
+  if (commitResult.exitCode !== 0) {
+    return { success: false, error: commitResult.stderr || 'git commit failed' };
+  }
+  return { success: true };
+}
+
+export async function gitCreateTag(
+  projectPath: string,
+  tagName: string,
+  message: string,
+): Promise<GitResult> {
+  const { exec } = await import('dugite');
+  const result = await exec(['tag', '-a', tagName, '-m', message], projectPath);
+  if (result.exitCode !== 0) {
+    return { success: false, error: result.stderr || `Failed to create tag ${tagName}` };
+  }
+  return { success: true };
+}
+
+export async function gitPushTags(
+  projectPath: string,
+  token: string | null = null,
+): Promise<GitResult> {
+  const { exec } = await import('dugite');
+
+  return withTokenAuth(projectPath, token, async () => {
+    const result = await exec(['push', 'origin', '--tags'], projectPath);
+    if (result.exitCode !== 0) {
+      return { success: false, error: result.stderr || 'Failed to push tags' };
+    }
+    return { success: true };
+  });
+}
+
+export async function gitRevListCount(
+  projectPath: string,
+  from: string,
+  to: string,
+): Promise<{ success: boolean; count: number; error?: string }> {
+  const { exec } = await import('dugite');
+  const result = await exec(['rev-list', '--count', `${from}..${to}`], projectPath);
+  if (result.exitCode !== 0) {
+    return { success: false, count: 0, error: result.stderr || 'rev-list failed' };
+  }
+  return { success: true, count: parseInt(result.stdout.trim(), 10) || 0 };
+}
+
 export async function gitHasMergeConflict(
   projectPath: string,
 ): Promise<boolean> {

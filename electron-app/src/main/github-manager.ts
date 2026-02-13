@@ -107,6 +107,117 @@ export async function listColrevRepos(token: string): Promise<GitHubRepo[]> {
   return colrevRepos;
 }
 
+export interface GitHubRelease {
+  id: number;
+  tagName: string;
+  name: string;
+  body: string;
+  htmlUrl: string;
+  draft: boolean;
+  prerelease: boolean;
+  createdAt: string;
+  publishedAt: string | null;
+  author: string;
+}
+
+/**
+ * Parse owner/repo from a GitHub HTTPS or SSH URL.
+ */
+export function parseOwnerRepo(remoteUrl: string): { owner: string; repo: string } | null {
+  // HTTPS: https://github.com/owner/repo.git
+  const httpsMatch = remoteUrl.match(/github\.com[/:]([^/]+)\/([^/.]+?)(?:\.git)?$/);
+  if (httpsMatch) {
+    return { owner: httpsMatch[1], repo: httpsMatch[2] };
+  }
+  return null;
+}
+
+/**
+ * List releases for a GitHub repository.
+ */
+export async function listReleases(
+  token: string,
+  owner: string,
+  repo: string,
+): Promise<GitHubRelease[]> {
+  const res = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/releases?per_page=30`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    },
+  );
+
+  if (!res.ok) return [];
+
+  const data = await res.json();
+  if (!Array.isArray(data)) return [];
+
+  return data.map((r: any) => ({
+    id: r.id,
+    tagName: r.tag_name,
+    name: r.name || r.tag_name,
+    body: r.body || '',
+    htmlUrl: r.html_url,
+    draft: r.draft,
+    prerelease: r.prerelease,
+    createdAt: r.created_at,
+    publishedAt: r.published_at,
+    author: r.author?.login || '',
+  }));
+}
+
+/**
+ * Create a GitHub release.
+ */
+export async function createGitHubRelease(
+  token: string,
+  owner: string,
+  repo: string,
+  params: { tagName: string; name: string; body: string },
+): Promise<{ success: boolean; release?: GitHubRelease; error?: string }> {
+  const res = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/releases`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        tag_name: params.tagName,
+        name: params.name,
+        body: params.body,
+      }),
+    },
+  );
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    return { success: false, error: errorData.message || 'Failed to create release' };
+  }
+
+  const r = await res.json();
+  return {
+    success: true,
+    release: {
+      id: r.id,
+      tagName: r.tag_name,
+      name: r.name || r.tag_name,
+      body: r.body || '',
+      htmlUrl: r.html_url,
+      draft: r.draft,
+      prerelease: r.prerelease,
+      createdAt: r.created_at,
+      publishedAt: r.published_at,
+      author: r.author?.login || '',
+    },
+  };
+}
+
 interface CreateRepoAndPushParams {
   token: string;
   repoName: string;

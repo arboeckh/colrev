@@ -53,8 +53,7 @@ async function handlePush() {
           {{ projectTitle }}
         </h1>
 
-        <!-- Branch switcher (only when remote exists) -->
-        <BranchSwitcher v-if="git.hasRemote" />
+        <BranchSwitcher />
       </div>
 
       <!-- Right side: Save button + Git status + Theme toggle + Refresh -->

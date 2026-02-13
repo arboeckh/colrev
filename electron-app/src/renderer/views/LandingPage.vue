@@ -132,6 +132,16 @@ async function createProject() {
 
       await projects.loadProjectGitStatus(result.project_id);
 
+      // Create dev branch and switch to it so user starts working there
+      try {
+        await window.git.createBranch(result.path, 'dev', 'main');
+        if (createOnGitHub.value && auth.isAuthenticated) {
+          await window.git.push(result.path);
+        }
+      } catch {
+        // Non-critical — dev branch can be created later
+      }
+
       // Reset dialog
       showNewProjectDialog.value = false;
       newProjectName.value = '';

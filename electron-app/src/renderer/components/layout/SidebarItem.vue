@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
-import { Check, AlertCircle } from 'lucide-vue-next';
+import { Check, AlertCircle, BookOpen } from 'lucide-vue-next';
 import type { WorkflowStepInfo, RecordCounts, OverallRecordCounts } from '@/types/project';
 import type { GetOperationInfoResponse } from '@/types/api';
 import { useProjectsStore } from '@/stores/projects';
@@ -132,8 +132,17 @@ const stepStatus = computed((): StepStatus => {
         :class="stepStatus === 'complete' ? 'bg-emerald-500' : 'bg-border'"
       />
 
-      <!-- Step indicator dot -->
+      <!-- Definition step: plain icon, no circle -->
       <div
+        v-if="step.id === 'review_definition'"
+        class="relative z-10 flex h-5 w-5 items-center justify-center bg-background text-foreground"
+      >
+        <BookOpen class="h-3.5 w-3.5" />
+      </div>
+
+      <!-- Step indicator dot (all other steps) -->
+      <div
+        v-else
         class="relative z-10 flex h-5 w-5 items-center justify-center rounded-full border-2 transition-all"
         :class="[
           stepStatus === 'complete'

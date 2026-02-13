@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { GitBranch, Check, ChevronDown, Plus, Shield } from 'lucide-vue-next';
+import { GitBranch, Check, ChevronDown, Shield, Code } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -11,18 +11,23 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
-import CreateVersionDialog from './CreateVersionDialog.vue';
 import { useGitStore } from '@/stores/git';
 
 const git = useGitStore();
 
-const showCreateDialog = ref(false);
 const isSwitching = ref(false);
 
 async function handleSwitch(branchName: string) {
   if (branchName === git.currentBranch || isSwitching.value) return;
   isSwitching.value = true;
   try {
+    if (branchName === 'dev') {
+      // Ensure dev branch exists before switching
+      const created = await git.ensureDevBranch();
+      if (!created) return;
+      // If ensureDevBranch just created it, we're already on dev
+      if (git.currentBranch === 'dev') return;
+    }
     await git.switchBranch(branchName);
   } finally {
     isSwitching.value = false;
@@ -47,31 +52,9 @@ async function handleSwitch(branchName: string) {
     </DropdownMenuTrigger>
 
     <DropdownMenuContent align="start" class="w-56">
-      <!-- Version branches -->
-      <DropdownMenuLabel v-if="git.versionBranches.length > 0">
-        Versions
-      </DropdownMenuLabel>
-      <DropdownMenuItem
-        v-for="branch in git.versionBranches"
-        :key="branch.name"
-        class="gap-2 font-mono text-xs"
-        :data-testid="`branch-option-${branch.name}`"
-        @click="handleSwitch(branch.name)"
-      >
-        <Check
-          class="h-3.5 w-3.5"
-          :class="branch.name === git.currentBranch ? 'opacity-100' : 'opacity-0'"
-        />
-        {{ branch.name }}
-        <Badge v-if="branch.ahead > 0" variant="secondary" class="ml-auto text-[10px] px-1 py-0">
-          {{ branch.ahead }}&#8593;
-        </Badge>
-      </DropdownMenuItem>
-
-      <DropdownMenuSeparator v-if="git.versionBranches.length > 0" />
+      <DropdownMenuLabel>Branches</DropdownMenuLabel>
 
       <!-- Main branch -->
-      <DropdownMenuLabel>Main</DropdownMenuLabel>
       <DropdownMenuItem
         class="gap-2 font-mono text-xs"
         data-testid="branch-option-main"
@@ -79,28 +62,33 @@ async function handleSwitch(branchName: string) {
       >
         <Check
           class="h-3.5 w-3.5"
-          :class="git.currentBranch === 'main' ? 'opacity-100' : 'opacity-0'"
+          :class="git.isOnMain ? 'opacity-100' : 'opacity-0'"
         />
         main
         <Badge variant="outline" class="ml-auto text-[10px] px-1 py-0 gap-0.5">
           <Shield class="h-2.5 w-2.5" />
-          protected
+          stable
         </Badge>
       </DropdownMenuItem>
 
       <DropdownMenuSeparator />
 
-      <!-- Create new version -->
+      <!-- Dev branch -->
       <DropdownMenuItem
-        class="gap-2 text-xs"
-        data-testid="create-new-version"
-        @click="showCreateDialog = true"
+        class="gap-2 font-mono text-xs"
+        data-testid="branch-option-dev"
+        @click="handleSwitch('dev')"
       >
-        <Plus class="h-3.5 w-3.5" />
-        New version...
+        <Check
+          class="h-3.5 w-3.5"
+          :class="git.isOnDev ? 'opacity-100' : 'opacity-0'"
+        />
+        dev
+        <Badge variant="secondary" class="ml-auto text-[10px] px-1 py-0 gap-0.5">
+          <Code class="h-2.5 w-2.5" />
+          development
+        </Badge>
       </DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenu>
-
-  <CreateVersionDialog v-model:open="showCreateDialog" />
 </template>

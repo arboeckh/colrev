@@ -55,6 +55,19 @@ export interface GitHubRepo {
   cloneUrl: string;
 }
 
+export interface GitHubRelease {
+  id: number;
+  tagName: string;
+  name: string;
+  body: string;
+  htmlUrl: string;
+  draft: boolean;
+  prerelease: boolean;
+  createdAt: string;
+  publishedAt: string | null;
+  author: string;
+}
+
 export interface GitHubAPI {
   createRepoAndPush: (params: {
     repoName: string;
@@ -67,6 +80,16 @@ export interface GitHubAPI {
     cloneUrl: string;
     projectId: string;
   }) => Promise<{ success: boolean; error?: string }>;
+  listReleases: (params: {
+    remoteUrl: string;
+  }) => Promise<{ success: boolean; releases: GitHubRelease[]; error?: string }>;
+  createRelease: (params: {
+    remoteUrl: string;
+    tagName: string;
+    name: string;
+    body: string;
+    projectPath: string;
+  }) => Promise<{ success: boolean; release?: GitHubRelease; error?: string }>;
 }
 
 export interface AuthAPI {
@@ -128,6 +151,8 @@ export interface GitAPI {
   dirtyState: (projectPath: string) => Promise<GitDirtyState>;
   abortMerge: (projectPath: string) => Promise<GitOperationResult>;
   hasMergeConflict: (projectPath: string) => Promise<boolean>;
+  addAndCommit: (projectPath: string, message: string) => Promise<GitOperationResult>;
+  revListCount: (projectPath: string, from: string, to: string) => Promise<{ success: boolean; count: number; error?: string }>;
 }
 
 declare global {

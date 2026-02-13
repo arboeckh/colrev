@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import { ColrevBackend } from './colrev-backend';
 import { setupGitEnvironment } from './git-env';
 import { AuthManager } from './auth-manager';
-import { createRepoAndPush, listColrevRepos } from './github-manager';
+import { createRepoAndPush, listColrevRepos, parseOwnerRepo, listReleases, createGitHubRelease } from './github-manager';
 import {
   gitFetch,
   gitPull,
@@ -18,6 +18,10 @@ import {
   gitAbortMerge,
   gitHasMergeConflict,
   gitClone,
+  gitCreateTag,
+  gitPushTags,
+  gitRevListCount,
+  gitAddAndCommit,
 } from './git-manager';
 
 // Register custom protocol scheme before app is ready
@@ -264,6 +268,55 @@ function setupIPC() {
   ipcMain.handle('git:has-merge-conflict', async (_, projectPath: string) => {
     return gitHasMergeConflict(projectPath);
   });
+
+  ipcMain.handle('git:add-and-commit', async (_, projectPath: string, message: string) => {
+    return gitAddAndCommit(projectPath, message);
+  });
+
+  ipcMain.handle('git:rev-list-count', async (_, projectPath: string, from: string, to: string) => {
+    return gitRevListCount(projectPath, from, to);
+  });
+
+  // GitHub: list releases
+  ipcMain.handle('github:list-releases', async (_, params: { remoteUrl: string }) => {
+    const token = authManager.getToken();
+    if (!token) return { success: false, error: 'Not authenticated', releases: [] };
+    const parsed = parseOwnerRepo(params.remoteUrl);
+    if (!parsed) return { success: false, error: 'Not a GitHub URL', releases: [] };
+    try {
+      const releases = await listReleases(token, parsed.owner, parsed.repo);
+      return { success: true, releases };
+    } catch (err) {
+      return { success: false, releases: [], error: err instanceof Error ? err.message : 'Failed to list releases' };
+    }
+  });
+
+  // GitHub: create release (tag + push tags + GitHub release)
+  ipcMain.handle(
+    'github:create-release',
+    async (_, params: { remoteUrl: string; tagName: string; name: string; body: string; projectPath: string }) => {
+      const token = authManager.getToken();
+      if (!token) return { success: false, error: 'Not authenticated' };
+      const parsed = parseOwnerRepo(params.remoteUrl);
+      if (!parsed) return { success: false, error: 'Not a GitHub URL' };
+
+      // 1. Create local tag
+      const tagResult = await gitCreateTag(params.projectPath, params.tagName, params.name);
+      if (!tagResult.success) return tagResult;
+
+      // 2. Push tags to remote
+      const pushResult = await gitPushTags(params.projectPath, token);
+      if (!pushResult.success) return pushResult;
+
+      // 3. Create GitHub release
+      const releaseResult = await createGitHubRelease(token, parsed.owner, parsed.repo, {
+        tagName: params.tagName,
+        name: params.name,
+        body: params.body,
+      });
+      return releaseResult;
+    },
+  );
 
   // Get app info
   ipcMain.handle('app:info', () => {
