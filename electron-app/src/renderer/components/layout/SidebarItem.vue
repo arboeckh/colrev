@@ -92,11 +92,14 @@ const stepStatus = computed((): StepStatus => {
   }
 
   if (props.step.id === 'search') {
-    // Search is complete only when there are records AND no sources need action
-    if (isSearchComplete.value) {
+    // Search step is complete when search is done AND no preprocessing records pending
+    if (isSearchComplete.value && pendingRecords.value === 0 && (processedRecords.value > 0 || everProcessedRecords.value > 0)) {
       return 'complete';
     }
-    // Otherwise search is "active" (in progress / needs work)
+    // Search has records but needs work (search or preprocessing)
+    if (isSearchComplete.value || pendingRecords.value > 0) {
+      return 'active';
+    }
     return 'active';
   }
 

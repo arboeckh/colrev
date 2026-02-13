@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { CheckSquare } from 'lucide-vue-next';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { CheckSquare, FileDown } from 'lucide-vue-next';
 import { EmptyState } from '@/components/common';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
 import {
   PdfViewerPanel,
   ScreenSplitPanel,
@@ -9,6 +11,7 @@ import {
   ScreenEditMode,
   ScreenComplete,
   CriteriaManagementDialog,
+  PdfsSection,
 } from '@/components/screen';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
@@ -37,6 +40,23 @@ const backend = useBackendStore();
 const notifications = useNotificationsStore();
 const reviewDefStore = useReviewDefinitionStore();
 const { isReadOnly } = useReadOnly();
+
+// --- Top-level tab state ---
+const activeTopTab = ref<'pdfs' | 'screen'>('pdfs');
+
+// Auto-select tab based on PDF work remaining
+const pdfPendingCount = computed(() => {
+  const counts = projects.currentStatus?.currently;
+  if (!counts) return 0;
+  return (counts.rev_prescreen_included ?? 0) +
+    (counts.pdf_needs_manual_retrieval ?? 0) +
+    (counts.pdf_imported ?? 0) +
+    (counts.pdf_needs_manual_preparation ?? 0);
+});
+
+const pdfPreparedCount = computed(() => {
+  return projects.currentStatus?.currently?.pdf_prepared ?? 0;
+});
 
 // --- State ---
 const queue = ref<ScreenEnrichedRecord[]>([]);
@@ -73,18 +93,12 @@ const nextUndecidedIndex = computed(() => {
   return -1;
 });
 
-// Auto-derive decision from criteria:
-// - Any exclusion criterion 'out' → exclude immediately
-// - All inclusion criteria 'in' (no exclusion 'out') → include
-// - Otherwise → null (not ready)
 const derivedDecision = computed((): 'include' | 'exclude' | null => {
   if (!currentRecord.value || !hasCriteria.value) return null;
   const decisions = currentRecord.value._criteriaDecisions;
 
-  // Any exclusion criterion applies → exclude
   if (Object.values(decisions).some((v) => v === 'out')) return 'exclude';
 
-  // Check if all inclusion criteria are met
   const inclusionNames = Object.keys(criteria.value).filter(
     (name) => criteria.value[name]?.criterion_type !== 'exclusion_criterion',
   );
@@ -120,7 +134,6 @@ async function loadQueue() {
 
       const criteriaNames = Object.keys(criteria.value);
       const newRecords: ScreenEnrichedRecord[] = response.records.map((record) => {
-        // Initialize criteria decisions from current_criteria or all TODO
         const criteriaDecisions: Record<string, 'in' | 'out' | 'TODO'> = {};
         for (const name of criteriaNames) {
           criteriaDecisions[name] = record.current_criteria?.[name] as 'in' | 'out' || 'TODO';
@@ -151,7 +164,6 @@ async function makeDecision(decision: 'include' | 'exclude') {
 
   isDeciding.value = true;
   try {
-    // Build criteria_decisions from the enriched record
     const criteriaDecisions: Record<string, 'in' | 'out'> = {};
     if (hasCriteria.value) {
       for (const [name, value] of Object.entries(currentRecord.value._criteriaDecisions)) {
@@ -229,14 +241,13 @@ function exitEditMode() {
 }
 
 async function handleCriteriaChanged() {
-  // Reload the queue to get updated criteria
   await loadQueue();
 }
 
 // --- Keyboard shortcuts ---
 function handleKeydown(e: KeyboardEvent) {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-  if (mode.value !== 'screening') return;
+  if (mode.value !== 'screening' || activeTopTab.value !== 'screen') return;
 
   switch (e.key) {
     case 'ArrowUp':
@@ -249,7 +260,6 @@ function handleKeydown(e: KeyboardEvent) {
       break;
     case 'ArrowLeft':
       e.preventDefault();
-      // Only allow keyboard decision in no-criteria mode
       if (!hasCriteria.value && !isCurrentDecided.value && currentRecord.value) {
         makeDecision('exclude');
       }
@@ -269,6 +279,11 @@ onMounted(async () => {
   await reviewDefStore.loadDefinition();
   await loadQueue();
   window.addEventListener('keydown', handleKeydown);
+
+  // Auto-select tab: show Screen if no PDF work pending and there are prepared PDFs
+  if (pdfPendingCount.value === 0 && pdfPreparedCount.value > 0) {
+    activeTopTab.value = 'screen';
+  }
 });
 
 onUnmounted(() => {
@@ -278,75 +293,113 @@ onUnmounted(() => {
 
 <template>
   <div class="h-full flex flex-col" data-testid="screen-page">
-    <!-- Edit mode -->
-    <ScreenEditMode
-      v-if="mode === 'edit'"
-      class="px-4 py-2"
-      @close="exitEditMode"
-    />
+    <Tabs v-model="activeTopTab" class="h-full flex flex-col">
+      <div class="border-b px-4 pt-2">
+        <TabsList>
+          <TabsTrigger value="pdfs" data-testid="screen-tab-pdfs">
+            <FileDown class="h-4 w-4 mr-1.5" />
+            PDFs
+            <Badge
+              v-if="pdfPendingCount > 0"
+              variant="secondary"
+              class="ml-1.5 h-5 min-w-5 px-1.5 text-xs"
+            >
+              {{ pdfPendingCount }}
+            </Badge>
+          </TabsTrigger>
+          <TabsTrigger value="screen" data-testid="screen-tab-screen">
+            <CheckSquare class="h-4 w-4 mr-1.5" />
+            Screen
+            <Badge
+              v-if="pdfPreparedCount > 0"
+              variant="secondary"
+              class="ml-1.5 h-5 min-w-5 px-1.5 text-xs"
+            >
+              {{ pdfPreparedCount }}
+            </Badge>
+          </TabsTrigger>
+        </TabsList>
+      </div>
 
-    <!-- Completion state -->
-    <ScreenComplete
-      v-else-if="(mode === 'complete' || (!isLoading && queue.length === 0 && isScreenComplete))"
-      class="px-4 py-2"
-      :included-count="statusCounts?.rev_included ?? 0"
-      :excluded-count="statusCounts?.rev_excluded ?? 0"
-      :read-only="isReadOnly"
-      @edit-decisions="enterEditMode"
-    />
-
-    <!-- Empty state (no records available yet) -->
-    <EmptyState
-      v-else-if="!isLoading && queue.length === 0"
-      :icon="CheckSquare"
-      title="No records to screen"
-      description="There are no records ready for full-text screening yet. Complete PDF preparation first."
-    />
-
-    <!-- Screening interface: split panel takes full height -->
-    <ScreenSplitPanel
-      v-else-if="currentRecord"
-      class="flex-1 min-h-0"
-      data-testid="screen-record-card"
-    >
-      <template #left>
-        <PdfViewerPanel :pdf-path="currentRecord.pdf_path" />
-      </template>
-      <template #right>
-        <ScreenRecordPanel
-          :key="currentRecord.id"
-          :record="currentRecord"
-          :criteria="criteria"
-          :criteria-decisions="currentRecord._criteriaDecisions"
-          :has-criteria="hasCriteria"
-          :decided-count="decidedCount"
-          :included-count="includedCount"
-          :excluded-count="excludedCount"
-          :total-count="totalCount"
-          :is-deciding="isDeciding"
-          :is-current-decided="isCurrentDecided"
-          :derived-decision="derivedDecision"
-          :can-submit-criteria="canSubmitCriteria"
-          :next-undecided-index="nextUndecidedIndex"
-          :mode="mode"
-          :queue-records="queue"
-          :current-index="currentIndex"
-          :read-only="isReadOnly"
-          @toggle-criterion="toggleCriterion"
-          @make-decision="makeDecision"
-          @submit-criteria-decision="submitCriteriaDecision"
-          @skip-to-next-undecided="skipToNextUndecided"
-          @enter-edit-mode="enterEditMode"
-          @show-criteria-dialog="showCriteriaDialog = true"
-          @navigate="goToRecord"
+      <TabsContent value="pdfs" class="flex-1 min-h-0 mt-0">
+        <PdfsSection
+          v-if="projects.currentProjectId"
+          :project-id="projects.currentProjectId"
         />
-      </template>
-    </ScreenSplitPanel>
+      </TabsContent>
 
-    <!-- Criteria management dialog -->
-    <CriteriaManagementDialog
-      v-model:open="showCriteriaDialog"
-      @criteria-changed="handleCriteriaChanged"
-    />
+      <TabsContent value="screen" class="flex-1 min-h-0 mt-0 flex flex-col">
+        <!-- Edit mode -->
+        <ScreenEditMode
+          v-if="mode === 'edit'"
+          class="px-4 py-2"
+          @close="exitEditMode"
+        />
+
+        <!-- Completion state -->
+        <ScreenComplete
+          v-else-if="(mode === 'complete' || (!isLoading && queue.length === 0 && isScreenComplete))"
+          class="px-4 py-2"
+          :included-count="statusCounts?.rev_included ?? 0"
+          :excluded-count="statusCounts?.rev_excluded ?? 0"
+          :read-only="isReadOnly"
+          @edit-decisions="enterEditMode"
+        />
+
+        <!-- Empty state (no records available yet) -->
+        <EmptyState
+          v-else-if="!isLoading && queue.length === 0"
+          :icon="CheckSquare"
+          title="No records to screen"
+          description="There are no records ready for full-text screening yet. Complete PDF preparation first."
+        />
+
+        <!-- Screening interface: split panel takes full height -->
+        <ScreenSplitPanel
+          v-else-if="currentRecord"
+          class="flex-1 min-h-0"
+          data-testid="screen-record-card"
+        >
+          <template #left>
+            <PdfViewerPanel :pdf-path="currentRecord.pdf_path" />
+          </template>
+          <template #right>
+            <ScreenRecordPanel
+              :key="currentRecord.id"
+              :record="currentRecord"
+              :criteria="criteria"
+              :criteria-decisions="currentRecord._criteriaDecisions"
+              :has-criteria="hasCriteria"
+              :decided-count="decidedCount"
+              :included-count="includedCount"
+              :excluded-count="excludedCount"
+              :total-count="totalCount"
+              :is-deciding="isDeciding"
+              :is-current-decided="isCurrentDecided"
+              :derived-decision="derivedDecision"
+              :can-submit-criteria="canSubmitCriteria"
+              :next-undecided-index="nextUndecidedIndex"
+              :mode="mode"
+              :queue-records="queue"
+              :current-index="currentIndex"
+              :read-only="isReadOnly"
+              @toggle-criterion="toggleCriterion"
+              @make-decision="makeDecision"
+              @submit-criteria-decision="submitCriteriaDecision"
+              @skip-to-next-undecided="skipToNextUndecided"
+              @enter-edit-mode="enterEditMode"
+              @show-criteria-dialog="showCriteriaDialog = true"
+              @navigate="goToRecord"
+            />
+          </template>
+        </ScreenSplitPanel>
+
+        <!-- Criteria management dialog -->
+        <CriteriaManagementDialog
+          v-model:open="showCriteriaDialog"
+          @criteria-changed="handleCriteriaChanged"
+        />
+      </TabsContent>
+    </Tabs>
   </div>
 </template>

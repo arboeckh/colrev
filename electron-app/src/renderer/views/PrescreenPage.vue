@@ -705,7 +705,7 @@ onUnmounted(() => {
       v-else-if="!isLoading && queue.length === 0"
       :icon="Filter"
       title="No records to prescreen"
-      description="There are no records ready for prescreening yet. Run preprocessing first."
+      description="There are no records ready for prescreening yet. Run search & preprocessing first."
     />
 
     <!-- Screening interface -->

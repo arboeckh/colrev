@@ -36,12 +36,10 @@ export const useProjectsStore = defineStore('projects', () => {
   const operationInfo = ref<Record<WorkflowStep, GetOperationInfoResponse | null>>({
     review_definition: null,
     search: null,
-    preprocessing: null,
     load: null,
     prep: null,
     dedupe: null,
     prescreen: null,
-    pdfs: null,
     pdf_get: null,
     pdf_prep: null,
     screen: null,

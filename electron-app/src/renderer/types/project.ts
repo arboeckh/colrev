@@ -209,12 +209,10 @@ export interface BranchDelta {
 export type WorkflowStep =
   | 'review_definition'
   | 'search'
-  | 'preprocessing'
   | 'load'
   | 'prep'
   | 'dedupe'
   | 'prescreen'
-  | 'pdfs'
   | 'pdf_get'
   | 'pdf_prep'
   | 'screen'
@@ -321,7 +319,8 @@ export const ALL_WORKFLOW_STEPS: WorkflowStepInfo[] = [
   },
 ];
 
-// Grouped workflow steps for sidebar display (combines load/prep/dedupe into preprocessing, pdf_get/pdf_prep into pdfs)
+// Grouped workflow steps for sidebar display (5 decision steps)
+// Search absorbs preprocessing (load/prep/dedupe), Screen absorbs PDFs (pdf_get/pdf_prep)
 export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
   {
     id: 'review_definition',
@@ -334,17 +333,9 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
   {
     id: 'search',
     label: 'Search',
-    description: 'Configure and run searches',
+    description: 'Search, load, prepare, and deduplicate records',
     route: 'search',
-    inputStates: [],
-    outputStates: ['md_retrieved'],
-  },
-  {
-    id: 'preprocessing',
-    label: 'Preprocessing',
-    description: 'Load, prepare, and deduplicate records',
-    route: 'preprocessing',
-    // Combined input states from load/prep/dedupe
+    // Combined input states from search + load/prep/dedupe
     inputStates: ['md_retrieved', 'md_imported', 'md_needs_manual_preparation', 'md_prepared'],
     outputStates: ['md_processed'],
     isGrouped: true,
@@ -359,22 +350,15 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     outputStates: ['rev_prescreen_included', 'rev_prescreen_excluded'],
   },
   {
-    id: 'pdfs',
-    label: 'PDFs',
-    description: 'Retrieve and prepare PDFs',
-    route: 'pdfs',
-    inputStates: ['rev_prescreen_included', 'pdf_needs_manual_retrieval', 'pdf_imported', 'pdf_needs_manual_preparation'],
-    outputStates: ['pdf_prepared', 'pdf_not_available'],
-    isGrouped: true,
-    subSteps: ['pdf_get', 'pdf_prep'],
-  },
-  {
     id: 'screen',
     label: 'Screen',
-    description: 'Full-text screening',
+    description: 'PDF retrieval, preparation, and full-text screening',
     route: 'screen',
-    inputStates: ['pdf_prepared'],
+    // Combined input states from pdf_get/pdf_prep/screen
+    inputStates: ['rev_prescreen_included', 'pdf_needs_manual_retrieval', 'pdf_imported', 'pdf_needs_manual_preparation', 'pdf_prepared'],
     outputStates: ['rev_included', 'rev_excluded'],
+    isGrouped: true,
+    subSteps: ['pdf_get', 'pdf_prep', 'screen'],
   },
   {
     id: 'data',

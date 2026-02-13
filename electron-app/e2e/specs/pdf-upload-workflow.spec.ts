@@ -110,9 +110,9 @@ test.describe('PDF Upload Workflow', () => {
 
     await clearDebugLogs();
 
-    await window.click('[data-testid="sidebar-preprocessing"]');
+    await window.click('[data-testid="sidebar-search"]');
     await window.waitForSelector('h2:has-text("Preprocessing")', { timeout: 10000 });
-    await window.waitForSelector('[data-testid="preprocessing-page"]', { timeout: 5000 });
+    await window.waitForSelector('[data-testid="preprocessing-section"]', { timeout: 5000 });
 
     console.log('Preprocessing page loaded');
 
@@ -220,8 +220,10 @@ test.describe('PDF Upload Workflow', () => {
 
     await clearDebugLogs();
 
-    await window.click('[data-testid="sidebar-pdfs"]');
-    await window.waitForSelector('[data-testid="pdfs-page"]', { timeout: 10000 });
+    await window.click('[data-testid="sidebar-screen"]');
+    await window.waitForSelector('[data-testid="screen-tab-pdfs"]', { timeout: 10000 });
+    await window.click('[data-testid="screen-tab-pdfs"]');
+    await window.waitForSelector('[data-testid="pdfs-section"]', { timeout: 10000 });
     console.log('PDF Get page loaded');
 
     // Wait a moment for status to load
@@ -248,7 +250,9 @@ test.describe('PDF Upload Workflow', () => {
       debugData.backendLogs.slice(-10).forEach(l => console.log(l));
 
       // Try refreshing status
-      await window.click('[data-testid="sidebar-pdfs"]');
+      await window.click('[data-testid="sidebar-screen"]');
+      await window.waitForSelector('[data-testid="screen-tab-pdfs"]', { timeout: 10000 });
+      await window.click('[data-testid="screen-tab-pdfs"]');
       await window.waitForTimeout(3000);
     }
 
@@ -285,8 +289,10 @@ test.describe('PDF Upload Workflow', () => {
     console.log('='.repeat(60));
 
     // Refresh the page to get updated records
-    await window.click('[data-testid="sidebar-pdfs"]');
-    await window.waitForSelector('[data-testid="pdfs-page"]', { timeout: 10000 });
+    await window.click('[data-testid="sidebar-screen"]');
+    await window.waitForSelector('[data-testid="screen-tab-pdfs"]', { timeout: 10000 });
+    await window.click('[data-testid="screen-tab-pdfs"]');
+    await window.waitForSelector('[data-testid="pdfs-section"]', { timeout: 10000 });
     await window.waitForTimeout(3000);
 
     // Check needs count

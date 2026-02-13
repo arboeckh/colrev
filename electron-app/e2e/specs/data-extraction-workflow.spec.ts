@@ -106,9 +106,9 @@ test.describe('Data Extraction Workflow', () => {
 
     await clearDebugLogs();
 
-    await window.click('[data-testid="sidebar-preprocessing"]');
+    await window.click('[data-testid="sidebar-search"]');
     await window.waitForSelector('h2:has-text("Preprocessing")', { timeout: 10000 });
-    await window.waitForSelector('[data-testid="preprocessing-page"]', { timeout: 5000 });
+    await window.waitForSelector('[data-testid="preprocessing-section"]', { timeout: 5000 });
 
     await clickWhenEnabled(window, '[data-testid="preprocessing-run-all-button"]');
     console.log('Clicked Run All');

@@ -7,12 +7,10 @@ const LoginPage = () => import('@/views/LoginPage.vue');
 const ProjectOverview = () => import('@/views/ProjectOverview.vue');
 const ReviewDefinitionPage = () => import('@/views/ReviewDefinitionPage.vue');
 const SearchPage = () => import('@/views/SearchPage.vue');
-const PreprocessingPage = () => import('@/views/PreprocessingPage.vue');
 const LoadPage = () => import('@/views/LoadPage.vue');
 const PrepPage = () => import('@/views/PrepPage.vue');
 const DedupePage = () => import('@/views/DedupePage.vue');
 const PrescreenPage = () => import('@/views/PrescreenPage.vue');
-const PdfsPage = () => import('@/views/PdfsPage.vue');
 const ScreenPage = () => import('@/views/ScreenPage.vue');
 const DataPage = () => import('@/views/DataPage.vue');
 const SettingsPage = () => import('@/views/SettingsPage.vue');
@@ -74,12 +72,7 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'preprocessing',
-        name: 'project-preprocessing',
-        component: PreprocessingPage,
-        meta: {
-          title: 'Preprocessing',
-          step: 'preprocessing',
-        },
+        redirect: (to) => ({ name: 'project-search', params: { id: to.params.id } }),
       },
       {
         path: 'load',
@@ -119,20 +112,15 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'pdfs',
-        name: 'project-pdfs',
-        component: PdfsPage,
-        meta: {
-          title: 'PDFs',
-          step: 'pdfs',
-        },
+        redirect: (to) => ({ name: 'project-screen', params: { id: to.params.id } }),
       },
       {
         path: 'pdf-get',
-        redirect: (to) => ({ name: 'project-pdfs', params: { id: to.params.id } }),
+        redirect: (to) => ({ name: 'project-screen', params: { id: to.params.id } }),
       },
       {
         path: 'pdf-prep',
-        redirect: (to) => ({ name: 'project-pdfs', params: { id: to.params.id } }),
+        redirect: (to) => ({ name: 'project-screen', params: { id: to.params.id } }),
       },
       {
         path: 'screen',

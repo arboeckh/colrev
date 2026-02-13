@@ -103,8 +103,8 @@ test.describe('Preprocessing Status Persistence', () => {
     console.log('='.repeat(60));
 
     await clearDebugLogs();
-    await window.click('[data-testid="sidebar-preprocessing"]');
-    await window.waitForSelector('[data-testid="preprocessing-page"]', { timeout: 10000 });
+    await window.click('[data-testid="sidebar-search"]');
+    await window.waitForSelector('[data-testid="preprocessing-section"]', { timeout: 10000 });
 
     // Click Run All
     await clickWhenEnabled(window, '[data-testid="preprocessing-run-all-button"]');
@@ -186,8 +186,8 @@ test.describe('Preprocessing Status Persistence', () => {
     console.log('NAVIGATE BACK: Return to Preprocessing');
     console.log('='.repeat(60));
 
-    await window.click('[data-testid="sidebar-preprocessing"]');
-    await window.waitForSelector('[data-testid="preprocessing-page"]', { timeout: 10000 });
+    await window.click('[data-testid="sidebar-search"]');
+    await window.waitForSelector('[data-testid="preprocessing-section"]', { timeout: 10000 });
     // Wait for status to be fetched and computed
     await window.waitForTimeout(2000);
 

@@ -6,3 +6,4 @@ export { default as ScreenProgressBar } from './ScreenProgressBar.vue';
 export { default as ScreenEditMode } from './ScreenEditMode.vue';
 export { default as ScreenComplete } from './ScreenComplete.vue';
 export { default as CriteriaManagementDialog } from './CriteriaManagementDialog.vue';
+export { default as PdfsSection } from './PdfsSection.vue';

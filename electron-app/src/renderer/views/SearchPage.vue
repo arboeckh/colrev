@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
-import { AddFileSourceDialog, AddApiSourceDialog, SourceCard } from '@/components/search';
+import { AddFileSourceDialog, AddApiSourceDialog, SourceCard, PreprocessingSection } from '@/components/search';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
@@ -84,9 +84,20 @@ const isSearchComplete = computed(() => {
   return totalRecords > 0;
 });
 
+// Track preprocessing completion
+const preprocessingSectionRef = ref<InstanceType<typeof PreprocessingSection> | null>(null);
+
+const isPreprocessingComplete = computed(() => {
+  return preprocessingSectionRef.value?.isPreprocessingComplete ?? false;
+});
+
+const canGoToNextStep = computed(() => {
+  return isSearchComplete.value && isPreprocessingComplete.value;
+});
+
 function goToNextStep() {
   if (projects.currentProjectId) {
-    router.push(`/project/${projects.currentProjectId}/preprocessing`);
+    router.push(`/project/${projects.currentProjectId}/prescreen`);
   }
 }
 
@@ -280,15 +291,23 @@ onMounted(() => {
       <!-- Status indicator (top right) -->
       <div class="flex items-center gap-3">
         <!-- Complete state -->
-        <template v-if="isSearchComplete">
+        <template v-if="canGoToNextStep">
           <div class="flex items-center gap-2 text-green-600 dark:text-green-400">
             <CheckCircle2 class="h-5 w-5" />
             <span class="text-sm font-medium">{{ totalSourceRecords.toLocaleString() }} records</span>
           </div>
           <Button data-testid="next-step-button" @click="goToNextStep">
-            Next: Preprocessing
+            Next: Prescreen
             <ArrowRight class="h-4 w-4 ml-2" />
           </Button>
+        </template>
+
+        <!-- Search complete but preprocessing pending -->
+        <template v-else-if="isSearchComplete">
+          <div class="flex items-center gap-2 text-green-600 dark:text-green-400">
+            <CheckCircle2 class="h-5 w-5" />
+            <span class="text-sm font-medium">{{ totalSourceRecords.toLocaleString() }} records</span>
+          </div>
         </template>
 
         <!-- Stale state -->
@@ -453,6 +472,16 @@ onMounted(() => {
         <div v-if="showAddMenu" class="fixed inset-0 z-40" @click="showAddMenu = false" />
       </div>
     </div>
+
+    <!-- Preprocessing section (visible when sources exist) -->
+    <template v-if="visibleSources.length > 0">
+      <Separator />
+      <PreprocessingSection
+        v-if="projects.currentProjectId"
+        ref="preprocessingSectionRef"
+        :project-id="projects.currentProjectId"
+      />
+    </template>
 
     <!-- Dialogs -->
     <AddFileSourceDialog
