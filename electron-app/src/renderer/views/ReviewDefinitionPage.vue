@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { BookOpen, ArrowRight, Check, X } from 'lucide-vue-next';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ArrowRight, Check } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -31,10 +30,6 @@ const objectivesSaveStatus = ref<'idle' | 'saving' | 'saved'>('idle');
 // Quick stats
 const criteriaCount = computed(() => {
   return Object.keys(store.definition?.criteria || {}).length;
-});
-
-const lastUpdated = computed(() => {
-  return new Date().toLocaleDateString();
 });
 
 onMounted(async () => {
@@ -147,150 +142,119 @@ function goToSearch() {
 </script>
 
 <template>
-  <div class="p-6 h-full overflow-auto" data-testid="review-definition-page">
+  <div class="p-6 h-full overflow-auto max-w-4xl" data-testid="review-definition-page">
     <!-- Header -->
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-2">
-        <BookOpen class="h-5 w-5 text-muted-foreground" />
-        <h2 class="text-xl font-semibold">Review Definition</h2>
+    <div class="flex items-center gap-2 pb-4">
+      <h2 class="text-xl font-semibold">Review Definition</h2>
+      <Badge variant="secondary" class="text-xs" data-testid="review-type-badge">
+        {{ store.definition?.review_type || 'Not set' }}
+      </Badge>
+    </div>
+
+    <Separator />
+
+    <!-- Two-column: Overview + Keywords/Stats -->
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-0 pt-4">
+      <!-- Left: Overview form (3/5) -->
+      <div class="lg:col-span-3 lg:pr-5 lg:border-r border-border space-y-5">
+        <!-- Title (read-only) -->
+        <div>
+          <label class="text-sm font-medium text-muted-foreground">Title</label>
+          <p class="text-sm mt-1">{{ store.definition?.title || 'Untitled Review' }}</p>
+        </div>
+
+        <!-- Protocol URL -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-sm font-medium">Protocol URL</label>
+            <div
+              v-if="protocolSaveStatus !== 'idle'"
+              class="flex items-center gap-1 text-xs"
+              :class="protocolSaveStatus === 'saved' ? 'text-green-600' : 'text-muted-foreground'"
+            >
+              <Check v-if="protocolSaveStatus === 'saved'" class="h-3 w-3" />
+              <span>{{ protocolSaveStatus === 'saved' ? 'Saved' : 'Saving...' }}</span>
+            </div>
+          </div>
+          <Input
+            v-model="protocolUrl"
+            placeholder="https://... (e.g., PROSPERO registration)"
+            data-testid="protocol-url-input"
+          />
+        </div>
+
+        <!-- Objectives -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-sm font-medium">Research Question & Objectives</label>
+            <div
+              v-if="objectivesSaveStatus !== 'idle'"
+              class="flex items-center gap-1 text-xs"
+              :class="objectivesSaveStatus === 'saved' ? 'text-green-600' : 'text-muted-foreground'"
+            >
+              <Check v-if="objectivesSaveStatus === 'saved'" class="h-3 w-3" />
+              <span>{{ objectivesSaveStatus === 'saved' ? 'Saved' : 'Saving...' }}</span>
+            </div>
+          </div>
+          <Textarea
+            v-model="objectives"
+            placeholder="Describe the research question or objectives of this review..."
+            rows="5"
+            data-testid="objectives-textarea"
+          />
+        </div>
+      </div>
+
+      <!-- Right: Keywords + Stats (2/5) -->
+      <div class="lg:col-span-2 lg:pl-5 pt-4 lg:pt-0 border-t lg:border-t-0 border-border space-y-5">
+        <!-- Keywords -->
+        <div>
+          <h3 class="text-sm font-medium text-muted-foreground mb-2">Keywords</h3>
+          <KeywordEditor
+            :keywords="store.definition?.keywords || []"
+            @update="handleKeywordsUpdate"
+          />
+        </div>
+
+        <!-- Quick Stats -->
+        <div>
+          <h3 class="text-sm font-medium text-muted-foreground mb-2">Stats</h3>
+          <div class="text-sm space-y-1.5">
+            <div class="flex items-center justify-between">
+              <span class="text-muted-foreground">Screening criteria</span>
+              <span>{{ criteriaCount }}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-muted-foreground">Keywords</span>
+              <span>{{ store.definition?.keywords?.length || 0 }}</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <Separator class="mb-6" />
+    <Separator class="mt-5" />
 
-    <!-- Dashboard Grid Layout -->
-    <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
-      <!-- Left Column: Overview (3/5 width on large screens) -->
-      <div class="lg:col-span-3">
-        <Card class="h-full">
-          <CardHeader>
-            <div class="flex items-center gap-2 mb-2">
-              <CardTitle class="text-2xl">Overview</CardTitle>
-              <Badge variant="secondary" class="text-sm" data-testid="review-type-badge">
-                {{ store.definition?.review_type || 'Not set' }}
-              </Badge>
-            </div>
-            <CardDescription>
-              Core information about your literature review
-            </CardDescription>
-          </CardHeader>
-          <CardContent class="space-y-6">
-            <!-- Title (read-only from project) -->
-            <div>
-              <label class="text-sm font-medium text-muted-foreground">Title</label>
-              <p class="text-base mt-1.5">{{ store.definition?.title || 'Untitled Review' }}</p>
-            </div>
+    <!-- Screening Criteria (full width) -->
+    <div class="pt-4">
+      <h3 class="text-sm font-medium text-muted-foreground mb-1">Screening Criteria</h3>
+      <p class="text-xs text-muted-foreground/70 mb-3">Define inclusion and exclusion criteria for screening decisions</p>
 
-            <!-- Protocol URL (auto-save) -->
-            <div>
-              <div class="flex items-center justify-between mb-1.5">
-                <label class="text-sm font-medium">Protocol URL</label>
-                <div
-                  v-if="protocolSaveStatus !== 'idle'"
-                  class="flex items-center gap-1 text-xs"
-                  :class="protocolSaveStatus === 'saved' ? 'text-green-600' : 'text-muted-foreground'"
-                >
-                  <Check v-if="protocolSaveStatus === 'saved'" class="h-3 w-3" />
-                  <span>{{ protocolSaveStatus === 'saved' ? 'Saved' : 'Saving...' }}</span>
-                </div>
-              </div>
-              <Input
-                v-model="protocolUrl"
-                placeholder="https://... (e.g., PROSPERO registration)"
-                data-testid="protocol-url-input"
-              />
-            </div>
+      <CriteriaList
+        :criteria="store.definition?.criteria || {}"
+        :is-saving="store.isSaving"
+        @add-criterion="handleAddCriterion"
+        @update-criterion="handleUpdateCriterion"
+        @delete-criterion="handleDeleteCriterion"
+      />
+    </div>
 
-            <!-- Objectives (auto-save) -->
-            <div>
-              <div class="flex items-center justify-between mb-1.5">
-                <label class="text-sm font-medium">Research Question & Objectives</label>
-                <div
-                  v-if="objectivesSaveStatus !== 'idle'"
-                  class="flex items-center gap-1 text-xs"
-                  :class="objectivesSaveStatus === 'saved' ? 'text-green-600' : 'text-muted-foreground'"
-                >
-                  <Check v-if="objectivesSaveStatus === 'saved'" class="h-3 w-3" />
-                  <span>{{ objectivesSaveStatus === 'saved' ? 'Saved' : 'Saving...' }}</span>
-                </div>
-              </div>
-              <Textarea
-                v-model="objectives"
-                placeholder="Describe the research question or objectives of this review..."
-                rows="6"
-                data-testid="objectives-textarea"
-              />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <!-- Right Column: Keywords & Stats (2/5 width on large screens) -->
-      <div class="lg:col-span-2 space-y-6">
-        <!-- Keywords Section -->
-        <Card>
-          <CardHeader class="pb-3">
-            <CardTitle class="text-base">Keywords</CardTitle>
-            <CardDescription>Keywords describing the review scope</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <KeywordEditor
-              :keywords="store.definition?.keywords || []"
-              @update="handleKeywordsUpdate"
-            />
-          </CardContent>
-        </Card>
-
-        <!-- Quick Stats Section -->
-        <Card>
-          <CardHeader class="pb-3">
-            <CardTitle class="text-sm font-medium">Quick Stats</CardTitle>
-          </CardHeader>
-          <CardContent class="text-sm text-muted-foreground space-y-2">
-            <div class="flex items-center justify-between">
-              <span>Screening Criteria:</span>
-              <span class="font-medium text-foreground">{{ criteriaCount }}</span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span>Keywords:</span>
-              <span class="font-medium text-foreground">{{ store.definition?.keywords?.length || 0 }}</span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span>Last Updated:</span>
-              <span class="font-medium text-foreground">{{ lastUpdated }}</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <!-- Bottom Row: Screening Criteria (full width) -->
-      <div class="lg:col-span-5">
-        <Card>
-          <CardHeader>
-            <CardTitle class="text-xl">Screening Criteria</CardTitle>
-            <CardDescription>
-              Define inclusion and exclusion criteria for screening decisions
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <CriteriaList
-              :criteria="store.definition?.criteria || {}"
-              :is-saving="store.isSaving"
-              @add-criterion="handleAddCriterion"
-              @update-criterion="handleUpdateCriterion"
-              @delete-criterion="handleDeleteCriterion"
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      <!-- Next Step Button (full width) -->
-      <div class="lg:col-span-5 flex justify-end pt-4 pb-8">
-        <Button data-testid="goto-search-btn" @click="goToSearch">
-          Continue to Search
-          <ArrowRight class="h-4 w-4 ml-2" />
-        </Button>
-      </div>
+    <!-- Next Step -->
+    <div class="flex justify-end pt-5 pb-8">
+      <Button size="sm" data-testid="goto-search-btn" @click="goToSearch" class="gap-2">
+        Continue to Search
+        <ArrowRight class="h-3.5 w-3.5" />
+      </Button>
     </div>
   </div>
 </template>

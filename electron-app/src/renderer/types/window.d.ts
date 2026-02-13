@@ -44,6 +44,17 @@ export interface DeviceFlowStatus {
   error?: string;
 }
 
+export interface GitHubRepo {
+  name: string;
+  fullName: string;
+  owner: string;
+  htmlUrl: string;
+  description: string | null;
+  isPrivate: boolean;
+  updatedAt: string;
+  cloneUrl: string;
+}
+
 export interface GitHubAPI {
   createRepoAndPush: (params: {
     repoName: string;
@@ -51,6 +62,11 @@ export interface GitHubAPI {
     isPrivate: boolean;
     description?: string;
   }) => Promise<{ success: boolean; repoUrl?: string; htmlUrl?: string; error?: string }>;
+  listColrevRepos: () => Promise<{ success: boolean; repos: GitHubRepo[]; error?: string }>;
+  cloneRepo: (params: {
+    cloneUrl: string;
+    projectId: string;
+  }) => Promise<{ success: boolean; error?: string }>;
 }
 
 export interface AuthAPI {

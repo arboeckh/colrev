@@ -90,6 +90,11 @@ contextBridge.exposeInMainWorld('github', {
     isPrivate: boolean;
     description?: string;
   }) => ipcRenderer.invoke('github:create-repo-and-push', params),
+
+  listColrevRepos: () => ipcRenderer.invoke('github:list-colrev-repos'),
+
+  cloneRepo: (params: { cloneUrl: string; projectId: string }) =>
+    ipcRenderer.invoke('github:clone-repo', params),
 });
 
 /**

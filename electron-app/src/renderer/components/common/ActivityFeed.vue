@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue';
-import { History } from 'lucide-vue-next';
 import { useGitStore } from '@/stores/git';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const git = useGitStore();
 
@@ -21,32 +21,39 @@ function formatTimeAgo(dateStr: string): string {
 }
 
 onMounted(() => {
-  git.loadRecentCommits(8);
+  git.loadRecentCommits(10);
 });
 </script>
 
 <template>
-  <div v-if="git.recentCommits.length > 0" class="space-y-3">
-    <h3 class="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-      <History class="h-3.5 w-3.5" />
-      Recent Activity
-    </h3>
+  <div v-if="git.recentCommits.length === 0" class="text-sm text-muted-foreground py-4 text-center">
+    No recent activity
+  </div>
 
-    <div class="space-y-0">
+  <ScrollArea v-else class="h-[300px]">
+    <div class="relative pl-5">
+      <!-- Vertical timeline line -->
+      <div class="absolute left-[9px] top-1 bottom-1 w-px bg-border" />
+
       <div
-        v-for="commit in git.recentCommits"
+        v-for="(commit, index) in git.recentCommits"
         :key="commit.hash"
-        class="flex items-start gap-2 py-1.5 text-xs"
+        class="relative pb-3 last:pb-0"
       >
-        <span class="text-muted-foreground font-medium shrink-0 w-16 text-right">
-          {{ formatTimeAgo(commit.date) }}
-        </span>
-        <span class="text-muted-foreground">·</span>
+        <!-- Timeline dot -->
+        <span
+          class="absolute left-[-11px] top-1.5 h-1.5 w-1.5 rounded-full ring-2 ring-background"
+          :class="index === 0 ? 'bg-primary' : 'bg-muted-foreground/30'"
+        />
+
         <div class="min-w-0">
-          <span class="text-foreground">{{ commit.author }}</span>
-          <span class="text-muted-foreground">: {{ commit.message }}</span>
+          <p class="text-[13px] leading-snug truncate">{{ commit.message }}</p>
+          <p class="text-xs text-muted-foreground/70 mt-px">
+            {{ commit.author }} · {{ formatTimeAgo(commit.date) }}
+            <span class="text-muted-foreground/40 font-mono ml-0.5">{{ commit.hash.slice(0, 7) }}</span>
+          </p>
         </div>
       </div>
     </div>
-  </div>
+  </ScrollArea>
 </template>

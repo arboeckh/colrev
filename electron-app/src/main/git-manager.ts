@@ -327,3 +327,34 @@ export async function gitHasMergeConflict(
   const result = await exec(['rev-parse', '--verify', 'MERGE_HEAD'], projectPath);
   return result.exitCode === 0;
 }
+
+/**
+ * Clone a repository. Embeds token in URL during clone, then resets to clean URL.
+ */
+export async function gitClone(
+  cloneUrl: string,
+  targetPath: string,
+  token: string | null,
+): Promise<GitResult> {
+  const { exec } = await import('dugite');
+  const path = await import('path');
+
+  const parentDir = path.dirname(targetPath);
+
+  // Build URL with token if available
+  const url = token
+    ? cloneUrl.replace(/^https:\/\//, `https://x-access-token:${token}@`)
+    : cloneUrl;
+
+  const result = await exec(['clone', url, targetPath], parentDir);
+  if (result.exitCode !== 0) {
+    return { success: false, error: result.stderr || 'Clone failed' };
+  }
+
+  // Reset remote URL to clean (no token)
+  if (token) {
+    await exec(['remote', 'set-url', 'origin', cloneUrl], targetPath);
+  }
+
+  return { success: true };
+}

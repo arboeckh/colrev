@@ -2,20 +2,7 @@
 import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import {
-  Search,
-  Download,
-  FileEdit,
-  Copy,
-  Filter,
-  FileDown,
-  FileCheck,
-  CheckSquare,
-  Database,
   ArrowRight,
-  BookOpen,
-  Layers,
-  Files,
-  Check,
   Github,
   Globe,
   Lock,
@@ -31,6 +18,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 import {
   Dialog,
   DialogContent,
@@ -45,7 +33,7 @@ import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
 import { useGitStore } from '@/stores/git';
 import { useNotificationsStore } from '@/stores/notifications';
-import { WORKFLOW_STEPS, type WorkflowStep } from '@/types/project';
+import { WORKFLOW_STEPS } from '@/types/project';
 
 const router = useRouter();
 const projects = useProjectsStore();
@@ -78,7 +66,6 @@ const remoteUrl = computed(() => projects.currentGitStatus?.remote_url ?? null);
 const isGitHubRemote = computed(() => remoteUrl.value?.includes('github.com') ?? false);
 const gitHubUrl = computed(() => {
   if (!remoteUrl.value || !isGitHubRemote.value) return null;
-  // Convert git URLs to https browser URLs
   return remoteUrl.value
     .replace(/\.git$/, '')
     .replace(/^git@github\.com:/, 'https://github.com/');
@@ -114,62 +101,7 @@ async function pushToGitHub() {
   }
 }
 
-// Step icons mapping
-const stepIcons: Partial<Record<WorkflowStep, typeof Search>> = {
-  review_definition: BookOpen,
-  search: Search,
-  preprocessing: Layers,
-  load: Download,
-  prep: FileEdit,
-  dedupe: Copy,
-  prescreen: Filter,
-  pdfs: Files,
-  pdf_get: FileDown,
-  pdf_prep: FileCheck,
-  screen: CheckSquare,
-  data: Database,
-};
-
 const totalRecords = computed(() => projects.currentStatus?.total_records ?? 0);
-
-// Determine step status: 'complete', 'active', or 'pending'
-function getStepStatus(step: (typeof WORKFLOW_STEPS)[number]): 'complete' | 'active' | 'pending' {
-  const records = projects.currentStatus?.currently;
-  const overall = projects.currentStatus?.overall;
-  if (!records) return 'pending';
-
-  const next = projects.nextOperation;
-
-  // Definition is always accessible
-  if (step.id === 'review_definition') {
-    return next === 'review_definition' ? 'active' : 'complete';
-  }
-
-  // Check if this is the next operation
-  if (step.id === next) return 'active';
-
-  // Check if step has pending input records
-  const pending = step.inputStates.reduce((sum, state) => sum + (records[state] ?? 0), 0);
-  if (pending > 0) return 'active';
-
-  // Check if step has ever produced output
-  const processed = step.outputStates.reduce((sum, state) => sum + (records[state] ?? 0), 0);
-  const everProcessed = step.outputStates.reduce(
-    (sum, state) => sum + ((overall as any)?.[state] ?? 0),
-    0,
-  );
-  if (processed > 0 || everProcessed > 0) return 'complete';
-
-  return 'pending';
-}
-
-// Workflow steps with their status
-const workflowSteps = computed(() => {
-  return WORKFLOW_STEPS.map((step) => ({
-    ...step,
-    status: getStepStatus(step),
-  }));
-});
 
 // Next recommended step
 const nextStep = computed(() => {
@@ -177,9 +109,6 @@ const nextStep = computed(() => {
   if (!next) return null;
   return WORKFLOW_STEPS.find((s) => s.id === next) || null;
 });
-
-// Completed steps count for summary text
-const completedCount = computed(() => workflowSteps.value.filter((s) => s.status === 'complete').length);
 
 function navigateToStep(stepRoute: string) {
   if (projects.currentProjectId) {
@@ -189,57 +118,159 @@ function navigateToStep(stepRoute: string) {
 </script>
 
 <template>
-  <div class="p-6 space-y-8 max-w-2xl">
-    <!-- Project heading and summary -->
-    <div>
-      <h2 class="text-2xl font-bold">
-        {{ projects.currentSettings?.project?.title || 'Literature Review Project' }}
-      </h2>
-      <p class="text-muted-foreground mt-1">
-        <span v-if="totalRecords > 0">{{ totalRecords }} records</span>
-        <span v-if="totalRecords > 0 && nextStep"> · </span>
-        <span v-if="nextStep">Next step: <span class="font-medium text-foreground">{{ nextStep.label }}</span></span>
-        <span v-if="!nextStep && totalRecords === 0">No records yet — start by adding a search source.</span>
-      </p>
+  <div class="p-6 max-w-4xl">
+    <!-- Header area -->
+    <div class="pb-4">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="text-xl font-semibold">
+            {{ projects.currentSettings?.project?.title || 'Literature Review Project' }}
+          </h2>
+          <p class="text-muted-foreground text-sm mt-1">
+            <span v-if="totalRecords > 0">{{ totalRecords }} records</span>
+            <span v-if="totalRecords > 0 && nextStep"> · </span>
+            <span v-if="nextStep">Next: <span class="font-medium text-foreground">{{ nextStep.label }}</span></span>
+            <span v-if="!nextStep && totalRecords === 0">No records yet — start by adding a search source.</span>
+          </p>
+        </div>
 
-      <!-- Remote status -->
-      <div class="flex items-center gap-2 mt-2 text-sm">
-        <template v-if="isGitHubRemote && gitHubUrl">
-          <Github class="h-4 w-4 text-muted-foreground" />
-          <a
-            :href="gitHubUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-primary hover:underline inline-flex items-center gap-1"
-            data-testid="github-repo-link"
-          >
-            {{ gitHubUrl.replace('https://github.com/', '') }}
-            <ExternalLink class="h-3 w-3" />
-          </a>
-        </template>
-        <template v-else-if="remoteUrl">
-          <Globe class="h-4 w-4 text-muted-foreground" />
-          <span class="text-muted-foreground">{{ remoteUrl }}</span>
-        </template>
-        <template v-else>
-          <HardDrive class="h-4 w-4 text-muted-foreground" />
-          <span class="text-muted-foreground">Local only</span>
-          <Button
-            v-if="auth.isAuthenticated"
-            variant="ghost"
-            size="sm"
-            class="h-7 text-xs"
-            data-testid="push-to-github-button"
-            @click="openPushDialog"
-          >
-            <Github class="h-3.5 w-3.5 mr-1" />
-            Push to GitHub
-          </Button>
-        </template>
+        <!-- Remote status -->
+        <div class="flex items-center gap-2 text-sm shrink-0">
+          <template v-if="isGitHubRemote && gitHubUrl">
+            <a
+              :href="gitHubUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+              data-testid="github-repo-link"
+            >
+              <Github class="h-4 w-4" />
+              {{ gitHubUrl.replace('https://github.com/', '') }}
+              <ExternalLink class="h-3 w-3" />
+            </a>
+          </template>
+          <template v-else-if="remoteUrl">
+            <Globe class="h-4 w-4 text-muted-foreground" />
+            <span class="text-muted-foreground">{{ remoteUrl }}</span>
+          </template>
+          <template v-else>
+            <span class="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
+              <HardDrive class="h-3.5 w-3.5" />
+              Local only
+            </span>
+            <Button
+              v-if="auth.isAuthenticated"
+              variant="outline"
+              size="sm"
+              class="h-7 text-xs"
+              data-testid="push-to-github-button"
+              @click="openPushDialog"
+            >
+              <Github class="h-3.5 w-3.5 mr-1" />
+              Push to GitHub
+            </Button>
+          </template>
+        </div>
+      </div>
+
+      <!-- Next step CTA -->
+      <div v-if="nextStep" class="mt-3">
+        <Button size="sm" @click="navigateToStep(nextStep.route)" class="gap-2">
+          Continue to {{ nextStep.label }}
+          <ArrowRight class="h-3.5 w-3.5" />
+        </Button>
       </div>
     </div>
 
-    <!-- Push to GitHub dialog -->
+    <Separator />
+
+    <!-- Two-column grid: Versions + Activity -->
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-0 pt-4">
+      <!-- Versions (3/5 width) -->
+      <div class="lg:col-span-3 lg:pr-5 lg:border-r border-border">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-medium text-muted-foreground">Versions</h3>
+          <Button
+            variant="outline"
+            size="sm"
+            class="h-7 text-xs gap-1"
+            data-testid="new-version-button"
+            @click="showCreateVersionDialog = true"
+          >
+            <Plus class="h-3.5 w-3.5" />
+            New Version
+          </Button>
+        </div>
+
+        <!-- Empty state -->
+        <div v-if="git.versionBranches.length === 0" class="flex flex-col items-center justify-center py-8 text-center">
+          <GitBranch class="h-7 w-7 text-muted-foreground/30 mb-2" />
+          <p class="text-sm text-muted-foreground">No version branches yet</p>
+          <p class="text-xs text-muted-foreground/60 mt-0.5">Create one to start collaborating</p>
+        </div>
+
+        <!-- Branch list -->
+        <div v-else>
+          <div class="border border-border rounded-md overflow-hidden">
+            <div
+              v-for="(branch, index) in git.versionBranches"
+              :key="branch.name"
+              class="flex items-center justify-between py-2 px-3 transition-colors hover:bg-muted/40"
+              :class="[
+                index > 0 ? 'border-t border-border' : '',
+                branch.name === git.currentBranch ? 'bg-muted/20' : '',
+              ]"
+              :data-testid="`version-branch-${branch.name}`"
+            >
+              <div class="flex items-center gap-2">
+                <span
+                  class="h-2 w-2 rounded-full shrink-0"
+                  :class="branch.name === git.currentBranch ? 'bg-green-500' : 'bg-muted-foreground/30'"
+                />
+                <span class="font-mono text-sm">{{ branch.name }}</span>
+                <Badge v-if="branch.name === git.currentBranch" variant="secondary" class="text-[10px] px-1.5 py-0">
+                  current
+                </Badge>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <Badge v-if="branch.ahead > 0" variant="outline" class="text-[10px] px-1.5 py-0 gap-0.5 text-blue-500 border-blue-500/30">
+                  <ArrowUp class="h-2.5 w-2.5" />
+                  {{ branch.ahead }}
+                </Badge>
+                <Badge v-if="branch.behind > 0" variant="outline" class="text-[10px] px-1.5 py-0 gap-0.5 text-orange-500 border-orange-500/30">
+                  <ArrowDown class="h-2.5 w-2.5" />
+                  {{ branch.behind }}
+                </Badge>
+              </div>
+            </div>
+          </div>
+
+          <!-- Merge into main button -->
+          <Button
+            v-if="git.currentBranch !== 'main' && /^v\d+$/.test(git.currentBranch)"
+            variant="outline"
+            size="sm"
+            class="w-full mt-3 gap-1.5"
+            :disabled="isMerging || git.ahead > 0"
+            data-testid="merge-into-main"
+            @click="mergeIntoMain"
+          >
+            <GitMerge class="h-3.5 w-3.5" />
+            {{ isMerging ? 'Merging...' : `Publish ${git.currentBranch} to main` }}
+          </Button>
+        </div>
+      </div>
+
+      <!-- Activity (2/5 width) -->
+      <div class="lg:col-span-2 lg:pl-5 pt-4 lg:pt-0 border-t lg:border-t-0 border-border">
+        <h3 class="text-sm font-medium text-muted-foreground mb-3">Activity</h3>
+        <ActivityFeed />
+      </div>
+    </div>
+
+    <!-- Dialogs -->
+    <CreateVersionDialog v-model:open="showCreateVersionDialog" />
+
     <Dialog v-model:open="showPushDialog">
       <DialogContent>
         <DialogHeader>
@@ -284,122 +315,5 @@ function navigateToStep(stepRoute: string) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-
-    <!-- Version Branches (only when remote exists) -->
-    <div v-if="git.hasRemote" class="space-y-3">
-      <div class="flex items-center justify-between">
-        <h3 class="text-sm font-medium text-muted-foreground">Version Branches</h3>
-        <Button
-          variant="ghost"
-          size="sm"
-          class="h-7 text-xs gap-1"
-          data-testid="new-version-button"
-          @click="showCreateVersionDialog = true"
-        >
-          <Plus class="h-3.5 w-3.5" />
-          New Version
-        </Button>
-      </div>
-
-      <div v-if="git.versionBranches.length === 0" class="text-sm text-muted-foreground py-2">
-        No version branches yet. Create one to start collaborating.
-      </div>
-
-      <div v-else class="space-y-1">
-        <div
-          v-for="branch in git.versionBranches"
-          :key="branch.name"
-          class="flex items-center justify-between py-2 px-3 rounded-md"
-          :class="branch.name === git.currentBranch ? 'bg-primary/10 border border-primary/20' : 'bg-muted/50'"
-          :data-testid="`version-branch-${branch.name}`"
-        >
-          <div class="flex items-center gap-2">
-            <GitBranch class="h-3.5 w-3.5 text-muted-foreground" />
-            <span class="font-mono text-sm font-medium">{{ branch.name }}</span>
-            <Badge v-if="branch.name === git.currentBranch" variant="secondary" class="text-[10px] px-1.5 py-0">
-              current
-            </Badge>
-          </div>
-          <div class="flex items-center gap-2">
-            <Badge v-if="branch.ahead > 0" variant="outline" class="text-[10px] px-1.5 py-0 gap-0.5">
-              <ArrowUp class="h-2.5 w-2.5" />
-              {{ branch.ahead }}
-            </Badge>
-            <Badge v-if="branch.behind > 0" variant="outline" class="text-[10px] px-1.5 py-0 gap-0.5">
-              <ArrowDown class="h-2.5 w-2.5" />
-              {{ branch.behind }}
-            </Badge>
-          </div>
-        </div>
-      </div>
-
-      <!-- Merge into main button -->
-      <Button
-        v-if="git.currentBranch !== 'main' && /^v\d+$/.test(git.currentBranch)"
-        variant="outline"
-        size="sm"
-        class="gap-1.5"
-        :disabled="isMerging || git.ahead > 0"
-        data-testid="merge-into-main"
-        @click="mergeIntoMain"
-      >
-        <GitMerge class="h-3.5 w-3.5" />
-        {{ isMerging ? 'Merging...' : `Merge ${git.currentBranch} into main` }}
-      </Button>
-    </div>
-
-    <CreateVersionDialog v-model:open="showCreateVersionDialog" />
-
-    <!-- Recent Activity -->
-    <ActivityFeed v-if="git.hasRemote" />
-
-    <!-- Step progress -->
-    <div class="space-y-1">
-      <div class="flex items-center justify-between text-sm text-muted-foreground mb-3">
-        <span>Progress</span>
-        <span>{{ completedCount }} / {{ workflowSteps.length }} steps</span>
-      </div>
-      <div class="space-y-0">
-        <div
-          v-for="(step, index) in workflowSteps"
-          :key="step.id"
-          class="flex items-center gap-3 py-2 px-2 -mx-2 rounded-md cursor-pointer hover:bg-muted/50 transition-colors"
-          @click="navigateToStep(step.route)"
-        >
-          <!-- Step status indicator -->
-          <div
-            class="flex items-center justify-center w-7 h-7 rounded-full shrink-0 text-xs font-medium"
-            :class="{
-              'bg-green-500/20 text-green-500': step.status === 'complete',
-              'bg-primary/20 text-primary ring-2 ring-primary/30': step.status === 'active',
-              'bg-muted text-muted-foreground': step.status === 'pending',
-            }"
-          >
-            <Check v-if="step.status === 'complete'" class="h-3.5 w-3.5" />
-            <span v-else>{{ index + 1 }}</span>
-          </div>
-
-          <!-- Step label -->
-          <span
-            class="text-sm"
-            :class="{
-              'text-foreground font-medium': step.status === 'active',
-              'text-foreground': step.status === 'complete',
-              'text-muted-foreground': step.status === 'pending',
-            }"
-          >
-            {{ step.label }}
-          </span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Next step action -->
-    <div v-if="nextStep">
-      <Button @click="navigateToStep(nextStep.route)">
-        Go to {{ nextStep.label }}
-        <ArrowRight class="h-4 w-4 ml-2" />
-      </Button>
-    </div>
   </div>
 </template>

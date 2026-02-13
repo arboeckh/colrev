@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import { ColrevBackend } from './colrev-backend';
 import { setupGitEnvironment } from './git-env';
 import { AuthManager } from './auth-manager';
-import { createRepoAndPush } from './github-manager';
+import { createRepoAndPush, listColrevRepos } from './github-manager';
 import {
   gitFetch,
   gitPull,
@@ -17,6 +17,7 @@ import {
   gitGetDirtyState,
   gitAbortMerge,
   gitHasMergeConflict,
+  gitClone,
 } from './git-manager';
 
 // Register custom protocol scheme before app is ready
@@ -174,6 +175,45 @@ function setupIPC() {
       const token = authManager.getToken();
       if (!token) return { success: false, error: 'Not authenticated' };
       return createRepoAndPush({ token, ...params });
+    },
+  );
+
+  // GitHub: list CoLRev repos
+  ipcMain.handle('github:list-colrev-repos', async () => {
+    const token = authManager.getToken();
+    if (!token) return { success: false, error: 'Not authenticated', repos: [] };
+    try {
+      const repos = await listColrevRepos(token);
+      return { success: true, repos };
+    } catch (err) {
+      return {
+        success: false,
+        repos: [],
+        error: err instanceof Error ? err.message : 'Failed to list repos',
+      };
+    }
+  });
+
+  // GitHub: clone a repo into the projects directory
+  ipcMain.handle(
+    'github:clone-repo',
+    async (_, params: { cloneUrl: string; projectId: string }) => {
+      const token = authManager.getToken();
+      const projectsPath = path.join(app.getPath('userData'), 'projects');
+
+      // Ensure projects directory exists
+      if (!fs.existsSync(projectsPath)) {
+        fs.mkdirSync(projectsPath, { recursive: true });
+      }
+
+      const targetPath = path.join(projectsPath, params.projectId);
+
+      // Validate target doesn't already exist
+      if (fs.existsSync(targetPath)) {
+        return { success: false, error: 'Project directory already exists' };
+      }
+
+      return gitClone(params.cloneUrl, targetPath, token);
     },
   );
 

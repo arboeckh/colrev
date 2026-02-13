@@ -8,12 +8,14 @@ import DebugPanel from '@/components/common/DebugPanel.vue';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
+import { useGithubReposStore } from '@/stores/github-repos';
 import type { ListProjectsResponse } from '@/types/api';
 
 const route = useRoute();
 const backend = useBackendStore();
 const projects = useProjectsStore();
 const auth = useAuthStore();
+const githubRepos = useGithubReposStore();
 
 // Determine which layout to use based on route meta
 const useProjectLayout = computed(() => {
@@ -30,6 +32,10 @@ onMounted(async () => {
     if (started) {
       // Discover projects immediately after backend starts
       await discoverProjects();
+      // Fetch GitHub CoLRev repos in the background if authenticated
+      if (auth.isAuthenticated) {
+        githubRepos.fetchRepos();
+      }
     }
   }
 });
@@ -49,6 +55,16 @@ async function discoverProjects() {
     console.error('Failed to discover projects:', err);
   }
 }
+
+// Fetch GitHub repos when user logs in mid-session
+watch(
+  () => auth.isAuthenticated,
+  (isAuth) => {
+    if (isAuth && backend.isRunning) {
+      githubRepos.fetchRepos();
+    }
+  },
+);
 
 // Watch for backend errors
 watch(

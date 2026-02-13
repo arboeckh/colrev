@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { Plus, FolderOpen, Loader2, RefreshCw, FolderKanban, Settings, Github, Globe, Lock } from 'lucide-vue-next';
+import { Plus, FolderOpen, Loader2, RefreshCw, FolderKanban, Settings, Github, Globe, Lock, Download } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -14,12 +14,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 import { ProjectsTable } from '@/components/project';
 import { EmptyState, ThemeToggle, UserMenu } from '@/components/common';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useAuthStore } from '@/stores/auth';
+import { useGithubReposStore } from '@/stores/github-repos';
 import type { InitProjectResponse, ListProjectsResponse } from '@/types/api';
 
 const router = useRouter();
@@ -28,6 +30,7 @@ const backend = useBackendStore();
 const projects = useProjectsStore();
 const notifications = useNotificationsStore();
 const auth = useAuthStore();
+const githubRepos = useGithubReposStore();
 
 // New project dialog state
 const showNewProjectDialog = ref(false);
@@ -347,6 +350,94 @@ async function createProject() {
 
         <!-- Projects table -->
         <ProjectsTable v-else :projects="projects.projects" />
+
+        <!-- GitHub Projects section (only when authenticated) -->
+        <div v-if="auth.isAuthenticated && backend.isRunning" class="mt-8" data-testid="github-projects-section">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <Github class="h-5 w-5 text-muted-foreground" />
+              <h3 class="text-base font-semibold">GitHub Projects</h3>
+              <Badge v-if="githubRepos.availableRepos.length > 0" variant="secondary" class="text-xs">
+                {{ githubRepos.availableRepos.length }}
+              </Badge>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              :disabled="githubRepos.isLoading"
+              data-testid="refresh-github-repos"
+              @click="githubRepos.fetchRepos(true)"
+            >
+              <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': githubRepos.isLoading }" />
+            </Button>
+          </div>
+
+          <!-- Loading state -->
+          <div v-if="githubRepos.isLoading && githubRepos.remoteRepos.length === 0" class="flex items-center gap-2 text-sm text-muted-foreground py-4">
+            <Loader2 class="h-4 w-4 animate-spin" />
+            <span>Checking your GitHub repos for CoLRev projects...</span>
+          </div>
+
+          <!-- Error state -->
+          <p v-else-if="githubRepos.error" class="text-sm text-destructive py-2">
+            {{ githubRepos.error }}
+          </p>
+
+          <!-- Empty state -->
+          <p v-else-if="!githubRepos.isLoading && githubRepos.remoteRepos.length > 0 && githubRepos.availableRepos.length === 0" class="text-sm text-muted-foreground py-2">
+            All your GitHub CoLRev projects are already added locally.
+          </p>
+
+          <!-- Repos table -->
+          <div v-else-if="githubRepos.availableRepos.length > 0" class="rounded-md border">
+            <table class="w-full caption-bottom text-sm">
+              <thead class="[&_tr]:border-b">
+                <tr class="border-b transition-colors">
+                  <th class="h-10 px-4 text-left align-middle font-medium text-muted-foreground">Repository</th>
+                  <th class="h-10 px-4 text-left align-middle font-medium text-muted-foreground w-[100px]">Visibility</th>
+                  <th class="h-10 px-4 text-left align-middle font-medium text-muted-foreground w-[120px]">Updated</th>
+                  <th class="h-10 px-4 text-right align-middle font-medium text-muted-foreground w-[120px]">Actions</th>
+                </tr>
+              </thead>
+              <tbody class="[&_tr:last-child]:border-0">
+                <tr
+                  v-for="repo in githubRepos.availableRepos"
+                  :key="repo.fullName"
+                  class="border-b transition-colors hover:bg-muted/50"
+                  :data-testid="`github-repo-${repo.name}`"
+                >
+                  <td class="p-4 align-middle">
+                    <div class="font-medium">{{ repo.name }}</div>
+                    <div v-if="repo.description" class="text-xs text-muted-foreground truncate max-w-[400px]">{{ repo.description }}</div>
+                  </td>
+                  <td class="p-4 align-middle">
+                    <Badge variant="outline" class="text-xs">
+                      <Lock v-if="repo.isPrivate" class="h-3 w-3 mr-1" />
+                      <Globe v-else class="h-3 w-3 mr-1" />
+                      {{ repo.isPrivate ? 'Private' : 'Public' }}
+                    </Badge>
+                  </td>
+                  <td class="p-4 align-middle text-muted-foreground text-xs">
+                    {{ new Date(repo.updatedAt).toLocaleDateString() }}
+                  </td>
+                  <td class="p-4 align-middle text-right">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      :disabled="githubRepos.isCloning(repo.fullName)"
+                      :data-testid="`clone-repo-${repo.name}`"
+                      @click="githubRepos.cloneRepo(repo)"
+                    >
+                      <Loader2 v-if="githubRepos.isCloning(repo.fullName)" class="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      <Download v-else class="h-3.5 w-3.5 mr-1.5" />
+                      Add Locally
+                    </Button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </main>
     </div>
   </div>
