@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   Search,
@@ -16,13 +16,79 @@ import {
   Layers,
   Files,
   Check,
+  Github,
+  Globe,
+  Lock,
+  ExternalLink,
+  Loader2,
+  HardDrive,
 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useProjectsStore } from '@/stores/projects';
+import { useAuthStore } from '@/stores/auth';
+import { useNotificationsStore } from '@/stores/notifications';
 import { WORKFLOW_STEPS, type WorkflowStep } from '@/types/project';
 
 const router = useRouter();
 const projects = useProjectsStore();
+const auth = useAuthStore();
+const notifications = useNotificationsStore();
+
+// Push to GitHub dialog state
+const showPushDialog = ref(false);
+const pushRepoName = ref('');
+const isPushPrivate = ref(true);
+const isPushing = ref(false);
+
+// Remote status helpers
+const remoteUrl = computed(() => projects.currentGitStatus?.remote_url ?? null);
+const isGitHubRemote = computed(() => remoteUrl.value?.includes('github.com') ?? false);
+const gitHubUrl = computed(() => {
+  if (!remoteUrl.value || !isGitHubRemote.value) return null;
+  // Convert git URLs to https browser URLs
+  return remoteUrl.value
+    .replace(/\.git$/, '')
+    .replace(/^git@github\.com:/, 'https://github.com/');
+});
+
+function openPushDialog() {
+  pushRepoName.value = projects.currentProjectId || '';
+  isPushPrivate.value = true;
+  showPushDialog.value = true;
+}
+
+async function pushToGitHub() {
+  if (!pushRepoName.value || !projects.currentProject) return;
+  isPushing.value = true;
+  try {
+    const result = await window.github.createRepoAndPush({
+      repoName: pushRepoName.value,
+      projectPath: projects.currentProject.path,
+      isPrivate: isPushPrivate.value,
+    });
+    if (result.success) {
+      notifications.success('Pushed to GitHub', `Repository created at ${result.htmlUrl}`);
+      showPushDialog.value = false;
+      await projects.refreshGitStatus();
+    } else {
+      notifications.error('Push failed', result.error || 'Unknown error');
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    notifications.error('Push failed', msg);
+  } finally {
+    isPushing.value = false;
+  }
+}
 
 // Step icons mapping
 const stepIcons: Partial<Record<WorkflowStep, typeof Search>> = {
@@ -111,7 +177,89 @@ function navigateToStep(stepRoute: string) {
         <span v-if="nextStep">Next step: <span class="font-medium text-foreground">{{ nextStep.label }}</span></span>
         <span v-if="!nextStep && totalRecords === 0">No records yet — start by adding a search source.</span>
       </p>
+
+      <!-- Remote status -->
+      <div class="flex items-center gap-2 mt-2 text-sm">
+        <template v-if="isGitHubRemote && gitHubUrl">
+          <Github class="h-4 w-4 text-muted-foreground" />
+          <a
+            :href="gitHubUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-primary hover:underline inline-flex items-center gap-1"
+            data-testid="github-repo-link"
+          >
+            {{ gitHubUrl.replace('https://github.com/', '') }}
+            <ExternalLink class="h-3 w-3" />
+          </a>
+        </template>
+        <template v-else-if="remoteUrl">
+          <Globe class="h-4 w-4 text-muted-foreground" />
+          <span class="text-muted-foreground">{{ remoteUrl }}</span>
+        </template>
+        <template v-else>
+          <HardDrive class="h-4 w-4 text-muted-foreground" />
+          <span class="text-muted-foreground">Local only</span>
+          <Button
+            v-if="auth.isAuthenticated"
+            variant="ghost"
+            size="sm"
+            class="h-7 text-xs"
+            data-testid="push-to-github-button"
+            @click="openPushDialog"
+          >
+            <Github class="h-3.5 w-3.5 mr-1" />
+            Push to GitHub
+          </Button>
+        </template>
+      </div>
     </div>
+
+    <!-- Push to GitHub dialog -->
+    <Dialog v-model:open="showPushDialog">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Push to GitHub</DialogTitle>
+          <DialogDescription>
+            Create a GitHub repository and push this project.
+          </DialogDescription>
+        </DialogHeader>
+        <div class="space-y-4 py-4">
+          <div class="space-y-2">
+            <label class="text-sm font-medium">Repository Name</label>
+            <Input
+              v-model="pushRepoName"
+              placeholder="my-literature-review"
+              :disabled="isPushing"
+              data-testid="push-repo-name-input"
+            />
+          </div>
+          <div class="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              class="text-xs h-7 px-2"
+              :disabled="isPushing"
+              data-testid="push-toggle-visibility"
+              @click="isPushPrivate = !isPushPrivate"
+            >
+              <Lock v-if="isPushPrivate" class="h-3.5 w-3.5 mr-1" />
+              <Globe v-else class="h-3.5 w-3.5 mr-1" />
+              {{ isPushPrivate ? 'Private' : 'Public' }}
+            </Button>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" :disabled="isPushing" @click="showPushDialog = false">
+            Cancel
+          </Button>
+          <Button :disabled="isPushing || !pushRepoName" data-testid="submit-push-to-github" @click="pushToGitHub">
+            <Loader2 v-if="isPushing" class="h-4 w-4 mr-2 animate-spin" />
+            {{ isPushing ? 'Pushing...' : 'Push to GitHub' }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <!-- Step progress -->
     <div class="space-y-1">

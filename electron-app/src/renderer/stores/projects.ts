@@ -129,12 +129,12 @@ export const useProjectsStore = defineStore('projects', () => {
         project_id: id,
       });
 
-      if (response.success && response.git_status) {
+      if (response.success && response.git) {
         const project = projects.value.find((p) => p.id === id);
         if (project) {
-          project.gitStatus = response.git_status;
+          project.gitStatus = response.git;
         }
-        return response.git_status;
+        return response.git;
       }
       return null;
     } catch {

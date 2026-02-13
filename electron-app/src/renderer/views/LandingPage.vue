@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { Plus, FolderOpen, Loader2, RefreshCw, FolderKanban, Settings } from 'lucide-vue-next';
+import { Plus, FolderOpen, Loader2, RefreshCw, FolderKanban, Settings, Github, Globe, Lock } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -19,6 +19,7 @@ import { EmptyState, ThemeToggle, UserMenu } from '@/components/common';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useAuthStore } from '@/stores/auth';
 import type { InitProjectResponse, ListProjectsResponse } from '@/types/api';
 
 const router = useRouter();
@@ -26,11 +27,15 @@ const route = useRoute();
 const backend = useBackendStore();
 const projects = useProjectsStore();
 const notifications = useNotificationsStore();
+const auth = useAuthStore();
 
 // New project dialog state
 const showNewProjectDialog = ref(false);
 const newProjectName = ref('');
 const isCreatingProject = ref(false);
+const createOnGitHub = ref(false);
+const isPrivateRepo = ref(true);
+const isPushingToGitHub = ref(false);
 
 // Auto-generate slug from project name
 const generatedSlug = computed(() => {
@@ -94,16 +99,40 @@ async function createProject() {
     });
 
     if (result.success) {
-      notifications.success('Project created', `Created ${title}`);
-
       // Add to projects list and load its status
       projects.addProject(result.project_id, result.path, title);
       await projects.loadProjectStatus(result.project_id);
+
+      // Push to GitHub if requested
+      if (createOnGitHub.value && auth.isAuthenticated) {
+        isPushingToGitHub.value = true;
+        try {
+          const ghResult = await window.github.createRepoAndPush({
+            repoName: slug,
+            projectPath: result.path,
+            isPrivate: isPrivateRepo.value,
+          });
+          if (ghResult.success) {
+            notifications.success('Project created', `Created ${title} and pushed to GitHub`);
+          } else {
+            notifications.error('GitHub push failed', ghResult.error || 'Unknown error. Project was created locally.');
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Unknown error';
+          notifications.error('GitHub push failed', msg + '. Project was created locally.');
+        } finally {
+          isPushingToGitHub.value = false;
+        }
+      } else {
+        notifications.success('Project created', `Created ${title}`);
+      }
+
       await projects.loadProjectGitStatus(result.project_id);
 
       // Reset dialog
       showNewProjectDialog.value = false;
       newProjectName.value = '';
+      createOnGitHub.value = false;
 
       // Navigate to the new project
       router.push({ name: 'project-overview', params: { id: result.project_id } });
@@ -222,6 +251,49 @@ async function createProject() {
                       ID: {{ generatedSlug }}
                     </p>
                   </div>
+
+                  <!-- GitHub toggle (only when authenticated) -->
+                  <div v-if="auth.isAuthenticated" class="space-y-3">
+                    <label class="text-sm font-medium">Repository</label>
+                    <div class="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        :class="{ 'ring-2 ring-primary': !createOnGitHub }"
+                        :disabled="isCreatingProject"
+                        data-testid="toggle-local-only"
+                        @click="createOnGitHub = false"
+                      >
+                        <FolderOpen class="h-4 w-4 mr-1.5" />
+                        Local only
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        :class="{ 'ring-2 ring-primary': createOnGitHub }"
+                        :disabled="isCreatingProject"
+                        data-testid="toggle-create-on-github"
+                        @click="createOnGitHub = true"
+                      >
+                        <Github class="h-4 w-4 mr-1.5" />
+                        Create on GitHub
+                      </Button>
+                    </div>
+                    <div v-if="createOnGitHub" class="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        class="text-xs h-7 px-2"
+                        :disabled="isCreatingProject"
+                        data-testid="toggle-repo-visibility"
+                        @click="isPrivateRepo = !isPrivateRepo"
+                      >
+                        <Lock v-if="isPrivateRepo" class="h-3.5 w-3.5 mr-1" />
+                        <Globe v-else class="h-3.5 w-3.5 mr-1" />
+                        {{ isPrivateRepo ? 'Private' : 'Public' }}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
 
                 <DialogFooter>
@@ -239,7 +311,7 @@ async function createProject() {
                     @click="createProject"
                   >
                     <Loader2 v-if="isCreatingProject" class="h-4 w-4 mr-2 animate-spin" />
-                    Create Project
+                    {{ isPushingToGitHub ? 'Pushing to GitHub...' : isCreatingProject ? 'Creating...' : 'Create Project' }}
                   </Button>
                 </DialogFooter>
               </DialogContent>

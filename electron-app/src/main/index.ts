@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { ColrevBackend } from './colrev-backend';
 import { setupGitEnvironment } from './git-env';
 import { AuthManager } from './auth-manager';
+import { createRepoAndPush } from './github-manager';
 
 // Register custom protocol scheme before app is ready
 protocol.registerSchemesAsPrivileged([
@@ -149,6 +150,19 @@ function setupIPC() {
   ipcMain.handle('auth:login', () => authManager.startDeviceFlow());
   ipcMain.handle('auth:logout', () => authManager.logout());
   ipcMain.handle('auth:get-token', () => authManager.getToken());
+
+  // GitHub handlers
+  ipcMain.handle(
+    'github:create-repo-and-push',
+    async (
+      _,
+      params: { repoName: string; projectPath: string; isPrivate: boolean; description?: string },
+    ) => {
+      const token = authManager.getToken();
+      if (!token) return { success: false, error: 'Not authenticated' };
+      return createRepoAndPush({ token, ...params });
+    },
+  );
 
   // Get app info
   ipcMain.handle('app:info', () => {

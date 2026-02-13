@@ -81,6 +81,18 @@ contextBridge.exposeInMainWorld('auth', {
 });
 
 /**
+ * Expose GitHub API.
+ */
+contextBridge.exposeInMainWorld('github', {
+  createRepoAndPush: (params: {
+    repoName: string;
+    projectPath: string;
+    isPrivate: boolean;
+    description?: string;
+  }) => ipcRenderer.invoke('github:create-repo-and-push', params),
+});
+
+/**
  * Expose app info API.
  */
 contextBridge.exposeInMainWorld('appInfo', {

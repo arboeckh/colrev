@@ -73,7 +73,7 @@ export interface GetGitStatusParams {
 
 export interface GetGitStatusResponse extends SuccessResponse {
   project_id: string;
-  git_status: GitStatus;
+  git: GitStatus;
 }
 
 // Settings

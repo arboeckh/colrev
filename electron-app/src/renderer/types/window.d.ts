@@ -44,6 +44,15 @@ export interface DeviceFlowStatus {
   error?: string;
 }
 
+export interface GitHubAPI {
+  createRepoAndPush: (params: {
+    repoName: string;
+    projectPath: string;
+    isPrivate: boolean;
+    description?: string;
+  }) => Promise<{ success: boolean; repoUrl?: string; htmlUrl?: string; error?: string }>;
+}
+
 export interface AuthAPI {
   getSession: () => Promise<AuthSession | null>;
   login: () => Promise<void>;
@@ -59,6 +68,7 @@ declare global {
     fileOps: FileOpsAPI;
     appInfo: AppInfoAPI;
     auth: AuthAPI;
+    github: GitHubAPI;
   }
 }
 
