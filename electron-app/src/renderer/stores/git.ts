@@ -3,6 +3,9 @@ import { ref, computed } from 'vue';
 import { useProjectsStore } from './projects';
 import { useNotificationsStore } from './notifications';
 import type { GitBranchInfo, GitLogEntry, GitHubRelease } from '@/types/window';
+import type { BranchDelta } from '@/types/project';
+import type { GetBranchDeltaResponse } from '@/types/api';
+import { useBackendStore } from './backend';
 
 export const useGitStore = defineStore('git', () => {
   const projects = useProjectsStore();
@@ -28,8 +31,13 @@ export const useGitStore = defineStore('git', () => {
   // New state for dev/release model
   const releases = ref<GitHubRelease[]>([]);
   const isLoadingReleases = ref(false);
+  const releasesLoaded = ref(false);
   const devAheadOfMain = ref(0);
   const mainAheadOfDev = ref(0);
+
+  // Branch delta (record-level diff between dev and main)
+  const branchDelta = ref<BranchDelta | null>(null);
+  const isLoadingDelta = ref(false);
 
   let fetchIntervalId: ReturnType<typeof setInterval> | null = null;
 
@@ -219,6 +227,7 @@ export const useGitStore = defineStore('git', () => {
     }
 
     await refreshBranches();
+    refreshBranchDelta(); // Fire and forget
     return true;
   }
 
@@ -317,17 +326,43 @@ export const useGitStore = defineStore('git', () => {
   }
 
   /**
+   * Refresh the record-level delta between current branch and main.
+   */
+  async function refreshBranchDelta(): Promise<void> {
+    if (!isOnDev.value || !projects.currentProjectId) {
+      branchDelta.value = null;
+      return;
+    }
+
+    const backend = useBackendStore();
+    isLoadingDelta.value = true;
+    try {
+      const response = await backend.call<GetBranchDeltaResponse>('get_branch_delta', {
+        project_id: projects.currentProjectId,
+      });
+      if (response.success) {
+        branchDelta.value = response;
+      }
+    } catch {
+      branchDelta.value = null;
+    } finally {
+      isLoadingDelta.value = false;
+    }
+  }
+
+  /**
    * Load GitHub releases for the current project.
    */
   async function loadReleases(): Promise<void> {
-    if (!remoteUrl.value || !isGitHubRemote.value) {
+    const remote = remoteUrl.value || projects.currentGitStatus?.remote_url || null;
+    if (!remote || !remote.includes('github.com')) {
       releases.value = [];
       return;
     }
 
     isLoadingReleases.value = true;
     try {
-      const result = await window.github.listReleases({ remoteUrl: remoteUrl.value });
+      const result = await window.github.listReleases({ remoteUrl: remote });
       if (result.success) {
         releases.value = result.releases;
       }
@@ -335,6 +370,7 @@ export const useGitStore = defineStore('git', () => {
       // Silently fail — releases are non-critical
     } finally {
       isLoadingReleases.value = false;
+      releasesLoaded.value = true;
     }
   }
 
@@ -343,22 +379,41 @@ export const useGitStore = defineStore('git', () => {
    */
   async function createRelease(params: { tagName: string; name: string; body: string }): Promise<boolean> {
     const path = getProjectPath();
-    if (!path || !remoteUrl.value) return false;
+    if (!path) {
+      notifications.error('Release failed', 'No project selected');
+      return false;
+    }
+    const remote = remoteUrl.value || projects.currentGitStatus?.remote_url || null;
+    if (!remote) {
+      notifications.error('Release failed', 'No remote repository configured. Push to GitHub first.');
+      return false;
+    }
 
-    const result = await window.github.createRelease({
-      remoteUrl: remoteUrl.value,
-      tagName: params.tagName,
-      name: params.name,
-      body: params.body,
-      projectPath: path,
-    });
+    try {
+      const result = await window.github.createRelease({
+        remoteUrl: remote,
+        tagName: params.tagName,
+        name: params.name,
+        body: params.body,
+        projectPath: path,
+      });
 
-    if (result.success) {
-      notifications.success('Release created', `${params.tagName} published on GitHub`);
-      await loadReleases();
-      return true;
-    } else {
-      notifications.error('Release failed', result.error || 'Unknown error');
+      if (result.success) {
+        // Optimistically prepend the new release so it appears instantly
+        if (result.release) {
+          releases.value = [result.release, ...releases.value];
+        } else {
+          // Fallback: reload from GitHub if response didn't include release data
+          await loadReleases();
+        }
+        notifications.success('Release created', `${params.tagName} published on GitHub`);
+        return true;
+      } else {
+        notifications.error('Release failed', result.error || 'Unknown error');
+        return false;
+      }
+    } catch (err) {
+      notifications.error('Release failed', err instanceof Error ? err.message : 'Unexpected error');
       return false;
     }
   }
@@ -422,6 +477,7 @@ export const useGitStore = defineStore('git', () => {
     await refreshStatus();
     await refreshBranches();
     await refreshBranchDiff();
+    refreshBranchDelta(); // Fire and forget
     if (hasRemote.value) {
       await fetch();
       if (isGitHubRemote.value) {
@@ -436,6 +492,7 @@ export const useGitStore = defineStore('git', () => {
     branches.value = [];
     recentCommits.value = [];
     releases.value = [];
+    releasesLoaded.value = false;
     ahead.value = 0;
     behind.value = 0;
     isClean.value = true;
@@ -443,6 +500,7 @@ export const useGitStore = defineStore('git', () => {
     isOffline.value = false;
     devAheadOfMain.value = 0;
     mainAheadOfDev.value = 0;
+    branchDelta.value = null;
   }
 
   return {
@@ -464,8 +522,11 @@ export const useGitStore = defineStore('git', () => {
     isOffline,
     releases,
     isLoadingReleases,
+    releasesLoaded,
     devAheadOfMain,
     mainAheadOfDev,
+    branchDelta,
+    isLoadingDelta,
     // Computed
     hasRemote,
     isGitHubRemote,
@@ -489,6 +550,7 @@ export const useGitStore = defineStore('git', () => {
     ensureDevBranch,
     mergeDevIntoMain,
     refreshBranchDiff,
+    refreshBranchDelta,
     loadReleases,
     createRelease,
     loadRecentCommits,

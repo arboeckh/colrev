@@ -6,17 +6,19 @@ JSON-RPC Endpoints:
     - validate: Validate project state and check for issues
     - get_operation_info: Get information about what a specific operation will do
     - get_preprocessing_summary: Get preprocessing data for visualization
+    - get_branch_delta: Compare records between current branch and main
 
 See docs/api/jsonrpc/status.md for full endpoint documentation.
 """
 
+import io
 import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import colrev.review_manager
-from colrev.constants import OperationsType, RecordState
+from colrev.constants import Fields, OperationsType, RecordState
 from colrev.ui_jsonrpc import response_formatter, validation as param_validation
 
 logger = logging.getLogger(__name__)
@@ -479,6 +481,112 @@ class StatusHandler:
             return True
 
         return False
+
+    def get_branch_delta(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Compare records between the current branch and main branch.
+
+        Reads main's records.bib via git (without checking out) and compares
+        it to the current branch's records to compute a delta.
+
+        Args:
+            params: Method parameters containing:
+                - project_id (str): Project identifier (required)
+                - base_branch (str, optional): Branch to compare against (default: "main")
+
+        Returns:
+            Dict containing:
+                - success (bool): Always True on success
+                - base_branch (str): The branch compared against
+                - current_branch (str): The current branch
+                - new_record_count (int): Records in current but not in base
+                - removed_record_count (int): Records in base but not in current
+                - changed_record_count (int): Records in both with different status
+                - delta_by_state (dict): New record counts by their current state
+        """
+        project_id = params["project_id"]
+        base_branch = params.get("base_branch", "main")
+
+        logger.info(f"Getting branch delta for project {project_id}")
+
+        git_repo = self.review_manager.dataset.git_repo.repo
+
+        # Get current branch name
+        try:
+            current_branch = git_repo.active_branch.name
+        except TypeError:
+            current_branch = str(git_repo.head.commit)[:8]
+
+        # Load current records
+        try:
+            current_records = self.review_manager.dataset.load_records_dict()
+        except Exception:
+            current_records = {}
+
+        # Load base branch records from git blob
+        base_records = self._load_records_from_branch(git_repo, base_branch)
+
+        current_ids = set(current_records.keys())
+        base_ids = set(base_records.keys())
+
+        new_ids = current_ids - base_ids
+        removed_ids = base_ids - current_ids
+        common_ids = current_ids & base_ids
+
+        # Count changed records (different colrev_status)
+        changed_count = 0
+        for rid in common_ids:
+            cur_status = str(current_records[rid].get(Fields.STATUS, ""))
+            base_status = str(base_records[rid].get(Fields.STATUS, ""))
+            if cur_status != base_status:
+                changed_count += 1
+
+        # Build delta_by_state for new records
+        delta_by_state: Dict[str, int] = {}
+        for rid in new_ids:
+            status = str(current_records[rid].get(Fields.STATUS, "unknown"))
+            # RecordState enum values have a .value attribute; use the name
+            if hasattr(status, "name"):
+                status = status.name
+            delta_by_state[status] = delta_by_state.get(status, 0) + 1
+
+        return {
+            "success": True,
+            "base_branch": base_branch,
+            "current_branch": current_branch,
+            "new_record_count": len(new_ids),
+            "removed_record_count": len(removed_ids),
+            "changed_record_count": changed_count,
+            "delta_by_state": delta_by_state,
+        }
+
+    def _load_records_from_branch(
+        self, git_repo, branch_name: str
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Load records.bib from a git branch without checking it out.
+
+        Args:
+            git_repo: gitpython Repo object
+            branch_name: Name of the branch to read from
+
+        Returns:
+            Dict of record_id -> record_dict, or empty dict on error
+        """
+        from colrev.loader.bib import process_lines
+
+        try:
+            commit = git_repo.commit(branch_name)
+            blob = commit.tree / "data" / "records.bib"
+            content = blob.data_stream.read().decode("utf-8")
+            text_io = io.StringIO(content)
+            records_list = process_lines(text_io, header_only=True)
+            return {r[Fields.ID]: r for r in records_list}
+        except Exception as e:
+            logger.debug(
+                f"Could not load records from branch {branch_name}: {e}"
+            )
+            return {}
 
     def get_preprocessing_summary(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """

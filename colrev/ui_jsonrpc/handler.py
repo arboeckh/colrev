@@ -113,6 +113,7 @@ class JSONRPCHandler:
             "validate",
             "get_operation_info",
             "get_preprocessing_summary",
+            "get_branch_delta",
         ]:
             return self._handle_with_review_manager(method, params, StatusHandler)
 

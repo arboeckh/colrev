@@ -12,6 +12,8 @@ const props = defineProps<{
   operationInfo?: GetOperationInfoResponse | null;
   recordCounts?: RecordCounts | null;
   overallCounts?: OverallRecordCounts | null;
+  deltaByState?: globalThis.Record<string, number> | null;
+  isOnDev?: boolean;
   isFirst?: boolean;
   isLast?: boolean;
 }>();
@@ -50,6 +52,14 @@ const everProcessedRecords = computed(() => {
   return props.step.outputStates.reduce((sum, state) => {
     const key = state as keyof OverallRecordCounts;
     return sum + (props.overallCounts?.[key] ?? 0);
+  }, 0);
+});
+
+// Count of new records (from delta) currently in this step's input states
+const deltaPendingRecords = computed(() => {
+  if (!props.isOnDev || !props.deltaByState) return 0;
+  return props.step.inputStates.reduce((sum, state) => {
+    return sum + (props.deltaByState?.[state] ?? 0);
   }, 0);
 });
 
@@ -174,12 +184,20 @@ const stepStatus = computed((): StepStatus => {
     <!-- Label and count -->
     <div class="flex flex-1 items-center justify-between min-w-0 pr-2">
       <span class="truncate">{{ step.label }}</span>
-      <span
-        v-if="pendingRecords > 0"
-        class="ml-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary/10 px-1.5 text-xs tabular-nums text-primary font-medium"
-      >
-        {{ pendingRecords }}
-      </span>
+      <div class="flex items-center gap-1 ml-2">
+        <span
+          v-if="deltaPendingRecords > 0"
+          class="flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 text-xs tabular-nums text-amber-500 font-medium"
+        >
+          +{{ deltaPendingRecords }}
+        </span>
+        <span
+          v-if="pendingRecords > 0"
+          class="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary/10 px-1.5 text-xs tabular-nums text-primary font-medium"
+        >
+          {{ pendingRecords }}
+        </span>
+      </div>
     </div>
   </RouterLink>
 </template>

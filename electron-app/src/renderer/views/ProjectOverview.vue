@@ -204,6 +204,32 @@ function formatDate(dateStr: string) {
     day: 'numeric',
   });
 }
+
+// Delta pipeline helpers
+const STATE_COLORS: globalThis.Record<string, string> = {
+  md_retrieved: 'bg-slate-400',
+  md_imported: 'bg-blue-400',
+  md_needs_manual_preparation: 'bg-blue-300',
+  md_prepared: 'bg-indigo-400',
+  md_processed: 'bg-violet-400',
+  rev_prescreen_included: 'bg-purple-400',
+  rev_prescreen_excluded: 'bg-gray-400',
+  pdf_imported: 'bg-pink-400',
+  pdf_prepared: 'bg-rose-400',
+  rev_included: 'bg-emerald-400',
+  rev_excluded: 'bg-gray-400',
+  rev_synthesized: 'bg-green-500',
+};
+
+function getDeltaStateColor(state: string): string {
+  return STATE_COLORS[state] ?? 'bg-muted-foreground/40';
+}
+
+function formatStateName(state: string): string {
+  return state
+    .replace(/^(md_|rev_|pdf_)/, '')
+    .replace(/_/g, ' ');
+}
 </script>
 
 <template>
@@ -566,7 +592,7 @@ function formatDate(dateStr: string) {
               </div>
 
               <!-- Releases list -->
-              <div v-if="git.isLoadingReleases" class="flex items-center justify-center py-4">
+              <div v-if="git.isLoadingReleases || !git.releasesLoaded" class="flex items-center justify-center py-4">
                 <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
               </div>
 
@@ -577,10 +603,13 @@ function formatDate(dateStr: string) {
               </div>
 
               <div v-else class="border border-border rounded-md overflow-hidden">
-                <div
+                <a
                   v-for="(release, index) in git.releases"
                   :key="release.id"
-                  class="flex items-center justify-between py-2 px-3 hover:bg-muted/40 transition-colors"
+                  :href="release.htmlUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="flex items-center justify-between py-2 px-3 hover:bg-muted/40 transition-colors cursor-pointer no-underline text-inherit"
                   :class="index > 0 ? 'border-t border-border' : ''"
                   :data-testid="`release-${release.tagName}`"
                 >
@@ -593,16 +622,9 @@ function formatDate(dateStr: string) {
                   </div>
                   <div class="flex items-center gap-2 shrink-0">
                     <span class="text-xs text-muted-foreground">{{ formatDate(release.createdAt) }}</span>
-                    <a
-                      :href="release.htmlUrl"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="text-muted-foreground hover:text-foreground"
-                    >
-                      <ExternalLink class="h-3 w-3" />
-                    </a>
+                    <ExternalLink class="h-3 w-3 text-muted-foreground" />
                   </div>
-                </div>
+                </a>
               </div>
             </template>
 
@@ -613,11 +635,70 @@ function formatDate(dateStr: string) {
             </div>
           </div>
 
-          <!-- Hint when on dev -->
-          <div v-if="git.isOnDev" class="mt-4 p-3 rounded-md bg-muted/30 border border-border/50">
-            <p class="text-xs text-muted-foreground">
-              <span class="font-medium text-foreground">You're on dev</span> — all your work (searching, screening, data extraction) happens here. When you're ready to mark a milestone, switch to <span class="font-mono">main</span> and merge.
-            </p>
+          <!-- Delta summary when on dev -->
+          <div v-if="git.isOnDev" class="mt-4">
+            <!-- Loading state -->
+            <div v-if="git.isLoadingDelta" class="p-3 rounded-md bg-muted/30 border border-border/50 flex items-center gap-2">
+              <Loader2 class="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              <span class="text-xs text-muted-foreground">Comparing with main...</span>
+            </div>
+
+            <!-- Delta data available -->
+            <template v-else-if="git.branchDelta">
+              <!-- Has changes -->
+              <div v-if="git.branchDelta.new_record_count > 0 || git.branchDelta.changed_record_count > 0 || git.branchDelta.removed_record_count > 0"
+                class="rounded-md border border-border/50 overflow-hidden">
+                <!-- Stats row -->
+                <div class="flex divide-x divide-border/50">
+                  <div v-if="git.branchDelta.new_record_count > 0" class="flex-1 p-3 text-center">
+                    <div class="text-lg font-semibold text-amber-500">+{{ git.branchDelta.new_record_count }}</div>
+                    <div class="text-[11px] text-muted-foreground">New records</div>
+                  </div>
+                  <div v-if="git.branchDelta.changed_record_count > 0" class="flex-1 p-3 text-center">
+                    <div class="text-lg font-semibold text-blue-500">{{ git.branchDelta.changed_record_count }}</div>
+                    <div class="text-[11px] text-muted-foreground">Progressed</div>
+                  </div>
+                  <div v-if="git.branchDelta.removed_record_count > 0" class="flex-1 p-3 text-center">
+                    <div class="text-lg font-semibold text-red-500">-{{ git.branchDelta.removed_record_count }}</div>
+                    <div class="text-[11px] text-muted-foreground">Removed</div>
+                  </div>
+                </div>
+
+                <!-- Pipeline progress bar for new records -->
+                <div v-if="Object.keys(git.branchDelta.delta_by_state).length > 0" class="px-3 pb-3">
+                  <div class="text-[11px] text-muted-foreground mb-1.5">New records in pipeline</div>
+                  <div class="flex h-2 rounded-full overflow-hidden bg-muted/50">
+                    <div
+                      v-for="(count, state) in git.branchDelta.delta_by_state"
+                      :key="state"
+                      :style="{ width: `${(count / git.branchDelta.new_record_count) * 100}%` }"
+                      :class="getDeltaStateColor(String(state))"
+                      class="h-full transition-all"
+                      :title="`${state}: ${count}`"
+                    />
+                  </div>
+                  <div class="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
+                    <span v-for="(count, state) in git.branchDelta.delta_by_state" :key="state" class="text-[10px] text-muted-foreground flex items-center gap-1">
+                      <span class="h-1.5 w-1.5 rounded-full" :class="getDeltaStateColor(String(state))" />
+                      {{ formatStateName(String(state)) }}: {{ count }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- In sync -->
+              <div v-else class="p-3 rounded-md bg-muted/30 border border-border/50 flex items-center gap-2">
+                <CheckCircle2 class="h-3.5 w-3.5 text-green-500" />
+                <span class="text-xs text-muted-foreground">Branches in sync — no new records since last merge.</span>
+              </div>
+            </template>
+
+            <!-- No delta data / fallback hint -->
+            <div v-else class="p-3 rounded-md bg-muted/30 border border-border/50">
+              <p class="text-xs text-muted-foreground">
+                <span class="font-medium text-foreground">You're on dev</span> — all your work (searching, screening, data extraction) happens here. When you're ready to mark a milestone, switch to <span class="font-mono">main</span> and merge.
+              </p>
+            </div>
           </div>
         </div>
 

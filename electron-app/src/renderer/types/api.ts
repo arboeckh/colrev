@@ -1,6 +1,6 @@
 // JSON-RPC API type definitions
 
-import type { GitStatus, ProjectStatus, Record, SearchSource, ProjectSettings } from './project';
+import type { GitStatus, ProjectStatus, Record, SearchSource, ProjectSettings, BranchDelta } from './project';
 
 // Base response types
 export interface SuccessResponse {
@@ -723,3 +723,6 @@ export interface ValidateResponse extends SuccessResponse {
   message: string;
   details?: unknown;
 }
+
+// Branch Delta
+export interface GetBranchDeltaResponse extends SuccessResponse, BranchDelta {}

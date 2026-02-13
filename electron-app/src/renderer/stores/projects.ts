@@ -267,6 +267,17 @@ export const useProjectsStore = defineStore('projects', () => {
 
       // Refresh operation info
       await loadAllOperationInfo(id);
+
+      // Refresh branch delta (fire-and-forget) when on dev
+      try {
+        const { useGitStore } = await import('./git');
+        const gitStore = useGitStore();
+        if (gitStore.isOnDev) {
+          gitStore.refreshBranchDelta();
+        }
+      } catch {
+        // Non-critical
+      }
     } catch (err) {
       console.error('Failed to refresh project:', err);
       // Keep existing data on error - don't clear

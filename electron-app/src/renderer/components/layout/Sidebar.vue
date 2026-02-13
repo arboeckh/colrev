@@ -7,6 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import SidebarItem from './SidebarItem.vue';
 import { UserMenu } from '@/components/common';
 import { useProjectsStore } from '@/stores/projects';
+import { useGitStore } from '@/stores/git';
 import { WORKFLOW_STEPS, type WorkflowStep } from '@/types/project';
 
 const props = defineProps<{
@@ -15,6 +16,7 @@ const props = defineProps<{
 
 const route = useRoute();
 const projects = useProjectsStore();
+const git = useGitStore();
 
 const isOverviewActive = computed(() => {
   return route.name === 'project-overview';
@@ -68,6 +70,7 @@ const overallCounts = computed(() => {
       <nav class="flex flex-col pl-2">
         <SidebarItem v-for="(step, index) in WORKFLOW_STEPS" :key="step.id" :step="step" :project-id="projectId"
           :operation-info="getOperationInfo(step.id)" :record-counts="recordCounts" :overall-counts="overallCounts"
+          :delta-by-state="git.branchDelta?.delta_by_state ?? null" :is-on-dev="git.isOnDev"
           :is-first="index === 0" :is-last="index === WORKFLOW_STEPS.length - 1" />
       </nav>
 

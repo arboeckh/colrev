@@ -195,6 +195,16 @@ export interface ScreenCriterion {
   criterion_type?: 'inclusion_criterion' | 'exclusion_criterion';
 }
 
+// Branch delta comparison
+export interface BranchDelta {
+  base_branch: string;
+  current_branch: string;
+  new_record_count: number;
+  removed_record_count: number;
+  changed_record_count: number;
+  delta_by_state: globalThis.Record<string, number>;
+}
+
 // Workflow step definitions
 export type WorkflowStep =
   | 'review_definition'
