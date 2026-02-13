@@ -14,6 +14,7 @@ const props = defineProps<{
   overallCounts?: OverallRecordCounts | null;
   deltaByState?: globalThis.Record<string, number> | null;
   isOnDev?: boolean;
+  hasPriorPending?: boolean;
   isFirst?: boolean;
   isLast?: boolean;
 }>();
@@ -101,12 +102,16 @@ const stepStatus = computed((): StepStatus => {
 
   // Step has processed records (and none pending) - it's complete
   if (processedRecords.value > 0) {
+    // If any prior step has pending work, don't show as complete (but not active either —
+    // only show in-progress dot when this step itself has pending records)
+    if (props.hasPriorPending) return 'pending';
     return 'complete';
   }
 
   // Step was completed in the past but records have moved to later steps
   // (e.g. preprocessing produced md_processed, but prescreen moved them on)
   if (everProcessedRecords.value > 0) {
+    if (props.hasPriorPending) return 'pending';
     return 'complete';
   }
 

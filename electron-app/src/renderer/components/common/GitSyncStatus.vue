@@ -34,7 +34,7 @@ const syncState = computed(() => {
 
   const { ahead, behind, is_clean, uncommitted_changes } = props.status;
 
-  if (!is_clean || uncommitted_changes > 0) {
+  if (uncommitted_changes > 0) {
     return {
       icon: AlertCircle,
       label: `${uncommitted_changes} uncommitted`,

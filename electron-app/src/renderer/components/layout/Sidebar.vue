@@ -48,6 +48,20 @@ const recordCounts = computed(() => {
 const overallCounts = computed(() => {
   return projects.currentStatus?.overall ?? null;
 });
+
+// For each step index, check whether any prior step has pending records
+const priorStepHasPending = computed(() => {
+  return WORKFLOW_STEPS.map((_, index) => {
+    for (let i = 0; i < index; i++) {
+      const priorStep = WORKFLOW_STEPS[i];
+      const pending = priorStep.inputStates.reduce((sum, state) => {
+        return sum + (recordCounts.value?.[state] ?? 0);
+      }, 0);
+      if (pending > 0) return true;
+    }
+    return false;
+  });
+});
 </script>
 
 <template>
@@ -71,6 +85,7 @@ const overallCounts = computed(() => {
         <SidebarItem v-for="(step, index) in WORKFLOW_STEPS" :key="step.id" :step="step" :project-id="projectId"
           :operation-info="getOperationInfo(step.id)" :record-counts="recordCounts" :overall-counts="overallCounts"
           :delta-by-state="git.branchDelta?.delta_by_state ?? null" :is-on-dev="git.isOnDev"
+          :has-prior-pending="priorStepHasPending[index]"
           :is-first="index === 0" :is-last="index === WORKFLOW_STEPS.length - 1" />
       </nav>
 
