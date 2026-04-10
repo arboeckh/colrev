@@ -131,11 +131,21 @@ export interface GitHubAPI {
   }) => Promise<{ success: boolean; release?: GitHubRelease; error?: string }>;
 }
 
+export interface AccountInfo {
+  login: string;
+  name: string | null;
+  avatarUrl: string;
+  isActive: boolean;
+}
+
 export interface AuthAPI {
   getSession: () => Promise<AuthSession | null>;
   login: () => Promise<void>;
   logout: () => Promise<void>;
   getToken: () => Promise<string | null>;
+  listAccounts: () => Promise<AccountInfo[]>;
+  switchAccount: (login: string) => Promise<AuthSession | null>;
+  removeAccount: (login: string) => Promise<{ success: boolean }>;
   onAuthUpdate: (callback: (session: AuthSession | null) => void) => () => void;
   onDeviceFlowStatus: (callback: (status: DeviceFlowStatus) => void) => () => void;
 }

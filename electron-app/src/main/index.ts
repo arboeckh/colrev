@@ -4,6 +4,12 @@ import * as fs from 'fs';
 import { ColrevBackend } from './colrev-backend';
 import { setupGitEnvironment } from './git-env';
 import { AuthManager } from './auth-manager';
+
+// Allow running multiple instances with separate data directories via COLREV_USER env var
+// Usage: COLREV_USER=alice npm run dev  /  COLREV_USER=bob npm run dev
+if (process.env.COLREV_USER) {
+  app.setPath('userData', path.join(app.getPath('userData') + '-' + process.env.COLREV_USER));
+}
 import {
   createRepoAndPush,
   listColrevRepos,

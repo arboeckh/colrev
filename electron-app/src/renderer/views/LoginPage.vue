@@ -1,22 +1,41 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import { Github, Copy, ExternalLink, Loader2, AlertCircle, Check, ClipboardCheck } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuthStore } from '@/stores/auth';
 
 const router = useRouter();
+const route = useRoute();
 const auth = useAuthStore();
 const copied = ref(false);
+const isAddingAccount = computed(() => !!route.query.addAccount);
 
-// Navigate to landing page when user gains access
+// Navigate to landing page when user gains access (only for fresh login, not add-account)
 watch(
   () => auth.hasAccess,
   (hasAccess) => {
-    if (hasAccess) router.replace('/');
+    if (hasAccess && !isAddingAccount.value) router.replace('/');
   }
 );
+
+// When adding account: watch for device flow success → navigate back
+watch(
+  () => auth.deviceFlowStatus?.status,
+  (status) => {
+    if (isAddingAccount.value && status === 'success') {
+      router.replace('/');
+    }
+  }
+);
+
+// Auto-start device flow when adding account
+onMounted(() => {
+  if (isAddingAccount.value) {
+    auth.login();
+  }
+});
 
 const isPolling = computed(
   () => auth.deviceFlowStatus?.status === 'polling' || auth.deviceFlowStatus?.status === 'awaiting_code'

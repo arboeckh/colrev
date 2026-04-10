@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
-import { User, LogOut, Github, EllipsisVertical } from 'lucide-vue-next';
+import { User, LogOut, Github, EllipsisVertical, Check, Plus } from 'lucide-vue-next';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -8,6 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import { useAuthStore } from '@/stores/auth';
 
@@ -22,6 +23,18 @@ async function handleSignOut() {
 function handleSignIn() {
   auth.isLocalMode = false;
   router.push('/login');
+}
+
+function handleAddAccount() {
+  router.push('/login?addAccount=1');
+}
+
+async function handleSwitchAccount(login: string) {
+  const result = await auth.switchAccount(login);
+  if (result) {
+    // Full reload — token changed, all project data / collaborators / git state is stale
+    window.location.reload();
+  }
 }
 </script>
 
@@ -50,12 +63,41 @@ function handleSignIn() {
     </DropdownMenuTrigger>
 
     <DropdownMenuContent align="end" side="top" class="w-[--reka-dropdown-menu-trigger-width]">
+      <!-- Account list (when multiple accounts) -->
+      <template v-if="auth.accounts.length > 1">
+        <DropdownMenuLabel class="text-xs text-muted-foreground font-normal">Switch account</DropdownMenuLabel>
+        <DropdownMenuItem
+          v-for="account in auth.accounts"
+          :key="account.login"
+          class="gap-2"
+          @click="handleSwitchAccount(account.login)"
+        >
+          <Avatar class="h-5 w-5 shrink-0">
+            <AvatarImage :src="account.avatarUrl" />
+            <AvatarFallback class="text-[9px] bg-muted">
+              <User class="h-3 w-3" />
+            </AvatarFallback>
+          </Avatar>
+          <span class="flex-1 truncate text-sm">{{ account.name || account.login }}</span>
+          <Check v-if="account.isActive" class="h-3.5 w-3.5 shrink-0 text-primary" />
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+      </template>
+
+      <!-- Add another account -->
+      <DropdownMenuItem v-if="auth.isAuthenticated" @click="handleAddAccount">
+        <Plus class="h-4 w-4 mr-2" />
+        Add account
+      </DropdownMenuItem>
+
+      <!-- Sign out -->
       <DropdownMenuItem v-if="auth.isAuthenticated" data-testid="sign-out-button" @click="handleSignOut">
         <LogOut class="h-4 w-4 mr-2" />
         Sign out
       </DropdownMenuItem>
 
-      <DropdownMenuItem v-else @click="handleSignIn">
+      <!-- Sign in (when not authenticated) -->
+      <DropdownMenuItem v-if="!auth.isAuthenticated" @click="handleSignIn">
         <Github class="h-4 w-4 mr-2" />
         Sign in with GitHub
       </DropdownMenuItem>

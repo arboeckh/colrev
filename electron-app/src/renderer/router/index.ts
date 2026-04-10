@@ -241,8 +241,8 @@ router.beforeEach(async (to, _from) => {
 
   // Public routes (login page)
   if (to.meta.public) {
-    // If already authenticated, redirect to landing
-    if (auth.hasAccess) return '/';
+    // If already authenticated, redirect to landing — unless adding another account
+    if (auth.hasAccess && !to.query.addAccount) return '/';
     return;
   }
 
