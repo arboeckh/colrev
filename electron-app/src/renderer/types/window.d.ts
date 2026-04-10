@@ -68,6 +68,30 @@ export interface GitHubRelease {
   author: string;
 }
 
+export interface GitHubCollaborator {
+  login: string;
+  name: string | null;
+  avatarUrl: string;
+}
+
+export interface PendingRepoInvitation {
+  id: number;
+  inviteeLogin: string;
+  inviteeAvatarUrl: string;
+  permission: string;
+  createdAt: string;
+}
+
+export interface RepoInvitation {
+  id: number;
+  repoFullName: string;
+  repoUrl: string;
+  inviter: string;
+  inviterAvatarUrl: string;
+  permission: string;
+  createdAt: string;
+}
+
 export interface GitHubAPI {
   createRepoAndPush: (params: {
     repoName: string;
@@ -83,6 +107,21 @@ export interface GitHubAPI {
   listReleases: (params: {
     remoteUrl: string;
   }) => Promise<{ success: boolean; releases: GitHubRelease[]; error?: string }>;
+  listCollaborators: (params: {
+    remoteUrl: string;
+  }) => Promise<{ success: boolean; collaborators: GitHubCollaborator[]; error?: string }>;
+  addCollaborator: (params: {
+    remoteUrl: string;
+    username: string;
+    permission?: 'pull' | 'push' | 'admin';
+  }) => Promise<{ success: boolean; invited?: boolean; error?: string }>;
+  listPendingInvitations: (params: {
+    remoteUrl: string;
+  }) => Promise<{ success: boolean; invitations: PendingRepoInvitation[]; error?: string }>;
+  listInvitations: () => Promise<{ success: boolean; invitations: RepoInvitation[]; error?: string }>;
+  acceptInvitation: (params: {
+    invitationId: number;
+  }) => Promise<{ success: boolean; error?: string }>;
   createRelease: (params: {
     remoteUrl: string;
     tagName: string;
@@ -143,8 +182,10 @@ export interface GitAPI {
   fetch: (projectPath: string) => Promise<GitOperationResult>;
   pull: (projectPath: string, ffOnly?: boolean) => Promise<GitOperationResult>;
   push: (projectPath: string) => Promise<GitOperationResult>;
+  pushBranch: (projectPath: string, branchName: string) => Promise<GitOperationResult>;
   listBranches: (projectPath: string) => Promise<GitBranchListResult>;
   createBranch: (projectPath: string, name: string, baseBranch?: string) => Promise<GitOperationResult>;
+  createLocalBranch: (projectPath: string, name: string, baseRef: string) => Promise<GitOperationResult>;
   checkout: (projectPath: string, branchName: string) => Promise<GitOperationResult>;
   merge: (projectPath: string, source: string, ffOnly?: boolean) => Promise<GitOperationResult>;
   log: (projectPath: string, count?: number) => Promise<GitLogResult>;

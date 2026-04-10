@@ -5,7 +5,6 @@ import { AlertTriangle, ArrowDown, X } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import Header from './Header.vue';
 import Sidebar from './Sidebar.vue';
-import { ReadOnlyBanner } from '@/components/common';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
@@ -86,9 +85,6 @@ onUnmounted(() => {
   <div class="flex flex-col h-screen">
     <!-- Header -->
     <Header />
-
-    <!-- Read-only banner (main branch) -->
-    <ReadOnlyBanner />
 
     <!-- Merge conflict banner -->
     <div

@@ -8,6 +8,7 @@ import SidebarItem from './SidebarItem.vue';
 import { UserMenu } from '@/components/common';
 import { useProjectsStore } from '@/stores/projects';
 import { useGitStore } from '@/stores/git';
+import { useManagedReviewStore } from '@/stores/managedReview';
 import { WORKFLOW_STEPS, type WorkflowStep } from '@/types/project';
 
 const props = defineProps<{
@@ -17,6 +18,7 @@ const props = defineProps<{
 const route = useRoute();
 const projects = useProjectsStore();
 const git = useGitStore();
+const managedReview = useManagedReviewStore();
 
 const isOverviewActive = computed(() => {
   return route.name === 'project-overview';
@@ -62,6 +64,17 @@ const downstreamStatesPerStep = computed(() => {
   });
 });
 
+// Derive sidebar step status for managed review steps (launch/review/reconcile)
+const managedStepStatuses = computed(() => {
+  const map: Partial<globalThis.Record<WorkflowStep, 'pending' | 'active' | 'complete' | null>> = {};
+  for (const step of WORKFLOW_STEPS) {
+    if (step.managedReviewKind) {
+      map[step.id] = managedReview.getStepStatus(step.id);
+    }
+  }
+  return map;
+});
+
 // Whether to show the badge legend (only when on dev with new records)
 const showBadgeLegend = computed(() => {
   return git.isOnDev && git.branchDelta && git.branchDelta.new_record_count > 0;
@@ -93,7 +106,7 @@ const priorStepHasPending = computed(() => {
             : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
         ]">
         <LayoutDashboard class="h-4 w-4" />
-        <span>Versions</span>
+        <span>Overview</span>
       </RouterLink>
 
       <Separator class="my-3" />
@@ -102,7 +115,7 @@ const priorStepHasPending = computed(() => {
       <div v-if="showBadgeLegend" class="flex flex-col gap-1 mb-2 px-1">
         <div class="flex items-center gap-1.5">
           <span class="flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500/15 px-1 text-[10px] tabular-nums text-emerald-500 font-medium">+n</span>
-          <span class="text-[10px] text-muted-foreground/60">new records from dev</span>
+          <span class="text-[10px] text-muted-foreground/60">new unpublished records</span>
         </div>
         <div class="flex items-center gap-1.5">
           <span class="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/10 px-1 text-[10px] tabular-nums text-primary font-medium">n</span>
@@ -117,6 +130,7 @@ const priorStepHasPending = computed(() => {
           :delta-by-state="git.branchDelta?.delta_by_state ?? null" :is-on-dev="git.isOnDev"
           :has-prior-pending="priorStepHasPending[index]"
           :downstream-states="downstreamStatesPerStep[index]"
+          :managed-step-status="managedStepStatuses[step.id] ?? null"
           :is-first="index === 0" :is-last="index === WORKFLOW_STEPS.length - 1" />
       </nav>
 

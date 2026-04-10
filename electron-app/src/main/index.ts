@@ -4,13 +4,26 @@ import * as fs from 'fs';
 import { ColrevBackend } from './colrev-backend';
 import { setupGitEnvironment } from './git-env';
 import { AuthManager } from './auth-manager';
-import { createRepoAndPush, listColrevRepos, parseOwnerRepo, listReleases, createGitHubRelease } from './github-manager';
+import {
+  createRepoAndPush,
+  listColrevRepos,
+  parseOwnerRepo,
+  listReleases,
+  createGitHubRelease,
+  listRepoCollaborators,
+  addRepoCollaborator,
+  listRepoInvitations,
+  acceptRepoInvitation,
+  listPendingRepoInvitations,
+} from './github-manager';
 import {
   gitFetch,
   gitPull,
   gitPush,
+  gitPushBranch,
   gitListBranches,
   gitCreateBranch,
+  gitCreateLocalBranch,
   gitCheckout,
   gitMerge,
   gitLog,
@@ -176,6 +189,12 @@ function setupIPC() {
   ipcMain.handle('auth:login', () => authManager.startDeviceFlow());
   ipcMain.handle('auth:logout', () => authManager.logout());
   ipcMain.handle('auth:get-token', () => authManager.getToken());
+  ipcMain.handle('auth:list-accounts', () => authManager.listAccounts());
+  ipcMain.handle('auth:switch-account', (_, login: string) => authManager.switchAccount(login));
+  ipcMain.handle('auth:remove-account', (_, login: string) => {
+    authManager.removeAccount(login);
+    return { success: true };
+  });
 
   // GitHub handlers
   ipcMain.handle(
@@ -245,12 +264,21 @@ function setupIPC() {
     return gitPush(projectPath, token);
   });
 
+  ipcMain.handle('git:push-branch', async (_, projectPath: string, branchName: string) => {
+    const token = authManager.getToken();
+    return gitPushBranch(projectPath, branchName, token);
+  });
+
   ipcMain.handle('git:list-branches', async (_, projectPath: string) => {
     return gitListBranches(projectPath);
   });
 
   ipcMain.handle('git:create-branch', async (_, projectPath: string, name: string, baseBranch?: string) => {
     return gitCreateBranch(projectPath, name, baseBranch);
+  });
+
+  ipcMain.handle('git:create-local-branch', async (_, projectPath: string, name: string, baseRef: string) => {
+    return gitCreateLocalBranch(projectPath, name, baseRef);
   });
 
   ipcMain.handle('git:checkout', async (_, projectPath: string, branchName: string) => {
@@ -296,6 +324,93 @@ function setupIPC() {
       return { success: true, releases };
     } catch (err) {
       return { success: false, releases: [], error: err instanceof Error ? err.message : 'Failed to list releases' };
+    }
+  });
+
+  ipcMain.handle('github:list-collaborators', async (_, params: { remoteUrl: string }) => {
+    const token = authManager.getToken();
+    if (!token) return { success: false, error: 'Not authenticated', collaborators: [] };
+    const parsed = parseOwnerRepo(params.remoteUrl);
+    if (!parsed) return { success: false, error: 'Not a GitHub URL', collaborators: [] };
+    try {
+      const collaborators = await listRepoCollaborators(token, parsed.owner, parsed.repo);
+      return { success: true, collaborators };
+    } catch (err) {
+      return {
+        success: false,
+        collaborators: [],
+        error: err instanceof Error ? err.message : 'Failed to list collaborators',
+      };
+    }
+  });
+
+  ipcMain.handle(
+    'github:add-collaborator',
+    async (_, params: { remoteUrl: string; username: string; permission?: 'pull' | 'push' | 'admin' }) => {
+      const token = authManager.getToken();
+      if (!token) return { success: false, error: 'Not authenticated' };
+      const parsed = parseOwnerRepo(params.remoteUrl);
+      if (!parsed) return { success: false, error: 'Not a GitHub URL' };
+      try {
+        return await addRepoCollaborator(
+          token,
+          parsed.owner,
+          parsed.repo,
+          params.username,
+          params.permission ?? 'push',
+        );
+      } catch (err) {
+        return {
+          success: false,
+          invited: false,
+          error: err instanceof Error ? err.message : 'Failed to add collaborator',
+        };
+      }
+    },
+  );
+
+  ipcMain.handle('github:list-pending-invitations', async (_, params: { remoteUrl: string }) => {
+    const token = authManager.getToken();
+    if (!token) return { success: false, error: 'Not authenticated', invitations: [] };
+    const parsed = parseOwnerRepo(params.remoteUrl);
+    if (!parsed) return { success: false, error: 'Not a GitHub URL', invitations: [] };
+    try {
+      const invitations = await listPendingRepoInvitations(token, parsed.owner, parsed.repo);
+      return { success: true, invitations };
+    } catch (err) {
+      return {
+        success: false,
+        invitations: [],
+        error: err instanceof Error ? err.message : 'Failed to list pending invitations',
+      };
+    }
+  });
+
+  ipcMain.handle('github:list-invitations', async () => {
+    const token = authManager.getToken();
+    if (!token) return { success: false, error: 'Not authenticated', invitations: [] };
+    try {
+      const invitations = await listRepoInvitations(token);
+      return { success: true, invitations };
+    } catch (err) {
+      return {
+        success: false,
+        invitations: [],
+        error: err instanceof Error ? err.message : 'Failed to list invitations',
+      };
+    }
+  });
+
+  ipcMain.handle('github:accept-invitation', async (_, params: { invitationId: number }) => {
+    const token = authManager.getToken();
+    if (!token) return { success: false, error: 'Not authenticated' };
+    try {
+      return await acceptRepoInvitation(token, params.invitationId);
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to accept invitation',
+      };
     }
   });
 

@@ -21,6 +21,7 @@ import colrev.search_file
 from colrev.constants import Fields
 from colrev.constants import RecordState
 from colrev.constants import SearchType
+from colrev.managed_review import ManagedReviewService
 from colrev.ui_jsonrpc import response_formatter
 from colrev.ui_jsonrpc import validation
 
@@ -44,6 +45,24 @@ class PrescreenHandler:
             review_manager: ReviewManager instance for the project
         """
         self.review_manager = review_manager
+        self.managed_review_service = ManagedReviewService(
+            review_manager=review_manager
+        )
+
+    def _task_record_ids(self, *, params: Dict[str, Any]) -> Optional[set[str]]:
+        task_id = params.get("task_id")
+        if not task_id:
+            return None
+
+        manifest = self.managed_review_service.load_manifest()
+        task = self.managed_review_service._find_task(manifest=manifest, task_id=task_id)
+        current_branch = self.managed_review_service._get_current_branch()
+        allowed_branches = {reviewer["branch_name"] for reviewer in task["reviewers"]}
+        if current_branch not in allowed_branches:
+            raise ValueError(
+                "Managed prescreen tasks can only be reviewed from an assigned reviewer branch."
+            )
+        return set(task["record_ids"])
 
     def prescreen(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -109,6 +128,7 @@ class PrescreenHandler:
         """
         project_id = params["project_id"]
         limit = validation.get_optional_param(params, "limit", 50)
+        task_record_ids = self._task_record_ids(params=params)
 
         logger.info(f"Getting prescreen queue for project {project_id}")
 
@@ -129,6 +149,7 @@ class PrescreenHandler:
             record
             for record in records_dict.values()
             if record.get(Fields.STATUS) == RecordState.md_processed
+            and (task_record_ids is None or record.get(Fields.ID) in task_record_ids)
         ]
 
         total_count = len(prescreen_records)
@@ -200,6 +221,7 @@ class PrescreenHandler:
         record_id = params.get("record_id")
         decision = params.get("decision")
         skip_commit = validation.get_optional_param(params, "skip_commit", False)
+        task_record_ids = self._task_record_ids(params=params)
 
         if not record_id:
             raise ValueError("record_id parameter is required")
@@ -226,6 +248,8 @@ class PrescreenHandler:
 
         if record_id not in records_dict:
             raise ValueError(f"Record '{record_id}' not found")
+        if task_record_ids is not None and record_id not in task_record_ids:
+            raise ValueError(f"Record '{record_id}' is not part of this managed review task")
 
         record_dict = records_dict[record_id]
 
@@ -263,6 +287,7 @@ class PrescreenHandler:
             for r in records_dict.values()
             if r.get(Fields.STATUS) == RecordState.md_processed
             and r.get(Fields.ID) != record_id
+            and (task_record_ids is None or r.get(Fields.ID) in task_record_ids)
         )
 
         return response_formatter.format_operation_response(

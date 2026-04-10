@@ -21,6 +21,7 @@ class PathManager:
     OUTPUT_DIR = Path("output")
     RECORDS_FILE = Path("data/records.bib")
     SETTINGS_FILE = Path("settings.json")
+    APP_MANIFEST_FILE = Path("colrev_app.json")
     STATUS_FILE = Path("status.yaml")
     README_FILE = Path("readme.md")
     REPORT_FILE = Path(".report.log")
@@ -44,6 +45,7 @@ class PathManager:
         self.output = base_path / self.OUTPUT_DIR
         self.records = base_path / self.RECORDS_FILE
         self.settings = base_path / self.SETTINGS_FILE
+        self.app_manifest = base_path / self.APP_MANIFEST_FILE
         self.status = base_path / self.STATUS_FILE
         self.readme = base_path / self.README_FILE
         self.report = base_path / self.REPORT_FILE

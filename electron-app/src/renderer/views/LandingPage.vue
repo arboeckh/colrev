@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { Plus, FolderOpen, Loader2, RefreshCw, FolderKanban, Settings, Github, Globe, Lock, Download } from 'lucide-vue-next';
+import { Plus, FolderOpen, Loader2, RefreshCw, FolderKanban, Settings, Github, Globe, Lock, Download, Mail, Check } from 'lucide-vue-next';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import type { RepoInvitation } from '@/types/window';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -52,6 +54,41 @@ const generatedSlug = computed(() => {
     .replace(/^-|-$/g, '');
 });
 
+// Pending invitations
+const invitations = ref<RepoInvitation[]>([]);
+const acceptingInvitationId = ref<number | null>(null);
+
+async function loadInvitations() {
+  if (!auth.isAuthenticated) return;
+  try {
+    const result = await window.github.listInvitations();
+    if (result.success) {
+      invitations.value = result.invitations;
+    }
+  } catch {
+    // Non-critical
+  }
+}
+
+async function acceptInvitation(inv: RepoInvitation) {
+  acceptingInvitationId.value = inv.id;
+  try {
+    const result = await window.github.acceptInvitation({ invitationId: inv.id });
+    if (result.success) {
+      notifications.success('Invitation accepted', `You now have access to ${inv.repoFullName}`);
+      invitations.value = invitations.value.filter((i) => i.id !== inv.id);
+      // Refresh GitHub repos to include the newly accessible repo
+      githubRepos.loadRepos();
+    } else {
+      notifications.error('Failed to accept', result.error || 'Unknown error');
+    }
+  } catch (err) {
+    notifications.error('Failed to accept', err instanceof Error ? err.message : 'Unknown error');
+  } finally {
+    acceptingInvitationId.value = null;
+  }
+}
+
 // Loading state for project list
 const isLoadingProjects = ref(false);
 
@@ -59,6 +96,7 @@ async function discoverProjects() {
   if (!backend.isRunning) return;
 
   isLoadingProjects.value = true;
+  loadInvitations(); // Fire-and-forget alongside project discovery
 
   try {
     // Discover existing projects from disk
@@ -160,6 +198,9 @@ async function createProject() {
 
 // Note: Initial project discovery is handled in App.vue after backend starts
 // The discoverProjects function here is only for manual refresh
+
+// Load invitations on first render (non-blocking)
+loadInvitations();
 </script>
 
 <template>
@@ -360,6 +401,45 @@ async function createProject() {
 
         <!-- Projects table -->
         <ProjectsTable v-else :projects="projects.projects" />
+
+        <!-- Pending invitations -->
+        <div v-if="invitations.length > 0" class="mt-6 mb-2" data-testid="pending-invitations">
+          <div class="flex items-center gap-2 mb-3">
+            <Mail class="h-4 w-4 text-muted-foreground" />
+            <h3 class="text-sm font-medium">Pending Invitations</h3>
+            <Badge variant="secondary" class="text-xs">{{ invitations.length }}</Badge>
+          </div>
+          <div class="border border-border rounded-md overflow-hidden">
+            <div
+              v-for="(inv, index) in invitations"
+              :key="inv.id"
+              class="flex items-center justify-between py-2.5 px-3"
+              :class="index > 0 ? 'border-t border-border' : ''"
+            >
+              <div class="flex items-center gap-2.5 min-w-0">
+                <Avatar class="h-6 w-6 shrink-0">
+                  <AvatarImage :src="inv.inviterAvatarUrl" />
+                  <AvatarFallback class="text-[9px] bg-muted">{{ inv.inviter.slice(0, 2).toUpperCase() }}</AvatarFallback>
+                </Avatar>
+                <div class="min-w-0">
+                  <div class="text-sm font-medium truncate">{{ inv.repoFullName }}</div>
+                  <div class="text-xs text-muted-foreground">Invited by {{ inv.inviter }}</div>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                class="shrink-0 gap-1.5 h-7 text-xs"
+                :disabled="acceptingInvitationId === inv.id"
+                @click="acceptInvitation(inv)"
+              >
+                <Check v-if="acceptingInvitationId !== inv.id" class="h-3 w-3" />
+                <Loader2 v-else class="h-3 w-3 animate-spin" />
+                {{ acceptingInvitationId === inv.id ? 'Accepting...' : 'Accept' }}
+              </Button>
+            </div>
+          </div>
+        </div>
 
         <!-- GitHub Projects section (only when authenticated) -->
         <div v-if="auth.isAuthenticated && backend.isRunning" class="mt-8" data-testid="github-projects-section">

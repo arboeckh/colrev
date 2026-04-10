@@ -298,6 +298,7 @@ export interface DedupeResponse extends SuccessResponse {}
 export interface GetPrescreenQueueParams {
   project_id: string;
   limit?: number;
+  task_id?: string;
   base_path?: string;
 }
 
@@ -323,6 +324,7 @@ export interface PrescreenRecordParams {
   project_id: string;
   record_id: string;
   decision: 'include' | 'exclude';
+  task_id?: string;
   skip_commit?: boolean;
   base_path?: string;
 }
@@ -486,6 +488,7 @@ export interface PdfPrepResponse extends SuccessResponse {
 export interface GetScreenQueueParams {
   project_id: string;
   limit?: number;
+  task_id?: string;
   base_path?: string;
 }
 
@@ -518,8 +521,135 @@ export interface ScreenRecordParams {
   record_id: string;
   decision: 'include' | 'exclude';
   criteria_decisions?: globalThis.Record<string, 'in' | 'out'>;
+  task_id?: string;
   skip_commit?: boolean;
   base_path?: string;
+}
+
+export interface ManagedReviewReviewer {
+  role: 'reviewer_a' | 'reviewer_b';
+  github_login: string;
+  branch_name: string;
+  last_seen_commit?: string | null;
+}
+
+export interface ManagedReviewReviewerProgress extends ManagedReviewReviewer {
+  branch_ref?: string | null;
+  completed_count: number;
+  pending_count: number;
+  available: boolean;
+}
+
+export interface ManagedReviewTask {
+  id: string;
+  kind: 'prescreen' | 'screen';
+  mode: 'double_screen_same_set';
+  state: 'active' | 'reconciling' | 'completed' | 'aborted';
+  base_branch: string;
+  base_commit: string;
+  eligible_state: string;
+  record_ids: string[];
+  reviewers: ManagedReviewReviewer[];
+  reviewer_progress: ManagedReviewReviewerProgress[];
+  created_by: string;
+  created_at: string;
+  completed_at?: string | null;
+  canceled_at?: string | null;
+  record_count: number;
+  reconciliation_summary?: {
+    resolved_by: string;
+    resolved_at: string;
+    auto_resolved_count: number;
+    manual_conflict_count: number;
+    record_count: number;
+  } | null;
+}
+
+export interface ManagedReviewReadinessResponse extends SuccessResponse {
+  kind: 'prescreen' | 'screen';
+  current_branch: string;
+  eligible_state: string;
+  eligible_record_ids: string[];
+  eligible_count: number;
+  issues: string[];
+  ready: boolean;
+  tracking: {
+    has_remote: boolean;
+    tracking_branch: string | null;
+    ahead: number;
+    behind: number;
+  };
+}
+
+export interface ListManagedReviewTasksResponse extends SuccessResponse {
+  kind: 'prescreen' | 'screen';
+  tasks: ManagedReviewTask[];
+}
+
+export interface GetCurrentManagedReviewTaskResponse extends SuccessResponse {
+  kind: 'prescreen' | 'screen';
+  current_branch: string;
+  task: ManagedReviewTask | null;
+}
+
+export interface CreateManagedReviewTaskResponse extends SuccessResponse {
+  task: ManagedReviewTask;
+  launch_ref: string;
+}
+
+export interface ManagedReviewTaskQueueResponse extends SuccessResponse {
+  task_id: string;
+  kind: 'prescreen' | 'screen';
+  total_count: number;
+  records: Array<{
+    id: string;
+    title: string;
+    author: string;
+    year: string;
+    status: string;
+  }>;
+}
+
+export interface ReconciliationPreviewItem {
+  id: string;
+  title: string;
+  author: string;
+  year: string;
+  status: 'auto' | 'conflict' | 'pending' | 'blocked';
+  blocked_reasons: string[];
+  auto_resolution: {
+    selected_reviewer: 'reviewer_a' | 'reviewer_b';
+    status: string;
+    criteria_string: string;
+  } | null;
+  reviewers: Array<ManagedReviewReviewer & {
+    status: string;
+    criteria_string: string;
+    criteria: globalThis.Record<string, string>;
+  }>;
+}
+
+export interface ReconciliationPreviewResponse extends SuccessResponse {
+  task: ManagedReviewTask;
+  summary: {
+    auto_resolved_count: number;
+    manual_conflict_count: number;
+    pending_count: number;
+    blocked_count: number;
+    total_count: number;
+  };
+  items: ReconciliationPreviewItem[];
+}
+
+export interface ApplyReconciliationResponse extends SuccessResponse {
+  task_id: string;
+  commit_sha: string;
+  resolved_count: number;
+}
+
+export interface ExportReconciliationAuditResponse extends SuccessResponse {
+  filename: string;
+  content: string;
 }
 
 export interface ScreenRecordResponse extends SuccessResponse {

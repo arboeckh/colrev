@@ -11,6 +11,9 @@ const LoadPage = () => import('@/views/LoadPage.vue');
 const PrepPage = () => import('@/views/PrepPage.vue');
 const DedupePage = () => import('@/views/DedupePage.vue');
 const PrescreenPage = () => import('@/views/PrescreenPage.vue');
+const ManagedReviewLaunchPage = () => import('@/views/ManagedReviewLaunchPage.vue');
+const ManagedReviewReconcilePage = () => import('@/views/ManagedReviewReconcilePage.vue');
+const PdfsPage = () => import('@/views/PdfsPage.vue');
 const ScreenPage = () => import('@/views/ScreenPage.vue');
 const DataPage = () => import('@/views/DataPage.vue');
 const SettingsPage = () => import('@/views/SettingsPage.vue');
@@ -102,6 +105,15 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: 'prescreen-launch',
+        name: 'project-prescreen-launch',
+        component: ManagedReviewLaunchPage,
+        meta: {
+          title: 'Prescreen Launch',
+          step: 'prescreen_launch',
+        },
+      },
+      {
         path: 'prescreen',
         name: 'project-prescreen',
         component: PrescreenPage,
@@ -111,16 +123,44 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: 'prescreen-reconcile',
+        name: 'project-prescreen-reconcile',
+        component: ManagedReviewReconcilePage,
+        meta: {
+          title: 'Prescreen Reconcile',
+          step: 'prescreen_reconcile',
+        },
+      },
+      {
         path: 'pdfs',
-        redirect: (to) => ({ name: 'project-screen', params: { id: to.params.id } }),
+        redirect: (to) => ({ name: 'project-pdf-get', params: { id: to.params.id } }),
       },
       {
         path: 'pdf-get',
-        redirect: (to) => ({ name: 'project-screen', params: { id: to.params.id } }),
+        name: 'project-pdf-get',
+        component: PdfsPage,
+        meta: {
+          title: 'PDF Get',
+          step: 'pdf_get',
+        },
       },
       {
         path: 'pdf-prep',
-        redirect: (to) => ({ name: 'project-screen', params: { id: to.params.id } }),
+        name: 'project-pdf-prep',
+        component: PdfsPage,
+        meta: {
+          title: 'PDF Prep',
+          step: 'pdf_prep',
+        },
+      },
+      {
+        path: 'screen-launch',
+        name: 'project-screen-launch',
+        component: ManagedReviewLaunchPage,
+        meta: {
+          title: 'Screen Launch',
+          step: 'screen_launch',
+        },
       },
       {
         path: 'screen',
@@ -129,6 +169,15 @@ const routes: RouteRecordRaw[] = [
         meta: {
           title: 'Screen',
           step: 'screen',
+        },
+      },
+      {
+        path: 'screen-reconcile',
+        name: 'project-screen-reconcile',
+        component: ManagedReviewReconcilePage,
+        meta: {
+          title: 'Screen Reconcile',
+          step: 'screen_reconcile',
         },
       },
       {

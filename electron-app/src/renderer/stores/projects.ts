@@ -39,10 +39,14 @@ export const useProjectsStore = defineStore('projects', () => {
     load: null,
     prep: null,
     dedupe: null,
+    prescreen_launch: null,
     prescreen: null,
+    prescreen_reconcile: null,
     pdf_get: null,
     pdf_prep: null,
+    screen_launch: null,
     screen: null,
+    screen_reconcile: null,
     data: null,
   });
   // Track if any search sources are stale (need re-running)
@@ -200,6 +204,29 @@ export const useProjectsStore = defineStore('projects', () => {
       // Load operation info for all steps
       await loadAllOperationInfo(id);
 
+      // Load managed review task state for sidebar status
+      try {
+        const { useManagedReviewStore } = await import('./managedReview');
+        const managedReviewStore = useManagedReviewStore();
+        await managedReviewStore.refresh();
+      } catch {
+        // Non-critical
+      }
+
+      // Auto-switch to dev (the working branch) if currently on main
+      try {
+        const { useGitStore } = await import('./git');
+        const gitStore = useGitStore();
+        if (gitStore.isOnMain) {
+          await gitStore.ensureDevBranch();
+          if (gitStore.currentBranch !== 'dev') {
+            await gitStore.switchBranch('dev');
+          }
+        }
+      } catch {
+        // Non-critical — user can still work on whatever branch they're on
+      }
+
       debug.logInfo('Project load complete');
       isLoadingProject.value = false;
       return true;
@@ -217,10 +244,14 @@ export const useProjectsStore = defineStore('projects', () => {
       'load',
       'prep',
       'dedupe',
+      'prescreen_launch',
       'prescreen',
+      'prescreen_reconcile',
       'pdf_get',
       'pdf_prep',
+      'screen_launch',
       'screen',
+      'screen_reconcile',
       'data',
     ];
 
@@ -266,6 +297,15 @@ export const useProjectsStore = defineStore('projects', () => {
       // Refresh operation info
       await loadAllOperationInfo(id);
 
+      // Refresh managed review task state for sidebar
+      try {
+        const { useManagedReviewStore } = await import('./managedReview');
+        const managedReviewStore = useManagedReviewStore();
+        await managedReviewStore.refresh();
+      } catch {
+        // Non-critical
+      }
+
       // Refresh branch delta (fire-and-forget) when on dev
       try {
         const { useGitStore } = await import('./git');
@@ -296,18 +336,30 @@ export const useProjectsStore = defineStore('projects', () => {
     currentProject.value = null;
     projectError.value = null;
     hasStaleSearchSources.value = false;
+
+    // Clean up managed review state
+    try {
+      // Dynamic import to avoid circular deps
+      import('./managedReview').then(({ useManagedReviewStore }) => {
+        useManagedReviewStore().cleanup();
+      });
+    } catch {
+      // Non-critical
+    }
     operationInfo.value = {
       review_definition: null,
       search: null,
-      preprocessing: null,
       load: null,
       prep: null,
       dedupe: null,
+      prescreen_launch: null,
       prescreen: null,
-      pdfs: null,
+      prescreen_reconcile: null,
       pdf_get: null,
       pdf_prep: null,
+      screen_launch: null,
       screen: null,
+      screen_reconcile: null,
       data: null,
     };
   }

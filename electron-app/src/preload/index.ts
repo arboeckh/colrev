@@ -66,6 +66,9 @@ contextBridge.exposeInMainWorld('auth', {
   login: () => ipcRenderer.invoke('auth:login'),
   logout: () => ipcRenderer.invoke('auth:logout'),
   getToken: () => ipcRenderer.invoke('auth:get-token'),
+  listAccounts: () => ipcRenderer.invoke('auth:list-accounts'),
+  switchAccount: (login: string) => ipcRenderer.invoke('auth:switch-account', login),
+  removeAccount: (login: string) => ipcRenderer.invoke('auth:remove-account', login),
 
   onAuthUpdate: (callback: (session: unknown) => void) => {
     const handler = (_: Electron.IpcRendererEvent, session: unknown) => callback(session);
@@ -98,6 +101,16 @@ contextBridge.exposeInMainWorld('github', {
 
   listReleases: (params: { remoteUrl: string }) =>
     ipcRenderer.invoke('github:list-releases', params),
+  listCollaborators: (params: { remoteUrl: string }) =>
+    ipcRenderer.invoke('github:list-collaborators', params),
+  addCollaborator: (params: { remoteUrl: string; username: string; permission?: 'pull' | 'push' | 'admin' }) =>
+    ipcRenderer.invoke('github:add-collaborator', params),
+  listPendingInvitations: (params: { remoteUrl: string }) =>
+    ipcRenderer.invoke('github:list-pending-invitations', params),
+  listInvitations: () =>
+    ipcRenderer.invoke('github:list-invitations'),
+  acceptInvitation: (params: { invitationId: number }) =>
+    ipcRenderer.invoke('github:accept-invitation', params),
 
   createRelease: (params: { remoteUrl: string; tagName: string; name: string; body: string; projectPath: string }) =>
     ipcRenderer.invoke('github:create-release', params),
@@ -110,9 +123,12 @@ contextBridge.exposeInMainWorld('git', {
   fetch: (projectPath: string) => ipcRenderer.invoke('git:fetch', projectPath),
   pull: (projectPath: string, ffOnly?: boolean) => ipcRenderer.invoke('git:pull', projectPath, ffOnly),
   push: (projectPath: string) => ipcRenderer.invoke('git:push', projectPath),
+  pushBranch: (projectPath: string, branchName: string) => ipcRenderer.invoke('git:push-branch', projectPath, branchName),
   listBranches: (projectPath: string) => ipcRenderer.invoke('git:list-branches', projectPath),
   createBranch: (projectPath: string, name: string, baseBranch?: string) =>
     ipcRenderer.invoke('git:create-branch', projectPath, name, baseBranch),
+  createLocalBranch: (projectPath: string, name: string, baseRef: string) =>
+    ipcRenderer.invoke('git:create-local-branch', projectPath, name, baseRef),
   checkout: (projectPath: string, branchName: string) =>
     ipcRenderer.invoke('git:checkout', projectPath, branchName),
   merge: (projectPath: string, source: string, ffOnly?: boolean) =>

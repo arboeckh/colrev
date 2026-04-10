@@ -22,6 +22,7 @@ const props = defineProps<{
   isOnDev?: boolean;
   hasPriorPending?: boolean;
   downstreamStates?: string[];
+  managedStepStatus?: 'pending' | 'active' | 'complete' | null;
   isFirst?: boolean;
   isLast?: boolean;
 }>();
@@ -77,6 +78,9 @@ const deltaPendingRecords = computed(() => {
 // Determine step status based on CoLRev record states
 type StepStatus = 'complete' | 'active' | 'warning' | 'pending';
 
+// Gate steps (launch, reconcile) don't process records — suppress badges
+const isGateStep = computed(() => props.step.stepKind === 'gate');
+
 // Check if search step is complete (for gating subsequent steps)
 const isSearchComplete = computed(() => {
   const totalRecords = props.recordCounts?.total ?? 0;
@@ -86,6 +90,11 @@ const isSearchComplete = computed(() => {
 });
 
 const stepStatus = computed((): StepStatus => {
+  // Managed review steps: use task-derived status when available
+  if (props.managedStepStatus != null) {
+    return props.managedStepStatus;
+  }
+
   if (props.step.id === 'review_definition') {
     // Review definition is always accessible and doesn't have a completion state
     return 'active';
@@ -202,7 +211,7 @@ const stepStatus = computed((): StepStatus => {
     <!-- Label and count -->
     <div class="flex flex-1 items-center justify-between min-w-0 pr-2">
       <span class="truncate">{{ step.label }}</span>
-      <div class="flex items-center gap-1 ml-2">
+      <div v-if="!isGateStep" class="flex items-center gap-1 ml-2">
         <TooltipProvider :delay-duration="300">
           <Tooltip v-if="deltaPendingRecords > 0">
             <TooltipTrigger as-child>

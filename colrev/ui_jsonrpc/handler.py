@@ -14,6 +14,7 @@ from colrev.ui_jsonrpc.handlers import DedupeHandler
 from colrev.ui_jsonrpc.handlers import GitHandler
 from colrev.ui_jsonrpc.handlers import InitHandler
 from colrev.ui_jsonrpc.handlers import LoadHandler
+from colrev.ui_jsonrpc.handlers import ManagedReviewHandler
 from colrev.ui_jsonrpc.handlers import PDFGetHandler
 from colrev.ui_jsonrpc.handlers import PDFPrepHandler
 from colrev.ui_jsonrpc.handlers import PrepHandler
@@ -128,6 +129,22 @@ class JSONRPCHandler:
         # Git operations
         elif method in ["get_git_status"]:
             return self._handle_with_review_manager(method, params, GitHandler)
+
+        # Managed-review operations
+        elif method in [
+            "get_managed_review_task_readiness",
+            "list_managed_review_tasks",
+            "get_current_managed_review_task",
+            "create_managed_review_task",
+            "cancel_managed_review_task",
+            "get_managed_review_task_queue",
+            "get_reconciliation_preview",
+            "apply_reconciliation",
+            "export_reconciliation_audit",
+        ]:
+            return self._handle_with_review_manager(
+                method, params, ManagedReviewHandler
+            )
 
         # Search operations
         elif method in [

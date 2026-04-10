@@ -228,10 +228,19 @@ export const useGitStore = defineStore('git', () => {
     const path = getProjectPath();
     if (!path) return false;
 
+    // Refresh branch list to avoid stale state (e.g. after project switch)
+    if (!hasDevBranch.value) {
+      await refreshBranches();
+    }
     if (hasDevBranch.value) return true;
 
     const result = await window.git.createBranch(path, 'dev', 'main');
     if (!result.success) {
+      // Branch may already exist on disk even if not in our list
+      if (result.error?.includes('already exists')) {
+        await refreshBranches();
+        return true;
+      }
       notifications.error('Failed to create dev branch', result.error || 'Unknown error');
       return false;
     }
@@ -244,7 +253,7 @@ export const useGitStore = defineStore('git', () => {
     }
 
     await refreshBranches();
-    notifications.success('Created dev branch', 'Development branch created from main');
+    // Silent — dev branch creation is automatic and transparent to user
     return true;
   }
 
@@ -287,7 +296,7 @@ export const useGitStore = defineStore('git', () => {
     await refreshBranches();
     await refreshBranchDiff();
 
-    notifications.success('Merged into main', 'dev has been merged into main');
+    notifications.success('Version published', 'Your changes have been published as a stable version.');
     return true;
   }
 

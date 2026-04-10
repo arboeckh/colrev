@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router';
 import { ArrowLeft, RefreshCw, ArrowUp } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import GitSyncStatus from '@/components/common/GitSyncStatus.vue';
-import BranchSwitcher from '@/components/common/BranchSwitcher.vue';
 import ThemeToggle from '@/components/common/ThemeToggle.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
@@ -40,7 +39,7 @@ async function handlePush() {
 <template>
   <header class="h-14 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
     <div class="flex h-full items-center justify-between px-4">
-      <!-- Left side: Back button + Project name + Branch -->
+      <!-- Left side: Back button + Project name -->
       <div class="flex items-center gap-3">
         <Button variant="ghost" size="sm" class="gap-2" @click="goToProjects">
           <ArrowLeft class="h-4 w-4" />
@@ -52,8 +51,6 @@ async function handlePush() {
         <h1 class="text-lg font-semibold truncate max-w-[300px]">
           {{ projectTitle }}
         </h1>
-
-        <BranchSwitcher />
       </div>
 
       <!-- Right side: Save button + Git status + Theme toggle + Refresh -->

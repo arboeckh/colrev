@@ -60,10 +60,14 @@ export function useProject() {
       load: 'search',
       prep: 'search',
       dedupe: 'search',
+      prescreen_launch: 'prescreen-launch',
       prescreen: 'prescreen',
-      pdf_get: 'screen',
-      pdf_prep: 'screen',
+      prescreen_reconcile: 'prescreen-reconcile',
+      pdf_get: 'pdf-get',
+      pdf_prep: 'pdf-prep',
+      screen_launch: 'screen-launch',
       screen: 'screen',
+      screen_reconcile: 'screen-reconcile',
       data: 'data',
     };
 

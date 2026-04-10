@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { onBeforeRouteLeave } from 'vue-router';
 import {
   Filter,
   Check,
@@ -27,13 +28,18 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { EmptyState } from '@/components/common';
+import { useAuthStore } from '@/stores/auth';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
+import { useGitStore } from '@/stores/git';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
 import type {
+  GetCurrentManagedReviewTaskResponse,
   GetPrescreenQueueResponse,
   GetRecordsResponse,
+  ListManagedReviewTasksResponse,
+  ManagedReviewTask,
   PrescreenQueueRecord,
   PrescreenRecordResponse,
   EnrichRecordMetadataResponse,
@@ -50,8 +56,10 @@ interface EnrichedRecord extends PrescreenQueueRecord {
   _decision: DecisionState;
 }
 
+const auth = useAuthStore();
 const projects = useProjectsStore();
 const backend = useBackendStore();
+const git = useGitStore();
 const notifications = useNotificationsStore();
 const { isReadOnly } = useReadOnly();
 
@@ -61,6 +69,10 @@ const totalCount = ref(0);
 const isLoading = ref(false);
 const currentIndex = ref(0);
 const isDeciding = ref(false);
+const managedTask = ref<GetCurrentManagedReviewTaskResponse['task']>(null);
+const accessState = ref<'loading' | 'switching' | 'ready' | 'blocked'>('loading');
+const activeManagedTask = ref<ManagedReviewTask | null>(null);
+const assignedReviewerBranch = ref<string | null>(null);
 
 // Progress bar drag state
 const trackRef = ref<HTMLElement | null>(null);
@@ -101,6 +113,28 @@ const editChangesCount = computed(
 );
 
 const currentRecord = computed(() => queue.value[currentIndex.value] || null);
+const assignedReviewer = computed(() => {
+  if (!activeManagedTask.value || !auth.user?.login) return null;
+  const login = auth.user.login.toLowerCase();
+  return activeManagedTask.value.reviewers.find(
+    (reviewer) => reviewer.github_login.toLowerCase() === login,
+  ) ?? null;
+});
+const isManagedAccessBlocked = computed(() => accessState.value === 'blocked');
+const managedAccessTitle = computed(() => {
+  if (!activeManagedTask.value) return 'Prescreen is unavailable';
+  if (assignedReviewer.value) return 'Switching to your review assignment failed';
+  return 'Managed prescreen is active';
+});
+const managedAccessDescription = computed(() => {
+  if (!activeManagedTask.value) {
+    return 'No managed prescreen branch is available for the current session.';
+  }
+  if (assignedReviewer.value) {
+    return `This task is assigned to you on ${assignedReviewer.value.branch_name}. Prescreen work happens only on reviewer branches, not on dev.`;
+  }
+  return `Task ${activeManagedTask.value.id} is currently assigned to ${activeManagedTask.value.reviewers.map((reviewer) => reviewer.github_login).join(' and ')}. Prescreen decisions should only be made from reviewer branches.`;
+});
 
 // Decision tracking
 const decidedCount = computed(() => queue.value.filter((r) => r._decision !== 'undecided').length);
@@ -211,6 +245,7 @@ async function loadQueue() {
     const response = await backend.call<GetPrescreenQueueResponse>('get_prescreen_queue', {
       project_id: projects.currentProjectId,
       limit: 50,
+      task_id: managedTask.value?.id,
     });
     if (response.success) {
       const newRecords: EnrichedRecord[] = response.records.map((record) => ({
@@ -329,6 +364,7 @@ async function makeDecision(decision: 'include' | 'exclude') {
       project_id: projects.currentProjectId,
       record_id: currentRecord.value.id,
       decision,
+      task_id: managedTask.value?.id,
     });
 
     if (response.success) {
@@ -402,7 +438,11 @@ async function enterEditMode() {
     });
 
     if (response.success) {
-      editRecords.value = response.records.map((r: any) => {
+      const editableRecords = managedTask.value
+        ? response.records.filter((r: any) => managedTask.value?.record_ids.includes(r.ID))
+        : response.records;
+
+      editRecords.value = editableRecords.map((r: any) => {
         const isIncluded = r.colrev_status === 'rev_prescreen_included';
         return {
           id: r.ID,
@@ -499,20 +539,132 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
+async function loadManagedTask() {
+  if (!projects.currentProjectId || !backend.isRunning) return;
+
+  try {
+    const response = await backend.call<GetCurrentManagedReviewTaskResponse>('get_current_managed_review_task', {
+      project_id: projects.currentProjectId,
+      kind: 'prescreen',
+    });
+    managedTask.value = response.task;
+  } catch {
+    managedTask.value = null;
+  }
+}
+
+async function ensureManagedTaskAccess(): Promise<boolean> {
+  if (!projects.currentProjectId || !backend.isRunning) return false;
+
+  accessState.value = 'loading';
+  activeManagedTask.value = null;
+  assignedReviewerBranch.value = null;
+
+  await loadManagedTask();
+  if (managedTask.value) {
+    activeManagedTask.value = managedTask.value;
+    accessState.value = 'ready';
+    return true;
+  }
+
+  let tasksResponse: ListManagedReviewTasksResponse;
+  try {
+    tasksResponse = await backend.call<ListManagedReviewTasksResponse>('list_managed_review_tasks', {
+      project_id: projects.currentProjectId,
+      kind: 'prescreen',
+    });
+  } catch {
+    accessState.value = 'ready';
+    return true;
+  }
+
+  const activeTask = tasksResponse.tasks.find((task) => ['active', 'reconciling'].includes(task.state)) ?? null;
+  activeManagedTask.value = activeTask;
+  if (!activeTask) {
+    accessState.value = 'ready';
+    return true;
+  }
+
+  const login = auth.user?.login?.toLowerCase();
+  const assignedReviewerEntry = login
+    ? activeTask.reviewers.find((reviewer) => reviewer.github_login.toLowerCase() === login) ?? null
+    : null;
+
+  if (!assignedReviewerEntry) {
+    accessState.value = 'blocked';
+    return false;
+  }
+
+  assignedReviewerBranch.value = assignedReviewerEntry.branch_name;
+  if (git.currentBranch !== assignedReviewerEntry.branch_name) {
+    accessState.value = 'switching';
+    const switched = await git.switchBranch(assignedReviewerEntry.branch_name);
+    if (!switched) {
+      accessState.value = 'blocked';
+      return false;
+    }
+  }
+
+  await loadManagedTask();
+  activeManagedTask.value = managedTask.value ?? activeTask;
+  accessState.value = managedTask.value ? 'ready' : 'blocked';
+  return managedTask.value !== null;
+}
+
 onMounted(async () => {
   // Refresh status first so completion state is accurate when navigating back
   await projects.refreshCurrentProject();
-  await loadQueue();
+  await git.refreshStatus();
+  const canLoadQueue = await ensureManagedTaskAccess();
+  if (canLoadQueue) {
+    await loadQueue();
+  } else {
+    queue.value = [];
+    totalCount.value = 0;
+  }
   window.addEventListener('keydown', handleKeydown);
 });
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown);
 });
+
+// Auto-switch back to dev when leaving the prescreen page from a reviewer branch
+onBeforeRouteLeave(async (_to, _from, next) => {
+  if (!git.isOnDev && !git.isOnMain && git.currentBranch.startsWith('review/')) {
+    await git.switchBranch('dev');
+  }
+  next();
+});
 </script>
 
 <template>
   <div class="p-6 h-full flex flex-col" data-testid="prescreen-page">
+    <div
+      v-if="accessState === 'switching'"
+      class="mb-4 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm"
+    >
+      <div class="font-medium">Opening your assigned prescreen branch</div>
+      <div class="text-muted-foreground">
+        Prescreen work happens on reviewer branches. The app is switching you behind the scenes.
+      </div>
+    </div>
+    <div
+      v-if="managedTask"
+      class="mb-4 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm"
+    >
+      <div class="font-medium">Managed prescreen task</div>
+      <div class="text-muted-foreground">
+        Working on <code>{{ managedTask.id }}</code>. This queue only includes records assigned to the current reviewer branch.
+      </div>
+    </div>
+    <EmptyState
+      v-if="isManagedAccessBlocked"
+      :icon="Filter"
+      :title="managedAccessTitle"
+      :description="managedAccessDescription"
+    />
+    <template v-else>
     <!-- Zone 1: Header + Stats -->
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2">
@@ -898,5 +1050,6 @@ onUnmounted(() => {
         </CardContent>
       </Card>
     </div>
+    </template>
   </div>
 </template>

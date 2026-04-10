@@ -212,10 +212,14 @@ export type WorkflowStep =
   | 'load'
   | 'prep'
   | 'dedupe'
+  | 'prescreen_launch'
   | 'prescreen'
+  | 'prescreen_reconcile'
   | 'pdf_get'
   | 'pdf_prep'
+  | 'screen_launch'
   | 'screen'
+  | 'screen_reconcile'
   | 'data';
 
 export interface WorkflowStepInfo {
@@ -233,6 +237,11 @@ export interface WorkflowStepInfo {
   isGrouped?: boolean;
   // Sub-steps if this is a grouped step
   subSteps?: WorkflowStep[];
+  // Distinguishes gate/lifecycle steps (launch, reconcile) from record-processing steps.
+  // Gate steps derive status from managed task state, not record counts.
+  stepKind?: 'gate' | 'processing';
+  // Links this step to a managed review kind for status derivation
+  managedReviewKind?: 'prescreen' | 'screen';
 }
 
 // Full workflow steps including the individual load/prep/dedupe for backwards compatibility
@@ -342,23 +351,78 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     subSteps: ['load', 'prep', 'dedupe'],
   },
   {
+    id: 'prescreen_launch',
+    label: 'Prescreen Launch',
+    description: 'Assign reviewers and launch paired abstract-screening task',
+    route: 'prescreen-launch',
+    inputStates: [],
+    outputStates: [],
+    stepKind: 'gate',
+    managedReviewKind: 'prescreen',
+  },
+  {
     id: 'prescreen',
     label: 'Prescreen',
-    description: 'Title/abstract screening',
+    description: 'Review title and abstract decisions',
     route: 'prescreen',
     inputStates: ['md_processed'],
     outputStates: ['rev_prescreen_included', 'rev_prescreen_excluded'],
+    managedReviewKind: 'prescreen',
+  },
+  {
+    id: 'prescreen_reconcile',
+    label: 'Prescreen Reconcile',
+    description: 'Reconcile paired prescreen decisions and export audit trail',
+    route: 'prescreen-reconcile',
+    inputStates: [],
+    outputStates: [],
+    stepKind: 'gate',
+    managedReviewKind: 'prescreen',
+  },
+  {
+    id: 'pdf_get',
+    label: 'PDF Get',
+    description: 'Retrieve PDFs',
+    route: 'pdf-get',
+    inputStates: ['rev_prescreen_included', 'pdf_needs_manual_retrieval'],
+    outputStates: ['pdf_imported', 'pdf_not_available'],
+  },
+  {
+    id: 'pdf_prep',
+    label: 'PDF Prep',
+    description: 'Prepare PDFs for screening',
+    route: 'pdf-prep',
+    inputStates: ['pdf_imported', 'pdf_needs_manual_preparation'],
+    outputStates: ['pdf_prepared'],
+  },
+  {
+    id: 'screen_launch',
+    label: 'Screen Launch',
+    description: 'Assign reviewers and launch paired full-text screening task',
+    route: 'screen-launch',
+    inputStates: [],
+    outputStates: [],
+    stepKind: 'gate',
+    managedReviewKind: 'screen',
   },
   {
     id: 'screen',
     label: 'Screen',
-    description: 'PDF retrieval, preparation, and full-text screening',
+    description: 'Full-text screening decisions',
     route: 'screen',
-    // Combined input states from pdf_get/pdf_prep/screen
-    inputStates: ['rev_prescreen_included', 'pdf_needs_manual_retrieval', 'pdf_imported', 'pdf_needs_manual_preparation', 'pdf_prepared'],
+    inputStates: ['pdf_prepared'],
     outputStates: ['rev_included', 'rev_excluded'],
-    isGrouped: true,
-    subSteps: ['pdf_get', 'pdf_prep', 'screen'],
+    managedReviewKind: 'screen',
+  },
+  {
+    id: 'screen_reconcile',
+    label: 'Screen Reconcile',
+    description: 'Reconcile paired screening decisions and export audit trail',
+    route: 'screen-reconcile',
+    inputStates: [],
+    outputStates: [],
+    stepKind: 'gate',
+    managedReviewKind: 'screen',
   },
   {
     id: 'data',

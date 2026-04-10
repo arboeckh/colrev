@@ -8,10 +8,24 @@ const TOKEN_URL = 'https://github.com/login/oauth/access_token';
 const USER_URL = 'https://api.github.com/user';
 const SCOPES = 'read:user repo workflow';
 
-interface StoredAuth {
+interface StoredAccount {
   encryptedToken: string;
   user: GitHubUser;
   authenticatedAt: string;
+}
+
+/** Legacy single-account format (for migration). */
+interface LegacyStoredAuth {
+  encryptedToken: string;
+  user: GitHubUser;
+  authenticatedAt: string;
+}
+
+/** Multi-account store format. */
+interface StoredAuthMulti {
+  version: 2;
+  activeLogin: string;
+  accounts: StoredAccount[];
 }
 
 export interface GitHubUser {
@@ -24,6 +38,13 @@ export interface GitHubUser {
 export interface AuthSession {
   user: GitHubUser;
   authenticatedAt: string;
+}
+
+export interface AccountInfo {
+  login: string;
+  name: string | null;
+  avatarUrl: string;
+  isActive: boolean;
 }
 
 export interface DeviceFlowStatus {
@@ -45,30 +66,51 @@ export class AuthManager {
     return path.join(app.getPath('userData'), 'auth.json');
   }
 
-  private readStore(): StoredAuth | null {
+  // --- Store read/write ---
+
+  private readStore(): StoredAuthMulti {
     try {
       if (fs.existsSync(this.storePath)) {
-        return JSON.parse(fs.readFileSync(this.storePath, 'utf-8'));
+        const raw = JSON.parse(fs.readFileSync(this.storePath, 'utf-8'));
+
+        // Already multi-account format
+        if (raw.version === 2 && Array.isArray(raw.accounts)) {
+          return raw as StoredAuthMulti;
+        }
+
+        // Legacy single-account — migrate
+        const legacy = raw as LegacyStoredAuth;
+        if (legacy.encryptedToken && legacy.user) {
+          const migrated: StoredAuthMulti = {
+            version: 2,
+            activeLogin: legacy.user.login,
+            accounts: [{
+              encryptedToken: legacy.encryptedToken,
+              user: legacy.user,
+              authenticatedAt: legacy.authenticatedAt,
+            }],
+          };
+          this.writeStore(migrated);
+          return migrated;
+        }
       }
     } catch {
       // Corrupt file — ignore
     }
-    return null;
+    return { version: 2, activeLogin: '', accounts: [] };
   }
 
-  private writeStore(data: StoredAuth): void {
-    fs.writeFileSync(this.storePath, JSON.stringify(data), 'utf-8');
+  private writeStore(data: StoredAuthMulti): void {
+    fs.writeFileSync(this.storePath, JSON.stringify(data, null, 2), 'utf-8');
   }
 
-  private deleteStore(): void {
-    try {
-      if (fs.existsSync(this.storePath)) {
-        fs.unlinkSync(this.storePath);
-      }
-    } catch {
-      // Ignore
-    }
+  private getActiveAccount(): StoredAccount | null {
+    const store = this.readStore();
+    if (!store.activeLogin || store.accounts.length === 0) return null;
+    return store.accounts.find((a) => a.user.login === store.activeLogin) ?? store.accounts[0];
   }
+
+  // --- Callbacks ---
 
   setAuthUpdateCallback(cb: AuthEventCallback) {
     this.onAuthUpdate = cb;
@@ -86,37 +128,99 @@ export class AuthManager {
     this.onDeviceFlowStatus?.(status);
   }
 
+  // --- Session / Token ---
+
   async getSession(): Promise<AuthSession | null> {
-    const stored = this.readStore();
-    if (!stored) return null;
+    const account = this.getActiveAccount();
+    if (!account) return null;
 
     try {
-      const token = this.decryptToken(stored.encryptedToken);
-      // Validate token is still good
+      const token = this.decryptToken(account.encryptedToken);
       const user = await this.fetchUserProfile(token);
       if (!user) {
-        this.deleteStore();
+        // Token invalid — remove this account
+        this.removeAccount(account.user.login);
         return null;
       }
-      return { user, authenticatedAt: stored.authenticatedAt };
+      return { user, authenticatedAt: account.authenticatedAt };
     } catch {
-      this.deleteStore();
+      this.removeAccount(account.user.login);
       return null;
     }
   }
 
   getToken(): string | null {
-    const stored = this.readStore();
-    if (!stored) return null;
+    const account = this.getActiveAccount();
+    if (!account) return null;
     try {
-      return this.decryptToken(stored.encryptedToken);
+      return this.decryptToken(account.encryptedToken);
     } catch {
       return null;
     }
   }
 
+  // --- Multi-account ---
+
+  listAccounts(): AccountInfo[] {
+    const store = this.readStore();
+    return store.accounts.map((a) => ({
+      login: a.user.login,
+      name: a.user.name,
+      avatarUrl: a.user.avatarUrl,
+      isActive: a.user.login === store.activeLogin,
+    }));
+  }
+
+  async switchAccount(login: string): Promise<AuthSession | null> {
+    const store = this.readStore();
+    const account = store.accounts.find((a) => a.user.login === login);
+    if (!account) return null;
+
+    // Validate the token is still good
+    try {
+      const token = this.decryptToken(account.encryptedToken);
+      const user = await this.fetchUserProfile(token);
+      if (!user) {
+        this.removeAccount(login);
+        return null;
+      }
+
+      // Update active login
+      store.activeLogin = login;
+      // Refresh user profile data
+      account.user = user;
+      this.writeStore(store);
+
+      const session: AuthSession = { user, authenticatedAt: account.authenticatedAt };
+      this.emitAuthUpdate(session);
+      return session;
+    } catch {
+      this.removeAccount(login);
+      return null;
+    }
+  }
+
+  removeAccount(login: string): void {
+    const store = this.readStore();
+    store.accounts = store.accounts.filter((a) => a.user.login !== login);
+    if (store.activeLogin === login) {
+      store.activeLogin = store.accounts[0]?.user.login ?? '';
+    }
+    this.writeStore(store);
+
+    if (store.accounts.length === 0) {
+      this.emitAuthUpdate(null);
+    } else if (store.activeLogin) {
+      const next = store.accounts.find((a) => a.user.login === store.activeLogin);
+      if (next) {
+        this.emitAuthUpdate({ user: next.user, authenticatedAt: next.authenticatedAt });
+      }
+    }
+  }
+
+  // --- Device flow ---
+
   async startDeviceFlow(): Promise<void> {
-    // Abort any existing polling
     this.pollingAbort?.abort();
 
     this.emitDeviceFlowStatus({ status: 'awaiting_code' });
@@ -149,7 +253,6 @@ export class AuthManager {
         verificationUri: verification_uri,
       });
 
-      // Start polling
       await this.pollForToken(device_code, interval || 5, expires_in || 900);
     } catch (err) {
       this.emitDeviceFlowStatus({
@@ -199,11 +302,22 @@ export class AuthManager {
             authenticatedAt: new Date().toISOString(),
           };
 
-          this.writeStore({
+          // Add or replace account in store
+          const store = this.readStore();
+          const existingIdx = store.accounts.findIndex((a) => a.user.login === user.login);
+          const account: StoredAccount = {
             encryptedToken: this.encryptToken(data.access_token),
             user,
             authenticatedAt: session.authenticatedAt,
-          });
+          };
+
+          if (existingIdx >= 0) {
+            store.accounts[existingIdx] = account;
+          } else {
+            store.accounts.push(account);
+          }
+          store.activeLogin = user.login;
+          this.writeStore(store);
 
           this.emitDeviceFlowStatus({ status: 'success' });
           this.emitAuthUpdate(session);
@@ -232,6 +346,8 @@ export class AuthManager {
     this.emitDeviceFlowStatus({ status: 'expired' });
   }
 
+  // --- Helpers ---
+
   private async fetchUserProfile(token: string): Promise<GitHubUser | null> {
     try {
       const res = await fetch(USER_URL, {
@@ -257,15 +373,25 @@ export class AuthManager {
 
   async logout(): Promise<void> {
     this.pollingAbort?.abort();
-    this.deleteStore();
-    this.emitAuthUpdate(null);
+    // Remove only the active account
+    const store = this.readStore();
+    if (store.activeLogin) {
+      this.removeAccount(store.activeLogin);
+    } else {
+      // Fallback: clear everything
+      try {
+        if (fs.existsSync(this.storePath)) {
+          fs.unlinkSync(this.storePath);
+        }
+      } catch { /* ignore */ }
+      this.emitAuthUpdate(null);
+    }
   }
 
   private encryptToken(token: string): string {
     if (safeStorage.isEncryptionAvailable()) {
       return safeStorage.encryptString(token).toString('base64');
     }
-    // Fallback: base64 only (less secure, but functional)
     return Buffer.from(token).toString('base64');
   }
 

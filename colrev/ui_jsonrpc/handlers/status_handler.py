@@ -30,11 +30,22 @@ OPERATION_DESCRIPTIONS = {
     "load": "Import search results into main records file",
     "prep": "Prepare and clean metadata for imported records",
     "dedupe": "Identify and merge duplicate records",
+    "prescreen_launch": "Verify readiness and launch paired prescreen reviewer branches",
     "prescreen": "Screen records based on titles and abstracts",
+    "prescreen_reconcile": "Reconcile paired prescreen decisions on dev",
     "pdf_get": "Retrieve PDF documents for included records",
     "pdf_prep": "Prepare and validate retrieved PDFs",
+    "screen_launch": "Verify readiness and launch paired screen reviewer branches",
     "screen": "Full-text screening of records",
+    "screen_reconcile": "Reconcile paired full-text screening decisions on dev",
     "data": "Data extraction and synthesis",
+}
+
+OPERATION_ALIASES = {
+    "prescreen_launch": "prescreen",
+    "prescreen_reconcile": "prescreen",
+    "screen_launch": "screen",
+    "screen_reconcile": "screen",
 }
 
 # Mapping of operation names to the states they process
@@ -189,9 +200,7 @@ class StatusHandler:
         Args:
             params: Method parameters containing:
                 - project_id (str): Project identifier (required)
-                - operation (str): Operation name (required) - one of:
-                    "search", "load", "prep", "dedupe", "prescreen",
-                    "pdf_get", "pdf_prep", "screen", "data"
+                - operation (str): Operation name (required)
 
         Returns:
             Dict containing:
@@ -219,6 +228,8 @@ class StatusHandler:
                 f"Invalid operation '{operation}'. Valid operations: {valid_ops}"
             )
 
+        canonical_operation = OPERATION_ALIASES.get(operation, operation)
+
         logger.info(f"Getting operation info for {operation} in project {project_id}")
 
         # Get status to determine affected records
@@ -226,12 +237,12 @@ class StatusHandler:
 
         # Check if operation can run and get affected record count
         can_run, reason, affected_records = self._check_operation_runnable(
-            operation, status_stats
+            canonical_operation, status_stats
         )
 
         # Check if operation needs to be re-run
         needs_rerun, needs_rerun_reason = self._check_needs_rerun(
-            operation, status_stats
+            canonical_operation, status_stats
         )
 
         return {

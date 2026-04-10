@@ -9,11 +9,12 @@ See docs/source/api/jsonrpc/screen.rst for full endpoint documentation.
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import colrev.record.record
 import colrev.review_manager
 from colrev.constants import Fields, RecordState
+from colrev.managed_review import ManagedReviewService
 from colrev.ui_jsonrpc import response_formatter, validation
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,24 @@ class ScreenHandler:
             review_manager: ReviewManager instance for the project
         """
         self.review_manager = review_manager
+        self.managed_review_service = ManagedReviewService(
+            review_manager=review_manager
+        )
+
+    def _task_record_ids(self, *, params: Dict[str, Any]) -> Optional[set[str]]:
+        task_id = params.get("task_id")
+        if not task_id:
+            return None
+
+        manifest = self.managed_review_service.load_manifest()
+        task = self.managed_review_service._find_task(manifest=manifest, task_id=task_id)
+        current_branch = self.managed_review_service._get_current_branch()
+        allowed_branches = {reviewer["branch_name"] for reviewer in task["reviewers"]}
+        if current_branch not in allowed_branches:
+            raise ValueError(
+                "Managed screen tasks can only be reviewed from an assigned reviewer branch."
+            )
+        return set(task["record_ids"])
 
     def screen(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -102,6 +121,7 @@ class ScreenHandler:
         """
         project_id = params["project_id"]
         limit = validation.get_optional_param(params, "limit", 50)
+        task_record_ids = self._task_record_ids(params=params)
 
         logger.info(f"Getting screen queue for project {project_id}")
 
@@ -133,6 +153,7 @@ class ScreenHandler:
         screen_records = [
             record for record in records_dict.values()
             if record.get(Fields.STATUS) == RecordState.pdf_prepared
+            and (task_record_ids is None or record.get(Fields.ID) in task_record_ids)
         ]
 
         total_count = len(screen_records)
@@ -207,6 +228,7 @@ class ScreenHandler:
         decision = params.get("decision")
         criteria_decisions = params.get("criteria_decisions", {})
         skip_commit = validation.get_optional_param(params, "skip_commit", False)
+        task_record_ids = self._task_record_ids(params=params)
 
         if not record_id:
             raise ValueError("record_id parameter is required")
@@ -235,6 +257,8 @@ class ScreenHandler:
 
         if record_id not in records_dict:
             raise ValueError(f"Record '{record_id}' not found")
+        if task_record_ids is not None and record_id not in task_record_ids:
+            raise ValueError(f"Record '{record_id}' is not part of this managed review task")
 
         record_dict = records_dict[record_id]
 
@@ -283,6 +307,7 @@ class ScreenHandler:
             1 for r in records_dict.values()
             if r.get(Fields.STATUS) == RecordState.pdf_prepared
             and r.get(Fields.ID) != record_id
+            and (task_record_ids is None or r.get(Fields.ID) in task_record_ids)
         )
 
         return response_formatter.format_operation_response(

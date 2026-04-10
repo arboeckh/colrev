@@ -14,6 +14,12 @@ export interface GitHubRepo {
   cloneUrl: string;
 }
 
+export interface GitHubCollaborator {
+  login: string;
+  name: string | null;
+  avatarUrl: string;
+}
+
 /**
  * Fetch all repos the authenticated user owns or collaborates on (paginated).
  */
@@ -167,6 +173,193 @@ export async function listReleases(
     publishedAt: r.published_at,
     author: r.author?.login || '',
   }));
+}
+
+export async function listRepoCollaborators(
+  token: string,
+  owner: string,
+  repo: string,
+): Promise<GitHubCollaborator[]> {
+  const collaborators: GitHubCollaborator[] = [];
+  let page = 1;
+  const perPage = 100;
+
+  while (true) {
+    const res = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/collaborators?per_page=${perPage}&page=${page}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+      },
+    );
+
+    if (!res.ok) break;
+
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) break;
+
+    collaborators.push(
+      ...data.map((collaborator: any) => ({
+        login: collaborator.login,
+        name: collaborator.name ?? null,
+        avatarUrl: collaborator.avatar_url ?? '',
+      })),
+    );
+
+    if (data.length < perPage) break;
+    page += 1;
+  }
+
+  return collaborators;
+}
+
+/**
+ * Invite a collaborator to a GitHub repository.
+ * Uses the PUT /repos/{owner}/{repo}/collaborators/{username} endpoint.
+ */
+export async function addRepoCollaborator(
+  token: string,
+  owner: string,
+  repo: string,
+  username: string,
+  permission: 'pull' | 'push' | 'admin' = 'push',
+): Promise<{ success: boolean; invited: boolean; error?: string }> {
+  const res = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/collaborators/${username}`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ permission }),
+    },
+  );
+
+  if (res.status === 201) {
+    // Invitation created
+    return { success: true, invited: true };
+  }
+  if (res.status === 204) {
+    // User already a collaborator (no invitation needed)
+    return { success: true, invited: false };
+  }
+
+  const errorData = await res.json().catch(() => ({}));
+  return {
+    success: false,
+    invited: false,
+    error: errorData.message || `Failed to add collaborator (${res.status})`,
+  };
+}
+
+export interface PendingRepoInvitation {
+  id: number;
+  inviteeLogin: string;
+  inviteeAvatarUrl: string;
+  permission: string;
+  createdAt: string;
+}
+
+/**
+ * List pending invitations for a repository (owner/admin perspective).
+ */
+export async function listPendingRepoInvitations(
+  token: string,
+  owner: string,
+  repo: string,
+): Promise<PendingRepoInvitation[]> {
+  const res = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/invitations?per_page=100`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    },
+  );
+
+  if (!res.ok) return [];
+
+  const data = await res.json();
+  if (!Array.isArray(data)) return [];
+
+  return data.map((inv: any) => ({
+    id: inv.id,
+    inviteeLogin: inv.invitee?.login ?? '',
+    inviteeAvatarUrl: inv.invitee?.avatar_url ?? '',
+    permission: inv.permissions ?? '',
+    createdAt: inv.created_at ?? '',
+  }));
+}
+
+export interface RepoInvitation {
+  id: number;
+  repoFullName: string;
+  repoUrl: string;
+  inviter: string;
+  inviterAvatarUrl: string;
+  permission: string;
+  createdAt: string;
+}
+
+/**
+ * List pending repository invitations for the authenticated user.
+ */
+export async function listRepoInvitations(token: string): Promise<RepoInvitation[]> {
+  const res = await fetch('https://api.github.com/user/repository_invitations?per_page=100', {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (!res.ok) return [];
+
+  const data = await res.json();
+  if (!Array.isArray(data)) return [];
+
+  return data.map((inv: any) => ({
+    id: inv.id,
+    repoFullName: inv.repository?.full_name ?? '',
+    repoUrl: inv.repository?.html_url ?? '',
+    inviter: inv.inviter?.login ?? '',
+    inviterAvatarUrl: inv.inviter?.avatar_url ?? '',
+    permission: inv.permissions ?? '',
+    createdAt: inv.created_at ?? '',
+  }));
+}
+
+/**
+ * Accept a repository invitation.
+ */
+export async function acceptRepoInvitation(
+  token: string,
+  invitationId: number,
+): Promise<{ success: boolean; error?: string }> {
+  const res = await fetch(
+    `https://api.github.com/user/repository_invitations/${invitationId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    },
+  );
+
+  if (res.status === 204 || res.status === 200) {
+    return { success: true };
+  }
+
+  const errorData = await res.json().catch(() => ({}));
+  return {
+    success: false,
+    error: errorData.message || `Failed to accept invitation (${res.status})`,
+  };
 }
 
 /**

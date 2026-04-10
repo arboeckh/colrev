@@ -128,6 +128,22 @@ export async function gitPush(
   });
 }
 
+export async function gitPushBranch(
+  projectPath: string,
+  branchName: string,
+  token: string | null = null,
+): Promise<GitResult> {
+  const { exec } = await import('dugite');
+
+  return withTokenAuth(projectPath, token, async () => {
+    const result = await exec(['push', '-u', 'origin', `${branchName}:${branchName}`], projectPath);
+    if (result.exitCode !== 0) {
+      return { success: false, error: result.stderr || `Failed to push ${branchName}` };
+    }
+    return { success: true };
+  });
+}
+
 export async function gitListBranches(
   projectPath: string,
 ): Promise<GitBranchListResult> {
@@ -210,6 +226,19 @@ export async function gitCreateBranch(
   if (baseBranch) args.push(baseBranch);
 
   const result = await exec(args, projectPath);
+  if (result.exitCode !== 0) {
+    return { success: false, error: result.stderr || `Failed to create branch ${name}` };
+  }
+  return { success: true };
+}
+
+export async function gitCreateLocalBranch(
+  projectPath: string,
+  name: string,
+  baseRef: string,
+): Promise<GitResult> {
+  const { exec } = await import('dugite');
+  const result = await exec(['branch', name, baseRef], projectPath);
   if (result.exitCode !== 0) {
     return { success: false, error: result.stderr || `Failed to create branch ${name}` };
   }
