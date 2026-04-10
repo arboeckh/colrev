@@ -165,7 +165,7 @@ async function loadSources() {
         // Explicitly stale
         if (s.is_stale) return true;
         // API source that has never been run
-        if (s.search_type === 'API' && (s.record_count ?? 0) === 0) return true;
+        if (s.search_type === 'API' && !s.last_run_timestamp) return true;
         return false;
       });
       projects.setHasStaleSearchSources(hasSourcesNeedingAction);

@@ -1,4 +1,4 @@
-import { app, safeStorage, shell } from 'electron';
+import { app, safeStorage } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -148,9 +148,6 @@ export class AuthManager {
         userCode: user_code,
         verificationUri: verification_uri,
       });
-
-      // Open browser for the user
-      shell.openExternal(verification_uri);
 
       // Start polling
       await this.pollForToken(device_code, interval || 5, expires_in || 900);

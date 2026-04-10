@@ -111,17 +111,21 @@ class PDFGetHandler:
             raise ValueError(f"Record '{record_id}' not found")
 
         record_dict = records[record_id]
+        current_status = record_dict[Fields.STATUS]
         is_reupload = (
-            record_dict[Fields.STATUS] == RecordState.pdf_needs_manual_preparation
+            current_status == RecordState.pdf_needs_manual_preparation
         )
-        if record_dict[Fields.STATUS] not in (
+        is_from_not_available = (
+            current_status == RecordState.pdf_not_available
+        )
+        if current_status not in (
             RecordState.pdf_needs_manual_retrieval,
             RecordState.pdf_needs_manual_preparation,
+            RecordState.pdf_not_available,
         ):
             raise ValueError(
-                f"Record '{record_id}' is not in pdf_needs_manual_retrieval or "
-                f"pdf_needs_manual_preparation state "
-                f"(current: {record_dict[Fields.STATUS]})"
+                f"Record '{record_id}' is not in a state that accepts PDF upload "
+                f"(current: {current_status})"
             )
 
         # Decode base64 content
@@ -150,6 +154,20 @@ class PDFGetHandler:
             self.review_manager.dataset.save_records_dict(
                 {record_id: record.data}, partial=True
             )
+        elif is_from_not_available:
+            # Upload for a record previously marked as not available:
+            # transition back to pdf_needs_manual_retrieval first, then link
+            record = colrev.record.record.Record(record_dict)
+            record.set_status(
+                target_state=RecordState.pdf_needs_manual_retrieval, force=True
+            )
+            self.review_manager.dataset.save_records_dict(
+                {record_id: record.data}, partial=True
+            )
+            # Re-load and link the PDF
+            records = self.review_manager.dataset.load_records_dict()
+            record = colrev.record.record.Record(records[record_id])
+            pdf_get_man.pdf_get_man_record(record=record, filepath=target_path)
         else:
             # First upload: use PDFGetMan to link the PDF to the record
             record = colrev.record.record.Record(record_dict)
@@ -291,6 +309,76 @@ class PDFGetHandler:
         if not skip_commit:
             self.review_manager.create_commit(
                 msg=f"Mark PDF not available for {record_id}",
+                manual_author=True,
+            )
+
+        return {
+            "success": True,
+            "record_id": record_id,
+            "new_status": new_status,
+        }
+
+    def undo_pdf_not_available(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Undo a 'not available' mark, returning the record to pdf_needs_manual_retrieval.
+
+        This allows users to recover from accidentally marking a PDF as not available.
+
+        Args:
+            params: Method parameters containing:
+                - project_id (str): Project identifier (required)
+                - record_id (str): Record to restore (required)
+                - skip_commit (bool, optional): Skip git commit (default: False)
+
+        Returns:
+            Dict containing:
+                - success (bool): True on success
+                - record_id (str): Record ID
+                - new_status (str): New record status (pdf_needs_manual_retrieval)
+        """
+        project_id = params["project_id"]
+        record_id = params.get("record_id")
+        skip_commit = validation.get_optional_param(params, "skip_commit", False)
+
+        if not record_id:
+            raise ValueError("record_id parameter is required")
+
+        logger.info(
+            f"Undoing pdf_not_available for record {record_id} in project {project_id}"
+        )
+
+        colrev.ops.pdf_get_man.PDFGetMan(
+            review_manager=self.review_manager,
+            notify_state_transition_operation=False,
+        )
+
+        records = self.review_manager.dataset.load_records_dict()
+        if record_id not in records:
+            raise ValueError(f"Record '{record_id}' not found")
+
+        record_dict = records[record_id]
+        if record_dict[Fields.STATUS] != RecordState.pdf_not_available:
+            raise ValueError(
+                f"Record '{record_id}' is not in pdf_not_available state "
+                f"(current: {record_dict[Fields.STATUS]})"
+            )
+
+        # Force-transition back to pdf_needs_manual_retrieval
+        # (the process model has no defined transition from pdf_not_available,
+        # so we use force=True as a UI-level override)
+        record = colrev.record.record.Record(record_dict)
+        record.set_status(
+            target_state=RecordState.pdf_needs_manual_retrieval, force=True
+        )
+        self.review_manager.dataset.save_records_dict(
+            {record_id: record.data}, partial=True
+        )
+
+        new_status = str(record.data[Fields.STATUS])
+
+        if not skip_commit:
+            self.review_manager.create_commit(
+                msg=f"Undo pdf_not_available for {record_id}",
                 manual_author=True,
             )
 

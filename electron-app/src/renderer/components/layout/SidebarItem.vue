@@ -216,7 +216,7 @@ const stepStatus = computed((): StepStatus => {
               <p class="text-xs">{{ deltaPendingRecords }} new record{{ deltaPendingRecords !== 1 ? 's' : '' }} from dev that have reached this step</p>
             </TooltipContent>
           </Tooltip>
-          <Tooltip v-if="pendingRecords > 0">
+<Tooltip v-if="pendingRecords > 0">
             <TooltipTrigger as-child>
               <span
                 class="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary/10 px-1.5 text-xs tabular-nums text-primary font-medium"

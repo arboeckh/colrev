@@ -113,8 +113,10 @@ class PrescreenHandler:
         logger.info(f"Getting prescreen queue for project {project_id}")
 
         # Need to get an operation to enable record loading
+        # Use False to skip precondition checks — read-only query should
+        # not be blocked by dirty repo or process order.
         self.review_manager.get_prescreen_operation(
-            notify_state_transition_operation=True
+            notify_state_transition_operation=False
         )
 
         # Load all records (may return empty dict for new projects)
@@ -214,7 +216,7 @@ class PrescreenHandler:
 
         # Need to get an operation to enable record loading
         self.review_manager.get_prescreen_operation(
-            notify_state_transition_operation=True
+            notify_state_transition_operation=False
         )
 
         # Load records
@@ -322,7 +324,7 @@ class PrescreenHandler:
         )
 
         self.review_manager.get_prescreen_operation(
-            notify_state_transition_operation=True
+            notify_state_transition_operation=False
         )
 
         records_dict = self.review_manager.dataset.load_records_dict()

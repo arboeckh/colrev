@@ -464,6 +464,11 @@ export interface MarkPdfNotAvailableResponse extends SuccessResponse {
   new_status: string;
 }
 
+export interface UndoPdfNotAvailableResponse extends SuccessResponse {
+  record_id: string;
+  new_status: string;
+}
+
 // PDF Prep
 export interface PdfPrepParams {
   project_id: string;

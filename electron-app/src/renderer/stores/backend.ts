@@ -23,6 +23,11 @@ export const useBackendStore = defineStore('backend', () => {
   const searchProgress = ref<SearchProgress | null>(null);
   const searchProgressListeners = ref<Set<(progress: SearchProgress) => void>>(new Set());
 
+  // Generic operation progress (percentage 0–100, used by pdf_get, pdf_prep, etc.)
+  const operationProgress = ref<number | null>(null);
+  const operationTotal = ref<number>(0);
+  const operationDone = ref<number>(0);
+
   // Request ID counter for tracking
   let requestIdCounter = 0;
 
@@ -47,6 +52,8 @@ export const useBackendStore = defineStore('backend', () => {
 
     // Parse for search progress patterns
     parseSearchProgress(msg);
+    // Parse for generic operation progress (pdf_get, pdf_prep, etc.)
+    parseOperationProgress(msg);
   }
 
   function parseSearchProgress(msg: string) {
@@ -112,6 +119,43 @@ export const useBackendStore = defineStore('backend', () => {
       searchProgress.value = progress;
       notifySearchProgressListeners(progress);
       return;
+    }
+  }
+
+  function parseOperationProgress(msg: string) {
+    // "pdf_get" reports: "PDFs to get ... X PDFs" at start
+    const pdfGetTotalMatch = msg.match(/PDFs\s+to\s+get[^:]*:\s*(\d+)/i);
+    if (pdfGetTotalMatch) {
+      operationTotal.value = parseInt(pdfGetTotalMatch[1], 10);
+      operationDone.value = 0;
+      operationProgress.value = 0;
+      return;
+    }
+
+    // Per-record status lines logged by colrev operations, e.g.:
+    // "pdf_imported  RecordID" or "pdf_needs_manual_retrieval  RecordID"
+    const recordStatusMatch = msg.match(
+      /\b(pdf_imported|pdf_prepared|pdf_needs_manual_retrieval|pdf_needs_manual_preparation|pdf_not_available)\b/
+    );
+    if (recordStatusMatch && operationTotal.value > 0) {
+      operationDone.value = Math.min(operationDone.value + 1, operationTotal.value);
+      operationProgress.value = Math.round((operationDone.value / operationTotal.value) * 100);
+      return;
+    }
+
+    // "pdf_prep" reports: "Prepare PDFs ... X records"
+    const pdfPrepTotalMatch = msg.match(/Prepare\s+PDFs[^:]*:\s*(\d+)\s+record/i);
+    if (pdfPrepTotalMatch) {
+      operationTotal.value = parseInt(pdfPrepTotalMatch[1], 10);
+      operationDone.value = 0;
+      operationProgress.value = 0;
+      return;
+    }
+
+    // Reset when operation completes
+    if (msg.match(/completed\s+(pdf[_-]get|pdf[_-]prep)\s+operation/i)) {
+      operationProgress.value = 100;
+      setTimeout(() => { operationProgress.value = null; operationTotal.value = 0; operationDone.value = 0; }, 1000);
     }
   }
 
@@ -244,6 +288,7 @@ export const useBackendStore = defineStore('backend', () => {
     logs,
     basePath,
     searchProgress,
+    operationProgress,
     // Computed
     isRunning,
     isStarting,

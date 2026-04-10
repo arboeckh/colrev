@@ -119,7 +119,10 @@ class ScreenHandler:
                 }
 
         # Need to get an operation to enable record loading
-        self.review_manager.get_screen_operation(notify_state_transition_operation=True)
+        # Use notify_state_transition_operation=False because this is a read-only
+        # query — precondition checks (clean repo, process order) should not block
+        # loading the queue for display.
+        self.review_manager.get_screen_operation(notify_state_transition_operation=False)
 
         # Load all records (may return empty dict for new projects)
         records_dict = self.review_manager.dataset.load_records_dict()
@@ -219,8 +222,10 @@ class ScreenHandler:
         )
 
         # Get screen operation for proper status handling and enable record loading
+        # Use False to skip precondition checks — the GUI manages commits and
+        # may have pending changes that would trigger CleanRepoRequiredError.
         screen_operation = self.review_manager.get_screen_operation(
-            notify_state_transition_operation=True
+            notify_state_transition_operation=False
         )
 
         # Load records
@@ -345,7 +350,7 @@ class ScreenHandler:
         )
 
         self.review_manager.get_screen_operation(
-            notify_state_transition_operation=True
+            notify_state_transition_operation=False
         )
 
         records_dict = self.review_manager.dataset.load_records_dict()
@@ -432,7 +437,7 @@ class ScreenHandler:
         logger.info(f"Including all records in screen for project {project_id}")
 
         screen_operation = self.review_manager.get_screen_operation(
-            notify_state_transition_operation=True
+            notify_state_transition_operation=False
         )
 
         screen_operation.include_all_in_screen(persist=False)

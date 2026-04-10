@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { Play, Loader2, Lock } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import ProgressCircle from './ProgressCircle.vue';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
@@ -14,6 +15,7 @@ const props = defineProps<{
   disabled?: boolean;
   params?: Record<string, unknown>;
   testId?: string;
+  showProgress?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -25,6 +27,10 @@ const backend = useBackendStore();
 const notifications = useNotificationsStore();
 const { isReadOnly, readOnlyReason } = useReadOnly();
 const isRunning = ref(false);
+
+const progressPct = computed(() =>
+  props.showProgress && isRunning.value ? (backend.operationProgress ?? null) : null
+);
 
 async function run() {
   if (isRunning.value || props.disabled || !backend.isRunning || isReadOnly.value) return;
@@ -72,7 +78,16 @@ async function run() {
     :data-testid="testId || `run-${operation}-button`"
     @click="run"
   >
-    <Loader2 v-if="isRunning" class="h-4 w-4 mr-2 animate-spin" />
+    <!-- Progress circle when percentage is known -->
+    <ProgressCircle
+      v-if="isRunning && progressPct !== null"
+      :percentage="progressPct"
+      :size="16"
+      :stroke-width="2"
+      class="mr-2"
+    />
+    <!-- Indeterminate spinner when running without percentage data -->
+    <Loader2 v-else-if="isRunning" class="h-4 w-4 mr-2 animate-spin" />
     <Play v-else class="h-4 w-4 mr-2" />
     {{ label || operation }}
   </Button>

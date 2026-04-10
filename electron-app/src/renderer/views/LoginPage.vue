@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { Github, Copy, ExternalLink, Loader2, AlertCircle } from 'lucide-vue-next';
+import { Github, Copy, ExternalLink, Loader2, AlertCircle, Check, ClipboardCheck } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuthStore } from '@/stores/auth';
 
 const router = useRouter();
 const auth = useAuthStore();
+const copied = ref(false);
 
 // Navigate to landing page when user gains access
 watch(
@@ -32,6 +33,8 @@ async function copyCode() {
   const code = auth.deviceFlowStatus?.userCode;
   if (code) {
     await navigator.clipboard.writeText(code);
+    copied.value = true;
+    setTimeout(() => (copied.value = false), 3000);
   }
 }
 
@@ -54,29 +57,45 @@ function openGitHub() {
       <CardContent class="space-y-6">
         <!-- Device Flow: Show code and polling state -->
         <template v-if="isPolling && auth.deviceFlowStatus?.userCode">
-          <div class="text-center space-y-4">
-            <p class="text-sm text-muted-foreground">
-              Enter this code on GitHub to sign in:
-            </p>
+          <div class="space-y-5">
+            <!-- Step 1: Copy the code -->
+            <div class="space-y-2">
+              <div class="flex items-center gap-2 text-sm font-medium">
+                <span class="flex items-center justify-center h-5 w-5 rounded-full text-xs"
+                  :class="copied ? 'bg-green-500/20 text-green-400' : 'bg-primary/20 text-primary'">
+                  <Check v-if="copied" class="h-3 w-3" />
+                  <span v-else>1</span>
+                </span>
+                Copy your login code
+              </div>
 
-            <div data-testid="device-code-display"
-              class="font-mono text-3xl font-bold tracking-widest py-3 px-4 bg-muted rounded-lg select-all">
-              {{ auth.deviceFlowStatus.userCode }}
+              <button data-testid="copy-code-button"
+                class="w-full group relative font-mono text-2xl font-bold tracking-widest py-3 px-4 bg-muted rounded-lg text-center cursor-pointer border border-transparent transition-colors hover:border-primary/40 active:scale-[0.98]"
+                @click="copyCode">
+                {{ auth.deviceFlowStatus.userCode }}
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground group-hover:text-primary transition-colors">
+                  <ClipboardCheck v-if="copied" class="h-4 w-4 text-green-400" />
+                  <Copy v-else class="h-4 w-4" />
+                </span>
+              </button>
+              <p v-if="copied" class="text-xs text-green-400 text-center">Copied!</p>
             </div>
 
-            <div class="flex justify-center gap-2">
-              <Button variant="outline" size="sm" data-testid="copy-code-button" @click="copyCode">
-                <Copy class="h-4 w-4 mr-2" />
-                Copy code
-              </Button>
-              <Button variant="outline" size="sm" data-testid="open-github-button" @click="openGitHub">
+            <!-- Step 2: Open GitHub -->
+            <div class="space-y-2">
+              <div class="flex items-center gap-2 text-sm font-medium">
+                <span class="flex items-center justify-center h-5 w-5 rounded-full bg-primary/20 text-primary text-xs">2</span>
+                Paste the code on GitHub
+              </div>
+
+              <Button class="w-full" data-testid="open-github-button" @click="openGitHub">
                 <ExternalLink class="h-4 w-4 mr-2" />
                 Open GitHub
               </Button>
             </div>
 
-            <div class="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-              <Loader2 class="h-4 w-4 animate-spin" />
+            <div class="flex items-center justify-center gap-2 text-xs text-muted-foreground pt-1">
+              <Loader2 class="h-3 w-3 animate-spin" />
               Waiting for authorization...
             </div>
           </div>

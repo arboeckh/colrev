@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Upload, Ban, Loader2, CheckCircle2, AlertTriangle } from 'lucide-vue-next';
+import { Upload, Ban, Loader2, CheckCircle2, AlertTriangle, Undo2 } from 'lucide-vue-next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -61,12 +61,14 @@ defineProps<{
   showActions?: boolean;
   uploadingRecordId?: string | null;
   markingRecordId?: string | null;
+  undoingRecordId?: string | null;
   uploadResults?: globalThis.Record<string, UploadResult>;
 }>();
 
 defineEmits<{
   upload: [recordId: string];
   'mark-not-available': [recordId: string];
+  'undo-not-available': [recordId: string];
 }>();
 </script>
 
@@ -210,6 +212,44 @@ defineEmits<{
                 class="h-3.5 w-3.5 animate-spin"
               />
               <Ban v-else class="h-3.5 w-3.5" />
+            </Button>
+          </div>
+
+          <!-- Actions for pdf_not_available (undo + upload) -->
+          <div
+            v-else-if="record.colrev_status === 'pdf_not_available'"
+            class="flex items-center justify-end gap-1"
+          >
+            <Button
+              v-if="undoingRecordId === record.ID"
+              size="sm"
+              variant="outline"
+              disabled
+              :data-testid="'pdf-undo-btn-' + record.ID"
+            >
+              <Loader2 class="h-3.5 w-3.5 mr-1 animate-spin" />
+              Undoing...
+            </Button>
+            <Button
+              v-else
+              size="sm"
+              variant="outline"
+              :data-testid="'pdf-undo-btn-' + record.ID"
+              @click="$emit('undo-not-available', record.ID)"
+            >
+              <Undo2 class="h-3.5 w-3.5 mr-1" />
+              Undo
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              :disabled="uploadingRecordId === record.ID || undoingRecordId === record.ID"
+              :data-testid="'pdf-upload-from-na-btn-' + record.ID"
+              @click="$emit('upload', record.ID)"
+            >
+              <Loader2 v-if="uploadingRecordId === record.ID" class="h-3.5 w-3.5 mr-1 animate-spin" />
+              <Upload v-else class="h-3.5 w-3.5 mr-1" />
+              Upload
             </Button>
           </div>
 

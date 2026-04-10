@@ -94,8 +94,9 @@ async function loadQueue() {
 
       const enriched: EnrichedRecord[] = response.records.map((r) => {
         const hasAllFilled = fields.value.length > 0 && fields.value.every((f) => {
+          if (f.optional) return true;
           const val = r.extraction_values[f.name];
-          return val && val !== 'TODO';
+          return !!val && val.trim() !== '' && val !== 'TODO';
         });
         return { ...r, _completed: hasAllFilled };
       });

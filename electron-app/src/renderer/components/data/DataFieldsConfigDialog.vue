@@ -141,34 +141,42 @@ function save() {
 
 <template>
   <Dialog :open="open" @update:open="(v) => emit('update:open', v)">
-    <DialogContent class="sm:max-w-[750px]" data-testid="data-fields-dialog">
-      <DialogHeader>
+    <DialogContent class="sm:max-w-[750px] max-h-[90vh] flex flex-col overflow-hidden" data-testid="data-fields-dialog">
+      <DialogHeader class="shrink-0">
         <DialogTitle>Configure Extraction Fields</DialogTitle>
       </DialogHeader>
 
-      <div class="space-y-3 max-h-[450px] overflow-y-auto pr-1">
+      <div class="flex-1 min-h-0 space-y-3 overflow-y-auto pr-1">
         <div
           v-for="(field, index) in fields"
           :key="index"
           class="rounded-md border border-l-[3px] bg-card/50 p-3"
           :class="typeConfig[field.data_type]?.border"
         >
-          <!-- Row 1: Icon + Name + Type badge + Optional badge + Delete -->
-          <div class="flex items-center gap-2">
+          <!-- Row 1: Icon + Name + Type + Optional badge + Delete -->
+          <div class="flex items-end gap-2">
             <component
               :is="typeConfig[field.data_type]?.icon"
-              class="h-4 w-4 shrink-0 text-muted-foreground"
+              class="h-4 w-4 mb-2 shrink-0 text-muted-foreground"
             />
-            <Input
-              v-model="field.name"
-              placeholder="Field name"
-              class="h-8 flex-1"
-              :class="{ 'border-destructive': isDuplicateName(index) }"
-              :data-testid="`data-field-name-${index}`"
-            />
+            <div class="flex-1 min-w-0 flex flex-col gap-0.5">
+              <span class="text-xs text-muted-foreground leading-none">
+                Name <span class="text-destructive font-semibold">*</span>
+              </span>
+              <Input
+                v-model="field.name"
+                placeholder="e.g. sample_size"
+                class="h-8"
+                :class="{
+                  'border-destructive': isDuplicateName(index),
+                  'border-destructive/60 bg-destructive/5': !field.name.trim() && !isDuplicateName(index),
+                }"
+                :data-testid="`data-field-name-${index}`"
+              />
+            </div>
             <NativeSelect
               v-model="field.data_type"
-              class="w-[130px] shrink-0"
+              class="w-[130px] shrink-0 mb-0.5"
               :data-testid="`data-field-type-${index}`"
               @change="onTypeChange(field)"
             >
@@ -180,7 +188,7 @@ function save() {
             </NativeSelect>
             <Badge
               variant="outline"
-              class="shrink-0 cursor-pointer select-none text-[11px] px-1.5 py-0"
+              class="shrink-0 cursor-pointer select-none text-[11px] px-1.5 py-0 mb-0.5"
               :class="field.optional
                 ? 'bg-muted text-muted-foreground'
                 : 'text-muted-foreground/50 opacity-60 hover:opacity-100'"
@@ -192,7 +200,7 @@ function save() {
             <Button
               variant="ghost"
               size="icon"
-              class="h-7 w-7 shrink-0"
+              class="h-7 w-7 shrink-0 mb-0.5"
               :disabled="fields.length <= 1"
               :data-testid="`data-remove-field-${index}`"
               @click="removeField(index)"
@@ -205,11 +213,15 @@ function save() {
           </p>
 
           <!-- Row 2: Explanation -->
-          <div class="mt-2 ml-6">
+          <div class="mt-2 ml-6 flex flex-col gap-0.5">
+            <span class="text-xs text-muted-foreground leading-none">
+              Explanation <span class="text-destructive font-semibold">*</span>
+            </span>
             <Input
               v-model="field.explanation"
-              placeholder="Explanation (describe what to extract)"
+              placeholder="Describe what to extract for this field"
               class="h-8 text-sm"
+              :class="{ 'border-destructive/60 bg-destructive/5': !field.explanation.trim() }"
               :data-testid="`data-field-explanation-${index}`"
             />
           </div>
@@ -257,7 +269,7 @@ function save() {
 
       <!-- Add Field button -->
       <button
-        class="w-full border border-dashed rounded-md p-3 flex items-center justify-center gap-2 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors cursor-pointer"
+        class="shrink-0 w-full border border-dashed rounded-md p-3 flex items-center justify-center gap-2 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors cursor-pointer"
         data-testid="data-add-field-btn"
         @click="addField"
       >
@@ -265,7 +277,7 @@ function save() {
         Add Field
       </button>
 
-      <DialogFooter>
+      <DialogFooter class="shrink-0">
         <Button
           variant="outline"
           @click="emit('update:open', false)"

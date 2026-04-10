@@ -121,9 +121,9 @@ const isDbSource = computed(() => {
   return props.source.search_type === 'DB';
 });
 
-// Source is completed when it has records and is not stale
+// Source is completed when it has been run and is not stale
 const isCompleted = computed(() => {
-  return (props.source.record_count ?? 0) > 0 && !props.source.is_stale;
+  return !!props.source.last_run_timestamp && !props.source.is_stale;
 });
 
 // Format relative time for display with both relative and absolute date
@@ -412,7 +412,7 @@ async function handleUpdateFile() {
             <span class="font-medium text-primary">Searching...</span>
           </template>
           <!-- Completed (has records, not stale) -->
-          <template v-else-if="(source.record_count ?? 0) > 0 && !source.is_stale">
+          <template v-else-if="source.last_run_timestamp && !source.is_stale">
             <CheckCircle2 class="h-4 w-4 text-green-500" />
             <span class="text-muted-foreground">
               <span class="font-medium text-foreground">{{ source.record_count }}</span> records

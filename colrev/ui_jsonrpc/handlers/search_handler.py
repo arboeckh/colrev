@@ -87,6 +87,26 @@ class SearchHandler:
                 skip_commit=skip_commit,
             )
 
+        # Record last_run timestamp for searched sources so the UI can
+        # distinguish "never run" from "ran with 0 results"
+        self.review_manager.settings = self.review_manager.load_settings()
+        sources_to_mark = self.review_manager.settings.sources
+        if source != "all":
+            sources_to_mark = [
+                s
+                for s in sources_to_mark
+                if str(s.search_results_path) == source
+                or s.search_results_path.name in source
+            ]
+
+        for src in sources_to_mark:
+            self._save_source_history(src)
+
+        if not skip_commit and sources_to_mark:
+            self.review_manager.create_commit(
+                msg="Search: update search history timestamps",
+            )
+
         # Return success response
         return response_formatter.format_operation_response(
             operation_name="search",
@@ -154,19 +174,13 @@ class SearchHandler:
             # Get last run timestamp from the history file
             # Prefer the 'last_run' field if present, otherwise fall back to file mtime
             last_run_timestamp = None
-            if record_count > 0 and history_path.is_file():
+            if history_path.is_file():
                 try:
                     with open(history_path, "r", encoding="utf-8") as f:
                         history_data = json.load(f)
                     last_run_timestamp = history_data.get("last_run")
                 except (json.JSONDecodeError, OSError):
                     pass
-                # Fall back to file mtime if last_run not in history
-                if not last_run_timestamp:
-                    mtime = history_path.stat().st_mtime
-                    last_run_timestamp = datetime.fromtimestamp(
-                        mtime, tz=timezone.utc
-                    ).isoformat()
 
             source_dict.update(
                 {
@@ -250,6 +264,9 @@ class SearchHandler:
         history_data = source.to_dict()
         history_data.pop("search_history_path", None)
         history_data["last_run"] = last_run
+        # Also set on in-memory object so to_dict() preserves it
+        # if save_settings() is called later in this RPC call
+        source.last_run = last_run
 
         # Save the history file
         history_path.parent.mkdir(parents=True, exist_ok=True)
