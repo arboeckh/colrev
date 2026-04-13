@@ -6,6 +6,7 @@ import type { GitBranchInfo, GitLogEntry, GitHubRelease, MergeAnalysis, MergeCon
 import type { BranchDelta } from '@/types/project';
 import type { GetBranchDeltaResponse } from '@/types/api';
 import { useBackendStore } from './backend';
+import { enqueueGitOp } from '@/lib/gitQueue';
 
 export const useGitStore = defineStore('git', () => {
   const projects = useProjectsStore();
@@ -46,14 +47,6 @@ export const useGitStore = defineStore('git', () => {
   const isLoadingDelta = ref(false);
 
   let fetchIntervalId: ReturnType<typeof setInterval> | null = null;
-
-  // Serial queue for git operations to prevent concurrent access to .git/index.lock
-  let gitQueue: Promise<unknown> = Promise.resolve();
-  function enqueueGitOp<T>(fn: () => Promise<T>): Promise<T> {
-    const op = gitQueue.then(fn, fn); // run even if previous op rejected
-    gitQueue = op.then(() => {}, () => {}); // swallow to keep chain alive
-    return op;
-  }
 
   // Computed
   const hasRemote = computed(() => remoteUrl.value !== null);
@@ -233,8 +226,13 @@ export const useGitStore = defineStore('git', () => {
   async function switchBranch(branchName: string): Promise<boolean> {
     const path = getProjectPath();
     if (!path) return false;
+    // Skip if already on the target branch
+    if (currentBranch.value === branchName) return true;
 
     return enqueueGitOp(async () => {
+      // Re-check inside queue — a prior queued switch may have already landed here
+      if (currentBranch.value === branchName) return true;
+
       isSwitchingBranch.value = true;
       try {
         const result = await window.git.checkout(path, branchName);
@@ -578,7 +576,8 @@ export const useGitStore = defineStore('git', () => {
   function startBackgroundFetch(interval = 60000): void {
     stopBackgroundFetch();
     fetchIntervalId = setInterval(async () => {
-      if (!isOperationRunning.value && hasRemote.value) {
+      const backend = useBackendStore();
+      if (!isOperationRunning.value && !backend.isGitCallActive && hasRemote.value) {
         await fetch();
         await autoSyncIfSafe();
       }

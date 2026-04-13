@@ -3,10 +3,14 @@ import io
 import logging
 import os
 import sys
+from pathlib import Path
 from typing import Any
 from typing import Dict
 
+import git as gitmodule
+
 import colrev.review_manager
+from colrev.constants import FileSets
 from colrev.ui_jsonrpc import error_handler
 from colrev.ui_jsonrpc import validation
 from colrev.ui_jsonrpc.handlers import DataHandler
@@ -28,6 +32,79 @@ from colrev.ui_jsonrpc.handlers import SettingsHandler
 from colrev.ui_jsonrpc.handlers import StatusHandler
 
 logger = logging.getLogger(__name__)
+
+
+class _LazyWriteGitRepo:
+    """GitRepo-compatible wrapper that defers update_gitignore until first write.
+
+    GitRepo.__init__() unconditionally writes .gitignore and calls ``git add``,
+    which acquires .git/index.lock.  For read-only JSON-RPC calls (listing tasks,
+    reading branch refs, loading records from commits) this is unnecessary and
+    causes index.lock conflicts with concurrent frontend git operations.
+
+    This wrapper constructs a bare ``git.Repo`` for reads and lazily initialises
+    the full ``GitRepo`` only when a write method is called.
+    """
+
+    def __init__(self, path: Path):
+        self.path = path.resolve()
+        self.repo = gitmodule.Repo(self.path)
+        self._full = None  # type: ignore[assignment]
+
+    def _ensure_full(self):
+        """Lazily construct the real GitRepo (runs update_gitignore)."""
+        if self._full is None:
+            from colrev.git_repo import GitRepo
+
+            self._full = GitRepo.__new__(GitRepo)
+            self._full.path = self.path
+            self._full.repo = self.repo
+            self._full.update_gitignore(
+                add=FileSets.DEFAULT_GIT_IGNORE_ITEMS,
+                remove=FileSets.DEPRECATED_GIT_IGNORE_ITEMS,
+            )
+        return self._full
+
+    # --- read-only helpers (no index.lock needed) ---
+
+    def repo_initialized(self) -> bool:
+        try:
+            self.repo.head.commit
+        except ValueError:
+            return False
+        return True
+
+    # --- write methods that need the full GitRepo ---
+
+    def add_changes(self, path, *, remove=False, ignore_missing=False):
+        return self._ensure_full().add_changes(
+            path, remove=remove, ignore_missing=ignore_missing
+        )
+
+    def add_setting_changes(self):
+        return self._ensure_full().add_setting_changes()
+
+    def create_commit(self, **kwargs):
+        return self._ensure_full().create_commit(**kwargs)
+
+    def records_changed(self):
+        return self._ensure_full().records_changed()
+
+    def has_changes(self, relative_path, *, change_type="all"):
+        return self._ensure_full().has_changes(relative_path, change_type=change_type)
+
+    def has_record_changes(self, *, change_type="all"):
+        return self._ensure_full().has_record_changes(change_type=change_type)
+
+    def stash_unstaged_changes(self):
+        return self._ensure_full().stash_unstaged_changes()
+
+    def update_gitignore(self, **kwargs):
+        return self._ensure_full().update_gitignore(**kwargs)
+
+    # Catch-all for any method not explicitly listed above
+    def __getattr__(self, name):
+        return getattr(self._ensure_full(), name)
 
 
 class JSONRPCHandler:
@@ -271,6 +348,14 @@ class JSONRPCHandler:
                 force_mode=params.get("force", True),  # Force mode to skip prompts
                 verbose_mode=params.get("verbose", False),
                 high_level_operation=True,  # Suppress unnecessary output
+            )
+
+            # Pre-populate the Dataset's cached_property with a lazy wrapper
+            # that skips GitRepo.__init__'s update_gitignore (and its git add)
+            # until a write is actually needed.  This prevents index.lock
+            # conflicts on read-only JSON-RPC calls.
+            review_manager.dataset.__dict__["git_repo"] = _LazyWriteGitRepo(
+                Path(project_path)
             )
 
             # Create handler instance

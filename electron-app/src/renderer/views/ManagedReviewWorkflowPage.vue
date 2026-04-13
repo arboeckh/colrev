@@ -40,26 +40,7 @@ const completedTask = computed(() =>
     : managedReview.latestCompletedScreenTask,
 );
 
-const autoPhase = computed<Phase>(() => {
-  if (completedTask.value && !activeTask.value) return 'reconcile';
-  if (!activeTask.value) return 'launch';
-
-  const allDone = activeTask.value.reviewer_progress.every((r) => r.pending_count === 0);
-  if (allDone || activeTask.value.state === 'reconciling') return 'reconcile';
-
-  // Check if the current user is an assigned reviewer
-  const login = auth.user?.login?.toLowerCase();
-  if (login) {
-    const myProgress = activeTask.value.reviewer_progress.find(
-      (r) => r.github_login.toLowerCase() === login,
-    );
-    if (myProgress && myProgress.pending_count > 0) return 'review';
-  }
-
-  return 'launch';
-});
-
-const currentPhase = computed<Phase>(() => userOverridePhase.value ?? autoPhase.value);
+const currentPhase = computed<Phase>(() => userOverridePhase.value ?? 'launch');
 
 // Stepper phase definitions
 const phases: { id: Phase; label: string }[] = [

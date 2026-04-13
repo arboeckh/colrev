@@ -167,7 +167,13 @@ export const useProjectsStore = defineStore('projects', () => {
     const debug = useDebugStore();
     debug.logInfo(`Loading project: ${id}`);
 
-    isLoadingProject.value = true;
+    // Only show full loading state for initial load (different project).
+    // Reloading the same project (e.g. after branch switch) should NOT
+    // unmount the page via AppLayout's v-if="isLoadingProject".
+    const isReload = currentProjectId.value === id;
+    if (!isReload) {
+      isLoadingProject.value = true;
+    }
     projectError.value = null;
     currentProjectId.value = id;
 
@@ -285,9 +291,6 @@ export const useProjectsStore = defineStore('projects', () => {
     if (!currentProjectId.value || !currentProject.value) return;
 
     const id = currentProjectId.value;
-
-    // Bump version to force view remount (re-fetches page-specific data)
-    dataVersion.value++;
 
     // Refresh WITHOUT showing loading spinner (keeps current content visible)
     try {

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { useDebugStore } from './debug';
+import { enqueueGitOp } from '@/lib/gitQueue';
 
 export type BackendStatus = 'stopped' | 'starting' | 'running' | 'error';
 
@@ -27,6 +28,10 @@ export const useBackendStore = defineStore('backend', () => {
   const operationProgress = ref<number | null>(null);
   const operationTotal = ref<number>(0);
   const operationDone = ref<number>(0);
+
+  // Track active git-touching backend calls (for background sync suppression)
+  const activeGitCalls = ref(0);
+  const isGitCallActive = computed(() => activeGitCalls.value > 0);
 
   // Request ID counter for tracking
   let requestIdCounter = 0;
@@ -276,7 +281,19 @@ export const useBackendStore = defineStore('backend', () => {
     addLog('Backend stopped');
   }
 
-  async function call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  // Methods that never touch git — can bypass the queue
+  const GIT_FREE_METHODS = new Set([
+    'ping',
+    'init_project',
+    'list_projects',
+    'delete_project',
+    'get_csv_source_templates',
+  ]);
+
+  /**
+   * Internal call that sends JSON-RPC without queue coordination.
+   */
+  async function callRaw<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
     const debug = useDebugStore();
 
     if (!isRunning.value) {
@@ -306,6 +323,25 @@ export const useBackendStore = defineStore('backend', () => {
     }
   }
 
+  /**
+   * Call a JSON-RPC method. Git-touching methods are automatically serialized
+   * through the shared git operation queue to prevent .git/index.lock conflicts
+   * with concurrent frontend git operations (fetch, checkout, etc.).
+   */
+  async function call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    if (GIT_FREE_METHODS.has(method)) {
+      return callRaw<T>(method, params);
+    }
+    return enqueueGitOp(async () => {
+      activeGitCalls.value++;
+      try {
+        return await callRaw<T>(method, params);
+      } finally {
+        activeGitCalls.value--;
+      }
+    });
+  }
+
   async function ping(): Promise<boolean> {
     try {
       const result = await call<{ status: string }>('ping', {});
@@ -323,6 +359,7 @@ export const useBackendStore = defineStore('backend', () => {
     basePath,
     searchProgress,
     operationProgress,
+    isGitCallActive,
     // Computed
     isRunning,
     isStarting,

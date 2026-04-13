@@ -91,7 +91,7 @@ watch(
 
     <!-- Main content with conditional layout -->
     <AppLayout v-if="useProjectLayout">
-      <router-view :key="projects.dataVersion" />
+      <router-view />
     </AppLayout>
 
     <router-view v-else />
