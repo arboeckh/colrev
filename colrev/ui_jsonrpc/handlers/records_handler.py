@@ -351,6 +351,15 @@ class RecordsHandler:
                 if self._get_year(r) <= year_to
             ]
 
+        # Filter by merged duplicate (records with multiple non-md_ origins)
+        if "is_merged_duplicate" in filters:
+            if filters["is_merged_duplicate"]:
+                filtered = [
+                    r for r in filtered
+                    if len([o for o in r.get(Fields.ORIGIN, [])
+                            if not o.startswith("md_")]) > 1
+                ]
+
         return filtered
 
     def _apply_sorting(

@@ -104,6 +104,10 @@ class JSONRPCHandler:
             return InitHandler.list_projects(params)
         elif method == "delete_project":
             return InitHandler.delete_project(params)
+        elif method == "get_csv_source_templates":
+            from colrev.ui_jsonrpc.csv_transforms import get_available_templates
+
+            return {"success": True, "templates": get_available_templates()}
 
         # Methods that require an existing project
 

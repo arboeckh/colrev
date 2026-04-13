@@ -38,7 +38,7 @@ const githubRepos = useGithubReposStore();
 const showNewProjectDialog = ref(false);
 const newProjectName = ref('');
 const isCreatingProject = ref(false);
-const createOnGitHub = ref(false);
+const createOnGitHub = ref(auth.isAuthenticated);
 const isPrivateRepo = ref(true);
 const isPushingToGitHub = ref(false);
 
@@ -75,10 +75,27 @@ async function acceptInvitation(inv: RepoInvitation) {
   try {
     const result = await window.github.acceptInvitation({ invitationId: inv.id });
     if (result.success) {
-      notifications.success('Invitation accepted', `You now have access to ${inv.repoFullName}`);
       invitations.value = invitations.value.filter((i) => i.id !== inv.id);
-      // Refresh GitHub repos to include the newly accessible repo
-      githubRepos.loadRepos();
+
+      // Derive clone URL and project ID from the invitation
+      const cloneUrl = `https://github.com/${inv.repoFullName}.git`;
+      const projectId = inv.repoFullName.split('/').pop() || inv.repoFullName;
+
+      // Automatically clone the repo locally
+      try {
+        const cloneResult = await window.github.cloneRepo({ cloneUrl, projectId });
+        if (cloneResult.success) {
+          projects.addProject(projectId, undefined, projectId, true);
+          notifications.success('Review added', `${inv.repoFullName} has been added locally`);
+        } else {
+          notifications.warning('Invitation accepted', `Accepted ${inv.repoFullName} but clone failed: ${cloneResult.error || 'Unknown error'}. You can add it from GitHub Reviews.`);
+        }
+      } catch {
+        notifications.warning('Invitation accepted', `Accepted ${inv.repoFullName} but couldn't clone automatically. You can add it from GitHub Reviews.`);
+      }
+
+      // Refresh GitHub repos so it moves out of "available"
+      githubRepos.fetchRepos(true);
     } else {
       notifications.error('Failed to accept', result.error || 'Unknown error');
     }

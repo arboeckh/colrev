@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import { LayoutDashboard, Settings } from 'lucide-vue-next';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -80,13 +80,62 @@ const showBadgeLegend = computed(() => {
   return git.isOnDev && git.branchDelta && git.branchDelta.new_record_count > 0;
 });
 
+// On a reviewer branch, suppress record counts for steps after the active managed review step
+// (e.g. pdf_get, pdf_prep, screen shouldn't show counts because those records aren't actionable
+// until after reconciliation on dev)
+const suppressCountsForStep = computed(() => {
+  if (!managedReview.isOnReviewerBranch) return new Set<string>();
+  // Find the index of the managed review step that is active (prescreen or screen)
+  const activeKind = managedReview.activePrescreenTask ? 'prescreen' : managedReview.activeScreenTask ? 'screen' : null;
+  if (!activeKind) return new Set<string>();
+  // Find the reconcile step index for this kind — everything after it should be suppressed
+  const reviewStepIdx = WORKFLOW_STEPS.findIndex((s) => s.id === activeKind);
+  if (reviewStepIdx === -1) return new Set<string>();
+  // Suppress all steps after the review step (reconcile + downstream)
+  const suppressed = new Set<string>();
+  for (let i = reviewStepIdx + 1; i < WORKFLOW_STEPS.length; i++) {
+    suppressed.add(WORKFLOW_STEPS[i].id);
+  }
+  return suppressed;
+});
+
+// Freeze sidebar data during branch switches to prevent flicker.
+// When isSwitchingBranch is true, hold onto the last known snapshot.
+type CountSnapshot = typeof recordCounts.value;
+type OverallSnapshot = typeof overallCounts.value;
+type StatusSnapshot = typeof managedStepStatuses.value;
+
+const frozenRecordCounts = ref<CountSnapshot>(null);
+const frozenOverallCounts = ref<OverallSnapshot>(null);
+const frozenManagedStatuses = ref<StatusSnapshot>({});
+
+watch(() => git.isSwitchingBranch, (switching) => {
+  if (switching) {
+    // Snapshot current state before the reload
+    frozenRecordCounts.value = recordCounts.value;
+    frozenOverallCounts.value = overallCounts.value;
+    frozenManagedStatuses.value = { ...managedStepStatuses.value };
+  }
+});
+
+const stableRecordCounts = computed(() =>
+  git.isSwitchingBranch ? frozenRecordCounts.value : recordCounts.value,
+);
+const stableOverallCounts = computed(() =>
+  git.isSwitchingBranch ? frozenOverallCounts.value : overallCounts.value,
+);
+const stableManagedStatuses = computed(() =>
+  git.isSwitchingBranch ? frozenManagedStatuses.value : managedStepStatuses.value,
+);
+
 // For each step index, check whether any prior step has pending records
 const priorStepHasPending = computed(() => {
+  const counts = stableRecordCounts.value;
   return WORKFLOW_STEPS.map((_, index) => {
     for (let i = 0; i < index; i++) {
       const priorStep = WORKFLOW_STEPS[i];
       const pending = priorStep.inputStates.reduce((sum, state) => {
-        return sum + (recordCounts.value?.[state] ?? 0);
+        return sum + (counts?.[state] ?? 0);
       }, 0);
       if (pending > 0) return true;
     }
@@ -126,11 +175,12 @@ const priorStepHasPending = computed(() => {
       <!-- Workflow steps with connecting lines -->
       <nav class="flex flex-col pl-2">
         <SidebarItem v-for="(step, index) in WORKFLOW_STEPS" :key="step.id" :step="step" :project-id="projectId"
-          :operation-info="getOperationInfo(step.id)" :record-counts="recordCounts" :overall-counts="overallCounts"
+          :operation-info="getOperationInfo(step.id)" :record-counts="stableRecordCounts" :overall-counts="stableOverallCounts"
           :delta-by-state="git.branchDelta?.delta_by_state ?? null" :is-on-dev="git.isOnDev"
           :has-prior-pending="priorStepHasPending[index]"
           :downstream-states="downstreamStatesPerStep[index]"
-          :managed-step-status="managedStepStatuses[step.id] ?? null"
+          :managed-step-status="stableManagedStatuses[step.id] ?? null"
+          :suppress-counts="suppressCountsForStep.has(step.id)"
           :is-first="index === 0" :is-last="index === WORKFLOW_STEPS.length - 1" />
       </nav>
 

@@ -209,17 +209,14 @@ export interface BranchDelta {
 export type WorkflowStep =
   | 'review_definition'
   | 'search'
+  | 'preprocessing'
   | 'load'
   | 'prep'
   | 'dedupe'
-  | 'prescreen_launch'
   | 'prescreen'
-  | 'prescreen_reconcile'
   | 'pdf_get'
   | 'pdf_prep'
-  | 'screen_launch'
   | 'screen'
-  | 'screen_reconcile'
   | 'data';
 
 export interface WorkflowStepInfo {
@@ -342,41 +339,26 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
   {
     id: 'search',
     label: 'Search',
-    description: 'Search, load, prepare, and deduplicate records',
+    description: 'Configure and run searches',
     route: 'search',
-    // Combined input states from search + load/prep/dedupe
-    inputStates: ['md_retrieved', 'md_imported', 'md_needs_manual_preparation', 'md_prepared'],
-    outputStates: ['md_processed'],
-    isGrouped: true,
-    subSteps: ['load', 'prep', 'dedupe'],
+    inputStates: [],
+    outputStates: ['md_retrieved'],
   },
   {
-    id: 'prescreen_launch',
-    label: 'Prescreen Launch',
-    description: 'Assign reviewers and launch paired abstract-screening task',
-    route: 'prescreen-launch',
-    inputStates: [],
-    outputStates: [],
-    stepKind: 'gate',
-    managedReviewKind: 'prescreen',
+    id: 'preprocessing',
+    label: 'Preprocessing',
+    description: 'Load, prepare, and deduplicate records',
+    route: 'preprocessing',
+    inputStates: ['md_retrieved', 'md_imported', 'md_needs_manual_preparation', 'md_prepared'],
+    outputStates: ['md_processed'],
   },
   {
     id: 'prescreen',
     label: 'Prescreen',
-    description: 'Review title and abstract decisions',
+    description: 'Launch, review, and reconcile abstract screening',
     route: 'prescreen',
     inputStates: ['md_processed'],
     outputStates: ['rev_prescreen_included', 'rev_prescreen_excluded'],
-    managedReviewKind: 'prescreen',
-  },
-  {
-    id: 'prescreen_reconcile',
-    label: 'Prescreen Reconcile',
-    description: 'Reconcile paired prescreen decisions and export audit trail',
-    route: 'prescreen-reconcile',
-    inputStates: [],
-    outputStates: [],
-    stepKind: 'gate',
     managedReviewKind: 'prescreen',
   },
   {
@@ -396,32 +378,12 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     outputStates: ['pdf_prepared'],
   },
   {
-    id: 'screen_launch',
-    label: 'Screen Launch',
-    description: 'Assign reviewers and launch paired full-text screening task',
-    route: 'screen-launch',
-    inputStates: [],
-    outputStates: [],
-    stepKind: 'gate',
-    managedReviewKind: 'screen',
-  },
-  {
     id: 'screen',
     label: 'Screen',
-    description: 'Full-text screening decisions',
+    description: 'Launch, review, and reconcile full-text screening',
     route: 'screen',
     inputStates: ['pdf_prepared'],
     outputStates: ['rev_included', 'rev_excluded'],
-    managedReviewKind: 'screen',
-  },
-  {
-    id: 'screen_reconcile',
-    label: 'Screen Reconcile',
-    description: 'Reconcile paired screening decisions and export audit trail',
-    route: 'screen-reconcile',
-    inputStates: [],
-    outputStates: [],
-    stepKind: 'gate',
     managedReviewKind: 'screen',
   },
   {

@@ -36,23 +36,22 @@ export const useProjectsStore = defineStore('projects', () => {
   const operationInfo = ref<Record<WorkflowStep, GetOperationInfoResponse | null>>({
     review_definition: null,
     search: null,
+    preprocessing: null,
     load: null,
     prep: null,
     dedupe: null,
-    prescreen_launch: null,
     prescreen: null,
-    prescreen_reconcile: null,
     pdf_get: null,
     pdf_prep: null,
-    screen_launch: null,
     screen: null,
-    screen_reconcile: null,
     data: null,
   });
   // Track if any search sources are stale (need re-running)
   const hasStaleSearchSources = ref(false);
   const isLoadingProject = ref(false);
   const projectError = ref<string | null>(null);
+  // Bumped after pull/merge to force view remount and data re-fetch
+  const dataVersion = ref(0);
 
   // Computed
   const hasProjects = computed(() => projects.value.length > 0);
@@ -68,10 +67,10 @@ export const useProjectsStore = defineStore('projects', () => {
   });
 
   // Actions
-  function addProject(id: string, path?: string, title?: string) {
+  function addProject(id: string, path?: string, title?: string, prepend = false) {
     const existingIndex = projects.value.findIndex((p) => p.id === id);
     if (existingIndex === -1) {
-      projects.value.push({
+      const item: ProjectListItem = {
         id,
         title: title || id,
         path: path || `${backend.basePath}/${id}`,
@@ -79,7 +78,12 @@ export const useProjectsStore = defineStore('projects', () => {
         gitStatus: null,
         loading: false,
         error: null,
-      });
+      };
+      if (prepend) {
+        projects.value.unshift(item);
+      } else {
+        projects.value.push(item);
+      }
     }
   }
 
@@ -238,20 +242,24 @@ export const useProjectsStore = defineStore('projects', () => {
     }
   }
 
+  let _opInfoInFlight: Promise<void> | null = null;
+
   async function loadAllOperationInfo(id: string): Promise<void> {
+    if (_opInfoInFlight) return _opInfoInFlight;
+    _opInfoInFlight = _loadAllOperationInfoImpl(id);
+    try { await _opInfoInFlight; } finally { _opInfoInFlight = null; }
+  }
+
+  async function _loadAllOperationInfoImpl(id: string): Promise<void> {
     const operations: WorkflowStep[] = [
       'search',
       'load',
       'prep',
       'dedupe',
-      'prescreen_launch',
       'prescreen',
-      'prescreen_reconcile',
       'pdf_get',
       'pdf_prep',
-      'screen_launch',
       'screen',
-      'screen_reconcile',
       'data',
     ];
 
@@ -274,6 +282,9 @@ export const useProjectsStore = defineStore('projects', () => {
     if (!currentProjectId.value || !currentProject.value) return;
 
     const id = currentProjectId.value;
+
+    // Bump version to force view remount (re-fetches page-specific data)
+    dataVersion.value++;
 
     // Refresh WITHOUT showing loading spinner (keeps current content visible)
     try {
@@ -349,17 +360,14 @@ export const useProjectsStore = defineStore('projects', () => {
     operationInfo.value = {
       review_definition: null,
       search: null,
+      preprocessing: null,
       load: null,
       prep: null,
       dedupe: null,
-      prescreen_launch: null,
       prescreen: null,
-      prescreen_reconcile: null,
       pdf_get: null,
       pdf_prep: null,
-      screen_launch: null,
       screen: null,
-      screen_reconcile: null,
       data: null,
     };
   }
@@ -377,6 +385,7 @@ export const useProjectsStore = defineStore('projects', () => {
     hasStaleSearchSources,
     isLoadingProject,
     projectError,
+    dataVersion,
     // Computed
     hasProjects,
     currentGitStatus,

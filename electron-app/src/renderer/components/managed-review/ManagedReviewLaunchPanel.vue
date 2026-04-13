@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, type Ref } from 'vue';
-import { useRoute } from 'vue-router';
-import { Users, AlertTriangle, CheckCircle2, RefreshCw, Loader2, UserPlus } from 'lucide-vue-next';
+import { computed, onMounted, ref, type Ref } from 'vue';
+import { AlertTriangle, CheckCircle2, Loader2, UserPlus } from 'lucide-vue-next';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,7 +21,14 @@ import type {
 } from '@/types/api';
 import type { GitHubCollaborator } from '@/types/window';
 
-const route = useRoute();
+const props = defineProps<{
+  kind: 'prescreen' | 'screen';
+}>();
+
+const emit = defineEmits<{
+  taskCreated: [];
+}>();
+
 const backend = useBackendStore();
 const projects = useProjectsStore();
 const notifications = useNotificationsStore();
@@ -45,10 +51,7 @@ const showInviteForm = ref(false);
 const inviteUsername = ref('');
 const isInviting = ref(false);
 
-const kind = computed<'prescreen' | 'screen'>(() =>
-  route.meta.step === 'screen_launch' ? 'screen' : 'prescreen',
-);
-const kindLabel = computed(() => (kind.value === 'screen' ? 'Screen' : 'Prescreen'));
+const kindLabel = computed(() => (props.kind === 'screen' ? 'Screen' : 'Prescreen'));
 const activeTask = computed(() => tasks.value.find((task) => ['active', 'reconciling'].includes(task.state)) ?? null);
 const displayTask = computed(() => activeTask.value ?? tasks.value[0] ?? null);
 const remoteUrl = computed(() => projects.currentGitStatus?.remote_url ?? null);
@@ -82,12 +85,37 @@ function mapIssue(raw: string): MappedIssue | null {
     };
   }
   if (raw.includes('clean before')) {
-    return { message: 'You have uncommitted changes. Save your work first.' };
+    return {
+      message: 'You have uncommitted changes. Save your work first.',
+      action: {
+        label: 'Save now',
+        isRunning: isResolvingIssue,
+        handler: async () => {
+          isResolvingIssue.value = true;
+          try {
+            const path = projects.currentProject?.path;
+            if (path) {
+              await window.git.addAndCommit(path, 'Save changes before review launch');
+              if (git.hasRemote) {
+                await git.push();
+              }
+            }
+            await refreshData();
+          } catch (err) {
+            notifications.error('Save failed', err instanceof Error ? err.message : 'Unknown error');
+          } finally {
+            isResolvingIssue.value = false;
+          }
+        },
+      },
+    };
   }
   if (raw.includes('already covers')) {
+    // Active task exists — UI already hides create form when a task is present
     return null;
   }
   if (raw.includes('only available from the dev')) {
+    // Auto-handled by ManagedReviewWorkflowPage's phase watcher
     return null;
   }
   if (raw.includes('No records are ready')) {
@@ -150,15 +178,15 @@ async function refreshData() {
     const [readinessResponse, tasksResponse, currentTaskResponse] = await Promise.all([
       backend.call<ManagedReviewReadinessResponse>('get_managed_review_task_readiness', {
         project_id: projects.currentProjectId,
-        kind: kind.value,
+        kind: props.kind,
       }),
       backend.call<ListManagedReviewTasksResponse>('list_managed_review_tasks', {
         project_id: projects.currentProjectId,
-        kind: kind.value,
+        kind: props.kind,
       }),
       backend.call<GetCurrentManagedReviewTaskResponse>('get_current_managed_review_task', {
         project_id: projects.currentProjectId,
-        kind: kind.value,
+        kind: props.kind,
       }),
     ]);
 
@@ -202,7 +230,7 @@ async function createTask() {
   try {
     const response = await backend.call<CreateManagedReviewTaskResponse>('create_managed_review_task', {
       project_id: projects.currentProjectId,
-      kind: kind.value,
+      kind: props.kind,
       reviewer_logins: [reviewerA.value, reviewerB.value],
       created_by: auth.user?.login ?? 'local-user',
     });
@@ -221,6 +249,7 @@ async function createTask() {
     reviewerA.value = '';
     reviewerB.value = '';
     await refreshData();
+    emit('taskCreated');
   } catch (err) {
     notifications.error(
       `${kindLabel.value} launch failed`,
@@ -272,39 +301,16 @@ async function inviteCollaborator() {
   }
 }
 
-watch(kind, async () => {
+onMounted(async () => {
   await refreshData();
   await loadCollaborators();
 });
 
-onMounted(async () => {
-  // Auto-switch to dev branch if not already there
-  if (!git.isOnDev) {
-    await git.switchBranch('dev');
-  }
-  await refreshData();
-  await loadCollaborators();
-});
+defineExpose({ refreshData, activeTask, tasks });
 </script>
 
 <template>
-  <div class="p-6 space-y-6">
-    <!-- Page header -->
-    <div class="flex items-center justify-between">
-      <div>
-        <h2 class="text-2xl font-bold flex items-center gap-2">
-          <Users class="h-6 w-6" />
-          {{ kindLabel }} Launch
-        </h2>
-        <p class="text-muted-foreground text-sm">
-          Assign two reviewers and launch the paired screening task.
-        </p>
-      </div>
-      <Button variant="ghost" size="icon" :disabled="isLoading" @click="refreshData">
-        <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': isLoading }" />
-      </Button>
-    </div>
-
+  <div class="space-y-6">
     <!-- Loading state -->
     <div v-if="isLoading && !readiness" class="flex items-center gap-2 text-sm text-muted-foreground">
       <Loader2 class="h-4 w-4 animate-spin" />
@@ -344,11 +350,6 @@ onMounted(async () => {
             </Button>
           </div>
         </div>
-      </div>
-
-      <!-- Active assignment notice -->
-      <div v-if="currentBranchTask" class="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm">
-        <span>You have a review assignment. Navigate to the <strong>{{ kindLabel }}</strong> step to continue.</span>
       </div>
 
       <Separator />
@@ -431,7 +432,7 @@ onMounted(async () => {
             :disabled="isReadOnly || isCreating || !readiness?.ready || !reviewerA || !reviewerB || reviewerA === reviewerB"
             @click="createTask"
           >
-            {{ isCreating ? 'Launching…' : `Launch ${kindLabel} Task` }}
+            {{ isCreating ? 'Launching...' : `Launch ${kindLabel} Task` }}
           </Button>
           <span v-if="reviewerA && reviewerB && reviewerA === reviewerB" class="text-xs text-destructive">
             Reviewers must be different

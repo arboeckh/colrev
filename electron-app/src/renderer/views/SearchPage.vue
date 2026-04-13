@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
-import { AddFileSourceDialog, AddApiSourceDialog, SourceCard, PreprocessingSection } from '@/components/search';
+import { AddFileSourceDialog, AddApiSourceDialog, SourceCard } from '@/components/search';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
@@ -84,20 +84,13 @@ const isSearchComplete = computed(() => {
   return totalRecords > 0;
 });
 
-// Track preprocessing completion
-const preprocessingSectionRef = ref<InstanceType<typeof PreprocessingSection> | null>(null);
-
-const isPreprocessingComplete = computed(() => {
-  return preprocessingSectionRef.value?.isPreprocessingComplete ?? false;
-});
-
 const canGoToNextStep = computed(() => {
-  return isSearchComplete.value && isPreprocessingComplete.value;
+  return isSearchComplete.value;
 });
 
 function goToNextStep() {
   if (projects.currentProjectId) {
-    router.push(`/project/${projects.currentProjectId}/prescreen`);
+    router.push(`/project/${projects.currentProjectId}/preprocessing`);
   }
 }
 
@@ -472,16 +465,6 @@ onMounted(() => {
         <div v-if="showAddMenu" class="fixed inset-0 z-40" @click="showAddMenu = false" />
       </div>
     </div>
-
-    <!-- Preprocessing section (visible when sources exist) -->
-    <template v-if="visibleSources.length > 0">
-      <Separator />
-      <PreprocessingSection
-        v-if="projects.currentProjectId"
-        ref="preprocessingSectionRef"
-        :project-id="projects.currentProjectId"
-      />
-    </template>
 
     <!-- Dialogs -->
     <AddFileSourceDialog

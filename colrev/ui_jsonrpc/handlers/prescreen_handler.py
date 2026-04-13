@@ -255,31 +255,43 @@ class PrescreenHandler:
 
         # Verify record is in correct state
         current_status = record_dict.get(Fields.STATUS)
-        if current_status != RecordState.md_processed:
+        target_status = (
+            RecordState.rev_prescreen_included
+            if decision == "include"
+            else RecordState.rev_prescreen_excluded
+        )
+
+        # If already in the target state, treat as idempotent success
+        already_decided = current_status == target_status
+
+        # Allow prescreening from md_processed, or flipping between prescreen states
+        valid_source_states = {
+            RecordState.md_processed,
+            RecordState.rev_prescreen_included,
+            RecordState.rev_prescreen_excluded,
+        }
+        if not already_decided and current_status not in valid_source_states:
             raise ValueError(
                 f"Record '{record_id}' is not ready for prescreen "
                 f"(current status: {current_status})"
             )
 
-        # Create Record object and update status
-        record = colrev.record.record.Record(record_dict)
+        if not already_decided:
+            # Create Record object and update status
+            record = colrev.record.record.Record(record_dict)
+            record.set_status(target_status)
 
-        if decision == "include":
-            record.set_status(RecordState.rev_prescreen_included)
-        else:
-            record.set_status(RecordState.rev_prescreen_excluded)
-
-        # Save the updated record
-        self.review_manager.dataset.save_records_dict(
-            {record_id: record.get_data()},
-            partial=True,
-        )
-
-        # Create commit if not skipped
-        if not skip_commit:
-            self.review_manager.create_commit(
-                msg=f"Prescreen {decision}: {record_id}",
+            # Save the updated record
+            self.review_manager.dataset.save_records_dict(
+                {record_id: record.get_data()},
+                partial=True,
             )
+
+            # Create commit if not skipped
+            if not skip_commit:
+                self.review_manager.create_commit(
+                    msg=f"Prescreen {decision}: {record_id}",
+                )
 
         # Count remaining records
         remaining_count = sum(
@@ -290,19 +302,15 @@ class PrescreenHandler:
             and (task_record_ids is None or r.get(Fields.ID) in task_record_ids)
         )
 
-        return response_formatter.format_operation_response(
-            operation_name="prescreen_record",
-            project_id=project_id,
-            details={
-                "record": {
-                    "id": record_id,
-                    "decision": decision,
-                    "new_status": record.get_data().get(Fields.STATUS).name,
-                },
-                "remaining_count": remaining_count,
-                "message": f"Record {record_id} prescreened as {decision}",
+        return {
+            "success": True,
+            "record": {
+                "id": record_id,
+                "decision": decision,
+                "new_status": target_status.name,
             },
-        )
+            "remaining_count": remaining_count,
+        }
 
     def update_prescreen_decisions(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """

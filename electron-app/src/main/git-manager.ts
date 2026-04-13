@@ -414,6 +414,99 @@ export async function gitRevListCount(
   return { success: true, count: parseInt(result.stdout.trim(), 10) || 0 };
 }
 
+// --- Merge conflict resolution helpers ---
+
+export async function gitMergeBase(
+  projectPath: string,
+  ref1: string,
+  ref2: string,
+): Promise<{ success: boolean; commitHash?: string; error?: string }> {
+  const { exec } = await import('dugite');
+  const result = await exec(['merge-base', ref1, ref2], projectPath);
+  if (result.exitCode !== 0) {
+    return { success: false, error: result.stderr || 'No common ancestor found' };
+  }
+  return { success: true, commitHash: result.stdout.trim() };
+}
+
+export async function gitShowFile(
+  projectPath: string,
+  ref: string,
+  filePath: string,
+): Promise<{ success: boolean; content?: string; error?: string }> {
+  const { exec } = await import('dugite');
+  const result = await exec(['show', `${ref}:${filePath}`], projectPath);
+  if (result.exitCode !== 0) {
+    return { success: false, error: result.stderr || `File not found at ${ref}:${filePath}` };
+  }
+  return { success: true, content: result.stdout };
+}
+
+export async function gitDiffNameOnly(
+  projectPath: string,
+  ref1: string,
+  ref2: string,
+): Promise<{ success: boolean; files: string[]; error?: string }> {
+  const { exec } = await import('dugite');
+  const result = await exec(['diff', '--name-only', ref1, ref2], projectPath);
+  if (result.exitCode !== 0) {
+    return { success: false, files: [], error: result.stderr || 'Diff failed' };
+  }
+  const files = result.stdout.trim().split('\n').filter(Boolean);
+  return { success: true, files };
+}
+
+export async function gitMergeNoCommit(
+  projectPath: string,
+  source: string,
+): Promise<{ success: boolean; hasConflicts?: boolean; conflictedFiles?: string[]; error?: string }> {
+  const { exec } = await import('dugite');
+
+  // Merge is a local operation — no token auth needed
+  const result = await exec(['merge', '--no-commit', '--no-ff', source], projectPath);
+
+  if (result.exitCode === 0) {
+    return { success: true, hasConflicts: false };
+  }
+
+  // Check if it's a conflict (exit code 1 with unmerged paths)
+  const stderr = result.stderr || '';
+  const stdout = result.stdout || '';
+  if (stderr.includes('CONFLICT') || stdout.includes('CONFLICT') || stderr.includes('Automatic merge failed')) {
+    // Get list of conflicted files
+    const diffResult = await exec(['diff', '--name-only', '--diff-filter=U'], projectPath);
+    const conflictedFiles = diffResult.stdout.trim().split('\n').filter(Boolean);
+    return { success: true, hasConflicts: true, conflictedFiles };
+  }
+
+  return { success: false, error: stderr || 'Merge failed' };
+}
+
+export async function gitStageAndCommitMerge(
+  projectPath: string,
+  files: string[],
+  message: string,
+): Promise<GitResult> {
+  const { exec } = await import('dugite');
+
+  // Stage specified files
+  for (const file of files) {
+    const addResult = await exec(['add', file], projectPath);
+    if (addResult.exitCode !== 0) {
+      return { success: false, error: addResult.stderr || `Failed to stage ${file}` };
+    }
+  }
+
+  // Also stage any auto-merged files that git resolved
+  await exec(['add', '-u'], projectPath);
+
+  const commitResult = await exec(['commit', '-m', message], projectPath);
+  if (commitResult.exitCode !== 0) {
+    return { success: false, error: commitResult.stderr || 'Commit failed' };
+  }
+  return { success: true };
+}
+
 export async function gitHasMergeConflict(
   projectPath: string,
 ): Promise<boolean> {

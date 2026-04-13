@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { ArrowLeft, RefreshCw, ArrowUp } from 'lucide-vue-next';
+import { ArrowLeft, RefreshCw } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import GitSyncStatus from '@/components/common/GitSyncStatus.vue';
 import ThemeToggle from '@/components/common/ThemeToggle.vue';
@@ -31,9 +31,6 @@ async function refresh() {
   await git.refreshStatus();
 }
 
-async function handlePush() {
-  await git.push();
-}
 </script>
 
 <template>
@@ -55,20 +52,6 @@ async function handlePush() {
 
       <!-- Right side: Save button + Git status + Theme toggle + Refresh -->
       <div class="flex items-center gap-3">
-        <!-- Unsaved changes / Save button (when auto-save is off) -->
-        <Button
-          v-if="git.hasRemote && !git.autoSave && git.hasUnsavedChanges"
-          variant="outline"
-          size="sm"
-          class="gap-1.5 h-8 text-xs"
-          :disabled="git.isPushing || git.isDiverged"
-          data-testid="save-changes-button"
-          @click="handlePush"
-        >
-          <ArrowUp class="h-3.5 w-3.5" />
-          {{ git.isPushing ? 'Saving...' : `${git.ahead} unsaved` }}
-        </Button>
-
         <GitSyncStatus v-if="projects.currentGitStatus" :status="projects.currentGitStatus" />
 
         <ThemeToggle />

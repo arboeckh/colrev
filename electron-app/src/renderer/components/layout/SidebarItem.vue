@@ -23,6 +23,7 @@ const props = defineProps<{
   hasPriorPending?: boolean;
   downstreamStates?: string[];
   managedStepStatus?: 'pending' | 'active' | 'complete' | null;
+  suppressCounts?: boolean;
   isFirst?: boolean;
   isLast?: boolean;
 }>();
@@ -39,8 +40,9 @@ const routePath = computed(() => {
 });
 
 // Count of records in input states (waiting for this step)
+// Suppressed on reviewer branches for steps after the managed review step
 const pendingRecords = computed(() => {
-  if (!props.recordCounts) return 0;
+  if (props.suppressCounts || !props.recordCounts) return 0;
   return props.step.inputStates.reduce((sum, state) => {
     return sum + (props.recordCounts?.[state] ?? 0);
   }, 0);
@@ -48,7 +50,7 @@ const pendingRecords = computed(() => {
 
 // Count of records in output states (processed by this step)
 const processedRecords = computed(() => {
-  if (!props.recordCounts) return 0;
+  if (props.suppressCounts || !props.recordCounts) return 0;
   return props.step.outputStates.reduce((sum, state) => {
     return sum + (props.recordCounts?.[state] ?? 0);
   }, 0);
@@ -57,7 +59,7 @@ const processedRecords = computed(() => {
 // Records that have *ever been* in output states (survives downstream processing)
 // e.g. preprocessing produced md_processed records even if prescreen moved them on
 const everProcessedRecords = computed(() => {
-  if (!props.overallCounts) return 0;
+  if (props.suppressCounts || !props.overallCounts) return 0;
   return props.step.outputStates.reduce((sum, state) => {
     const key = state as keyof OverallRecordCounts;
     return sum + (props.overallCounts?.[key] ?? 0);
@@ -101,13 +103,9 @@ const stepStatus = computed((): StepStatus => {
   }
 
   if (props.step.id === 'search') {
-    // Search step is complete when search is done AND no preprocessing records pending
-    if (isSearchComplete.value && pendingRecords.value === 0 && (processedRecords.value > 0 || everProcessedRecords.value > 0)) {
+    // Search is complete when sources are not stale and records exist
+    if (isSearchComplete.value && (processedRecords.value > 0 || everProcessedRecords.value > 0)) {
       return 'complete';
-    }
-    // Search has records but needs work (search or preprocessing)
-    if (isSearchComplete.value || pendingRecords.value > 0) {
-      return 'active';
     }
     return 'active';
   }
@@ -147,10 +145,10 @@ const stepStatus = computed((): StepStatus => {
     :to="routePath"
     :data-testid="`sidebar-${step.id}`"
     :data-step-status="stepStatus"
-    class="group relative flex items-center gap-3 py-2 px-2 -mx-2 rounded-lg text-sm transition-all"
+    class="group relative flex items-center gap-3 py-2 px-2 rounded-lg text-sm transition-all"
     :class="[
       isActive
-        ? 'text-foreground font-medium bg-accent/60'
+        ? 'text-foreground font-semibold bg-primary/10'
         : 'text-muted-foreground hover:text-foreground hover:bg-accent/30',
     ]"
   >
@@ -185,7 +183,7 @@ const stepStatus = computed((): StepStatus => {
           stepStatus === 'complete'
             ? 'border-emerald-500 bg-emerald-500 text-white'
             : stepStatus === 'active'
-              ? 'border-primary bg-primary text-primary-foreground'
+              ? 'border-foreground bg-background text-foreground'
               : stepStatus === 'warning'
                 ? 'border-amber-500 bg-amber-500 text-white'
                 : isActive

@@ -1,13 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { computed, onMounted, ref } from 'vue';
 import {
   AlertTriangle,
   CheckCircle2,
   Download,
   Loader2,
-  RefreshCw,
-  SplitSquareVertical,
 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,7 +22,10 @@ import type {
   ReconciliationPreviewResponse,
 } from '@/types/api';
 
-const route = useRoute();
+const props = defineProps<{
+  kind: 'prescreen' | 'screen';
+}>();
+
 const auth = useAuthStore();
 const backend = useBackendStore();
 const git = useGitStore();
@@ -39,10 +39,7 @@ const tasks = ref<ManagedReviewTask[]>([]);
 const preview = ref<ReconciliationPreviewResponse | null>(null);
 const selectedResolutions = ref<Record<string, 'reviewer_a' | 'reviewer_b'>>({});
 
-const kind = computed<'prescreen' | 'screen'>(() =>
-  route.meta.step === 'screen_reconcile' ? 'screen' : 'prescreen',
-);
-const kindLabel = computed(() => (kind.value === 'screen' ? 'Screen' : 'Prescreen'));
+const kindLabel = computed(() => (props.kind === 'screen' ? 'Screen' : 'Prescreen'));
 const activeTask = computed(() => tasks.value.find((task) => ['active', 'reconciling'].includes(task.state)) ?? null);
 const displayTask = computed(() => activeTask.value ?? tasks.value[0] ?? null);
 const isOnDev = computed(() => git.currentBranch === 'dev');
@@ -72,7 +69,7 @@ async function refreshData() {
     await git.refreshStatus();
     const tasksResponse = await backend.call<ListManagedReviewTasksResponse>('list_managed_review_tasks', {
       project_id: projects.currentProjectId,
-      kind: kind.value,
+      kind: props.kind,
     });
     tasks.value = tasksResponse.tasks;
   } catch (err) {
@@ -155,12 +152,6 @@ async function exportAudit(format: 'csv' | 'json') {
   }
 }
 
-watch(kind, async () => {
-  preview.value = null;
-  selectedResolutions.value = {};
-  await refreshData();
-});
-
 onMounted(async () => {
   // Auto-switch to dev if not already there (reconciliation runs on dev)
   if (!isOnDev.value) {
@@ -168,26 +159,12 @@ onMounted(async () => {
   }
   await refreshData();
 });
+
+defineExpose({ refreshData });
 </script>
 
 <template>
-  <div class="p-6 space-y-6">
-    <!-- Page header -->
-    <div class="flex items-center justify-between">
-      <div>
-        <h2 class="text-2xl font-bold flex items-center gap-2">
-          <SplitSquareVertical class="h-6 w-6" />
-          {{ kindLabel }} Reconcile
-        </h2>
-        <p class="text-muted-foreground text-sm">
-          Compare both reviewers' decisions, resolve conflicts, and export the audit trail.
-        </p>
-      </div>
-      <Button variant="ghost" size="icon" :disabled="isLoading" @click="refreshData">
-        <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': isLoading }" />
-      </Button>
-    </div>
-
+  <div class="space-y-6">
     <!-- Loading -->
     <div v-if="isLoading && !displayTask" class="flex items-center gap-2 text-sm text-muted-foreground">
       <Loader2 class="h-4 w-4 animate-spin" />
@@ -232,6 +209,15 @@ onMounted(async () => {
       <div v-if="displayTask.reconciliation_summary" class="flex items-center gap-2 text-sm text-muted-foreground">
         <CheckCircle2 class="h-3.5 w-3.5 text-emerald-600" />
         <span>Reconciled by {{ displayTask.reconciliation_summary.resolved_by }} — {{ displayTask.reconciliation_summary.auto_resolved_count }} auto, {{ displayTask.reconciliation_summary.manual_conflict_count }} manual</span>
+      </div>
+
+      <!-- Not on dev warning -->
+      <div v-if="!isOnDev" class="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
+        <AlertTriangle class="h-3.5 w-3.5 shrink-0" />
+        <span>Reconciliation must run from the dev branch.</span>
+        <Button variant="outline" size="sm" class="h-7 text-xs" @click="switchToDev">
+          Switch to dev
+        </Button>
       </div>
 
       <!-- Actions -->
@@ -343,7 +329,7 @@ onMounted(async () => {
 
         <!-- Apply button -->
         <Button size="sm" :disabled="!canApplyReconciliation || isApplying" @click="applyReconciliation">
-          {{ isApplying ? 'Applying…' : 'Apply Reconciliation' }}
+          {{ isApplying ? 'Applying...' : 'Apply Reconciliation' }}
         </Button>
       </template>
     </template>

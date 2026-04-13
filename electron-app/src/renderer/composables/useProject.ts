@@ -57,17 +57,14 @@ export function useProject() {
     const stepRoutes: Record<WorkflowStep, string> = {
       review_definition: 'review-definition',
       search: 'search',
-      load: 'search',
-      prep: 'search',
-      dedupe: 'search',
-      prescreen_launch: 'prescreen-launch',
+      preprocessing: 'preprocessing',
+      load: 'preprocessing',
+      prep: 'preprocessing',
+      dedupe: 'preprocessing',
       prescreen: 'prescreen',
-      prescreen_reconcile: 'prescreen-reconcile',
       pdf_get: 'pdf-get',
       pdf_prep: 'pdf-prep',
-      screen_launch: 'screen-launch',
       screen: 'screen',
-      screen_reconcile: 'screen-reconcile',
       data: 'data',
     };
 

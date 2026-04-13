@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, toRaw } from 'vue';
 import { useProjectsStore } from './projects';
 import { useNotificationsStore } from './notifications';
-import type { GitBranchInfo, GitLogEntry, GitHubRelease } from '@/types/window';
+import type { GitBranchInfo, GitLogEntry, GitHubRelease, MergeAnalysis, MergeConflictResolution } from '@/types/window';
 import type { BranchDelta } from '@/types/project';
 import type { GetBranchDeltaResponse } from '@/types/api';
 import { useBackendStore } from './backend';
@@ -22,11 +22,17 @@ export const useGitStore = defineStore('git', () => {
   const isPulling = ref(false);
   const isPushing = ref(false);
   const isOperationRunning = ref(false);
+  const isSwitchingBranch = ref(false);
   const autoSave = ref(loadAutoSave());
   const lastFetchTime = ref<number | null>(null);
   const recentCommits = ref<GitLogEntry[]>([]);
   const hasMergeConflict = ref(false);
   const isOffline = ref(false);
+
+  // Conflict resolution state
+  const isResolving = ref(false);
+  const mergeAnalysis = ref<MergeAnalysis | null>(null);
+  const showConflictDialog = ref(false);
 
   // New state for dev/release model
   const releases = ref<GitHubRelease[]>([]);
@@ -128,12 +134,11 @@ export const useGitStore = defineStore('git', () => {
       const result = await window.git.pull(path, true);
       if (result.success) {
         await refreshStatus();
+        await projects.refreshCurrentProject();
         return true;
       } else if (result.error === 'DIVERGED') {
-        notifications.error(
-          'Cannot sync',
-          'Remote has changes that conflict with your local changes. Consider creating a Pull Request.',
-        );
+        // Trigger semantic conflict resolution instead of dead-end message
+        await startDivergenceResolution();
         return false;
       } else {
         notifications.error('Pull failed', result.error || 'Unknown error');
@@ -171,13 +176,25 @@ export const useGitStore = defineStore('git', () => {
     // Use existing JSON-RPC get_git_status to update ahead/behind/branch
     await projects.refreshGitStatus();
 
+    // If there are uncommitted changes, silently commit them and re-fetch
+    // so that ahead/behind counts are correct for auto-push logic
     const gitStatus = projects.currentGitStatus;
-    if (gitStatus) {
-      currentBranch.value = gitStatus.branch;
-      ahead.value = gitStatus.ahead;
-      behind.value = gitStatus.behind;
-      isClean.value = gitStatus.is_clean;
-      remoteUrl.value = gitStatus.remote_url;
+    if (gitStatus && gitStatus.uncommitted_changes > 0) {
+      try {
+        await window.git.addAndCommit(path, 'colrev auto-commit');
+        await projects.refreshGitStatus();
+      } catch {
+        // Silently ignore commit failures
+      }
+    }
+
+    const updatedStatus = projects.currentGitStatus;
+    if (updatedStatus) {
+      currentBranch.value = updatedStatus.branch;
+      ahead.value = updatedStatus.ahead;
+      behind.value = updatedStatus.behind;
+      isClean.value = updatedStatus.is_clean;
+      remoteUrl.value = updatedStatus.remote_url;
     }
 
     // Check for merge conflicts
@@ -203,22 +220,27 @@ export const useGitStore = defineStore('git', () => {
     const path = getProjectPath();
     if (!path) return false;
 
-    const result = await window.git.checkout(path, branchName);
-    if (!result.success) {
-      notifications.error('Branch switch failed', result.error || 'Unknown error');
-      return false;
+    isSwitchingBranch.value = true;
+    try {
+      const result = await window.git.checkout(path, branchName);
+      if (!result.success) {
+        notifications.error('Branch switch failed', result.error || 'Unknown error');
+        return false;
+      }
+
+      currentBranch.value = branchName;
+
+      // Reload all project data since branch content differs
+      if (projects.currentProjectId) {
+        await projects.loadProject(projects.currentProjectId);
+      }
+
+      await refreshBranches();
+      refreshBranchDelta(); // Fire and forget
+      return true;
+    } finally {
+      isSwitchingBranch.value = false;
     }
-
-    currentBranch.value = branchName;
-
-    // Reload all project data since branch content differs
-    if (projects.currentProjectId) {
-      await projects.loadProject(projects.currentProjectId);
-    }
-
-    await refreshBranches();
-    refreshBranchDelta(); // Fire and forget
-    return true;
   }
 
   /**
@@ -427,6 +449,91 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
+  /**
+   * Analyze divergence and either auto-merge or show conflict resolution dialog.
+   */
+  async function startDivergenceResolution(): Promise<void> {
+    const path = getProjectPath();
+    if (!path || isResolving.value) return;
+
+    isResolving.value = true;
+    try {
+      const result = await window.git.analyzeDivergence(path);
+      if (!result.success || !result.analysis) {
+        notifications.error('Sync failed', result.error || 'Could not analyze changes. Please try again.');
+        return;
+      }
+
+      mergeAnalysis.value = result.analysis;
+
+      if (!result.analysis.hasConflicts) {
+        // No conflicts — auto-merge silently
+        await applyMergeResolutions([]);
+      } else {
+        // Has conflicts — show dialog
+        showConflictDialog.value = true;
+      }
+    } catch {
+      notifications.error('Sync failed', 'An unexpected error occurred.');
+    } finally {
+      if (!showConflictDialog.value) {
+        isResolving.value = false;
+      }
+    }
+  }
+
+  /**
+   * Apply user's conflict resolutions and complete the merge.
+   */
+  async function applyMergeResolutions(resolutions: MergeConflictResolution[]): Promise<boolean> {
+    const path = getProjectPath();
+    if (!path || !mergeAnalysis.value) {
+      console.error('[git] applyMergeResolutions: no path or analysis', { path, hasAnalysis: !!mergeAnalysis.value });
+      return false;
+    }
+
+    isResolving.value = true;
+    try {
+      // Deep-clone to strip Vue reactive proxies — IPC requires plain objects
+      const rawAnalysis = JSON.parse(JSON.stringify(toRaw(mergeAnalysis.value)));
+      console.log('[git] Calling applyMerge with', resolutions.length, 'resolutions');
+      const result = await window.git.applyMerge(path, resolutions, rawAnalysis);
+      console.log('[git] applyMerge result:', result);
+      if (result.success) {
+        const msg = result.pushFailed
+          ? 'Changes merged locally. Push will retry on next sync.'
+          : 'Your changes and your collaborator\'s changes have been combined.';
+        notifications.success('Synced successfully', msg);
+        showConflictDialog.value = false;
+        mergeAnalysis.value = null;
+        await refreshStatus();
+        // Reload project to pick up merged settings
+        if (projects.currentProjectId) {
+          await projects.loadProject(projects.currentProjectId);
+        }
+        return true;
+      } else {
+        notifications.error('Sync failed', result.error || 'Could not apply changes.');
+        return false;
+      }
+    } finally {
+      isResolving.value = false;
+    }
+  }
+
+  /**
+   * Cancel conflict resolution — preserve local state.
+   */
+  function cancelMerge(): void {
+    showConflictDialog.value = false;
+    mergeAnalysis.value = null;
+    isResolving.value = false;
+    notifications.info(
+      'Sync canceled',
+      'Your local changes are preserved. You can resolve this later.',
+    );
+  }
+
   async function abortMerge(): Promise<boolean> {
     const path = getProjectPath();
     if (!path) return false;
@@ -497,6 +604,9 @@ export const useGitStore = defineStore('git', () => {
     isClean.value = true;
     hasMergeConflict.value = false;
     isOffline.value = false;
+    isResolving.value = false;
+    mergeAnalysis.value = null;
+    showConflictDialog.value = false;
     devAheadOfMain.value = 0;
     mainAheadOfDev.value = 0;
     branchDelta.value = null;
@@ -514,11 +624,15 @@ export const useGitStore = defineStore('git', () => {
     isPulling,
     isPushing,
     isOperationRunning,
+    isSwitchingBranch,
     autoSave,
     lastFetchTime,
     recentCommits,
     hasMergeConflict,
     isOffline,
+    isResolving,
+    mergeAnalysis,
+    showConflictDialog,
     releases,
     isLoadingReleases,
     releasesLoaded,
@@ -554,6 +668,9 @@ export const useGitStore = defineStore('git', () => {
     createRelease,
     loadRecentCommits,
     abortMerge,
+    startDivergenceResolution,
+    applyMergeResolutions,
+    cancelMerge,
     autoSyncIfSafe,
     startBackgroundFetch,
     stopBackgroundFetch,

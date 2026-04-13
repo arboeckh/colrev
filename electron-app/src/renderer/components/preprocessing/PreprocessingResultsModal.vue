@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { ChevronLeft, ChevronRight, Loader2, ExternalLink, AlertCircle, CheckCircle2, Pencil } from 'lucide-vue-next';
+import { ChevronLeft, ChevronRight, Loader2, ExternalLink, AlertCircle, CheckCircle2, Pencil, Copy } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -27,13 +27,19 @@ const emit = defineEmits<{
 const backend = useBackendStore();
 
 // State for each tab
-const activeTab = ref<'attention' | 'ready'>('attention');
+const activeTab = ref<'attention' | 'ready' | 'merged'>('attention');
 
 // Ready records (md_processed)
 const readyRecords = ref<Record[]>([]);
 const readyTotalCount = ref(0);
 const readyCurrentPage = ref(1);
 const isLoadingReady = ref(false);
+
+// Merged duplicate records (records with multiple origins)
+const mergedRecords = ref<Record[]>([]);
+const mergedTotalCount = ref(0);
+const mergedCurrentPage = ref(1);
+const isLoadingMerged = ref(false);
 
 // Attention records (md_needs_manual_preparation)
 const attentionRecords = ref<Record[]>([]);
@@ -49,6 +55,7 @@ const pageSize = 20;
 
 const readyTotalPages = computed(() => Math.ceil(readyTotalCount.value / pageSize));
 const attentionTotalPages = computed(() => Math.ceil(attentionTotalCount.value / pageSize));
+const mergedTotalPages = computed(() => Math.ceil(mergedTotalCount.value / pageSize));
 
 const isOpen = computed({
   get: () => props.open,
@@ -111,6 +118,34 @@ async function loadAttentionRecords() {
   }
 }
 
+async function loadMergedRecords() {
+  if (!props.projectId) return;
+
+  isLoadingMerged.value = true;
+  try {
+    const response = await backend.call<GetRecordsResponse>('get_records', {
+      project_id: props.projectId,
+      filters: {
+        is_merged_duplicate: true,
+      },
+      pagination: {
+        offset: (mergedCurrentPage.value - 1) * pageSize,
+        limit: pageSize,
+      },
+      fields: ['ID', 'ENTRYTYPE', 'title', 'author', 'year', 'journal', 'booktitle', 'doi', 'colrev_origin'],
+    });
+
+    if (response.success) {
+      mergedRecords.value = response.records;
+      mergedTotalCount.value = response.total_count;
+    }
+  } catch (err) {
+    console.error('Failed to load merged records:', err);
+  } finally {
+    isLoadingMerged.value = false;
+  }
+}
+
 function goToPreviousReadyPage() {
   if (readyCurrentPage.value > 1) {
     readyCurrentPage.value--;
@@ -139,13 +174,29 @@ function goToNextAttentionPage() {
   }
 }
 
+function goToPreviousMergedPage() {
+  if (mergedCurrentPage.value > 1) {
+    mergedCurrentPage.value--;
+    loadMergedRecords();
+  }
+}
+
+function goToNextMergedPage() {
+  if (mergedCurrentPage.value < mergedTotalPages.value) {
+    mergedCurrentPage.value++;
+    loadMergedRecords();
+  }
+}
+
 // Load records when modal opens
 watch(() => props.open, (newValue) => {
   if (newValue) {
     readyCurrentPage.value = 1;
     attentionCurrentPage.value = 1;
+    mergedCurrentPage.value = 1;
     loadReadyRecords();
     loadAttentionRecords();
+    loadMergedRecords();
   }
 });
 
@@ -163,6 +214,18 @@ async function onRecordUpdated() {
     console.error('Auto-dedupe after edit failed:', err);
   }
   loadReadyRecords();
+}
+
+function getOriginSources(record: Record): string[] {
+  const origins = record.colrev_origin;
+  if (!Array.isArray(origins)) return [];
+  return origins
+    .filter((o: string) => !o.startsWith('md_'))
+    .map((o: string) => {
+      // Origin format: "pubmed.bib/Smith2020" → "pubmed"
+      const filename = o.split('/')[0] || o;
+      return filename.replace(/\.[^/.]+$/, '');
+    });
 }
 
 function truncate(text: string | undefined, maxLength: number): string {
@@ -201,6 +264,11 @@ function truncate(text: string | undefined, maxLength: number): string {
             <CheckCircle2 class="h-4 w-4" />
             Ready
             <Badge variant="secondary" class="ml-1">{{ readyTotalCount }}</Badge>
+          </TabsTrigger>
+          <TabsTrigger value="merged" class="flex items-center gap-2" data-testid="tab-merged">
+            <Copy class="h-4 w-4" />
+            Merged Duplicates
+            <Badge variant="secondary" class="ml-1">{{ mergedTotalCount }}</Badge>
           </TabsTrigger>
         </TabsList>
 
@@ -417,6 +485,126 @@ function truncate(text: string | undefined, maxLength: number): string {
                   size="sm"
                   :disabled="readyCurrentPage === readyTotalPages || isLoadingReady"
                   @click="goToNextReadyPage"
+                >
+                  Next
+                  <ChevronRight class="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </TabsContent>
+
+          <!-- Merged Duplicates Tab -->
+          <TabsContent value="merged" class="absolute inset-0 flex flex-col m-0 data-[state=inactive]:hidden">
+          <div class="flex-1 overflow-auto min-h-0">
+            <!-- Loading state -->
+            <div v-if="isLoadingMerged" class="flex items-center justify-center py-12">
+              <Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+
+            <!-- Empty state -->
+            <div v-else-if="mergedRecords.length === 0" class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+              <CheckCircle2 class="h-12 w-12 mb-4 text-muted-foreground/50" />
+              <p>No merged duplicates found.</p>
+              <p class="text-sm">No records were identified as duplicates during deduplication.</p>
+            </div>
+
+            <!-- Records table -->
+            <div v-else class="border rounded-lg overflow-hidden">
+              <table class="w-full text-sm" data-testid="merged-records-table">
+                <thead class="bg-muted/50">
+                  <tr>
+                    <th class="px-4 py-3 text-left font-medium w-16">#</th>
+                    <th class="px-4 py-3 text-left font-medium">Title</th>
+                    <th class="px-4 py-3 text-left font-medium w-48">Authors</th>
+                    <th class="px-4 py-3 text-left font-medium w-20">Year</th>
+                    <th class="px-4 py-3 text-left font-medium w-24">Sources</th>
+                    <th class="px-4 py-3 text-left font-medium w-32">Type</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-border">
+                  <tr
+                    v-for="(record, index) in mergedRecords"
+                    :key="record.ID"
+                    class="hover:bg-muted/30"
+                    :data-testid="`merged-record-row-${index}`"
+                  >
+                    <td class="px-4 py-3 text-muted-foreground">
+                      {{ (mergedCurrentPage - 1) * pageSize + index + 1 }}
+                    </td>
+                    <td class="px-4 py-3">
+                      <div class="space-y-1">
+                        <div class="font-medium" :title="record.title">
+                          {{ truncate(record.title, 80) }}
+                        </div>
+                        <div v-if="record.journal || record.booktitle" class="text-xs text-muted-foreground">
+                          {{ record.journal || record.booktitle }}
+                        </div>
+                        <div v-if="record.doi" class="text-xs">
+                          <a
+                            :href="`https://doi.org/${record.doi}`"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="text-primary hover:underline inline-flex items-center gap-1"
+                            @click.stop
+                          >
+                            {{ record.doi }}
+                            <ExternalLink class="h-3 w-3" />
+                          </a>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="px-4 py-3 text-muted-foreground" :title="record.author">
+                      {{ truncate(record.author, 30) }}
+                    </td>
+                    <td class="px-4 py-3">
+                      {{ record.year || '-' }}
+                    </td>
+                    <td class="px-4 py-3">
+                      <div class="flex flex-wrap gap-1">
+                        <Badge
+                          v-for="source in getOriginSources(record)"
+                          :key="source"
+                          variant="secondary"
+                          class="text-xs"
+                        >
+                          {{ source }}
+                        </Badge>
+                      </div>
+                    </td>
+                    <td class="px-4 py-3">
+                      <Badge variant="outline" class="text-xs">
+                        {{ record.ENTRYTYPE }}
+                      </Badge>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+            <!-- Pagination -->
+            <div v-if="mergedTotalPages > 1" class="flex items-center justify-between pt-4 border-t shrink-0">
+              <div class="text-sm text-muted-foreground">
+                Showing {{ (mergedCurrentPage - 1) * pageSize + 1 }}-{{ Math.min(mergedCurrentPage * pageSize, mergedTotalCount) }} of {{ mergedTotalCount }}
+              </div>
+              <div class="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  :disabled="mergedCurrentPage === 1 || isLoadingMerged"
+                  @click="goToPreviousMergedPage"
+                >
+                  <ChevronLeft class="h-4 w-4" />
+                  Previous
+                </Button>
+                <span class="text-sm text-muted-foreground px-2">
+                  Page {{ mergedCurrentPage }} of {{ mergedTotalPages }}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  :disabled="mergedCurrentPage === mergedTotalPages || isLoadingMerged"
+                  @click="goToNextMergedPage"
                 >
                   Next
                   <ChevronRight class="h-4 w-4" />

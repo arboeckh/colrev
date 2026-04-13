@@ -56,6 +56,12 @@ interface EnrichedRecord extends PrescreenQueueRecord {
   _decision: DecisionState;
 }
 
+const props = withDefaults(defineProps<{
+  embedded?: boolean;
+}>(), {
+  embedded: false,
+});
+
 const auth = useAuthStore();
 const projects = useProjectsStore();
 const backend = useBackendStore();
@@ -78,8 +84,14 @@ const assignedReviewerBranch = ref<string | null>(null);
 const trackRef = ref<HTMLElement | null>(null);
 const isDragging = ref(false);
 
-// Number of records to prefetch in background
+// Decision debounce to prevent duplicate notifications
+const lastDecisionTime = ref(0);
+
+// Number of records to prefetch per batch in background
 const PREFETCH_BATCH_SIZE = 10;
+
+// Abort controller for cancelling ongoing background enrichment
+let enrichmentAbortController: AbortController | null = null;
 
 // --- Edit mode state ---
 interface EditRecord {
@@ -138,6 +150,8 @@ const managedAccessDescription = computed(() => {
 
 // Decision tracking
 const decidedCount = computed(() => queue.value.filter((r) => r._decision !== 'undecided').length);
+
+const overallTotal = computed(() => decidedCount.value + totalCount.value);
 
 const includedCount = computed(() => queue.value.filter((r) => r._decision === 'included').length);
 
@@ -275,43 +289,58 @@ async function loadQueue() {
 }
 
 async function startBackgroundEnrichment() {
-  const recordsToEnrich = queue.value
-    .filter((r) => r._decision === 'undecided' && r._enrichmentStatus === 'pending')
-    .slice(0, PREFETCH_BATCH_SIZE)
-    .map((r) => r.id);
+  // Cancel any previous enrichment loop
+  if (enrichmentAbortController) {
+    enrichmentAbortController.abort();
+  }
+  enrichmentAbortController = new AbortController();
+  const signal = enrichmentAbortController.signal;
 
-  if (recordsToEnrich.length === 0) return;
+  while (!signal.aborted) {
+    const recordsToEnrich = queue.value
+      .filter((r) => r._enrichmentStatus === 'pending')
+      .slice(0, PREFETCH_BATCH_SIZE)
+      .map((r) => r.id);
 
-  recordsToEnrich.forEach((id) => {
-    const record = queue.value.find((r) => r.id === id);
-    if (record) record._enrichmentStatus = 'loading';
-  });
+    if (recordsToEnrich.length === 0) break;
 
-  try {
-    const response = await backend.call<BatchEnrichRecordsResponse>('batch_enrich_records', {
-      project_id: projects.currentProjectId!,
-      record_ids: recordsToEnrich,
-      skip_commit: true,
-    });
-
-    if (response.success) {
-      for (const result of response.records) {
-        const queueRecord = queue.value.find((r) => r.id === result.id);
-        if (queueRecord && result.record) {
-          queueRecord.abstract = result.record.abstract;
-          queueRecord.can_enrich = false;
-          queueRecord._enrichmentStatus = result.success ? 'complete' : 'failed';
-        } else if (queueRecord) {
-          queueRecord._enrichmentStatus = 'failed';
-        }
-      }
-    }
-  } catch (err) {
-    console.error('Background enrichment failed:', err);
     recordsToEnrich.forEach((id) => {
       const record = queue.value.find((r) => r.id === id);
-      if (record) record._enrichmentStatus = 'failed';
+      if (record) record._enrichmentStatus = 'loading';
     });
+
+    try {
+      const response = await backend.call<BatchEnrichRecordsResponse>('batch_enrich_records', {
+        project_id: projects.currentProjectId!,
+        record_ids: recordsToEnrich,
+        skip_commit: true,
+      });
+
+      if (signal.aborted) break;
+
+      if (response.success) {
+        for (const result of response.records) {
+          const queueRecord = queue.value.find((r) => r.id === result.id);
+          if (queueRecord && result.record) {
+            queueRecord.abstract = result.record.abstract;
+            queueRecord.can_enrich = false;
+            queueRecord._enrichmentStatus = result.success ? 'complete' : 'failed';
+          } else if (queueRecord) {
+            queueRecord._enrichmentStatus = 'failed';
+          }
+        }
+      }
+    } catch (err) {
+      if (signal.aborted) break;
+      console.error('Background enrichment batch failed:', err);
+      recordsToEnrich.forEach((id) => {
+        const record = queue.value.find((r) => r.id === id);
+        if (record && record._enrichmentStatus === 'loading') {
+          record._enrichmentStatus = 'failed';
+        }
+      });
+      break; // Stop loop on error to avoid hammering a failing API
+    }
   }
 }
 
@@ -357,6 +386,10 @@ watch(currentIndex, async (newIndex) => {
 async function makeDecision(decision: 'include' | 'exclude') {
   if (!currentRecord.value || !projects.currentProjectId || isDeciding.value) return;
   if (isCurrentDecided.value) return;
+  // Debounce: prevent duplicate calls from simultaneous keyboard + click events
+  const now = Date.now();
+  if (now - lastDecisionTime.value < 500) return;
+  lastDecisionTime.value = now;
 
   isDeciding.value = true;
   try {
@@ -372,11 +405,6 @@ async function makeDecision(decision: 'include' | 'exclude') {
       totalCount.value = response.remaining_count;
 
       decisionHistory.value.push({ ...currentRecord.value });
-
-      notifications.success(
-        decision === 'include' ? 'Included' : 'Excluded',
-        `${response.remaining_count} records remaining`,
-      );
 
       if (nextUndecidedIndex.value !== -1) {
         currentIndex.value = nextUndecidedIndex.value;
@@ -612,9 +640,11 @@ async function ensureManagedTaskAccess(): Promise<boolean> {
 }
 
 onMounted(async () => {
-  // Refresh status first so completion state is accurate when navigating back
-  await projects.refreshCurrentProject();
-  await git.refreshStatus();
+  if (!props.embedded) {
+    // Refresh status first so completion state is accurate when navigating back
+    await projects.refreshCurrentProject();
+    await git.refreshStatus();
+  }
   const canLoadQueue = await ensureManagedTaskAccess();
   if (canLoadQueue) {
     await loadQueue();
@@ -627,11 +657,15 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown);
+  if (enrichmentAbortController) {
+    enrichmentAbortController.abort();
+  }
 });
 
 // Auto-switch back to dev when leaving the prescreen page from a reviewer branch
+// When embedded, the wrapper page handles this
 onBeforeRouteLeave(async (_to, _from, next) => {
-  if (!git.isOnDev && !git.isOnMain && git.currentBranch.startsWith('review/')) {
+  if (!props.embedded && !git.isOnDev && !git.isOnMain && git.currentBranch.startsWith('review/')) {
     await git.switchBranch('dev');
   }
   next();
@@ -644,18 +678,9 @@ onBeforeRouteLeave(async (_to, _from, next) => {
       v-if="accessState === 'switching'"
       class="mb-4 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm"
     >
-      <div class="font-medium">Opening your assigned prescreen branch</div>
-      <div class="text-muted-foreground">
-        Prescreen work happens on reviewer branches. The app is switching you behind the scenes.
-      </div>
-    </div>
-    <div
-      v-if="managedTask"
-      class="mb-4 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm"
-    >
-      <div class="font-medium">Managed prescreen task</div>
-      <div class="text-muted-foreground">
-        Working on <code>{{ managedTask.id }}</code>. This queue only includes records assigned to the current reviewer branch.
+      <div class="flex items-center gap-2">
+        <Loader2 class="h-3.5 w-3.5 animate-spin" />
+        <span class="text-muted-foreground">Setting up your review queue...</span>
       </div>
     </div>
     <EmptyState
@@ -667,10 +692,11 @@ onBeforeRouteLeave(async (_to, _from, next) => {
     <template v-else>
     <!-- Zone 1: Header + Stats -->
     <div class="flex items-center justify-between mb-3">
-      <div class="flex items-center gap-2">
+      <div v-if="!embedded" class="flex items-center gap-2">
         <Filter class="h-5 w-5 text-muted-foreground" />
         <h2 class="text-xl font-semibold" data-testid="prescreen-title">Prescreen</h2>
       </div>
+      <div v-else />
 
       <div v-if="queue.length > 0" class="flex items-center gap-3">
         <Badge variant="secondary" class="px-2.5 py-0.5" data-testid="prescreen-included-count">
@@ -980,7 +1006,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             Record {{ currentIndex + 1 }} of {{ queue.length }}
           </span>
           <span data-testid="prescreen-progress-text">
-            {{ decidedCount }} decided / {{ queue.length }} loaded
+            {{ decidedCount }} decided / {{ overallTotal }} total
           </span>
         </div>
       </div>
@@ -988,11 +1014,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
       <!-- Zone 4: Record Card -->
       <Card
         v-if="currentRecord"
-        class="flex-1 flex flex-col min-h-0"
-        :class="{
-          'border-green-600/40': currentRecord._decision === 'included',
-          'border-destructive/40': currentRecord._decision === 'excluded',
-        }"
+        class="flex-1 flex flex-col min-h-0 border-0 shadow-none"
         data-testid="prescreen-record-card"
       >
         <CardHeader class="pb-2">
@@ -1021,7 +1043,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
               </Button>
             </div>
           </div>
-          <CardTitle class="text-lg leading-tight" data-testid="prescreen-record-title">
+          <CardTitle class="text-lg leading-tight break-words" data-testid="prescreen-record-title">
             {{ currentRecord.title }}
           </CardTitle>
           <CardDescription>
@@ -1033,17 +1055,28 @@ onBeforeRouteLeave(async (_to, _from, next) => {
           </CardDescription>
         </CardHeader>
 
-        <CardContent class="flex-1 min-h-0 flex flex-col">
+        <CardContent class="flex-1 min-h-0 flex flex-col overflow-hidden">
           <h4 class="text-sm font-medium mb-2">Abstract</h4>
           <ScrollArea class="flex-1 pr-4">
             <div
               v-if="currentRecord._enrichmentStatus === 'loading'"
-              class="flex items-center gap-2 text-sm text-muted-foreground"
+              class="space-y-3 max-w-prose"
             >
-              <Loader2 class="h-4 w-4 animate-spin" />
-              <span>Loading abstract...</span>
+              <div class="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+                <Loader2 class="h-4 w-4 animate-spin" />
+                <span>Fetching abstract from external sources...</span>
+              </div>
+              <div class="space-y-2.5 animate-pulse">
+                <div class="h-3.5 bg-muted rounded w-full" />
+                <div class="h-3.5 bg-muted rounded w-full" />
+                <div class="h-3.5 bg-muted rounded w-[95%]" />
+                <div class="h-3.5 bg-muted rounded w-full" />
+                <div class="h-3.5 bg-muted rounded w-[88%]" />
+                <div class="h-3.5 bg-muted rounded w-full" />
+                <div class="h-3.5 bg-muted rounded w-[70%]" />
+              </div>
             </div>
-            <p v-else class="text-sm text-muted-foreground whitespace-pre-wrap">
+            <p v-else class="text-sm text-muted-foreground whitespace-pre-wrap max-w-prose">
               {{ currentRecord.abstract || 'No abstract available' }}
             </p>
           </ScrollArea>

@@ -110,6 +110,7 @@ export interface GetRecordsParams {
     has_pdf?: boolean;
     year_from?: number;
     year_to?: number;
+    is_merged_duplicate?: boolean;
   };
   sort?: {
     field: string;
@@ -183,12 +184,22 @@ export interface UploadSearchFileParams {
   filename: string;
   content: string;
   encoding?: 'utf-8' | 'base64';
+  source_template?: string;
   base_path?: string;
 }
 
 export interface UploadSearchFileResponse extends SuccessResponse {
   path: string;
   detected_format: string;
+}
+
+export interface CsvSourceTemplate {
+  id: string;
+  label: string;
+}
+
+export interface GetCsvSourceTemplatesResponse extends SuccessResponse {
+  templates: CsvSourceTemplate[];
 }
 
 export interface SearchParams {

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { useBackendStore } from './backend';
 import { useProjectsStore } from './projects';
+import { useGitStore } from './git';
 import type { ManagedReviewTask, ListManagedReviewTasksResponse } from '@/types/api';
 import type { WorkflowStep } from '@/types/project';
 
@@ -32,53 +33,36 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
     screenTasks.value.find((t) => t.state === 'completed') ?? null,
   );
 
+  // Whether the current user is on a reviewer branch for a managed review
+  const isOnReviewerBranch = computed(() => {
+    const gitStore = useGitStore();
+    return gitStore.currentBranch.startsWith('review/');
+  });
+
   /**
    * Derive sidebar step status for any managed review step.
    * Returns the status to display, or null if this step has no managed review context.
    */
   function getStepStatus(stepId: WorkflowStep): 'pending' | 'active' | 'complete' | null {
-    const isPrescreen = stepId.startsWith('prescreen');
-    const kind = isPrescreen ? 'prescreen' : 'screen';
+    const kind = stepId === 'prescreen' ? 'prescreen' : stepId === 'screen' ? 'screen' : null;
+    if (!kind) return null;
+
     const activeTask = kind === 'prescreen' ? activePrescreenTask.value : activeScreenTask.value;
     const completedTask = kind === 'prescreen'
       ? latestCompletedPrescreenTask.value
       : latestCompletedScreenTask.value;
 
-    const isLaunch = stepId.endsWith('_launch');
-    const isReconcile = stepId.endsWith('_reconcile');
+    // Completed task — step is done
+    if (completedTask && !activeTask) return 'complete';
 
-    // Active or reconciling task exists
-    if (activeTask) {
-      const allReviewersDone = activeTask.reviewer_progress.every((r) => r.pending_count === 0);
+    // Active task — step is in progress
+    if (activeTask) return 'active';
 
-      if (isLaunch) return 'complete';
-
-      if (isReconcile) {
-        if (allReviewersDone) return 'active';
-        return 'pending';
-      }
-
-      // Review step
-      if (allReviewersDone) return 'complete';
-      return 'active';
-    }
-
-    // A completed task exists (reconciliation done)
-    if (completedTask) {
-      return 'complete';
-    }
-
-    // No task exists at all
-    if (isLaunch) {
-      // Check if there are eligible records to show launch as actionable
-      const eligibleState = kind === 'prescreen' ? 'md_processed' : 'pdf_prepared';
-      const currently = projects.currentStatus?.currently;
-      const eligibleCount = currently?.[eligibleState] ?? 0;
-      return eligibleCount > 0 ? 'active' : 'pending';
-    }
-
-    // No task → review and reconcile are pending
-    return 'pending';
+    // No task — check if there are eligible records
+    const eligibleState = kind === 'prescreen' ? 'md_processed' : 'pdf_prepared';
+    const currently = projects.currentStatus?.currently;
+    const eligibleCount = currently?.[eligibleState] ?? 0;
+    return eligibleCount > 0 ? 'active' : 'pending';
   }
 
   async function refresh(): Promise<void> {
@@ -87,6 +71,12 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
 
     isLoading.value = true;
     try {
+      // Fetch remote refs first so we can see other reviewers' progress
+      const gitStore = useGitStore();
+      if (gitStore.hasRemote) {
+        await gitStore.fetch();
+      }
+
       const [prescreenResp, screenResp] = await Promise.all([
         backend.call<ListManagedReviewTasksResponse>('list_managed_review_tasks', {
           project_id: id,
@@ -119,6 +109,7 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
     activeScreenTask,
     latestCompletedPrescreenTask,
     latestCompletedScreenTask,
+    isOnReviewerBranch,
     isLoading,
     getStepStatus,
     refresh,

@@ -141,6 +141,10 @@ contextBridge.exposeInMainWorld('git', {
     ipcRenderer.invoke('git:add-and-commit', projectPath, message),
   revListCount: (projectPath: string, from: string, to: string) =>
     ipcRenderer.invoke('git:rev-list-count', projectPath, from, to),
+  analyzeDivergence: (projectPath: string) =>
+    ipcRenderer.invoke('git:analyze-divergence', projectPath),
+  applyMerge: (projectPath: string, resolutions: unknown[], analysis: unknown) =>
+    ipcRenderer.invoke('git:apply-merge', projectPath, resolutions, analysis),
 });
 
 /**

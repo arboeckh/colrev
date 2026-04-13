@@ -37,6 +37,12 @@ interface ScreenEnrichedRecord extends ScreenQueueRecord {
   _criteriaDecisions: Record<string, 'in' | 'out' | 'TODO'>;
 }
 
+const props = withDefaults(defineProps<{
+  embedded?: boolean;
+}>(), {
+  embedded: false,
+});
+
 const auth = useAuthStore();
 const projects = useProjectsStore();
 const backend = useBackendStore();
@@ -247,11 +253,6 @@ async function makeDecision(decision: 'include' | 'exclude') {
       currentRecord.value._decision = decision === 'include' ? 'included' : 'excluded';
       totalCount.value = response.remaining_count;
       decisionHistory.value.push({ ...currentRecord.value });
-      notifications.success(
-        decision === 'include' ? 'Included' : 'Excluded',
-        `${response.remaining_count} records remaining`,
-      );
-
       if (nextUndecidedIndex.value !== -1) {
         currentIndex.value = nextUndecidedIndex.value;
       } else if (response.remaining_count > 0) {
@@ -323,8 +324,10 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 onMounted(async () => {
-  await projects.refreshCurrentProject();
-  await git.refreshStatus();
+  if (!props.embedded) {
+    await projects.refreshCurrentProject();
+    await git.refreshStatus();
+  }
   await reviewDefStore.loadDefinition();
   const canLoadQueue = await ensureManagedTaskAccess();
   if (canLoadQueue) {
@@ -341,8 +344,9 @@ onUnmounted(() => {
 });
 
 // Auto-switch back to dev when leaving the screen page from a reviewer branch
+// When embedded, the wrapper page handles this
 onBeforeRouteLeave(async (_to, _from, next) => {
-  if (!git.isOnDev && !git.isOnMain && git.currentBranch.startsWith('review/')) {
+  if (!props.embedded && !git.isOnDev && !git.isOnMain && git.currentBranch.startsWith('review/')) {
     await git.switchBranch('dev');
   }
   next();

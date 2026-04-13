@@ -209,8 +209,9 @@ const totalRecords = computed(() => projects.currentStatus?.total_records ?? 0);
 
 // Next recommended step
 const nextStep = computed(() => {
-  const next = projects.nextOperation;
+  let next = projects.nextOperation;
   if (!next) return null;
+  if (['load', 'prep', 'dedupe'].includes(next)) next = 'preprocessing';
   return WORKFLOW_STEPS.find((s) => s.id === next) || null;
 });
 

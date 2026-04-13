@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router';
 import { Toaster } from '@/components/ui/sonner';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import DebugPanel from '@/components/common/DebugPanel.vue';
+import ConflictResolutionDialog from '@/components/common/ConflictResolutionDialog.vue';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
@@ -85,9 +86,12 @@ watch(
     <!-- Debug panel (floating button in bottom right) -->
     <DebugPanel />
 
+    <!-- Conflict resolution dialog (app-level overlay) -->
+    <ConflictResolutionDialog />
+
     <!-- Main content with conditional layout -->
     <AppLayout v-if="useProjectLayout">
-      <router-view />
+      <router-view :key="projects.dataVersion" />
     </AppLayout>
 
     <router-view v-else />

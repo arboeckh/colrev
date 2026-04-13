@@ -11,6 +11,10 @@
     "package:mac": "electron-builder --mac",
     "package:win": "electron-builder --win",
     "package:linux": "electron-builder --linux",
+    "dev:alice": "COLREV_USER=alice electron-vite dev",
+    "dev:bob": "COLREV_USER=bob electron-vite dev",
+    "dev:duo": "./dev-duo.sh",
+    "dev:duo:stop": "./dev-duo.sh stop",
     "test:e2e": "npm run build && playwright test",
     "test:e2e:headed": "npm run build && playwright test --headed",
     "test:e2e:debug": "npm run build && playwright test --debug"

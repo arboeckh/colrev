@@ -10,11 +10,9 @@ const SearchPage = () => import('@/views/SearchPage.vue');
 const LoadPage = () => import('@/views/LoadPage.vue');
 const PrepPage = () => import('@/views/PrepPage.vue');
 const DedupePage = () => import('@/views/DedupePage.vue');
-const PrescreenPage = () => import('@/views/PrescreenPage.vue');
-const ManagedReviewLaunchPage = () => import('@/views/ManagedReviewLaunchPage.vue');
-const ManagedReviewReconcilePage = () => import('@/views/ManagedReviewReconcilePage.vue');
+const ManagedReviewWorkflowPage = () => import('@/views/ManagedReviewWorkflowPage.vue');
 const PdfsPage = () => import('@/views/PdfsPage.vue');
-const ScreenPage = () => import('@/views/ScreenPage.vue');
+const PreprocessingPage = () => import('@/views/PreprocessingPage.vue');
 const DataPage = () => import('@/views/DataPage.vue');
 const SettingsPage = () => import('@/views/SettingsPage.vue');
 
@@ -75,7 +73,12 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'preprocessing',
-        redirect: (to) => ({ name: 'project-search', params: { id: to.params.id } }),
+        name: 'project-preprocessing',
+        component: PreprocessingPage,
+        meta: {
+          title: 'Preprocessing',
+          step: 'preprocessing',
+        },
       },
       {
         path: 'load',
@@ -105,31 +108,22 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
-        path: 'prescreen-launch',
-        name: 'project-prescreen-launch',
-        component: ManagedReviewLaunchPage,
-        meta: {
-          title: 'Prescreen Launch',
-          step: 'prescreen_launch',
-        },
-      },
-      {
         path: 'prescreen',
         name: 'project-prescreen',
-        component: PrescreenPage,
+        component: ManagedReviewWorkflowPage,
         meta: {
           title: 'Prescreen',
           step: 'prescreen',
+          managedReviewKind: 'prescreen',
         },
       },
       {
+        path: 'prescreen-launch',
+        redirect: (to) => ({ name: 'project-prescreen', params: { id: to.params.id } }),
+      },
+      {
         path: 'prescreen-reconcile',
-        name: 'project-prescreen-reconcile',
-        component: ManagedReviewReconcilePage,
-        meta: {
-          title: 'Prescreen Reconcile',
-          step: 'prescreen_reconcile',
-        },
+        redirect: (to) => ({ name: 'project-prescreen', params: { id: to.params.id } }),
       },
       {
         path: 'pdfs',
@@ -154,31 +148,22 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
-        path: 'screen-launch',
-        name: 'project-screen-launch',
-        component: ManagedReviewLaunchPage,
-        meta: {
-          title: 'Screen Launch',
-          step: 'screen_launch',
-        },
-      },
-      {
         path: 'screen',
         name: 'project-screen',
-        component: ScreenPage,
+        component: ManagedReviewWorkflowPage,
         meta: {
           title: 'Screen',
           step: 'screen',
+          managedReviewKind: 'screen',
         },
       },
       {
+        path: 'screen-launch',
+        redirect: (to) => ({ name: 'project-screen', params: { id: to.params.id } }),
+      },
+      {
         path: 'screen-reconcile',
-        name: 'project-screen-reconcile',
-        component: ManagedReviewReconcilePage,
-        meta: {
-          title: 'Screen Reconcile',
-          step: 'screen_reconcile',
-        },
+        redirect: (to) => ({ name: 'project-screen', params: { id: to.params.id } }),
       },
       {
         path: 'data',
@@ -261,5 +246,6 @@ declare module 'vue-router' {
     layout?: 'none' | 'project';
     step?: string | null;
     public?: boolean;
+    managedReviewKind?: 'prescreen' | 'screen';
   }
 }

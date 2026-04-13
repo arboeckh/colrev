@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { Upload, Loader2, FileText, CalendarIcon } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from '@/components/ui/native-select';
 import {
   Popover,
   PopoverContent,
@@ -20,7 +24,7 @@ import {
 } from '@/components/ui/dialog';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
-import type { UploadSearchFileResponse, AddSourceResponse } from '@/types';
+import type { UploadSearchFileResponse, AddSourceResponse, CsvSourceTemplate, GetCsvSourceTemplatesResponse } from '@/types';
 import { getLocalTimeZone, today, type DateValue, CalendarDate } from '@internationalized/date';
 import { cn } from '@/lib/utils';
 
@@ -44,6 +48,32 @@ const searchQuery = ref('');
 const searchDate = ref<DateValue>(today(getLocalTimeZone()));
 const isUploading = ref(false);
 const uploadProgress = ref('');
+
+// CSV source template state
+const csvTemplates = ref<CsvSourceTemplate[]>([]);
+const selectedTemplate = ref('');
+const isTableFile = computed(() => {
+  if (!selectedFile.value) return false;
+  const ext = selectedFile.value.name.split('.').pop()?.toLowerCase();
+  return ext === 'csv' || ext === 'xlsx' || ext === 'xls';
+});
+
+// Fetch available CSV source templates on mount
+onMounted(async () => {
+  try {
+    const response = await backend.call<GetCsvSourceTemplatesResponse>('get_csv_source_templates', {});
+    csvTemplates.value = response.templates;
+  } catch {
+    // Non-critical — dropdown just won't show specific templates
+  }
+});
+
+// Reset template selection when file changes
+watch(selectedFile, () => {
+  if (!isTableFile.value) {
+    selectedTemplate.value = '';
+  }
+});
 
 // Computed
 const dialogOpen = computed({
@@ -96,12 +126,16 @@ async function handleSubmit() {
     uploadProgress.value = 'Uploading file...';
 
     // Upload the file with the target filename (based on source name, not original filename)
-    const uploadResponse = await backend.call<UploadSearchFileResponse>('upload_search_file', {
+    const uploadParams: Record<string, unknown> = {
       project_id: props.projectId,
       filename: targetFilename,
       content: fileContent,
       encoding: 'utf-8',
-    });
+    };
+    if (selectedTemplate.value) {
+      uploadParams.source_template = selectedTemplate.value;
+    }
+    const uploadResponse = await backend.call<UploadSearchFileResponse>('upload_search_file', uploadParams);
 
     if (!uploadResponse.success) {
       throw new Error('Failed to upload file');
@@ -152,6 +186,7 @@ function readFileAsText(file: File): Promise<string> {
 function resetForm() {
   sourceName.value = '';
   selectedFile.value = null;
+  selectedTemplate.value = '';
   searchQuery.value = '';
   searchDate.value = today(getLocalTimeZone());
 }
@@ -211,6 +246,31 @@ function handleCancel() {
           <span class="text-xs text-muted-foreground">
             ({{ (selectedFile.size / 1024).toFixed(1) }} KB)
           </span>
+        </div>
+
+        <!-- Source database dropdown (CSV/Excel only) -->
+        <div v-if="isTableFile" class="space-y-2">
+          <label class="text-sm font-medium">Source Database</label>
+          <NativeSelect
+            v-model="selectedTemplate"
+            class="w-full"
+            data-testid="source-template-select"
+            :disabled="isUploading"
+          >
+            <NativeSelectOption value="">
+              Other (generic)
+            </NativeSelectOption>
+            <NativeSelectOption
+              v-for="tpl in csvTemplates"
+              :key="tpl.id"
+              :value="tpl.id"
+            >
+              {{ tpl.label }}
+            </NativeSelectOption>
+          </NativeSelect>
+          <p class="text-xs text-muted-foreground">
+            Select the database this CSV was exported from so fields are mapped correctly.
+          </p>
         </div>
 
         <!-- Search query -->

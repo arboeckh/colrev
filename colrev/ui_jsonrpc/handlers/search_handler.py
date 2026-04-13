@@ -415,6 +415,9 @@ class SearchHandler:
                 - filename (str): Target filename in data/search/ (required)
                 - content (str): File content (required)
                 - encoding (str, optional): Content encoding - "utf-8" (default) or "base64"
+                - source_template (str, optional): CSV source template ID (e.g. "openalex").
+                    When provided for CSV files, columns are renamed and values transformed
+                    according to the template before saving.
 
         Returns:
             Dict containing:
@@ -430,6 +433,7 @@ class SearchHandler:
         filename = params.get("filename")
         content = params.get("content")
         encoding = validation.get_optional_param(params, "encoding", "utf-8")
+        source_template = validation.get_optional_param(params, "source_template", None)
 
         if not filename:
             raise ValueError("filename parameter is required")
@@ -459,6 +463,25 @@ class SearchHandler:
         else:
             file_content = content
             write_mode = "w"
+
+        # Apply CSV source template transformation if requested.
+        # The transform outputs BibTeX (not CSV) to avoid the pandas NaN problem
+        # where pd.read_csv converts empty cells to float NaN.
+        if source_template and Path(safe_filename).suffix.lower() in (".csv", ".xlsx"):
+            from colrev.ui_jsonrpc.csv_transforms import transform_csv
+
+            csv_text = (
+                file_content
+                if isinstance(file_content, str)
+                else file_content.decode("utf-8", errors="replace")
+            )
+            logger.info(f"Applying CSV source template '{source_template}'")
+            file_content = transform_csv(csv_text, source_template)
+            write_mode = "w"
+
+            # Change target path to .bib since output is BibTeX
+            safe_filename = Path(safe_filename).stem + ".bib"
+            target_path = search_dir / safe_filename
 
         # Write the file
         with open(target_path, write_mode) as f:
@@ -881,8 +904,19 @@ class SearchHandler:
 
                 loader = TableLoader(filename=file_path, unique_id_field="INCREMENTAL")
                 raw_records = loader.load_records_list()
-                # Table files usually have standard field names
-                records = raw_records
+                # Map common CSV field name variants to standard fields
+                for i, raw in enumerate(raw_records):
+                    record = {
+                        "ID": raw.get("ID", str(i + 1)),
+                        "ENTRYTYPE": raw.get("ENTRYTYPE", raw.get("type", "article")),
+                        "title": raw.get("title", raw.get("display_name", "")),
+                        "author": raw.get("author", raw.get("authorships.author.display_name", "")),
+                        "year": raw.get("year", raw.get("publication_year", "")),
+                        "journal": raw.get("journal", raw.get("primary_location.source.display_name", "")),
+                        "doi": raw.get("doi", ""),
+                        "abstract": raw.get("abstract", ""),
+                    }
+                    records.append(record)
 
             else:
                 # Default to BibTeX for .bib and unknown formats

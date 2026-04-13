@@ -122,6 +122,12 @@ export const useBackendStore = defineStore('backend', () => {
     }
   }
 
+  function resetOperationProgress() {
+    operationProgress.value = null;
+    operationTotal.value = 0;
+    operationDone.value = 0;
+  }
+
   function parseOperationProgress(msg: string) {
     // "pdf_get" reports: "PDFs to get ... X PDFs" at start
     const pdfGetTotalMatch = msg.match(/PDFs\s+to\s+get[^:]*:\s*(\d+)/i);
@@ -152,10 +158,38 @@ export const useBackendStore = defineStore('backend', () => {
       return;
     }
 
+    // Prep operation: "Records to prepare: N"
+    const prepTotalMatch = msg.match(/Records to prepare:\s*(\d+)/i);
+    if (prepTotalMatch) {
+      operationTotal.value = parseInt(prepTotalMatch[1], 10);
+      operationDone.value = 0;
+      operationProgress.value = 0;
+      return;
+    }
+
+    // Prep per-record counter: "(N/M) ... →" pattern from prep operation
+    const prepCounterMatch = msg.match(/\((\d+)\/(\d+)\)[\s\S]*?→/);
+    if (prepCounterMatch) {
+      const done = parseInt(prepCounterMatch[1], 10);
+      const total = parseInt(prepCounterMatch[2], 10);
+      operationDone.value = done;
+      operationTotal.value = total;
+      operationProgress.value = Math.round((done / total) * 100);
+      return;
+    }
+
+    // Load/prep per-record state transitions (for counting when no N/M counter)
+    const stateTransitionMatch = msg.match(/→\s+(md_imported|md_prepared|md_needs_manual_preparation|md_processed)/);
+    if (stateTransitionMatch && operationTotal.value > 0) {
+      operationDone.value = Math.min(operationDone.value + 1, operationTotal.value);
+      operationProgress.value = Math.round((operationDone.value / operationTotal.value) * 100);
+      return;
+    }
+
     // Reset when operation completes
-    if (msg.match(/completed\s+(pdf[_-]get|pdf[_-]prep)\s+operation/i)) {
+    if (msg.match(/completed\s+(pdf[_-]get|pdf[_-]prep|load|prep|dedupe)\s+operation/i)) {
       operationProgress.value = 100;
-      setTimeout(() => { operationProgress.value = null; operationTotal.value = 0; operationDone.value = 0; }, 1000);
+      setTimeout(() => { resetOperationProgress(); }, 500);
     }
   }
 
@@ -302,5 +336,6 @@ export const useBackendStore = defineStore('backend', () => {
     clearLogs,
     onSearchProgress,
     clearSearchProgress,
+    resetOperationProgress,
   };
 });

@@ -32,29 +32,29 @@ const syncState = computed(() => {
     };
   }
 
-  const { ahead, behind, is_clean, uncommitted_changes } = props.status;
+  const { ahead, behind } = props.status;
 
-  if (uncommitted_changes > 0) {
+  if (git.isResolving) {
     return {
-      icon: AlertCircle,
-      label: `${uncommitted_changes} uncommitted`,
-      variant: 'destructive' as const,
-      class: 'text-yellow-500',
+      icon: Loader2,
+      label: 'Syncing...',
+      variant: 'outline' as const,
+      class: 'text-blue-500',
       clickable: false,
       action: null,
-      tooltip: 'There are uncommitted changes in the working directory.',
+      tooltip: 'Analyzing and merging changes...',
     };
   }
 
   if (ahead > 0 && behind > 0) {
     return {
-      icon: GitBranch,
-      label: `${ahead}\u2191 ${behind}\u2193`,
+      icon: AlertCircle,
+      label: 'Needs attention',
       variant: 'outline' as const,
-      class: 'text-yellow-500',
-      clickable: false,
-      action: null,
-      tooltip: 'Branches have diverged. Consider creating a Pull Request.',
+      class: 'text-orange-500',
+      clickable: true,
+      action: () => git.startDivergenceResolution(),
+      tooltip: 'You and a collaborator both made changes. Click to sync.',
     };
   }
 

@@ -39,6 +39,9 @@ const formData = ref({
   criterion_type: props.criterion?.criterion_type || 'inclusion_criterion' as 'inclusion_criterion' | 'exclusion_criterion',
 });
 
+const touchedName = ref(false);
+const touchedExplanation = ref(false);
+
 // Reset form data when criterion prop changes
 watch(() => props.criterion, (newCriterion) => {
   if (newCriterion && props.mode !== 'add') {
@@ -102,6 +105,8 @@ function cancel() {
       comment: '',
       criterion_type: 'inclusion_criterion',
     };
+    touchedName.value = false;
+    touchedExplanation.value = false;
     emit('cancel');
   }
 }
@@ -152,13 +157,15 @@ function cancel() {
   >
     <div class="space-y-4">
       <div v-if="mode === 'add'">
-        <label class="text-sm font-medium">Criterion Name</label>
+        <label class="text-sm font-medium">Criterion Name <span class="text-destructive">*</span></label>
         <Input
           v-model="formData.name"
           placeholder="e.g., peer_reviewed"
           data-testid="criterion-name-input"
           class="mt-1.5"
+          @blur="touchedName = true"
         />
+        <p v-if="touchedName && !formData.name.trim()" class="text-xs text-destructive mt-1">Required</p>
       </div>
 
       <div>
@@ -174,14 +181,16 @@ function cancel() {
       </div>
 
       <div>
-        <label class="text-sm font-medium">Explanation</label>
+        <label class="text-sm font-medium">Explanation <span class="text-destructive">*</span></label>
         <Textarea
           v-model="formData.explanation"
           placeholder="Explain how this criterion should be applied..."
           rows="3"
           data-testid="criterion-explanation-input"
           class="mt-1.5"
+          @blur="touchedExplanation = true"
         />
+        <p v-if="touchedExplanation && !formData.explanation.trim()" class="text-xs text-destructive mt-1">Required</p>
       </div>
 
       <div>

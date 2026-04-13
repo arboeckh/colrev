@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { Play, Loader2, Layers, Check, ArrowRight, Eye, Info, Database, AlertTriangle } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -148,6 +148,8 @@ async function runStage(stageId: StageId): Promise<boolean> {
   if (!projects.currentProjectId) return false;
 
   currentStage.value = stageId;
+  backend.resetOperationProgress();
+  await nextTick();
 
   try {
     const params: Record<string, unknown> = {
@@ -178,19 +180,11 @@ async function runAllStages() {
   completedStages.value.clear();
 
   try {
-    // Refresh operation info before starting
-    await projects.loadAllOperationInfo(projects.currentProjectId);
-
-    // Run each stage in sequence if it can run
+    // Run each stage in sequence — no gaps between stages.
+    // Backend operations handle empty cases gracefully (no-op if nothing to process).
     for (const stage of stageDefinitions) {
-      const opInfo = projects.operationInfo[stage.id];
-      if (opInfo?.can_run) {
-        const success = await runStage(stage.id);
-        if (!success) break;
-        // Refresh after each stage to get updated counts
-        await projects.refreshCurrentProject();
-        await loadSources();
-      }
+      const success = await runStage(stage.id);
+      if (!success) break;
     }
 
     notifications.success('Preprocessing completed');
@@ -200,6 +194,10 @@ async function runAllStages() {
   } finally {
     isRunning.value = false;
     currentStage.value = null;
+    backend.resetOperationProgress();
+    // Refresh counts and sources once after all stages complete
+    projects.refreshCurrentProject();
+    loadSources();
   }
 }
 
@@ -212,11 +210,12 @@ const stageVisualStatuses = computed(() => {
   };
 
   for (const stageId of ['load', 'prep', 'dedupe'] as StageId[]) {
-    // During running, prioritize local state to avoid flicker
-    if (currentStage.value === stageId && isRunning.value) {
-      statuses[stageId] = 'running';
-    } else if (completedStages.value.has(stageId)) {
+    // Check completedStages FIRST so a finished stage immediately shows 'complete'
+    // even while currentStage still points to it (before the next stage starts)
+    if (completedStages.value.has(stageId)) {
       statuses[stageId] = 'complete';
+    } else if (currentStage.value === stageId && isRunning.value) {
+      statuses[stageId] = 'running';
     } else if (!isRunning.value) {
       // Only check project status when NOT running (avoids mid-refresh flicker)
       if (stageId === 'load' && stageStatus.value.loadCompleted) {
@@ -230,6 +229,12 @@ const stageVisualStatuses = computed(() => {
   }
 
   return statuses;
+});
+
+// Progress percentage for the currently running stage (from backend log parsing)
+const currentStageProgress = computed((): number | null => {
+  if (!isRunning.value || !currentStage.value) return null;
+  return backend.operationProgress;
 });
 
 // Helper for template (reads from computed)
@@ -345,8 +350,21 @@ watch(
                       :data-testid="`preprocessing-step-${stage.id}`"
                       :data-status="getStageVisualStatus(stage.id)"
                     >
+                      <!-- Running with progress: circular ring -->
+                      <svg
+                        v-if="getStageVisualStatus(stage.id) === 'running' && currentStageProgress !== null"
+                        class="h-3.5 w-3.5 shrink-0"
+                        viewBox="0 0 36 36"
+                      >
+                        <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="opacity-20" />
+                        <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3"
+                          :stroke-dasharray="`${currentStageProgress} 100`"
+                          stroke-linecap="round" transform="rotate(-90 18 18)"
+                          class="transition-all duration-300" />
+                      </svg>
+                      <!-- Running without progress: spinner -->
                       <Loader2
-                        v-if="getStageVisualStatus(stage.id) === 'running'"
+                        v-else-if="getStageVisualStatus(stage.id) === 'running'"
                         class="h-3.5 w-3.5 animate-spin"
                       />
                       <Check
@@ -358,6 +376,10 @@ watch(
                         class="h-3.5 w-3.5 flex items-center justify-center text-xs"
                       >{{ index + 1 }}</span>
                       {{ stage.shortLabel }}
+                      <span
+                        v-if="getStageVisualStatus(stage.id) === 'running' && currentStageProgress !== null"
+                        class="text-xs tabular-nums opacity-80"
+                      >{{ currentStageProgress }}%</span>
                       <Info class="h-3 w-3 opacity-50" />
                     </div>
                   </TooltipTrigger>
