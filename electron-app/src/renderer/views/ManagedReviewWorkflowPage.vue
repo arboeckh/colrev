@@ -63,6 +63,14 @@ function phaseStatus(phaseId: Phase): 'complete' | 'active' | 'pending' {
     if (task) {
       const allDone = task.reviewer_progress.every((r) => r.pending_count === 0);
       if (allDone) return 'complete';
+      // Show as complete for the current user if they finished their part
+      const login = auth.user?.login?.toLowerCase();
+      if (login) {
+        const myProgress = task.reviewer_progress.find(
+          (r) => r.github_login.toLowerCase() === login,
+        );
+        if (myProgress && myProgress.pending_count === 0) return 'complete';
+      }
       return currentPhase.value === 'review' ? 'active' : 'pending';
     }
     return 'pending';

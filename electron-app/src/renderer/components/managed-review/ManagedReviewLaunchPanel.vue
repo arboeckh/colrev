@@ -202,23 +202,29 @@ async function refreshData() {
 
 async function createBranches(task: ManagedReviewTask, launchRef: string) {
   if (!projects.currentProject?.path) return;
+  const path = projects.currentProject.path;
+  const myLogin = auth.user?.login?.toLowerCase();
 
+  // Create and push all reviewer branches
   for (const reviewer of task.reviewers) {
-    const createResult = await window.git.createLocalBranch(
-      projects.currentProject.path,
-      reviewer.branch_name,
-      launchRef,
-    );
+    const createResult = await window.git.createLocalBranch(path, reviewer.branch_name, launchRef);
     if (!createResult.success && !createResult.error?.includes('already exists')) {
       throw new Error(createResult.error || `Failed to create ${reviewer.branch_name}`);
     }
 
-    const pushResult = await window.git.pushBranch(
-      projects.currentProject.path,
-      reviewer.branch_name,
-    );
+    const pushResult = await window.git.pushBranch(path, reviewer.branch_name);
     if (!pushResult.success) {
       throw new Error(pushResult.error || `Failed to push ${reviewer.branch_name}`);
+    }
+  }
+
+  // Delete local branches for other reviewers so _branch_ref uses
+  // the remote ref (which stays up-to-date after fetch). Without this,
+  // the stale local branch would make the other reviewer's progress
+  // always show as 0.
+  for (const reviewer of task.reviewers) {
+    if (reviewer.github_login.toLowerCase() !== myLogin) {
+      await window.git.deleteLocalBranch(path, reviewer.branch_name);
     }
   }
 }

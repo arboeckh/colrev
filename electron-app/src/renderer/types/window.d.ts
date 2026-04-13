@@ -235,6 +235,7 @@ export interface GitAPI {
   listBranches: (projectPath: string) => Promise<GitBranchListResult>;
   createBranch: (projectPath: string, name: string, baseBranch?: string) => Promise<GitOperationResult>;
   createLocalBranch: (projectPath: string, name: string, baseRef: string) => Promise<GitOperationResult>;
+  deleteLocalBranch: (projectPath: string, name: string) => Promise<GitOperationResult>;
   checkout: (projectPath: string, branchName: string) => Promise<GitOperationResult>;
   merge: (projectPath: string, source: string, ffOnly?: boolean) => Promise<GitOperationResult>;
   log: (projectPath: string, count?: number) => Promise<GitLogResult>;

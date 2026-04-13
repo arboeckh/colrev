@@ -78,6 +78,7 @@ const managedTask = ref<GetCurrentManagedReviewTaskResponse['task']>(null);
 const accessState = ref<'loading' | 'switching' | 'ready' | 'blocked'>('loading');
 const activeManagedTask = ref<ManagedReviewTask | null>(null);
 const assignedReviewerBranch = ref<string | null>(null);
+const allDecisionsMade = ref(false);
 
 // Progress bar drag state
 const trackRef = ref<HTMLElement | null>(null);
@@ -169,6 +170,8 @@ const nextUndecidedIndex = computed(() => {
 const statusCounts = computed(() => projects.currentStatus?.currently ?? null);
 const overallCounts = computed(() => projects.currentStatus?.overall ?? null);
 const isPrescreenComplete = computed(() => {
+  // Local flag set immediately when the last decision is made — no refresh needed
+  if (allDecisionsMade.value) return true;
   if (!statusCounts.value) return false;
   const { rev_prescreen_included, rev_prescreen_excluded, md_processed } = statusCounts.value;
   return md_processed === 0 && (rev_prescreen_included > 0 || rev_prescreen_excluded > 0);
@@ -410,9 +413,11 @@ async function makeDecision(decision: 'include' | 'exclude') {
       } else if (response.remaining_count > 0) {
         await loadQueue();
       } else {
-        // All done — clear queue and refresh status for completion screen
+        // All done — set flag immediately so completion screen shows
+        // without waiting for project status refresh
+        allDecisionsMade.value = true;
         queue.value = [];
-        await projects.refreshCurrentProject();
+        projects.refreshCurrentProject(); // Fire and forget
       }
     }
   } catch (err) {
@@ -860,17 +865,26 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <Button
-        variant="outline"
-        size="sm"
-        class="mt-6"
-        data-testid="prescreen-edit-decisions-btn"
-        :disabled="isReadOnly"
-        @click="enterEditMode"
-      >
-        <Pencil class="h-4 w-4 mr-1.5" />
-        Edit Decisions
-      </Button>
+      <div class="flex items-center gap-3 mt-6">
+        <Button
+          v-if="git.hasRemote && git.ahead > 0"
+          size="sm"
+          :disabled="git.isPushing"
+          @click="git.push()"
+        >
+          {{ git.isPushing ? 'Pushing...' : 'Push changes' }}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          data-testid="prescreen-edit-decisions-btn"
+          :disabled="isReadOnly"
+          @click="enterEditMode"
+        >
+          <Pencil class="h-4 w-4 mr-1.5" />
+          Edit Decisions
+        </Button>
+      </div>
     </div>
 
     <!-- Empty state (no records available yet) -->

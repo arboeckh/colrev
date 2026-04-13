@@ -31,6 +31,7 @@ import {
   gitListBranches,
   gitCreateBranch,
   gitCreateLocalBranch,
+  gitDeleteLocalBranch,
   gitCheckout,
   gitMerge,
   gitLog,
@@ -297,6 +298,10 @@ function setupIPC() {
 
   ipcMain.handle('git:create-local-branch', async (_, projectPath: string, name: string, baseRef: string) => {
     return gitCreateLocalBranch(projectPath, name, baseRef);
+  });
+
+  ipcMain.handle('git:delete-local-branch', async (_, projectPath: string, name: string) => {
+    return gitDeleteLocalBranch(projectPath, name);
   });
 
   ipcMain.handle('git:checkout', async (_, projectPath: string, branchName: string) => {

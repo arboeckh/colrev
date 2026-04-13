@@ -132,6 +132,8 @@ contextBridge.exposeInMainWorld('git', {
     ipcRenderer.invoke('git:create-branch', projectPath, name, baseBranch),
   createLocalBranch: (projectPath: string, name: string, baseRef: string) =>
     ipcRenderer.invoke('git:create-local-branch', projectPath, name, baseRef),
+  deleteLocalBranch: (projectPath: string, name: string) =>
+    ipcRenderer.invoke('git:delete-local-branch', projectPath, name),
   checkout: (projectPath: string, branchName: string) =>
     ipcRenderer.invoke('git:checkout', projectPath, branchName),
   merge: (projectPath: string, source: string, ffOnly?: boolean) =>

@@ -245,6 +245,18 @@ export async function gitCreateLocalBranch(
   return { success: true };
 }
 
+export async function gitDeleteLocalBranch(
+  projectPath: string,
+  name: string,
+): Promise<GitResult> {
+  const { exec } = await import('dugite');
+  const result = await exec(['branch', '-D', name], projectPath);
+  if (result.exitCode !== 0) {
+    return { success: false, error: result.stderr || `Failed to delete branch ${name}` };
+  }
+  return { success: true };
+}
+
 export async function gitCheckout(
   projectPath: string,
   branchName: string,
