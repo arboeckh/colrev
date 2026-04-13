@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { onBeforeRouteLeave, useRoute } from 'vue-router';
+import { useRoute } from 'vue-router';
 import { Check, Filter, CheckSquare } from 'lucide-vue-next';
 import { ManagedReviewLaunchPanel, ManagedReviewReconcilePanel } from '@/components/managed-review';
 import PrescreenPage from '@/views/PrescreenPage.vue';
@@ -109,14 +109,24 @@ function canNavigateToPhase(phaseId: Phase): boolean {
   return false;
 }
 
+const isSwitchingPhase = ref(false);
+
 async function selectPhase(phaseId: Phase) {
   if (!canNavigateToPhase(phaseId)) return;
-  userOverridePhase.value = phaseId;
+  if (isSwitchingPhase.value) return;
 
-  // Auto-switch branches: launch/reconcile need dev, review handles its own
+  // Switch branch BEFORE changing phase so the new panel mounts on the right branch.
+  // This avoids the new panel's onMounted triggering a competing switchBranch.
   if ((phaseId === 'launch' || phaseId === 'reconcile') && !git.isOnDev) {
-    await git.switchBranch('dev');
+    isSwitchingPhase.value = true;
+    try {
+      await git.switchBranch('dev');
+    } finally {
+      isSwitchingPhase.value = false;
+    }
   }
+
+  userOverridePhase.value = phaseId;
 }
 
 function onTaskCreated() {
@@ -129,20 +139,8 @@ onMounted(async () => {
   if (backend.isRunning && projects.currentProjectId) {
     await managedReview.refresh();
   }
-
-  // Ensure we're on dev if starting on launch/reconcile phase
-  if ((currentPhase.value === 'launch' || currentPhase.value === 'reconcile') && !git.isOnDev) {
-    await git.switchBranch('dev');
-  }
 });
 
-// Auto-switch back to dev when leaving from a reviewer branch
-onBeforeRouteLeave(async (_to, _from, next) => {
-  if (!git.isOnDev && !git.isOnMain && git.currentBranch.startsWith('review/')) {
-    await git.switchBranch('dev');
-  }
-  next();
-});
 </script>
 
 <template>

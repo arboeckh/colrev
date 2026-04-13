@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { useGitStore } from '@/stores/git';
 
 // Lazy load views for better performance
 const LandingPage = () => import('@/views/LandingPage.vue');
@@ -234,6 +235,15 @@ router.beforeEach(async (to, _from) => {
   // Protected routes — redirect to login if no access
   if (!auth.hasAccess) {
     return '/login';
+  }
+
+  // Review branch guard: reviewer branches (review/*) should only be active
+  // on pages with managedReviewKind in their route meta. Auto-switch to dev
+  // when navigating anywhere else. Future review steps just need to add
+  // managedReviewKind to their route meta.
+  const git = useGitStore();
+  if (git.currentBranch.startsWith('review/') && !to.meta.managedReviewKind) {
+    await git.switchBranch('dev');
   }
 });
 

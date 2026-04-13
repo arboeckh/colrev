@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { onBeforeRouteLeave } from 'vue-router';
 import { CheckSquare, FileDown, AlertCircle, RefreshCw, GitBranch } from 'lucide-vue-next';
 import { EmptyState } from '@/components/common';
 import { Button } from '@/components/ui/button';
@@ -179,6 +178,10 @@ async function ensureManagedTaskAccess(): Promise<boolean> {
   assignedReviewerBranch.value = assignedReviewerEntry.branch_name;
   if (git.currentBranch !== assignedReviewerEntry.branch_name) {
     accessState.value = 'switching';
+    // Fetch remote refs first so the reviewer branch is available locally
+    if (git.hasRemote) {
+      await git.fetch();
+    }
     const switched = await git.switchBranch(assignedReviewerEntry.branch_name);
     if (!switched) {
       accessState.value = 'blocked';
@@ -343,14 +346,6 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown);
 });
 
-// Auto-switch back to dev when leaving the screen page from a reviewer branch
-// When embedded, the wrapper page handles this
-onBeforeRouteLeave(async (_to, _from, next) => {
-  if (!props.embedded && !git.isOnDev && !git.isOnMain && git.currentBranch.startsWith('review/')) {
-    await git.switchBranch('dev');
-  }
-  next();
-});
 </script>
 
 <template>

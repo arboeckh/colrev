@@ -411,6 +411,33 @@ export async function createGitHubRelease(
   };
 }
 
+/**
+ * Delete a GitHub repository. Requires admin access / delete_repo scope.
+ */
+export async function deleteGitHubRepo(
+  token: string,
+  owner: string,
+  repo: string,
+): Promise<{ success: boolean; error?: string }> {
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (res.status === 204) {
+    return { success: true };
+  }
+
+  const errorData = await res.json().catch(() => ({}));
+  return {
+    success: false,
+    error: errorData.message || `Failed to delete repository (${res.status})`,
+  };
+}
+
 interface CreateRepoAndPushParams {
   token: string;
   repoName: string;

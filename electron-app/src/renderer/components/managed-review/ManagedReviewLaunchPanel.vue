@@ -227,6 +227,8 @@ async function createTask() {
   if (!projects.currentProjectId || !reviewerA.value || !reviewerB.value) return;
 
   isCreating.value = true;
+  // Pause background fetch to avoid git lock conflicts during branch creation
+  git.stopBackgroundFetch();
   try {
     const response = await backend.call<CreateManagedReviewTaskResponse>('create_managed_review_task', {
       project_id: projects.currentProjectId,
@@ -257,6 +259,9 @@ async function createTask() {
     );
   } finally {
     isCreating.value = false;
+    if (git.hasRemote) {
+      git.startBackgroundFetch();
+    }
   }
 }
 

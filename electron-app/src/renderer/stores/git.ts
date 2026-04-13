@@ -47,6 +47,14 @@ export const useGitStore = defineStore('git', () => {
 
   let fetchIntervalId: ReturnType<typeof setInterval> | null = null;
 
+  // Serial queue for git operations to prevent concurrent access to .git/index.lock
+  let gitQueue: Promise<unknown> = Promise.resolve();
+  function enqueueGitOp<T>(fn: () => Promise<T>): Promise<T> {
+    const op = gitQueue.then(fn, fn); // run even if previous op rejected
+    gitQueue = op.then(() => {}, () => {}); // swallow to keep chain alive
+    return op;
+  }
+
   // Computed
   const hasRemote = computed(() => remoteUrl.value !== null);
   const isGitHubRemote = computed(() => remoteUrl.value?.includes('github.com') ?? false);
@@ -102,71 +110,77 @@ export const useGitStore = defineStore('git', () => {
     const path = getProjectPath();
     if (!path || isFetching.value) return false;
 
-    isFetching.value = true;
-    try {
-      const result = await window.git.fetch(path);
-      if (result.success) {
-        lastFetchTime.value = Date.now();
-        isOffline.value = false;
-        await refreshStatus();
-        return true;
-      } else {
-        // Network error -> offline
-        if (result.error?.includes('Could not resolve') || result.error?.includes('unable to access')) {
-          isOffline.value = true;
+    return enqueueGitOp(async () => {
+      isFetching.value = true;
+      try {
+        const result = await window.git.fetch(path);
+        if (result.success) {
+          lastFetchTime.value = Date.now();
+          isOffline.value = false;
+          await refreshStatus();
+          return true;
+        } else {
+          // Network error -> offline
+          if (result.error?.includes('Could not resolve') || result.error?.includes('unable to access')) {
+            isOffline.value = true;
+          }
+          return false;
         }
+      } catch {
+        isOffline.value = true;
         return false;
+      } finally {
+        isFetching.value = false;
       }
-    } catch {
-      isOffline.value = true;
-      return false;
-    } finally {
-      isFetching.value = false;
-    }
+    });
   }
 
   async function pull(): Promise<boolean> {
     const path = getProjectPath();
     if (!path || isPulling.value) return false;
 
-    isPulling.value = true;
-    try {
-      const result = await window.git.pull(path, true);
-      if (result.success) {
-        await refreshStatus();
-        await projects.refreshCurrentProject();
-        return true;
-      } else if (result.error === 'DIVERGED') {
-        // Trigger semantic conflict resolution instead of dead-end message
-        await startDivergenceResolution();
-        return false;
-      } else {
-        notifications.error('Pull failed', result.error || 'Unknown error');
-        return false;
+    return enqueueGitOp(async () => {
+      isPulling.value = true;
+      try {
+        const result = await window.git.pull(path, true);
+        if (result.success) {
+          await refreshStatus();
+          await projects.refreshCurrentProject();
+          return true;
+        } else if (result.error === 'DIVERGED') {
+          // Trigger semantic conflict resolution instead of dead-end message
+          await startDivergenceResolution();
+          return false;
+        } else {
+          notifications.error('Pull failed', result.error || 'Unknown error');
+          return false;
+        }
+      } finally {
+        isPulling.value = false;
       }
-    } finally {
-      isPulling.value = false;
-    }
+    });
   }
 
   async function push(): Promise<boolean> {
     const path = getProjectPath();
     if (!path || isPushing.value) return false;
 
-    isPushing.value = true;
-    try {
-      const result = await window.git.push(path);
-      if (result.success) {
-        await refreshStatus();
-        notifications.success('Changes saved to remote');
-        return true;
-      } else {
-        notifications.error('Push failed', result.error || 'Unknown error');
-        return false;
+    return enqueueGitOp(async () => {
+      isPushing.value = true;
+      try {
+        const result = await window.git.push(path);
+        if (result.success) {
+          await refreshStatus();
+          notifications.success('Changes saved to remote');
+          return true;
+        } else {
+          notifications.error('Push failed', result.error || 'Unknown error');
+          return false;
+        }
+      } finally {
+        isPushing.value = false;
       }
-    } finally {
-      isPushing.value = false;
-    }
+    });
   }
 
   async function refreshStatus(): Promise<void> {
@@ -220,27 +234,29 @@ export const useGitStore = defineStore('git', () => {
     const path = getProjectPath();
     if (!path) return false;
 
-    isSwitchingBranch.value = true;
-    try {
-      const result = await window.git.checkout(path, branchName);
-      if (!result.success) {
-        notifications.error('Branch switch failed', result.error || 'Unknown error');
-        return false;
+    return enqueueGitOp(async () => {
+      isSwitchingBranch.value = true;
+      try {
+        const result = await window.git.checkout(path, branchName);
+        if (!result.success) {
+          notifications.error('Branch switch failed', result.error || 'Unknown error');
+          return false;
+        }
+
+        currentBranch.value = branchName;
+
+        // Reload all project data since branch content differs
+        if (projects.currentProjectId) {
+          await projects.loadProject(projects.currentProjectId);
+        }
+
+        await refreshBranches();
+        refreshBranchDelta(); // Fire and forget
+        return true;
+      } finally {
+        isSwitchingBranch.value = false;
       }
-
-      currentBranch.value = branchName;
-
-      // Reload all project data since branch content differs
-      if (projects.currentProjectId) {
-        await projects.loadProject(projects.currentProjectId);
-      }
-
-      await refreshBranches();
-      refreshBranchDelta(); // Fire and forget
-      return true;
-    } finally {
-      isSwitchingBranch.value = false;
-    }
+    });
   }
 
   /**

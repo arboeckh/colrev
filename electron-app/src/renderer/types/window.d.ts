@@ -129,6 +129,9 @@ export interface GitHubAPI {
     body: string;
     projectPath: string;
   }) => Promise<{ success: boolean; release?: GitHubRelease; error?: string }>;
+  deleteRepo: (params: {
+    remoteUrl: string;
+  }) => Promise<{ success: boolean; error?: string }>;
 }
 
 export interface AccountInfo {

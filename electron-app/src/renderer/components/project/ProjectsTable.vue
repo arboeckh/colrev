@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { FolderOpen, Loader2, AlertCircle, Trash2, GitBranch, ExternalLink } from 'lucide-vue-next';
+import { FolderOpen, Loader2, AlertCircle, Trash2, GitBranch, ExternalLink, Github } from 'lucide-vue-next';
 import {
   Table,
   TableBody,
@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -37,6 +38,7 @@ const notifications = useNotificationsStore();
 const showDeleteDialog = ref(false);
 const projectToDelete = ref<ProjectListItem | null>(null);
 const isDeleting = ref(false);
+const deleteGithubToo = ref(false);
 
 function openProject(project: ProjectListItem) {
   if (!project.loading && !isDeleting.value) {
@@ -44,9 +46,15 @@ function openProject(project: ProjectListItem) {
   }
 }
 
+function hasGitHubRemote(project: ProjectListItem): boolean {
+  const url = project.gitStatus?.remote_url;
+  return !!url && url.includes('github.com');
+}
+
 function onDeleteClick(event: Event, project: ProjectListItem) {
   event.stopPropagation();
   projectToDelete.value = project;
+  deleteGithubToo.value = false;
   showDeleteDialog.value = true;
 }
 
@@ -56,12 +64,25 @@ async function confirmDelete() {
   isDeleting.value = true;
 
   try {
+    // Delete GitHub repo first if requested
+    if (deleteGithubToo.value && projectToDelete.value.gitStatus?.remote_url) {
+      const ghResult = await window.github.deleteRepo({
+        remoteUrl: projectToDelete.value.gitStatus.remote_url,
+      });
+      if (!ghResult.success) {
+        notifications.error('Failed to delete GitHub repository', ghResult.error ?? 'Unknown error');
+        isDeleting.value = false;
+        return;
+      }
+    }
+
     const response = await backend.call<DeleteProjectResponse>('delete_project', {
       project_id: projectToDelete.value.id,
     });
 
     if (response.success) {
-      notifications.success('Review deleted', `Deleted ${projectToDelete.value.id}`);
+      const suffix = deleteGithubToo.value ? ' and GitHub repository' : '';
+      notifications.success('Review deleted', `Deleted ${projectToDelete.value.id}${suffix}`);
       projectsStore.removeProject(projectToDelete.value.id);
     }
   } catch (err) {
@@ -210,9 +231,32 @@ function getUncommittedCount(project: ProjectListItem): number {
         <DialogTitle>Delete Review</DialogTitle>
         <DialogDescription>
           Are you sure you want to delete "{{ projectToDelete?.title || projectToDelete?.id }}"? This action cannot be undone
-          and will permanently remove all review files.
+          and will permanently remove all local review files.
         </DialogDescription>
       </DialogHeader>
+
+      <!-- GitHub delete option -->
+      <div
+        v-if="projectToDelete && hasGitHubRemote(projectToDelete)"
+        class="flex items-start gap-3 rounded-md border p-3"
+        :class="deleteGithubToo ? 'border-destructive bg-destructive/5' : 'border-border'"
+      >
+        <Checkbox
+          :checked="deleteGithubToo"
+          data-testid="delete-github-checkbox"
+          @update:checked="deleteGithubToo = $event"
+        />
+        <div class="space-y-1">
+          <label class="text-sm font-medium flex items-center gap-1.5 cursor-pointer" @click="deleteGithubToo = !deleteGithubToo">
+            <Github class="h-4 w-4" />
+            Also delete GitHub repository
+          </label>
+          <p class="text-xs text-muted-foreground">
+            This will permanently delete the repository on GitHub. All collaborators will lose access.
+          </p>
+        </div>
+      </div>
+
       <DialogFooter>
         <Button
           variant="outline"
@@ -228,7 +272,7 @@ function getUncommittedCount(project: ProjectListItem): number {
           @click="confirmDelete"
         >
           <Loader2 v-if="isDeleting" class="h-4 w-4 mr-2 animate-spin" />
-          Delete Review
+          {{ deleteGithubToo ? 'Delete Local & GitHub' : 'Delete Local' }}
         </Button>
       </DialogFooter>
     </DialogContent>

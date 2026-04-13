@@ -21,6 +21,7 @@ import {
   listRepoInvitations,
   acceptRepoInvitation,
   listPendingRepoInvitations,
+  deleteGitHubRepo,
 } from './github-manager';
 import {
   gitFetch,
@@ -543,6 +544,22 @@ function setupIPC() {
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to accept invitation',
+      };
+    }
+  });
+
+  // GitHub: delete a repository
+  ipcMain.handle('github:delete-repo', async (_, params: { remoteUrl: string }) => {
+    const token = authManager.getToken();
+    if (!token) return { success: false, error: 'Not authenticated' };
+    const parsed = parseOwnerRepo(params.remoteUrl);
+    if (!parsed) return { success: false, error: 'Not a GitHub URL' };
+    try {
+      return await deleteGitHubRepo(token, parsed.owner, parsed.repo);
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to delete repository',
       };
     }
   });

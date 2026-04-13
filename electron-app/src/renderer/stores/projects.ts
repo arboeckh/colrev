@@ -217,7 +217,10 @@ export const useProjectsStore = defineStore('projects', () => {
         // Non-critical
       }
 
-      // Auto-switch to dev (the working branch) if currently on main
+      // Auto-switch to dev (the working branch) if currently on main.
+      // Reviewer branches (review/*) are handled by the router guard in
+      // router/index.ts — NOT here, because switchBranch calls loadProject
+      // which would create an infinite loop.
       try {
         const { useGitStore } = await import('./git');
         const gitStore = useGitStore();

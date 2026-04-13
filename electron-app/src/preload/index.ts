@@ -114,6 +114,9 @@ contextBridge.exposeInMainWorld('github', {
 
   createRelease: (params: { remoteUrl: string; tagName: string; name: string; body: string; projectPath: string }) =>
     ipcRenderer.invoke('github:create-release', params),
+
+  deleteRepo: (params: { remoteUrl: string }) =>
+    ipcRenderer.invoke('github:delete-repo', params),
 });
 
 /**
