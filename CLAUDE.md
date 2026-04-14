@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+- Do not compliment me on my ideas. Don't say it is a sharp observation or "genuinely novel" and so on. Just say if it works or not and keep to the facts. I don't want compliments I want a system that works.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Repository Structure
@@ -313,13 +315,13 @@ States flow: `md_retrieved` → `md_imported` → `md_prepared` → `md_processe
 
 ### Key Fields (from `Fields` class in `colrev/constants.py`)
 
-| Category | Fields |
-|----------|--------|
-| Identity | `ID`, `ENTRYTYPE` |
-| Status | `colrev_status`, `colrev_origin`, `colrev_pdf_id` |
-| Provenance | `colrev_masterdata_provenance`, `colrev_data_provenance` |
+| Category      | Fields                                                               |
+| ------------- | -------------------------------------------------------------------- |
+| Identity      | `ID`, `ENTRYTYPE`                                                    |
+| Status        | `colrev_status`, `colrev_origin`, `colrev_pdf_id`                    |
+| Provenance    | `colrev_masterdata_provenance`, `colrev_data_provenance`             |
 | Bibliographic | `title`, `author`, `year`, `journal`, `booktitle`, `doi`, `abstract` |
-| Screening | `screening_criteria` (format: `"criterion1=in;criterion2=out"`) |
+| Screening     | `screening_criteria` (format: `"criterion1=in;criterion2=out"`)      |
 
 ### Protected Fields (cannot update via JSON-RPC API)
 
@@ -601,6 +603,7 @@ In development mode, Electron stores projects in the app's user data directory, 
 ```
 
 For example, a project named "my-review" would be at:
+
 ```
 ~/Library/Application Support/colrev-electron-poc/projects/my-review/
 ├── settings.json           # Project configuration
@@ -613,6 +616,7 @@ For example, a project named "my-review" would be at:
 ```
 
 **Debugging tip:** To inspect raw files after running search/load operations:
+
 ```bash
 ls -la ~/Library/Application\ Support/colrev-electron-poc/projects/
 cat ~/Library/Application\ Support/colrev-electron-poc/projects/<project>/data/search/pubmed.bib
