@@ -359,7 +359,6 @@ class TestUpdateRecordEndpoint:
                 "base_path": str(self.base_path),
                 "record_id": record_id,
                 "fields": {"ID": "new_id"},
-                "skip_commit": True,
             },
             "id": 2,
         }

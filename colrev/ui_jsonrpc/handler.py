@@ -1,130 +1,38 @@
-"""Main JSON-RPC request handler and router."""
-import io
+"""Main JSON-RPC request entry point.
+
+All routing is handled by the typed framework dispatcher
+(:mod:`colrev.ui_jsonrpc.framework.dispatcher`). Method registration happens
+as a side effect of importing :mod:`colrev.ui_jsonrpc.framework_handlers`,
+which is done once in :meth:`JSONRPCHandler.__init__`.
+
+The legacy if/elif router and `_handle_with_review_manager` plumbing lived
+here through Phase B/C migration and were deleted once every handler moved
+into the framework. For the wrapper that defers GitRepo write ops, see
+:class:`colrev.ui_jsonrpc.framework.LazyWriteGitRepo`.
+"""
+
 import logging
-import os
-import sys
-from pathlib import Path
 from typing import Any
 from typing import Dict
 
-import git as gitmodule
-
-import colrev.review_manager
-from colrev.constants import FileSets
 from colrev.ui_jsonrpc import error_handler
-from colrev.ui_jsonrpc import validation
-from colrev.ui_jsonrpc.handlers import DataHandler
-from colrev.ui_jsonrpc.handlers import DedupeHandler
-from colrev.ui_jsonrpc.handlers import GitHandler
-from colrev.ui_jsonrpc.handlers import InitHandler
-from colrev.ui_jsonrpc.handlers import LoadHandler
-from colrev.ui_jsonrpc.handlers import ManagedReviewHandler
-from colrev.ui_jsonrpc.handlers import PDFGetHandler
-from colrev.ui_jsonrpc.handlers import PDFPrepHandler
-from colrev.ui_jsonrpc.handlers import PrepHandler
-from colrev.ui_jsonrpc.handlers import PrepManHandler
-from colrev.ui_jsonrpc.handlers import PrescreenHandler
-from colrev.ui_jsonrpc.handlers import RecordsHandler
-from colrev.ui_jsonrpc.handlers import ReviewDefinitionHandler
-from colrev.ui_jsonrpc.handlers import ScreenHandler
-from colrev.ui_jsonrpc.handlers import SearchHandler
-from colrev.ui_jsonrpc.handlers import SettingsHandler
-from colrev.ui_jsonrpc.handlers import StatusHandler
+from colrev.ui_jsonrpc.framework.dispatcher import Dispatcher
 
 logger = logging.getLogger(__name__)
 
 
-class _LazyWriteGitRepo:
-    """GitRepo-compatible wrapper that defers update_gitignore until first write.
-
-    GitRepo.__init__() unconditionally writes .gitignore and calls ``git add``,
-    which acquires .git/index.lock.  For read-only JSON-RPC calls (listing tasks,
-    reading branch refs, loading records from commits) this is unnecessary and
-    causes index.lock conflicts with concurrent frontend git operations.
-
-    This wrapper constructs a bare ``git.Repo`` for reads and lazily initialises
-    the full ``GitRepo`` only when a write method is called.
-    """
-
-    def __init__(self, path: Path):
-        self.path = path.resolve()
-        self.repo = gitmodule.Repo(self.path)
-        self._full = None  # type: ignore[assignment]
-
-    def _ensure_full(self):
-        """Lazily construct the real GitRepo (runs update_gitignore)."""
-        if self._full is None:
-            from colrev.git_repo import GitRepo
-
-            self._full = GitRepo.__new__(GitRepo)
-            self._full.path = self.path
-            self._full.repo = self.repo
-            self._full.update_gitignore(
-                add=FileSets.DEFAULT_GIT_IGNORE_ITEMS,
-                remove=FileSets.DEPRECATED_GIT_IGNORE_ITEMS,
-            )
-        return self._full
-
-    # --- read-only helpers (no index.lock needed) ---
-
-    def repo_initialized(self) -> bool:
-        try:
-            self.repo.head.commit
-        except ValueError:
-            return False
-        return True
-
-    # --- write methods that need the full GitRepo ---
-
-    def add_changes(self, path, *, remove=False, ignore_missing=False):
-        return self._ensure_full().add_changes(
-            path, remove=remove, ignore_missing=ignore_missing
-        )
-
-    def add_setting_changes(self):
-        return self._ensure_full().add_setting_changes()
-
-    def create_commit(self, **kwargs):
-        return self._ensure_full().create_commit(**kwargs)
-
-    def records_changed(self):
-        return self._ensure_full().records_changed()
-
-    def has_changes(self, relative_path, *, change_type="all"):
-        return self._ensure_full().has_changes(relative_path, change_type=change_type)
-
-    def has_record_changes(self, *, change_type="all"):
-        return self._ensure_full().has_record_changes(change_type=change_type)
-
-    def stash_unstaged_changes(self):
-        return self._ensure_full().stash_unstaged_changes()
-
-    def update_gitignore(self, **kwargs):
-        return self._ensure_full().update_gitignore(**kwargs)
-
-    # Catch-all for any method not explicitly listed above
-    def __getattr__(self, name):
-        return getattr(self._ensure_full(), name)
-
-
 class JSONRPCHandler:
-    """Handle JSON-RPC 2.0 requests and route to appropriate operation handlers."""
+    """Handle JSON-RPC 2.0 requests via the typed framework dispatcher."""
 
-    def __init__(self):
-        """Initialize the JSON-RPC handler."""
-        # Handlers will be initialized per-project as needed
+    def __init__(self) -> None:
+        # Importing the framework_handlers package registers every
+        # @rpc_method-decorated handler into the global registry.
+        import colrev.ui_jsonrpc.framework_handlers  # noqa: F401
+
+        self._dispatcher = Dispatcher()
 
     def handle_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Process JSON-RPC 2.0 request and return response.
-
-        Args:
-            request: JSON-RPC request dictionary
-
-        Returns:
-            JSON-RPC response dictionary
-        """
-        # Validate JSON-RPC 2.0 structure
+        """Process a JSON-RPC 2.0 request and return a response envelope."""
         if request.get("jsonrpc") != "2.0":
             return error_handler.create_error_response(
                 error_handler.INVALID_REQUEST,
@@ -134,7 +42,7 @@ class JSONRPCHandler:
             )
 
         method = request.get("method")
-        params = request.get("params", {})
+        params = request.get("params", {}) or {}
         request_id = request.get("id")
 
         if not method:
@@ -145,241 +53,10 @@ class JSONRPCHandler:
                 request_id,
             )
 
-        # Route to appropriate method handler
         try:
-            result = self._route_method(method, params)
-            return {
-                "jsonrpc": "2.0",
-                "result": result,
-                "id": request_id,
-            }
+            result = self._dispatcher.dispatch(method, params)
+            return {"jsonrpc": "2.0", "result": result, "id": request_id}
 
-        except Exception as e:
-            logger.exception(f"Error executing method {method}")
-            return error_handler.handle_exception(e, request_id)
-
-    def _route_method(self, method: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Route method to appropriate handler.
-
-        Args:
-            method: JSON-RPC method name
-            params: Method parameters
-
-        Returns:
-            Method result dictionary
-
-        Raises:
-            ValueError: If method is not found
-        """
-        # Methods that don't require a project
-        if method == "ping":
-            return {"status": "pong"}
-        elif method == "init_project":
-            return InitHandler.init_project(params)
-        elif method == "list_projects":
-            return InitHandler.list_projects(params)
-        elif method == "delete_project":
-            return InitHandler.delete_project(params)
-        elif method == "get_csv_source_templates":
-            from colrev.ui_jsonrpc.csv_transforms import get_available_templates
-
-            return {"success": True, "templates": get_available_templates()}
-
-        # Methods that require an existing project
-
-        # Status operations
-        elif method in [
-            "get_status",
-            "status",
-            "validate",
-            "get_operation_info",
-            "get_preprocessing_summary",
-            "get_branch_delta",
-        ]:
-            return self._handle_with_review_manager(method, params, StatusHandler)
-
-        # Settings operations
-        elif method in ["get_settings", "update_settings"]:
-            return self._handle_with_review_manager(method, params, SettingsHandler)
-
-        # Records operations
-        elif method in ["get_records", "get_record", "update_record"]:
-            return self._handle_with_review_manager(method, params, RecordsHandler)
-
-        # Git operations
-        elif method in ["get_git_status"]:
-            return self._handle_with_review_manager(method, params, GitHandler)
-
-        # Managed-review operations
-        elif method in [
-            "get_managed_review_task_readiness",
-            "list_managed_review_tasks",
-            "get_current_managed_review_task",
-            "create_managed_review_task",
-            "cancel_managed_review_task",
-            "get_managed_review_task_queue",
-            "get_reconciliation_preview",
-            "apply_reconciliation",
-            "export_reconciliation_audit",
-        ]:
-            return self._handle_with_review_manager(
-                method, params, ManagedReviewHandler
-            )
-
-        # Search operations
-        elif method in [
-            "search",
-            "get_sources",
-            "add_source",
-            "update_source",
-            "remove_source",
-            "upload_search_file",
-            "get_source_records",
-        ]:
-            return self._handle_with_review_manager(method, params, SearchHandler)
-
-        # Load operations
-        elif method in ["load"]:
-            return self._handle_with_review_manager(method, params, LoadHandler)
-
-        # Prep operations
-        elif method in ["prep"]:
-            return self._handle_with_review_manager(method, params, PrepHandler)
-
-        # Prep man operations
-        elif method in ["prep_man_update_record"]:
-            return self._handle_with_review_manager(method, params, PrepManHandler)
-
-        # Dedupe operations
-        elif method in ["dedupe"]:
-            return self._handle_with_review_manager(method, params, DedupeHandler)
-
-        # Prescreen operations
-        elif method in [
-            "prescreen",
-            "get_prescreen_queue",
-            "prescreen_record",
-            "update_prescreen_decisions",
-            "enrich_record_metadata",
-            "batch_enrich_records",
-        ]:
-            return self._handle_with_review_manager(method, params, PrescreenHandler)
-
-        # PDF get operations
-        elif method in ["pdf_get", "upload_pdf", "mark_pdf_not_available", "undo_pdf_not_available", "match_pdf_to_records"]:
-            return self._handle_with_review_manager(method, params, PDFGetHandler)
-
-        # PDF prep operations
-        elif method in ["pdf_prep"]:
-            return self._handle_with_review_manager(method, params, PDFPrepHandler)
-
-        # Review definition operations
-        elif method in [
-            "get_review_definition",
-            "update_review_definition",
-            "get_screening_criteria",
-            "add_screening_criterion",
-            "update_screening_criterion",
-            "remove_screening_criterion",
-        ]:
-            return self._handle_with_review_manager(
-                method, params, ReviewDefinitionHandler
-            )
-
-        # Screen operations
-        elif method in [
-            "screen",
-            "get_screen_queue",
-            "screen_record",
-            "update_screen_decisions",
-            "include_all_screen",
-        ]:
-            return self._handle_with_review_manager(method, params, ScreenHandler)
-
-        # Data operations
-        elif method in ["data", "get_data_extraction_queue", "save_data_extraction", "configure_structured_endpoint", "export_data_csv"]:
-            return self._handle_with_review_manager(method, params, DataHandler)
-
-        else:
-            raise ValueError(f"Method '{method}' not found")
-
-    def _handle_with_review_manager(
-        self,
-        method: str,
-        params: Dict[str, Any],
-        handler_class: type,
-    ) -> Dict[str, Any]:
-        """
-        Handle method that requires ReviewManager.
-
-        Args:
-            method: Method name
-            params: Method parameters
-            handler_class: Handler class to instantiate
-
-        Returns:
-            Method result dictionary
-        """
-        # Validate project exists
-        project_path = validation.validate_existing_project(params)
-
-        # Save current directory and change to project directory
-        original_cwd = os.getcwd()
-
-        # OS-level fd redirect: captures output from child processes (e.g. bib_dedupe
-        # multiprocessing workers) that bypass Python-level sys.stdout redirects.
-        saved_stdout_fd = os.dup(1)
-        devnull_fd = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull_fd, 1)
-        os.close(devnull_fd)
-
-        # Python-level redirect as belt-and-suspenders
-        original_stdout = sys.stdout
-        stdout_buffer = io.StringIO()
-        sys.stdout = stdout_buffer
-
-        try:
-            os.chdir(project_path)
-
-            # Create ReviewManager
-            review_manager = colrev.review_manager.ReviewManager(
-                path_str=str(project_path),
-                force_mode=params.get("force", True),  # Force mode to skip prompts
-                verbose_mode=params.get("verbose", False),
-                high_level_operation=True,  # Suppress unnecessary output
-            )
-
-            # Pre-populate the Dataset's cached_property with a lazy wrapper
-            # that skips GitRepo.__init__'s update_gitignore (and its git add)
-            # until a write is actually needed.  This prevents index.lock
-            # conflicts on read-only JSON-RPC calls.
-            review_manager.dataset.__dict__["git_repo"] = _LazyWriteGitRepo(
-                Path(project_path)
-            )
-
-            # Create handler instance
-            handler = handler_class(review_manager)
-
-            # Call the method
-            if hasattr(handler, method):
-                method_func = getattr(handler, method)
-                result = method_func(params)
-
-                # Log captured output to stderr for debugging if needed
-                captured = stdout_buffer.getvalue()
-                if captured:
-                    logger.debug(f"Captured output from {method}: {captured[:500]}")
-
-                return result
-            else:
-                raise ValueError(
-                    f"Handler {handler_class.__name__} does not support method '{method}'"
-                )
-
-        finally:
-            # Restore Python-level stdout first, then OS-level fd 1
-            sys.stdout = original_stdout
-            os.dup2(saved_stdout_fd, 1)
-            os.close(saved_stdout_fd)
-            os.chdir(original_cwd)
+        except Exception as exc:  # noqa: BLE001 — translated to JSON-RPC error
+            logger.exception("Error executing method %s", method)
+            return error_handler.handle_exception(exc, request_id)

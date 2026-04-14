@@ -150,6 +150,9 @@ function setupIPC() {
         mainWindow?.webContents.send('colrev:close', code);
         backend = null;
       });
+      backend.on('progress', (event) => {
+        mainWindow?.webContents.send('colrev:progress', event);
+      });
 
       await backend.start();
       return { success: true };

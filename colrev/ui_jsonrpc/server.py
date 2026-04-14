@@ -203,10 +203,16 @@ def write_jsonrpc_response(response: Dict[str, Any]) -> None:
 
 def run_stdio_server() -> None:
     """Run the JSON-RPC server using stdio protocol."""
+    from colrev.ui_jsonrpc.framework.events import install_default_emitter
     from colrev.ui_jsonrpc.handler import JSONRPCHandler
 
     logger.info("CoLRev JSON-RPC server starting (stdio mode)")
     logger.info("Ready to receive requests via stdin")
+
+    # Route ProgressEvent emissions onto the same stdout channel as responses,
+    # as JSON-RPC notifications (no ``id``). Frontend demultiplexes by the
+    # presence of ``method`` / absence of ``id``.
+    install_default_emitter()
 
     handler = JSONRPCHandler()
 

@@ -48,6 +48,17 @@ contextBridge.exposeInMainWorld('colrev', {
     ipcRenderer.on('colrev:close', handler);
     return () => ipcRenderer.removeListener('colrev:close', handler);
   },
+
+  /**
+   * Subscribe to structured progress events from long-running operations.
+   * Replaces regex-parsing stderr logs. The payload matches the
+   * ``ProgressEvent`` Pydantic model (tagged by ``kind``).
+   */
+  onProgress: (callback: (event: unknown) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, event: unknown) => callback(event);
+    ipcRenderer.on('colrev:progress', handler);
+    return () => ipcRenderer.removeListener('colrev:progress', handler);
+  },
 });
 
 /**

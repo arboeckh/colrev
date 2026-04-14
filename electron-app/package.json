@@ -17,7 +17,9 @@
     "dev:duo:stop": "./dev-duo.sh stop",
     "test:e2e": "npm run build && playwright test",
     "test:e2e:headed": "npm run build && playwright test --headed",
-    "test:e2e:debug": "npm run build && playwright test --debug"
+    "test:e2e:debug": "npm run build && playwright test --debug",
+    "gen-types": "tsx scripts/gen-rpc-types.ts",
+    "gen-types:full": "cd .. && python scripts/export_rpc_schemas.py && cd electron-app && npm run gen-types"
   },
   "build": {
     "appId": "com.colrev.poc",
@@ -71,6 +73,8 @@
     "electron": "^40.1.0",
     "electron-builder": "^26.7.0",
     "electron-vite": "^5.0.0",
+    "json-schema-to-typescript": "^15.0.4",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vue": "^3.5.27"

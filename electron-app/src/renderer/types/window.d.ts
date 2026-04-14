@@ -1,12 +1,36 @@
 // Window API type declarations for Electron IPC
 
+import type {
+  ProgressEvent,
+  RPCMethodName,
+  RPCParams,
+  RPCResult,
+} from "./generated/rpc";
+
 export interface ColrevAPI {
   start: () => Promise<{ success: boolean; error?: string }>;
-  call: <T>(method: string, params: Record<string, unknown>) => Promise<T>;
+  /**
+   * Typed overload: when ``method`` is a known RPC method name, both the
+   * ``params`` and the returned ``result`` are validated against the
+   * backend's Pydantic-derived schema.
+   *
+   * The generic fallback remains for legacy call sites that haven't been
+   * updated; once every caller is typed, we can drop it.
+   */
+  call: (<M extends RPCMethodName>(
+    method: M,
+    params: RPCParams<M>,
+  ) => Promise<RPCResult<M>>) &
+    (<T>(method: string, params: Record<string, unknown>) => Promise<T>);
   stop: () => Promise<{ success: boolean }>;
   onLog: (callback: (msg: string) => void) => () => void;
   onError: (callback: (msg: string) => void) => () => void;
   onClose: (callback: (code: number | null) => void) => () => void;
+  /**
+   * Subscribe to structured progress events from long-running handlers
+   * (search, load, prep, etc.). Replaces regex-parsing of stderr logs.
+   */
+  onProgress: (callback: (event: ProgressEvent) => void) => () => void;
 }
 
 export interface FileOpsAPI {

@@ -64,6 +64,7 @@ class ReviewManager:
         navigate_to_home_dir: bool = True,
         exact_call: str = "",
         skip_upgrade: bool = True,
+        interactive_mode: bool = False,
     ) -> None:
         self.force_mode = force_mode
         """Force mode variable (bool)"""
@@ -71,6 +72,11 @@ class ReviewManager:
         """Verbose mode variable (bool)"""
         self.high_level_operation = high_level_operation
         """A high-level operation was called (bool)"""
+        self.interactive_mode = interactive_mode
+        """Interactive mode (bool): the repo is driven by a UI that interleaves
+        user actions between operations; records.bib may be dirty between
+        requests. Bypasses clean-repo and model preconditions without the
+        blanket disable semantics of force_mode."""
         # Note : mostly for formatting output
 
         if navigate_to_home_dir:

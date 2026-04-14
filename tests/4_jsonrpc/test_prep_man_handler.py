@@ -134,7 +134,6 @@ class TestPrepManUpdateRecordEndpoint:
                 "base_path": str(self.base_path),
                 "record_id": self.attention_record_id,
                 "fields": {"title": "A Proper Title for This Record"},
-                "skip_commit": True,
             },
             "id": 1,
         }
@@ -185,7 +184,6 @@ class TestPrepManUpdateRecordEndpoint:
                 "base_path": str(self.base_path),
                 "record_id": self.attention_record_id,
                 "fields": {"title": "Fixed Title"},
-                "skip_commit": True,
             },
             "id": 1,
         }
@@ -208,7 +206,6 @@ class TestPrepManUpdateRecordEndpoint:
                 "base_path": str(self.base_path),
                 "record_id": self.imported_record_id,
                 "fields": {"title": "New Title"},
-                "skip_commit": True,
             },
             "id": 1,
         }
@@ -227,7 +224,6 @@ class TestPrepManUpdateRecordEndpoint:
                 "base_path": str(self.base_path),
                 "record_id": self.attention_record_id,
                 "fields": {"ID": "new_id"},
-                "skip_commit": True,
             },
             "id": 1,
         }
@@ -280,7 +276,6 @@ class TestPrepManUpdateRecordEndpoint:
                 "base_path": str(self.base_path),
                 "record_id": "nonexistent_record_xyz",
                 "fields": {"title": "New Title"},
-                "skip_commit": True,
             },
             "id": 1,
         }

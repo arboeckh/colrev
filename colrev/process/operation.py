@@ -119,6 +119,9 @@ class Operation:
         if self.review_manager.force_mode:
             return
 
+        if getattr(self.review_manager, "interactive_mode", False):
+            return
+
         if self.type == OperationsType.load:
             self._require_clean_repo_general(
                 ignored_files=[

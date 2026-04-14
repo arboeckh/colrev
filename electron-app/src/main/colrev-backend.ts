@@ -163,19 +163,31 @@ export class ColrevBackend extends EventEmitter {
     if (!trimmed) return;
 
     try {
-      const response = JSON.parse(trimmed);
-      const pending = this.pending.get(response.id);
+      const message = JSON.parse(trimmed);
 
+      // JSON-RPC notification (no `id`): progress events or other server-push.
+      // Responses always have an `id`; notifications have `method` + `params`.
+      if (message.id === undefined && typeof message.method === 'string') {
+        if (message.method === 'progress') {
+          this.emit('progress', message.params);
+        } else {
+          // Unknown notification kind — forward as a log so it's observable.
+          this.emit('log', `[notification:${message.method}] ${trimmed}`);
+        }
+        return;
+      }
+
+      const pending = this.pending.get(message.id);
       if (pending) {
         clearTimeout(pending.timeout);
-        this.pending.delete(response.id);
+        this.pending.delete(message.id);
 
-        if (response.error) {
+        if (message.error) {
           pending.reject(
-            new Error(`${response.error.code}: ${response.error.message}`)
+            new Error(`${message.error.code}: ${message.error.message}`)
           );
         } else {
-          pending.resolve(response.result);
+          pending.resolve(message.result);
         }
       }
     } catch (err) {

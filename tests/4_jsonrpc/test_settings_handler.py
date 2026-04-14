@@ -194,7 +194,6 @@ class TestUpdateSettingsEndpoint:
                         "title": "Updated Project Title",
                     }
                 },
-                "skip_commit": True,
             },
             "id": 1,
         }
