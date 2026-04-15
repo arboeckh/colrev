@@ -116,7 +116,7 @@ function cancel() {
   <!-- View Mode (collapsed) -->
   <div
     v-if="!isEditing && mode !== 'add'"
-    class="p-4 bg-muted/50 rounded-lg hover:bg-muted cursor-pointer transition-all duration-200"
+    class="p-4 border border-border bg-muted/40 rounded hover:bg-muted cursor-pointer transition-colors duration-150"
     :data-testid="`criterion-view-${criterion?.name}`"
     @click="toggleEdit"
   >
@@ -152,7 +152,7 @@ function cancel() {
   <!-- Edit Mode (expanded) -->
   <div
     v-else
-    class="p-4 border-2 border-primary rounded-lg space-y-4 transition-all duration-200"
+    class="p-4 border border-foreground rounded space-y-4 transition-colors duration-150"
     :data-testid="mode === 'add' ? 'criterion-add-form' : `criterion-edit-${criterion?.name}`"
   >
     <div class="space-y-4">

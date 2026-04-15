@@ -71,7 +71,7 @@ function handleAddCriterion(data: any) {
     <!-- Empty State -->
     <div
       v-if="Object.keys(criteria).length === 0 && !showAddForm"
-      class="text-sm text-muted-foreground text-center py-8 border-2 border-dashed rounded-lg"
+      class="text-sm text-muted-foreground text-center py-8 border border-dashed rounded"
     >
       <p class="mb-2">No screening criteria defined yet.</p>
       <p class="text-xs">Add your first criterion to define inclusion/exclusion rules for screening.</p>

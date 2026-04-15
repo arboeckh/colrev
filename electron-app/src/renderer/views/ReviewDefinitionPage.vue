@@ -1,22 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
-import { useRouter, onBeforeRouteLeave } from 'vue-router';
-import { ArrowRight, Save } from 'lucide-vue-next';
+import { onBeforeRouteLeave } from 'vue-router';
+import { Save } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Separator } from '@/components/ui/separator';
+import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import { CriteriaList } from '@/components/review-definition';
 import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
-import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
 import { useGitStore } from '@/stores/git';
 
-const router = useRouter();
 const store = useReviewDefinitionStore();
-const projects = useProjectsStore();
 const notifications = useNotificationsStore();
 const gitStore = useGitStore();
 const { isReadOnly } = useReadOnly();
@@ -27,11 +22,6 @@ const objectives = ref('');
 
 // Tracks criteria changes staged to git but not yet committed
 const hasPendingCriteriaChanges = ref(false);
-
-// Quick stats
-const criteriaCount = computed(() => {
-  return Object.keys(store.definition?.criteria || {}).length;
-});
 
 // Dirty tracking
 const hasTextChanges = computed(() => {
@@ -132,93 +122,93 @@ async function handleDeleteCriterion(name: string) {
   }
 }
 
-function goToSearch() {
-  if (projects.currentProjectId) {
-    router.push(`/project/${projects.currentProjectId}/search`);
-  }
-}
 </script>
 
 <template>
-  <div class="p-6 h-full overflow-auto max-w-4xl" data-testid="review-definition-page">
-    <!-- Header -->
-    <div class="flex items-center gap-2 pb-4">
-      <h2 class="text-xl font-semibold">Review Definition</h2>
-      <Badge variant="secondary" class="text-xs" data-testid="review-type-badge">
-        {{ store.definition?.review_type || 'Not set' }}
-      </Badge>
-      <div v-if="isDirty && !isReadOnly" class="ml-auto flex items-center gap-2.5">
-        <span class="text-xs text-muted-foreground">Unsaved changes</span>
-        <Button
-          size="sm"
-          data-testid="save-definition-btn"
-          :disabled="store.isSaving"
-          @click="saveAll"
-          class="gap-1.5"
-        >
-          <Save class="h-3.5 w-3.5" />
-          {{ store.isSaving ? 'Saving...' : 'Save' }}
-        </Button>
+  <div class="h-full overflow-auto" data-testid="review-definition-page">
+    <!-- Sticky header with always-visible Save -->
+    <header
+      class="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75"
+    >
+      <div class="max-w-6xl mx-auto px-8 py-4 flex items-center gap-6">
+        <div class="min-w-0 flex-1">
+          <h1 class="text-2xl font-semibold tracking-tight-heading leading-tight truncate">
+            {{ store.definition?.title || 'Untitled Review' }}
+          </h1>
+        </div>
+        <div v-if="!isReadOnly" class="shrink-0 flex items-center gap-3">
+          <span v-if="isDirty" class="text-xs text-muted-foreground hidden sm:inline">
+            Unsaved changes
+          </span>
+          <Button
+            size="sm"
+            data-testid="save-definition-btn"
+            :disabled="!isDirty || store.isSaving"
+            class="gap-1.5"
+            @click="saveAll"
+          >
+            <Save class="h-3.5 w-3.5" />
+            {{ store.isSaving ? 'Saving...' : 'Save changes' }}
+          </Button>
+        </div>
       </div>
-    </div>
+    </header>
 
-    <Separator />
-
-    <!-- Overview form -->
-    <div class="pt-4 space-y-5 max-w-xl">
-      <!-- Title (read-only) -->
-      <div>
-        <label class="text-sm font-medium text-muted-foreground">Title</label>
-        <p class="text-sm mt-1">{{ store.definition?.title || 'Untitled Review' }}</p>
-      </div>
-
-      <!-- Protocol URL -->
-      <div>
-        <label class="text-sm font-medium mb-1.5 block">Protocol URL</label>
+    <div class="max-w-6xl mx-auto px-8 pt-10 pb-20">
+      <!-- Metadata row -->
+      <section class="pb-8 border-b border-border">
+        <label class="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground block mb-2">
+          Protocol URL
+        </label>
         <Input
           v-model="protocolUrl"
           placeholder="https://... (e.g., PROSPERO registration)"
           data-testid="protocol-url-input"
           :disabled="isReadOnly"
+          class="max-w-xl"
         />
+      </section>
+
+      <!-- Two-column body: RQ centerpiece + screening criteria sidebar -->
+      <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_22rem] gap-10 pt-10">
+        <!-- Research Question & Objectives (centerpiece) -->
+        <section class="min-w-0">
+          <div class="mb-5">
+            <h2 class="text-xl font-semibold tracking-tight-heading">
+              Research question &amp; objectives
+            </h2>
+          </div>
+
+          <RichTextEditor
+            v-model="objectives"
+            placeholder="Describe the research question or objectives of this review..."
+            data-testid="objectives-textarea"
+            min-height="26rem"
+            :disabled="isReadOnly"
+          />
+        </section>
+
+        <!-- Screening Criteria -->
+        <section class="min-w-0">
+          <div class="mb-5">
+            <h2 class="text-xl font-semibold tracking-tight-heading">
+              Inclusion &amp; exclusion criteria
+            </h2>
+            <p class="text-sm text-muted-foreground mt-1.5">
+              Criteria applied during prescreen and screen decisions.
+            </p>
+          </div>
+
+          <CriteriaList
+            :criteria="store.definition?.criteria || {}"
+            :is-saving="store.isSaving"
+            :read-only="isReadOnly"
+            @add-criterion="handleAddCriterion"
+            @update-criterion="handleUpdateCriterion"
+            @delete-criterion="handleDeleteCriterion"
+          />
+        </section>
       </div>
-
-      <!-- Objectives -->
-      <div>
-        <label class="text-sm font-medium mb-1.5 block">Research Question & Objectives</label>
-        <Textarea
-          v-model="objectives"
-          placeholder="Describe the research question or objectives of this review..."
-          rows="5"
-          data-testid="objectives-textarea"
-          :disabled="isReadOnly"
-        />
-      </div>
-    </div>
-
-    <Separator class="mt-5" />
-
-    <!-- Screening Criteria -->
-    <div class="pt-4 max-w-xl">
-      <h3 class="text-sm font-medium text-muted-foreground mb-1">Screening Criteria</h3>
-      <p class="text-xs text-muted-foreground/70 mb-3">Define inclusion and exclusion criteria for screening decisions</p>
-
-      <CriteriaList
-        :criteria="store.definition?.criteria || {}"
-        :is-saving="store.isSaving"
-        :read-only="isReadOnly"
-        @add-criterion="handleAddCriterion"
-        @update-criterion="handleUpdateCriterion"
-        @delete-criterion="handleDeleteCriterion"
-      />
-    </div>
-
-    <!-- Next Step -->
-    <div class="flex justify-end pt-5 pb-8">
-      <Button size="sm" data-testid="goto-search-btn" @click="goToSearch" class="gap-2">
-        Continue to Search
-        <ArrowRight class="h-3.5 w-3.5" />
-      </Button>
     </div>
   </div>
 </template>
