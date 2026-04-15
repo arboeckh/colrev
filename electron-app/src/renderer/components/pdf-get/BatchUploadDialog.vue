@@ -363,7 +363,6 @@ async function uploadAll() {
         record_id: assignment.recordId,
         filename: assignment.file.name,
         content,
-        skip_commit: true,
       });
 
       if (response.success) {

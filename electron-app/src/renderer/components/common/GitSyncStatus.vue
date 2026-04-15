@@ -66,7 +66,10 @@ const syncState = computed(() => {
       class: 'text-blue-500',
       clickable: true,
       action: () => git.push(),
-      tooltip: `${ahead} commit(s) ahead of remote. Click to save.`,
+      tooltip:
+        `${ahead} local commit(s) not yet pushed to remote. ` +
+        'Running search, load, prep, dedupe, pdf-get or data creates a commit. ' +
+        'Click to push.',
     };
   }
 

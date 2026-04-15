@@ -8,7 +8,6 @@ import ThemeToggle from '@/components/common/ThemeToggle.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
-
 const router = useRouter();
 const projects = useProjectsStore();
 const backend = useBackendStore();
@@ -50,7 +49,7 @@ async function refresh() {
         </h1>
       </div>
 
-      <!-- Right side: Save button + Git status + Theme toggle + Refresh -->
+      <!-- Right side: Pending changes + Git sync + Theme toggle + Refresh -->
       <div class="flex items-center gap-3">
         <GitSyncStatus v-if="projects.currentGitStatus" :status="projects.currentGitStatus" />
 

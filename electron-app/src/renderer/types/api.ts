@@ -90,7 +90,6 @@ export interface GetSettingsResponse extends SuccessResponse {
 export interface UpdateSettingsParams {
   project_id: string;
   settings: Partial<ProjectSettings>;
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -147,7 +146,6 @@ export interface UpdateRecordParams {
   project_id: string;
   record_id: string;
   fields: Partial<Record>;
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -171,7 +169,6 @@ export interface AddSourceParams {
   search_type: string;
   search_string?: string;
   filename?: string;
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -206,7 +203,6 @@ export interface SearchParams {
   project_id: string;
   source?: string;
   rerun?: boolean;
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -220,7 +216,6 @@ export interface RemoveSourceParams {
   project_id: string;
   filename: string;
   delete_file?: boolean;
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -234,7 +229,6 @@ export interface UpdateSourceParams {
   filename: string;
   search_string?: string;
   search_parameters?: globalThis.Record<string, unknown>;
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -336,7 +330,6 @@ export interface PrescreenRecordParams {
   record_id: string;
   decision: 'include' | 'exclude';
   task_id?: string;
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -360,7 +353,6 @@ export interface EnrichRecordMetadataParams {
   project_id: string;
   record_id: string;
   fields?: string[];
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -375,7 +367,6 @@ export interface BatchEnrichRecordsParams {
   project_id: string;
   record_ids: string[];
   fields?: string[];
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -428,7 +419,6 @@ export interface UploadPdfParams {
   record_id: string;
   filename: string;
   content: string;
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -468,7 +458,6 @@ export interface MatchPdfToRecordsResponse extends SuccessResponse {
 export interface MarkPdfNotAvailableParams {
   project_id: string;
   record_id: string;
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -533,7 +522,6 @@ export interface ScreenRecordParams {
   decision: 'include' | 'exclude';
   criteria_decisions?: globalThis.Record<string, 'in' | 'out'>;
   task_id?: string;
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -765,7 +753,6 @@ export interface UpdateReviewDefinitionParams {
   protocol_url?: string;
   keywords?: string[];
   objectives?: string;
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -779,7 +766,6 @@ export interface AddScreeningCriterionParams {
   explanation: string;
   comment?: string;
   criterion_type: 'inclusion_criterion' | 'exclusion_criterion';
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -793,7 +779,6 @@ export interface UpdateScreeningCriterionParams {
   explanation?: string;
   comment?: string;
   criterion_type?: 'inclusion_criterion' | 'exclusion_criterion';
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -804,7 +789,6 @@ export interface UpdateScreeningCriterionResponse extends SuccessResponse {
 export interface RemoveScreeningCriterionParams {
   project_id: string;
   criterion_name: string;
-  skip_commit?: boolean;
   base_path?: string;
 }
 
@@ -834,7 +818,6 @@ export interface UpdateScreenDecisionsResponse extends SuccessResponse {
 // Include All Screen
 export interface IncludeAllScreenParams {
   project_id: string;
-  skip_commit?: boolean;
   base_path?: string;
 }
 

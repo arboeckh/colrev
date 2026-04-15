@@ -32,6 +32,7 @@ from colrev.ui_jsonrpc.framework.domain import RecordSummary
 from colrev.ui_jsonrpc.framework.events import CapturingEmitter
 from colrev.ui_jsonrpc.framework.events import emit_progress
 from colrev.ui_jsonrpc.framework.events import install_default_emitter
+from colrev.ui_jsonrpc.framework.events import make_progress_callback
 from colrev.ui_jsonrpc.framework.events import set_emitter
 from colrev.ui_jsonrpc.framework.lazy_git import LazyWriteGitRepo
 from colrev.ui_jsonrpc.framework.models import NoProjectRequest
@@ -59,6 +60,7 @@ __all__ = [
     "SuccessResponse",
     "emit_progress",
     "install_default_emitter",
+    "make_progress_callback",
     "registry",
     "rpc_method",
     "set_emitter",

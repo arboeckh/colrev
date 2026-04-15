@@ -128,25 +128,20 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'pdfs',
-        redirect: (to) => ({ name: 'project-pdf-get', params: { id: to.params.id } }),
+        name: 'project-pdfs',
+        component: PdfsPage,
+        meta: {
+          title: 'PDFs',
+          step: 'pdfs',
+        },
       },
       {
         path: 'pdf-get',
-        name: 'project-pdf-get',
-        component: PdfsPage,
-        meta: {
-          title: 'PDF Get',
-          step: 'pdf_get',
-        },
+        redirect: (to) => ({ name: 'project-pdfs', params: { id: to.params.id } }),
       },
       {
         path: 'pdf-prep',
-        name: 'project-pdf-prep',
-        component: PdfsPage,
-        meta: {
-          title: 'PDF Prep',
-          step: 'pdf_prep',
-        },
+        redirect: (to) => ({ name: 'project-pdfs', params: { id: to.params.id } }),
       },
       {
         path: 'screen',

@@ -31,8 +31,10 @@ from colrev.constants import OperationsType
 from colrev.constants import RecordState
 from colrev.package_manager.package_manager import PackageManager
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import ProgressEventKind
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
+from colrev.ui_jsonrpc.framework import make_progress_callback
 from colrev.ui_jsonrpc.framework import rpc_method
 
 logger = logging.getLogger(__name__)
@@ -148,7 +150,11 @@ class PDFGetHandler(BaseHandler):
         logger.info("Running pdf-get operation for project %s", req.project_id)
 
         pdf_get_operation = self.op(OperationsType.pdf_get, notify=True)
-        pdf_get_operation.main()
+        pdf_get_operation.main(
+            progress_callback=make_progress_callback(
+                ProgressEventKind.pdf_get_progress, source="pdf_get"
+            ),
+        )
 
         return PDFGetResponse(
             project_id=req.project_id,

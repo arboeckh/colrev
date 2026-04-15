@@ -25,7 +25,7 @@ const { isReadOnly } = useReadOnly();
 const protocolUrl = ref('');
 const objectives = ref('');
 
-// Tracks criteria changes saved to backend with skip_commit
+// Tracks criteria changes staged to git but not yet committed
 const hasPendingCriteriaChanges = ref(false);
 
 // Quick stats
@@ -92,14 +92,14 @@ async function saveAll() {
   }
 }
 
-// Criteria: save to backend immediately (skip commit), defer commit to Save
+// Criteria: each change stages immediately; the user commits via the header's Commit dialog
 async function handleAddCriterion(data: {
   name: string;
   explanation: string;
   comment?: string;
   criterion_type: 'inclusion_criterion' | 'exclusion_criterion';
 }) {
-  const success = await store.addCriterion(data, true);
+  const success = await store.addCriterion(data);
   if (success) {
     hasPendingCriteriaChanges.value = true;
   } else {
@@ -115,7 +115,7 @@ async function handleUpdateCriterion(name: string, data: {
   const success = await store.updateCriterion({
     criterion_name: name,
     ...data,
-  }, true);
+  });
   if (success) {
     hasPendingCriteriaChanges.value = true;
   } else {
@@ -124,7 +124,7 @@ async function handleUpdateCriterion(name: string, data: {
 }
 
 async function handleDeleteCriterion(name: string) {
-  const success = await store.removeCriterion(name, true);
+  const success = await store.removeCriterion(name);
   if (success) {
     hasPendingCriteriaChanges.value = true;
   } else {

@@ -624,7 +624,11 @@ export interface DeltaByState {
 }
 
 // get_csv_source_templates
-export interface GetCSVSourceTemplatesRequest {}
+export type BasePath = string | null;
+
+export interface GetCSVSourceTemplatesRequest {
+  base_path?: BasePath;
+}
 
 export type Success = true;
 export type Templates = {}[];
@@ -1609,7 +1613,11 @@ export interface PDFPrepResponse {
 export interface Details {}
 
 // ping
-export interface PingRequest {}
+export type BasePath = string | null;
+
+export interface PingRequest {
+  base_path?: BasePath;
+}
 
 export type Status = "pong";
 export type Success = true;

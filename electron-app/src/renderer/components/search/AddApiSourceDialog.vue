@@ -96,7 +96,7 @@ function handleCancel() {
           <label class="text-sm font-medium">Search Query</label>
           <Textarea
             v-model="searchQuery"
-            placeholder="e.g., machine learning AND cancer[MeSH]"
+            placeholder='e.g., "machine learning" AND "diabetic retinopathy" AND "screening" AND 2023/01:2023/06[dp]'
             data-testid="pubmed-query-input"
             :disabled="isAdding"
             class="min-h-24 resize-y"
@@ -110,9 +110,7 @@ function handleCancel() {
         <div class="p-3 bg-muted rounded-md space-y-2">
           <p class="text-sm font-medium">Query Examples:</p>
           <ul class="text-xs text-muted-foreground space-y-1">
-            <li><code class="bg-background px-1 rounded">diabetes[MeSH] AND metformin</code></li>
-            <li><code class="bg-background px-1 rounded">"systematic review"[Title] AND COVID-19</code></li>
-            <li><code class="bg-background px-1 rounded">cancer AND (treatment OR therapy)</code></li>
+            <li><code class="bg-background px-1 rounded">"machine learning" AND "diabetic retinopathy" AND "screening" AND 2023/01:2023/06[dp]</code></li>
           </ul>
         </div>
       </div>

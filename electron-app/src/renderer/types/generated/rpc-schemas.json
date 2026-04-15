@@ -1416,7 +1416,20 @@
     "get_csv_source_templates": {
       "request": {
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "base_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Path"
+          }
+        },
         "title": "GetCSVSourceTemplatesRequest",
         "type": "object"
       },
@@ -4211,7 +4224,20 @@
     "ping": {
       "request": {
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "base_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Path"
+          }
+        },
         "title": "PingRequest",
         "type": "object"
       },

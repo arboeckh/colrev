@@ -7,6 +7,11 @@ import typing
 from collections import defaultdict
 from itertools import combinations
 from pathlib import Path
+from typing import Callable
+from typing import Optional
+
+# (current, total, message) — emitted per dedupe package endpoint.
+ProgressCallback = Optional[Callable[[int, int, str], None]]
 
 import pandas as pd
 from bib_dedupe.bib_dedupe import prep
@@ -665,7 +670,12 @@ class Dedupe(colrev.process.operation.Operation):
             print()
 
     @colrev.process.operation.Operation.decorate()
-    def main(self, *, debug: bool = False) -> None:
+    def main(
+        self,
+        *,
+        debug: bool = False,
+        progress_callback: ProgressCallback = None,
+    ) -> None:
         """Dedupe records (main entrypoint)"""
 
         self.review_manager.logger.info("Dedupe")
@@ -681,11 +691,17 @@ class Dedupe(colrev.process.operation.Operation):
             print()
 
         package_manager = PackageManager()
-        for (
-            dedupe_package_endpoint
-        ) in self.review_manager.settings.dedupe.dedupe_package_endpoints:
+        endpoints = list(self.review_manager.settings.dedupe.dedupe_package_endpoints)
+        total = len(endpoints)
+        for idx, dedupe_package_endpoint in enumerate(endpoints, start=1):
             # Note : load package/script at this point because the same script
             # may run with different parameters
+            if progress_callback is not None:
+                progress_callback(
+                    idx,
+                    total,
+                    f"Dedupe {dedupe_package_endpoint['endpoint']}",
+                )
 
             dedupe_class = package_manager.get_package_endpoint_class(
                 package_type=EndpointType.dedupe,

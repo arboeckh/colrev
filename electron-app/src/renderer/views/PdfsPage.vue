@@ -2,17 +2,13 @@
 import { ref, computed, onMounted } from 'vue';
 import {
   FileDown,
-  FileCheck,
-  Search,
-  Loader2,
+  CheckCircle2,
   FileUp,
+  Loader2,
+  Lock,
 } from 'lucide-vue-next';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { OperationButton, EmptyState } from '@/components/common';
 import PdfRecordTable from '@/components/pdf-get/PdfRecordTable.vue';
 import BatchUploadDialog from '@/components/pdf-get/BatchUploadDialog.vue';
@@ -28,64 +24,94 @@ const backend = useBackendStore();
 const notifications = useNotificationsStore();
 const { isReadOnly } = useReadOnly();
 
-const pdfGetInfo = projects.operationInfo.pdf_get;
-const pdfPrepInfo = projects.operationInfo.pdf_prep;
+type FilterKey = 'action' | 'completed' | 'unavailable' | 'all';
 
 const records = ref<PdfRecord[]>([]);
 const isLoading = ref(false);
-const searchText = ref('');
-const activeTab = ref('needs_pdf');
+const activeFilter = ref<FilterKey>('action');
 const uploadingRecordId = ref<string | null>(null);
 const markingRecordId = ref<string | null>(null);
+const undoingRecordId = ref<string | null>(null);
 const showBatchUpload = ref(false);
 const pdfFileInput = ref<HTMLInputElement | null>(null);
 const pendingUploadRecordId = ref<string | null>(null);
 const uploadResults = ref<Record<string, UploadResult>>({});
 
-// Status counts from project status
-const statusCounts = computed(() => projects.currentStatus?.currently ?? null);
-const needsPdfCount = computed(() => statusCounts.value?.pdf_needs_manual_retrieval ?? 0);
-const pdfImportedCount = computed(() => statusCounts.value?.pdf_imported ?? 0);
-const pdfPreparedCount = computed(() => statusCounts.value?.pdf_prepared ?? 0);
-const pdfNeedsPrepCount = computed(() => statusCounts.value?.pdf_needs_manual_preparation ?? 0);
-const pdfNotAvailableCount = computed(() => statusCounts.value?.pdf_not_available ?? 0);
+const counts = computed(() => projects.currentStatus?.currently ?? null);
+const prescreenIncludedCount = computed(() => counts.value?.rev_prescreen_included ?? 0);
+const needsRetrievalCount = computed(() => counts.value?.pdf_needs_manual_retrieval ?? 0);
+const importedCount = computed(() => counts.value?.pdf_imported ?? 0);
+const preparedCount = computed(() => counts.value?.pdf_prepared ?? 0);
+const needsPrepCount = computed(() => counts.value?.pdf_needs_manual_preparation ?? 0);
+const notAvailableCount = computed(() => counts.value?.pdf_not_available ?? 0);
 
-// Retrieved = imported + prepared + not_available
-const retrievedCount = computed(() => pdfImportedCount.value + pdfPreparedCount.value + pdfNotAvailableCount.value);
+const anyPdfActivity = computed(
+  () =>
+    needsRetrievalCount.value +
+      importedCount.value +
+      preparedCount.value +
+      needsPrepCount.value +
+      notAvailableCount.value >
+    0,
+);
 
-// Filter records by tab
-const filteredRecords = computed(() => {
-  let filtered = records.value;
+const completedCount = computed(() => importedCount.value + preparedCount.value);
+const actionCount = computed(() => needsRetrievalCount.value + needsPrepCount.value);
+const readyToRetrieveCount = computed(
+  () => prescreenIncludedCount.value + needsRetrievalCount.value,
+);
 
-  // Tab filter
-  if (activeTab.value === 'needs_pdf') {
-    filtered = filtered.filter((r) => r.colrev_status === 'pdf_needs_manual_retrieval');
-  } else if (activeTab.value === 'retrieved') {
-    filtered = filtered.filter((r) =>
-      ['pdf_imported', 'pdf_prepared', 'pdf_not_available'].includes(r.colrev_status),
-    );
-  } else if (activeTab.value === 'needs_prep') {
-    filtered = filtered.filter((r) => r.colrev_status === 'pdf_needs_manual_preparation');
-  }
+type PageState = 'blocked' | 'not-run' | 'post-run';
 
-  // Search filter
-  if (searchText.value) {
-    const q = searchText.value.toLowerCase();
-    filtered = filtered.filter(
-      (r) =>
-        r.title?.toLowerCase().includes(q) ||
-        r.author?.toLowerCase().includes(q) ||
-        r.ID.toLowerCase().includes(q),
-    );
-  }
-
-  return filtered;
+const pageState = computed<PageState>(() => {
+  if (!anyPdfActivity.value && prescreenIncludedCount.value === 0) return 'blocked';
+  if (!anyPdfActivity.value) return 'not-run';
+  return 'post-run';
 });
 
-// Records needing PDF (for batch upload matching)
+const canRunPdfGet = computed(() => projects.operationInfo.pdf_get?.can_run ?? false);
+const showRetrieveButton = computed(
+  () =>
+    pageState.value === 'post-run' &&
+    (readyToRetrieveCount.value > 0 || canRunPdfGet.value),
+);
+const allDone = computed(
+  () =>
+    pageState.value === 'post-run' &&
+    actionCount.value === 0 &&
+    readyToRetrieveCount.value === 0 &&
+    preparedCount.value > 0,
+);
+
+const filteredRecords = computed(() => {
+  if (activeFilter.value === 'action') {
+    return records.value.filter(
+      (r) =>
+        r.colrev_status === 'pdf_needs_manual_retrieval' ||
+        r.colrev_status === 'pdf_needs_manual_preparation',
+    );
+  }
+  if (activeFilter.value === 'completed') {
+    return records.value.filter(
+      (r) => r.colrev_status === 'pdf_imported' || r.colrev_status === 'pdf_prepared',
+    );
+  }
+  if (activeFilter.value === 'unavailable') {
+    return records.value.filter((r) => r.colrev_status === 'pdf_not_available');
+  }
+  return records.value;
+});
+
 const needsPdfRecords = computed(() =>
   records.value.filter((r) => r.colrev_status === 'pdf_needs_manual_retrieval'),
 );
+
+const filterTabs: { key: FilterKey; label: string; count: () => number }[] = [
+  { key: 'action', label: 'Action needed', count: () => actionCount.value },
+  { key: 'completed', label: 'Completed', count: () => completedCount.value },
+  { key: 'unavailable', label: 'Unavailable', count: () => notAvailableCount.value },
+  { key: 'all', label: 'All', count: () => records.value.length },
+];
 
 async function loadRecords() {
   if (!projects.currentProjectId || !backend.isRunning) return;
@@ -104,7 +130,17 @@ async function loadRecords() {
         ],
       },
       pagination: { offset: 0, limit: 500 },
-      fields: ['ID', 'title', 'author', 'year', 'colrev_status', 'journal', 'booktitle', 'doi', 'colrev_data_provenance'],
+      fields: [
+        'ID',
+        'title',
+        'author',
+        'year',
+        'colrev_status',
+        'journal',
+        'booktitle',
+        'doi',
+        'colrev_data_provenance',
+      ],
     });
 
     if (response.success) {
@@ -174,7 +210,6 @@ async function handlePdfFileSelected(event: Event) {
         notifications.success('PDF uploaded', `PDF linked to ${recordId}`);
       }
 
-      // Delay refresh slightly so the user sees the result indicator
       setTimeout(async () => {
         await refresh();
       }, 2000);
@@ -211,11 +246,34 @@ async function markNotAvailable(recordId: string) {
   }
 }
 
+async function undoNotAvailable(recordId: string) {
+  if (!projects.currentProjectId) return;
+
+  undoingRecordId.value = recordId;
+  try {
+    const response = await backend.call<MarkPdfNotAvailableResponse>('undo_pdf_not_available', {
+      project_id: projects.currentProjectId,
+      record_id: recordId,
+    });
+
+    if (response.success) {
+      notifications.success('Restored', `${recordId} ready for retrieval`);
+      await refresh();
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    notifications.error('Failed', message);
+  } finally {
+    undoingRecordId.value = null;
+  }
+}
+
 async function refresh() {
   await Promise.all([loadRecords(), projects.refreshCurrentProject()]);
 }
 
 async function handleOperationComplete() {
+  activeFilter.value = 'action';
   await refresh();
 }
 
@@ -231,189 +289,163 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="p-6 h-full flex flex-col" data-testid="pdfs-page">
+  <div class="p-6 h-full flex flex-col space-y-6" data-testid="pdfs-page">
     <!-- Header -->
-    <div class="flex items-center justify-between mb-3">
+    <div class="flex items-start justify-between gap-4">
       <div>
         <h2 class="text-2xl font-bold flex items-center gap-2">
           <FileDown class="h-6 w-6" />
           PDFs
         </h2>
-        <p class="text-muted-foreground text-sm">Retrieve and prepare PDF documents</p>
+        <p class="text-muted-foreground text-sm">Retrieve and prepare PDFs for included records</p>
       </div>
 
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-3">
+        <div
+          v-if="allDone"
+          class="flex items-center gap-2 text-green-600 dark:text-green-400"
+        >
+          <CheckCircle2 class="h-5 w-5" />
+          <span class="text-sm font-medium">All retrieved</span>
+        </div>
+
         <OperationButton
-          v-if="projects.currentProjectId"
+          v-if="projects.currentProjectId && (pageState === 'not-run' || showRetrieveButton)"
           operation="pdf_get"
           :project-id="projects.currentProjectId"
-          label="Run PDF Get"
-          :disabled="!pdfGetInfo?.can_run"
-          @success="handleOperationComplete"
-        />
-        <OperationButton
-          v-if="projects.currentProjectId"
-          operation="pdf_prep"
-          :project-id="projects.currentProjectId"
-          label="Run PDF Prep"
-          :disabled="!pdfPrepInfo?.can_run"
+          :label="pageState === 'not-run' ? 'Retrieve PDFs' : 'Re-run retrieval'"
+          :disabled="!canRunPdfGet"
+          show-progress
+          test-id="pdfs-retrieve-btn"
           @success="handleOperationComplete"
         />
       </div>
     </div>
 
-    <Separator class="mb-4" />
+    <Separator />
 
-    <!-- Summary badges -->
-    <div class="flex items-center gap-3 mb-4" data-testid="pdfs-summary">
-      <Badge
-        variant="destructive"
-        class="px-3 py-1"
-        data-testid="pdfs-needs-count"
-      >
-        {{ needsPdfCount }} Need PDF
-      </Badge>
-      <Badge
-        variant="secondary"
-        class="px-3 py-1"
-        data-testid="pdfs-imported-count"
-      >
-        {{ pdfImportedCount }} Imported
-      </Badge>
-      <Badge
-        class="px-3 py-1 bg-green-600 text-white hover:bg-green-600"
-        data-testid="pdfs-prepared-count"
-      >
-        {{ pdfPreparedCount }} Prepared
-      </Badge>
-      <Badge
-        v-if="pdfNeedsPrepCount > 0"
-        variant="secondary"
-        class="px-3 py-1 border-yellow-500"
-        data-testid="pdfs-needs-prep-count"
-      >
-        {{ pdfNeedsPrepCount }} Needs Prep
-      </Badge>
-      <Badge
-        variant="outline"
-        class="px-3 py-1"
-        data-testid="pdfs-not-available-count"
-      >
-        {{ pdfNotAvailableCount }} Not Available
-      </Badge>
-    </div>
-
-    <!-- Tabs + Search + Batch Upload -->
-    <Tabs v-model="activeTab" class="flex-1 flex flex-col min-h-0">
-      <div class="flex items-center justify-between mb-3">
-        <TabsList>
-          <TabsTrigger value="needs_pdf" data-testid="pdfs-tab-needs">
-            Needs PDF ({{ needsPdfCount }})
-          </TabsTrigger>
-          <TabsTrigger value="retrieved" data-testid="pdfs-tab-retrieved">
-            Retrieved ({{ retrievedCount }})
-          </TabsTrigger>
-          <TabsTrigger value="needs_prep" data-testid="pdfs-tab-needs-prep">
-            Needs Prep ({{ pdfNeedsPrepCount }})
-          </TabsTrigger>
-          <TabsTrigger value="all" data-testid="pdfs-tab-all">
-            All
-          </TabsTrigger>
-        </TabsList>
-
-        <div class="flex items-center gap-2">
-          <div class="relative">
-            <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              v-model="searchText"
-              placeholder="Search records..."
-              class="pl-9 w-64"
-              data-testid="pdfs-search"
-            />
-          </div>
-          <Button
-            v-if="needsPdfRecords.length > 0 && !isReadOnly"
-            variant="outline"
-            data-testid="pdfs-batch-upload-btn"
-            @click="showBatchUpload = true"
-          >
-            <FileUp class="h-4 w-4 mr-2" />
-            Batch Upload PDFs
-          </Button>
-        </div>
-      </div>
-
-      <!-- Loading state -->
-      <div v-if="isLoading" class="flex-1 flex items-center justify-center">
-        <Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-
-      <!-- Empty state -->
+    <!-- Blocked state: prescreen not done -->
+    <div v-if="pageState === 'blocked'" class="flex-1 flex items-center justify-center">
       <EmptyState
-        v-else-if="records.length === 0"
-        :icon="FileDown"
-        title="No PDF records"
-        description="Run PDF Get to start retrieving PDFs for your included records."
+        :icon="Lock"
+        title="Complete prescreening first"
+        description="PDF retrieval starts once records have been included in the prescreen."
       />
+    </div>
 
-      <!-- Records tables -->
-      <template v-else>
-        <TabsContent value="needs_pdf" class="flex-1 min-h-0 mt-0">
-          <ScrollArea class="h-full">
-            <PdfRecordTable
-              :records="filteredRecords"
-              :uploading-record-id="uploadingRecordId"
-              :marking-record-id="markingRecordId"
-              :upload-results="uploadResults"
-              :show-actions="!isReadOnly"
-              @upload="uploadPdfForRecord"
-              @mark-not-available="markNotAvailable"
-            />
-          </ScrollArea>
-        </TabsContent>
+    <!-- Not-run state: centered CTA -->
+    <div
+      v-else-if="pageState === 'not-run'"
+      class="flex-1 flex flex-col items-center justify-center text-center px-6"
+      data-testid="pdfs-not-run"
+    >
+      <div class="flex h-14 w-14 items-center justify-center rounded-full bg-muted/40 mb-6">
+        <FileDown class="h-6 w-6 text-muted-foreground" />
+      </div>
+      <h3 class="text-xl font-semibold mb-2">
+        Retrieve PDFs for {{ prescreenIncludedCount }}
+        record{{ prescreenIncludedCount === 1 ? '' : 's' }}
+      </h3>
+      <p class="text-sm text-muted-foreground max-w-md mb-8">
+        CoLRev will attempt automated retrieval and preparation.
+        Records it can't find will be listed for manual upload.
+      </p>
+      <OperationButton
+        v-if="projects.currentProjectId"
+        operation="pdf_get"
+        :project-id="projects.currentProjectId"
+        label="Retrieve PDFs"
+        :disabled="!canRunPdfGet"
+        show-progress
+        test-id="pdfs-retrieve-cta"
+        @success="handleOperationComplete"
+      />
+    </div>
 
-        <TabsContent value="retrieved" class="flex-1 min-h-0 mt-0">
-          <ScrollArea class="h-full">
-            <PdfRecordTable :records="filteredRecords" />
-          </ScrollArea>
-        </TabsContent>
+    <!-- Post-run state -->
+    <template v-else>
+      <!-- Filter row + batch upload -->
+      <div class="flex items-center justify-between gap-4">
+        <div class="flex items-center gap-6 text-sm">
+          <button
+            v-for="tab in filterTabs"
+            :key="tab.key"
+            type="button"
+            class="relative -mb-px pb-1 border-b-2 transition-colors"
+            :class="[
+              activeFilter === tab.key
+                ? 'border-foreground text-foreground font-medium'
+                : 'border-transparent text-muted-foreground hover:text-foreground',
+            ]"
+            :data-testid="`pdfs-filter-${tab.key}`"
+            @click="activeFilter = tab.key"
+          >
+            {{ tab.label }}
+            <span class="ml-1.5 text-xs tabular-nums text-muted-foreground/70">
+              {{ tab.count() }}
+            </span>
+          </button>
+        </div>
 
-        <TabsContent value="needs_prep" class="flex-1 min-h-0 mt-0">
-          <ScrollArea class="h-full">
-            <EmptyState
-              v-if="filteredRecords.length === 0"
-              :icon="FileCheck"
-              title="No records need preparation"
-              description="All imported PDFs have been prepared, or none need manual preparation."
-            />
-            <PdfRecordTable
-              v-else
-              :records="filteredRecords"
-              :uploading-record-id="uploadingRecordId"
-              :upload-results="uploadResults"
-              :show-actions="!isReadOnly"
-              @upload="uploadPdfForRecord"
-            />
-          </ScrollArea>
-        </TabsContent>
+        <button
+          v-if="needsPdfRecords.length > 0 && !isReadOnly"
+          type="button"
+          class="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          data-testid="pdfs-batch-upload-btn"
+          @click="showBatchUpload = true"
+        >
+          <FileUp class="h-3.5 w-3.5" />
+          Batch upload PDFs
+        </button>
+      </div>
 
-        <TabsContent value="all" class="flex-1 min-h-0 mt-0">
-          <ScrollArea class="h-full">
-            <PdfRecordTable
-              :records="filteredRecords"
-              :uploading-record-id="uploadingRecordId"
-              :marking-record-id="markingRecordId"
-              :upload-results="uploadResults"
-              :show-actions="!isReadOnly"
-              @upload="uploadPdfForRecord"
-              @mark-not-available="markNotAvailable"
-            />
-          </ScrollArea>
-        </TabsContent>
-      </template>
-    </Tabs>
+      <Separator />
 
-    <!-- Hidden file input for single PDF upload (sr-only keeps it in DOM flow) -->
+      <!-- Record list -->
+      <div class="flex-1 min-h-0 overflow-auto -mx-6 px-6">
+        <div
+          v-if="isLoading"
+          class="flex items-center justify-center py-12"
+        >
+          <Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+
+        <div
+          v-else-if="filteredRecords.length === 0"
+          class="flex items-center justify-center py-12 text-sm text-muted-foreground"
+          data-testid="pdfs-empty-filter"
+        >
+          <template v-if="activeFilter === 'action'">
+            <CheckCircle2 class="h-4 w-4 mr-2 text-green-600" />
+            Nothing needs action
+          </template>
+          <template v-else-if="activeFilter === 'completed'">
+            No records completed yet
+          </template>
+          <template v-else-if="activeFilter === 'unavailable'">
+            No records marked unavailable
+          </template>
+          <template v-else>
+            No records
+          </template>
+        </div>
+
+        <PdfRecordTable
+          v-else
+          :records="filteredRecords"
+          :uploading-record-id="uploadingRecordId"
+          :marking-record-id="markingRecordId"
+          :undoing-record-id="undoingRecordId"
+          :upload-results="uploadResults"
+          :show-actions="!isReadOnly"
+          @upload="uploadPdfForRecord"
+          @mark-not-available="markNotAvailable"
+          @undo-not-available="undoNotAvailable"
+        />
+      </div>
+    </template>
+
+    <!-- Hidden file input for single PDF upload -->
     <input
       ref="pdfFileInput"
       type="file"

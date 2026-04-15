@@ -315,7 +315,6 @@ async function startBackgroundEnrichment() {
       const response = await backend.call<BatchEnrichRecordsResponse>('batch_enrich_records', {
         project_id: projects.currentProjectId!,
         record_ids: recordsToEnrich,
-        skip_commit: true,
       });
 
       if (signal.aborted) break;
@@ -356,7 +355,6 @@ async function enrichSingleRecord(recordId: string) {
     const response = await backend.call<EnrichRecordMetadataResponse>('enrich_record_metadata', {
       project_id: projects.currentProjectId!,
       record_id: recordId,
-      skip_commit: true,
     });
 
     if (response.success && response.record) {

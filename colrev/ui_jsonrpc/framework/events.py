@@ -23,6 +23,7 @@ from typing import List
 from typing import Optional
 
 from colrev.ui_jsonrpc.framework.domain import ProgressEvent
+from colrev.ui_jsonrpc.framework.domain import ProgressEventKind
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,32 @@ def emit_progress(event: ProgressEvent) -> None:
         fn(event)
     except Exception:  # noqa: BLE001
         logger.exception("progress emission failed")
+
+
+def make_progress_callback(
+    kind: "ProgressEventKind",
+    *,
+    source: Optional[str] = None,
+) -> Callable[[int, int, str], None]:
+    """Return a ``(current, total, message)`` callback that emits a typed event.
+
+    Operations in :mod:`colrev.ops` accept a primitive-args callback to avoid
+    depending on the UI framework. Handlers use this factory to adapt the
+    primitive callback to a structured :class:`ProgressEvent` emission.
+    """
+
+    def _callback(current: int, total: int, message: str) -> None:
+        emit_progress(
+            ProgressEvent(
+                kind=kind,
+                message=message,
+                current=current,
+                total=total,
+                source=source,
+            )
+        )
+
+    return _callback
 
 
 class CapturingEmitter:

@@ -27,8 +27,10 @@ from pydantic import ConfigDict
 
 from colrev.constants import OperationsType
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import ProgressEventKind
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
+from colrev.ui_jsonrpc.framework import make_progress_callback
 from colrev.ui_jsonrpc.framework import rpc_method
 
 logger = logging.getLogger(__name__)
@@ -201,17 +203,23 @@ class SearchHandler(BaseHandler):
 
         search_operation = self.op(OperationsType.search, notify=True)
 
+        progress_cb = make_progress_callback(
+            ProgressEventKind.search_progress, source="search"
+        )
+
         # When source is "all", don't pass selection_str; the decorator
         # _check_source_selection_exists validates the kwarg if passed and
         # "all" is not a valid path.
         if req.source == "all":
             search_operation.main(
                 rerun=req.rerun,
+                progress_callback=progress_cb,
             )
         else:
             search_operation.main(
                 selection_str=req.source,
                 rerun=req.rerun,
+                progress_callback=progress_cb,
             )
 
         # Record last_run timestamps so the UI can distinguish

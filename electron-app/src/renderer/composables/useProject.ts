@@ -62,8 +62,9 @@ export function useProject() {
       prep: 'preprocessing',
       dedupe: 'preprocessing',
       prescreen: 'prescreen',
-      pdf_get: 'pdf-get',
-      pdf_prep: 'pdf-prep',
+      pdf_get: 'pdfs',
+      pdf_prep: 'pdfs',
+      pdfs: 'pdfs',
       screen: 'screen',
       data: 'data',
     };

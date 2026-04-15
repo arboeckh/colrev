@@ -9,12 +9,14 @@ import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
 import { useNotificationsStore } from '@/stores/notifications';
+import { usePendingChangesStore } from '@/stores/pendingChanges';
 
 const route = useRoute();
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const git = useGitStore();
 const notifications = useNotificationsStore();
+const pending = usePendingChangesStore();
 
 // Load project when route changes
 async function loadProjectFromRoute() {
@@ -35,6 +37,7 @@ async function loadProjectFromRoute() {
     } else {
       // Initialize git state after project loads
       await git.initialize();
+      pending.startPolling();
     }
   }
 }
@@ -78,6 +81,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('focus', handleWindowFocus);
   git.cleanup();
+  pending.stopPolling();
 });
 </script>
 

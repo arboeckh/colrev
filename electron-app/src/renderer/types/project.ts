@@ -1,25 +1,19 @@
 // Project and record type definitions
 
-export type RecordStatus =
-  | 'md_retrieved'
-  | 'md_imported'
-  | 'md_needs_manual_preparation'
-  | 'md_prepared'
-  | 'md_processed'
-  | 'rev_prescreen_excluded'
-  | 'rev_prescreen_included'
-  | 'pdf_needs_manual_retrieval'
-  | 'pdf_imported'
-  | 'pdf_needs_manual_preparation'
-  | 'pdf_prepared'
-  | 'rev_excluded'
-  | 'rev_included'
-  | 'rev_synthesized';
+import type { RecordStateName, RecordPayload } from './generated/rpc';
 
-export interface Record {
-  ID: string;
-  ENTRYTYPE: string;
-  colrev_status: RecordStatus;
+// Re-export the generated state-name union under the legacy alias so existing
+// call sites keep working while we finish the migration to generated types.
+export type RecordStatus = RecordStateName;
+
+// The generated `RecordPayload` only types core identity fields and uses
+// `[key: string]: unknown` for bib passthrough (matches the backend's
+// `extra="allow"` contract). To keep existing components that read
+// `record.title`/`record.author`/... compiling, we widen the alias with the
+// commonly-read optional string fields. Treat this as a temporary shim
+// during the migration to typed call<M>; unknown-typed fields from the
+// backend should eventually be narrowed at their call sites.
+export type Record = RecordPayload & {
   title?: string;
   author?: string;
   year?: string;
@@ -29,8 +23,7 @@ export interface Record {
   doi?: string;
   url?: string;
   file?: string;
-  [key: string]: unknown;
-}
+};
 
 export interface RecordCounts {
   md_retrieved: number;
@@ -216,6 +209,7 @@ export type WorkflowStep =
   | 'prescreen'
   | 'pdf_get'
   | 'pdf_prep'
+  | 'pdfs'
   | 'screen'
   | 'data';
 
@@ -362,20 +356,17 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     managedReviewKind: 'prescreen',
   },
   {
-    id: 'pdf_get',
-    label: 'PDF Get',
-    description: 'Retrieve PDFs',
-    route: 'pdf-get',
-    inputStates: ['rev_prescreen_included', 'pdf_needs_manual_retrieval'],
-    outputStates: ['pdf_imported', 'pdf_not_available'],
-  },
-  {
-    id: 'pdf_prep',
-    label: 'PDF Prep',
-    description: 'Prepare PDFs for screening',
-    route: 'pdf-prep',
-    inputStates: ['pdf_imported', 'pdf_needs_manual_preparation'],
-    outputStates: ['pdf_prepared'],
+    id: 'pdfs',
+    label: 'PDFs',
+    description: 'Retrieve and prepare PDFs',
+    route: 'pdfs',
+    inputStates: [
+      'rev_prescreen_included',
+      'pdf_needs_manual_retrieval',
+      'pdf_imported',
+      'pdf_needs_manual_preparation',
+    ],
+    outputStates: ['pdf_prepared', 'pdf_not_available'],
   },
   {
     id: 'screen',

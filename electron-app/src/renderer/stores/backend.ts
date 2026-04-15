@@ -2,6 +2,22 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { useDebugStore } from './debug';
 import { enqueueGitOp } from '@/lib/gitQueue';
+import rpcSchemas from '@/types/generated/rpc-schemas.json';
+import type {
+  ProgressEvent,
+  RPCMethodName,
+  RPCParams,
+  RPCResult,
+} from '@/types/generated/rpc';
+
+// Methods flagged `writes: true` in the generated schema. Any successful call
+// to one of these leaves staged changes in the repo, so the pending-changes
+// store needs to re-check `get_git_status` after the response.
+const WRITER_METHODS: ReadonlySet<string> = new Set(
+  Object.entries(rpcSchemas.methods as Record<string, { writes?: boolean }>)
+    .filter(([, spec]) => spec?.writes === true)
+    .map(([name]) => name),
+);
 
 export type BackendStatus = 'stopped' | 'starting' | 'running' | 'error';
 
@@ -40,6 +56,7 @@ export const useBackendStore = defineStore('backend', () => {
   let unsubLog: (() => void) | null = null;
   let unsubError: (() => void) | null = null;
   let unsubClose: (() => void) | null = null;
+  let unsubProgress: (() => void) | null = null;
 
   // Computed
   const isRunning = computed(() => status.value === 'running');
@@ -54,77 +71,6 @@ export const useBackendStore = defineStore('backend', () => {
     if (logs.value.length > 100) {
       logs.value.shift();
     }
-
-    // Parse for search progress patterns
-    parseSearchProgress(msg);
-    // Parse for generic operation progress (pdf_get, pdf_prep, etc.)
-    parseOperationProgress(msg);
-  }
-
-  function parseSearchProgress(msg: string) {
-    // Pattern: "Found X results" or "total_results: X" or "Total results found: X"
-    // Process this FIRST to establish the real total before batch messages
-    const resultsMatch = msg.match(/Found (\d+) results|total[_\s]?results[:\s]+(\d+)/i);
-    if (resultsMatch) {
-      const total = parseInt(resultsMatch[1] || resultsMatch[2], 10);
-      const progress: SearchProgress = {
-        currentBatch: 0,
-        totalBatches: Math.ceil(total / 200), // Estimate based on batch size
-        fetchedRecords: 0,
-        totalRecords: total,
-        status: `Found ${total} results`,
-      };
-      searchProgress.value = progress;
-      notifySearchProgressListeners(progress);
-      return;
-    }
-
-    // Pattern: "Fetching X records in batches"
-    // This gives us the actual count to fetch (may differ from total results due to deduplication)
-    const fetchingMatch = msg.match(/Fetching (\d+) records in batches/i);
-    if (fetchingMatch) {
-      const total = parseInt(fetchingMatch[1], 10);
-      const progress: SearchProgress = {
-        currentBatch: 0,
-        totalBatches: Math.ceil(total / 200),
-        fetchedRecords: 0,
-        totalRecords: total,
-        status: `Fetching ${total} records...`,
-      };
-      searchProgress.value = progress;
-      notifySearchProgressListeners(progress);
-      return;
-    }
-
-    // Pattern: "Fetching batch X/Y (Z records)..."
-    // Update batch progress but preserve totalRecords from earlier messages
-    const batchMatch = msg.match(/Fetching batch (\d+)\/(\d+) \((\d+) records\)/i);
-    if (batchMatch) {
-      const currentBatch = parseInt(batchMatch[1], 10);
-      const totalBatches = parseInt(batchMatch[2], 10);
-      const batchRecords = parseInt(batchMatch[3], 10);
-
-      // Preserve the real totalRecords from earlier "Fetching X records in batches" message
-      // Don't recalculate from batch info since last batch may be smaller
-      const previousTotal = searchProgress.value?.totalRecords ?? 0;
-
-      // Calculate fetched records: completed batches × batch size + current batch size
-      // Use standard batch size (200) for completed batches, actual size for current
-      const completedBatches = currentBatch - 1;
-      const standardBatchSize = 200;
-      const fetchedRecords = completedBatches * standardBatchSize + batchRecords;
-
-      const progress: SearchProgress = {
-        currentBatch,
-        totalBatches,
-        fetchedRecords,
-        totalRecords: previousTotal > 0 ? previousTotal : totalBatches * standardBatchSize,
-        status: `Fetching batch ${currentBatch}/${totalBatches}`,
-      };
-      searchProgress.value = progress;
-      notifySearchProgressListeners(progress);
-      return;
-    }
   }
 
   function resetOperationProgress() {
@@ -133,73 +79,47 @@ export const useBackendStore = defineStore('backend', () => {
     operationDone.value = 0;
   }
 
-  function parseOperationProgress(msg: string) {
-    // "pdf_get" reports: "PDFs to get ... X PDFs" at start
-    const pdfGetTotalMatch = msg.match(/PDFs\s+to\s+get[^:]*:\s*(\d+)/i);
-    if (pdfGetTotalMatch) {
-      operationTotal.value = parseInt(pdfGetTotalMatch[1], 10);
-      operationDone.value = 0;
-      operationProgress.value = 0;
-      return;
-    }
-
-    // Per-record status lines logged by colrev operations, e.g.:
-    // "pdf_imported  RecordID" or "pdf_needs_manual_retrieval  RecordID"
-    const recordStatusMatch = msg.match(
-      /\b(pdf_imported|pdf_prepared|pdf_needs_manual_retrieval|pdf_needs_manual_preparation|pdf_not_available)\b/
-    );
-    if (recordStatusMatch && operationTotal.value > 0) {
-      operationDone.value = Math.min(operationDone.value + 1, operationTotal.value);
-      operationProgress.value = Math.round((operationDone.value / operationTotal.value) * 100);
-      return;
-    }
-
-    // "pdf_prep" reports: "Prepare PDFs ... X records"
-    const pdfPrepTotalMatch = msg.match(/Prepare\s+PDFs[^:]*:\s*(\d+)\s+record/i);
-    if (pdfPrepTotalMatch) {
-      operationTotal.value = parseInt(pdfPrepTotalMatch[1], 10);
-      operationDone.value = 0;
-      operationProgress.value = 0;
-      return;
-    }
-
-    // Prep operation: "Records to prepare: N"
-    const prepTotalMatch = msg.match(/Records to prepare:\s*(\d+)/i);
-    if (prepTotalMatch) {
-      operationTotal.value = parseInt(prepTotalMatch[1], 10);
-      operationDone.value = 0;
-      operationProgress.value = 0;
-      return;
-    }
-
-    // Prep per-record counter: "(N/M) ... →" pattern from prep operation
-    const prepCounterMatch = msg.match(/\((\d+)\/(\d+)\)[\s\S]*?→/);
-    if (prepCounterMatch) {
-      const done = parseInt(prepCounterMatch[1], 10);
-      const total = parseInt(prepCounterMatch[2], 10);
-      operationDone.value = done;
-      operationTotal.value = total;
-      operationProgress.value = Math.round((done / total) * 100);
-      return;
-    }
-
-    // Load/prep per-record state transitions (for counting when no N/M counter)
-    const stateTransitionMatch = msg.match(/→\s+(md_imported|md_prepared|md_needs_manual_preparation|md_processed)/);
-    if (stateTransitionMatch && operationTotal.value > 0) {
-      operationDone.value = Math.min(operationDone.value + 1, operationTotal.value);
-      operationProgress.value = Math.round((operationDone.value / operationTotal.value) * 100);
-      return;
-    }
-
-    // Reset when operation completes
-    if (msg.match(/completed\s+(pdf[_-]get|pdf[_-]prep|load|prep|dedupe)\s+operation/i)) {
-      operationProgress.value = 100;
-      setTimeout(() => { resetOperationProgress(); }, 500);
-    }
-  }
-
   function notifySearchProgressListeners(progress: SearchProgress) {
     searchProgressListeners.value.forEach(listener => listener(progress));
+  }
+
+  function handleProgressEvent(event: ProgressEvent) {
+    const current = typeof event.current === 'number' ? event.current : 0;
+    const total = typeof event.total === 'number' ? event.total : 0;
+
+    switch (event.kind) {
+      case 'search_progress': {
+        const progress: SearchProgress = {
+          currentBatch: current,
+          totalBatches: total,
+          fetchedRecords: current,
+          totalRecords: total,
+          status: event.message,
+        };
+        searchProgress.value = progress;
+        notifySearchProgressListeners(progress);
+        return;
+      }
+      case 'load_progress':
+      case 'prep_progress':
+      case 'dedupe_progress':
+      case 'pdf_get_progress':
+      case 'pdf_prep_progress': {
+        if (total > 0) {
+          operationTotal.value = total;
+          operationDone.value = Math.min(current, total);
+          operationProgress.value = Math.round((operationDone.value / total) * 100);
+          if (current >= total) {
+            setTimeout(() => { resetOperationProgress(); }, 500);
+          }
+        }
+        return;
+      }
+      case 'generic':
+      default:
+        // Appended to logs via onLog; no further state mutation.
+        return;
+    }
   }
 
   function onSearchProgress(listener: (progress: SearchProgress) => void) {
@@ -234,6 +154,7 @@ export const useBackendStore = defineStore('backend', () => {
         addLog(`[close] Backend exited with code ${code}`);
         status.value = 'stopped';
       });
+      unsubProgress = window.colrev.onProgress(handleProgressEvent);
 
       const result = await window.colrev.start();
 
@@ -276,7 +197,8 @@ export const useBackendStore = defineStore('backend', () => {
     unsubLog?.();
     unsubError?.();
     unsubClose?.();
-    unsubLog = unsubError = unsubClose = null;
+    unsubProgress?.();
+    unsubLog = unsubError = unsubClose = unsubProgress = null;
 
     addLog('Backend stopped');
   }
@@ -315,6 +237,9 @@ export const useBackendStore = defineStore('backend', () => {
     try {
       const result = await window.colrev.call<T>(method, paramsWithPath);
       debug.logRpcResponse(requestId, result, false);
+      if (WRITER_METHODS.has(method)) {
+        schedulePendingChangesRefresh();
+      }
       return result;
     } catch (err) {
       const errorData = err instanceof Error ? { message: err.message, stack: err.stack } : err;
@@ -323,19 +248,44 @@ export const useBackendStore = defineStore('backend', () => {
     }
   }
 
+  // Lazy import to avoid a circular `backend -> pendingChanges -> backend`
+  // load. Resolved on first use and memoized.
+  let pendingChangesRefresh: (() => Promise<void>) | null = null;
+  async function schedulePendingChangesRefresh() {
+    try {
+      if (!pendingChangesRefresh) {
+        const mod = await import('./pendingChanges');
+        const store = mod.usePendingChangesStore();
+        pendingChangesRefresh = () => store.refresh();
+      }
+      void pendingChangesRefresh();
+    } catch {
+      // Pending-changes store is optional for the backend layer; swallow.
+    }
+  }
+
   /**
    * Call a JSON-RPC method. Git-touching methods are automatically serialized
    * through the shared git operation queue to prevent .git/index.lock conflicts
    * with concurrent frontend git operations (fetch, checkout, etc.).
+   *
+   * Typed overload: when ``method`` is a known RPC method name, the params and
+   * return type are inferred from the generated schema. Generic ``<T>`` fallback
+   * remains so legacy call sites keep compiling during the typed migration.
    */
-  async function call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  function call<M extends RPCMethodName>(
+    method: M,
+    params: Omit<RPCParams<M>, 'base_path'>,
+  ): Promise<RPCResult<M>>;
+  function call<T>(method: string, params?: Record<string, unknown>): Promise<T>;
+  function call(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     if (GIT_FREE_METHODS.has(method)) {
-      return callRaw<T>(method, params);
+      return callRaw(method, params);
     }
     return enqueueGitOp(async () => {
       activeGitCalls.value++;
       try {
-        return await callRaw<T>(method, params);
+        return await callRaw(method, params);
       } finally {
         activeGitCalls.value--;
       }

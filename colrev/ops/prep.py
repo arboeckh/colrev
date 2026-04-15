@@ -15,6 +15,11 @@ from multiprocessing import Lock
 from multiprocessing import Value
 from multiprocessing.pool import ThreadPool as Pool
 from pathlib import Path
+from typing import Callable
+from typing import Optional
+
+# (current, total, message) — emitted per prep round.
+ProgressCallback = Optional[Callable[[int, int, str], None]]
 
 from requests.exceptions import ConnectionError as requests_ConnectionError
 from requests.exceptions import ReadTimeout
@@ -975,15 +980,26 @@ class Prep(colrev.process.operation.Operation):
         self.review_manager.logger.info(f"Estimated time: {estimated_time_formatted}")
 
     @colrev.process.operation.Operation.decorate()
-    def main(self, *, keep_ids: bool = False) -> None:
+    def main(
+        self,
+        *,
+        keep_ids: bool = False,
+        progress_callback: ProgressCallback = None,
+    ) -> None:
         """Preparation of records (main entrypoint)"""
 
         self._print_startup_infos()
 
         try:
-            for i, prep_round in enumerate(
-                self.review_manager.settings.prep.prep_rounds
-            ):
+            prep_rounds = list(self.review_manager.settings.prep.prep_rounds)
+            total_rounds = len(prep_rounds)
+            for i, prep_round in enumerate(prep_rounds):
+                if progress_callback is not None:
+                    progress_callback(
+                        i + 1,
+                        total_rounds,
+                        f"Prep round {i + 1}/{total_rounds}: {prep_round.name}",
+                    )
                 self._setup_prep_round(i=i, prep_round=prep_round)
 
                 preparation_data = self._get_prep_data_tasks(prep_round)

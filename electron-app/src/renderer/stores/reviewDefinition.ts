@@ -70,7 +70,7 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
     protocol_url?: string;
     keywords?: string[];
     objectives?: string;
-  }, skipCommit = false) {
+  }) {
     if (!projects.currentProjectId || !backend.isRunning) return false;
 
     isSaving.value = true;
@@ -79,7 +79,6 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
         'update_review_definition',
         {
           project_id: projects.currentProjectId,
-          skip_commit: skipCommit,
           ...updates,
         },
       );
@@ -109,7 +108,7 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
     explanation: string;
     comment?: string;
     criterion_type: 'inclusion_criterion' | 'exclusion_criterion';
-  }, skipCommit = false) {
+  }) {
     if (!projects.currentProjectId || !backend.isRunning) return false;
 
     isSaving.value = true;
@@ -118,7 +117,6 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
         'add_screening_criterion',
         {
           project_id: projects.currentProjectId,
-          skip_commit: skipCommit,
           ...params,
         },
       );
@@ -147,7 +145,7 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
     explanation?: string;
     comment?: string;
     criterion_type?: 'inclusion_criterion' | 'exclusion_criterion';
-  }, skipCommit = false) {
+  }) {
     if (!projects.currentProjectId || !backend.isRunning) return false;
 
     isSaving.value = true;
@@ -156,7 +154,6 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
         'update_screening_criterion',
         {
           project_id: projects.currentProjectId,
-          skip_commit: skipCommit,
           ...params,
         },
       );
@@ -180,7 +177,7 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
     }
   }
 
-  async function removeCriterion(name: string, skipCommit = false) {
+  async function removeCriterion(name: string) {
     if (!projects.currentProjectId || !backend.isRunning) return false;
 
     isSaving.value = true;
@@ -189,7 +186,6 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
         'remove_screening_criterion',
         {
           project_id: projects.currentProjectId,
-          skip_commit: skipCommit,
           criterion_name: name,
         },
       );

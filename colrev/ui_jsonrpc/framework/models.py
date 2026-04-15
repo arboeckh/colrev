@@ -16,7 +16,14 @@ class _FrameworkModel(BaseModel):
 
 
 class NoProjectRequest(_FrameworkModel):
-    """Request for methods that don't operate on a project (ping, list_projects)."""
+    """Request for methods that don't operate on a project (ping, list_projects).
+
+    ``base_path`` is accepted but ignored: the electron frontend injects it
+    into every RPC call (see ``backend.ts``) so no-project methods must tolerate
+    it rather than reject with ``extra=forbid``.
+    """
+
+    base_path: str | None = None
 
 
 class ProjectScopedRequest(_FrameworkModel):

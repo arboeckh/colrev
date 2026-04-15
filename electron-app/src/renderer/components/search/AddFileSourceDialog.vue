@@ -63,10 +63,39 @@ onMounted(async () => {
   try {
     const response = await backend.call<GetCsvSourceTemplatesResponse>('get_csv_source_templates', {});
     csvTemplates.value = response.templates;
-  } catch {
-    // Non-critical — dropdown just won't show specific templates
+  } catch (err) {
+    // Non-critical — dropdown just won't show specific templates. Log it so
+    // regressions in the RPC don't fail silently like they did post-migration.
+    console.warn('get_csv_source_templates failed; dropdown will only show "Other (generic)"', err);
   }
 });
+
+// OpenAlex CSV exports are recognisable from their column headers. When the
+// user picks such a file, pre-select the OpenAlex template so the CSV is
+// transformed to BibTeX (mapping entrytypes) before hitting the loader.
+const OPENALEX_HEADER_MARKERS = [
+  'ids.openalex',
+  'authorships.author.display_name',
+  'primary_location.source.display_name',
+];
+
+async function detectCsvTemplate(file: File): Promise<string> {
+  if (!['csv', 'xlsx', 'xls'].includes(file.name.split('.').pop()?.toLowerCase() ?? '')) {
+    return '';
+  }
+  try {
+    // Read only the first slice — headers live on line 1.
+    const head = await file.slice(0, 8192).text();
+    const firstLine = head.split(/\r?\n/, 1)[0] ?? '';
+    const normalized = firstLine.toLowerCase();
+    if (OPENALEX_HEADER_MARKERS.some((m) => normalized.includes(m))) {
+      return 'openalex';
+    }
+  } catch {
+    // Fall through to empty — user can still pick manually.
+  }
+  return '';
+}
 
 // Reset template selection when file changes
 watch(selectedFile, () => {
@@ -95,15 +124,22 @@ const formattedDate = computed(() => {
   }).format(new Date(date.year, date.month - 1, date.day));
 });
 
-function handleFileSelect(event: Event) {
+async function handleFileSelect(event: Event) {
   const input = event.target as HTMLInputElement;
   if (input.files && input.files.length > 0) {
-    selectedFile.value = input.files[0];
+    const file = input.files[0];
+    selectedFile.value = file;
     // Auto-fill source name from filename if empty
     if (!sourceName.value) {
-      const fileName = selectedFile.value.name;
+      const fileName = file.name;
       const nameWithoutExt = fileName.replace(/\.[^/.]+$/, '');
       sourceName.value = nameWithoutExt;
+    }
+    // Auto-detect CSV template from headers. Only sets if we recognise the
+    // source; the user can still override via the dropdown.
+    const detected = await detectCsvTemplate(file);
+    if (detected && csvTemplates.value.some((t) => t.id === detected)) {
+      selectedTemplate.value = detected;
     }
   }
 }

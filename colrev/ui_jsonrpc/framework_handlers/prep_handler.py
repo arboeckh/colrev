@@ -8,8 +8,10 @@ from colrev.constants import DefectCodes
 from colrev.constants import OperationsType
 from colrev.settings import PrepRound
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import ProgressEventKind
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
+from colrev.ui_jsonrpc.framework import make_progress_callback
 from colrev.ui_jsonrpc.framework import rpc_method
 
 logger = logging.getLogger(__name__)
@@ -89,7 +91,11 @@ class PrepHandler(BaseHandler):
         try:
             prep_operation = self.op(OperationsType.prep, notify=True)
             # prep.main() is a batch colrev op and commits on its own.
-            prep_operation.main()
+            prep_operation.main(
+                progress_callback=make_progress_callback(
+                    ProgressEventKind.prep_progress, source="prep"
+                ),
+            )
 
             return PrepResponse(
                 project_id=req.project_id,

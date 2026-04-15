@@ -114,8 +114,12 @@ class GitHandler(BaseHandler):
         assert self.review_manager is not None
         logger.info("Getting git status for project %s", req.project_id)
 
-        git_wrapper = self.review_manager.dataset.git_repo
-        git_repo = git_wrapper.repo
+        # Use a fresh ``git.Repo`` instance rather than the cached one on
+        # ``review_manager.dataset.git_repo``. The cached instance keeps a stale
+        # view of the index in some gitpython versions, so ``index.diff("HEAD")``
+        # can report zero staged files immediately after ``add_changes``. A
+        # fresh Repo re-reads the index from disk.
+        git_repo = git.Repo(str(self.review_manager.path))
 
         # Current branch (or short SHA when detached).
         try:

@@ -6,8 +6,10 @@ import logging
 
 from colrev.constants import OperationsType
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import ProgressEventKind
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
+from colrev.ui_jsonrpc.framework import make_progress_callback
 from colrev.ui_jsonrpc.framework import rpc_method
 
 logger = logging.getLogger(__name__)
@@ -38,7 +40,11 @@ class DedupeHandler(BaseHandler):
         logger.info("Running dedupe operation for project %s", req.project_id)
 
         dedupe_operation = self.op(OperationsType.dedupe, notify=True)
-        dedupe_operation.main()
+        dedupe_operation.main(
+            progress_callback=make_progress_callback(
+                ProgressEventKind.dedupe_progress, source="dedupe"
+            ),
+        )
 
         return DedupeResponse(
             project_id=req.project_id,

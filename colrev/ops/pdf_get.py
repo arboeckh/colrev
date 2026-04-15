@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import shutil
+import threading
 import typing
 from glob import glob
 from multiprocessing.pool import ThreadPool as Pool
 from pathlib import Path
+from typing import Callable
+from typing import Optional
+
+# (current, total, message) — emitted before retrieval starts and after each PDF.
+ProgressCallback = Optional[Callable[[int, int, str], None]]
 
 import colrev.env.tei_parser
 import colrev.exceptions as colrev_exceptions
@@ -632,7 +638,7 @@ class PDFGet(colrev.process.operation.Operation):
         self.review_manager.save_settings()
 
     @colrev.process.operation.Operation.decorate()
-    def main(self) -> None:
+    def main(self, *, progress_callback: ProgressCallback = None) -> None:
         """Get PDFs (main entrypoint)"""
 
         if utils.in_ci_environment() and not self.review_manager.in_test_environment():
@@ -666,8 +672,28 @@ class PDFGet(colrev.process.operation.Operation):
                 "PDFs to get".ljust(38) + f'{pdf_get_data["nr_tasks"]} PDFs'
             )
 
+            total = pdf_get_data["nr_tasks"]
+            if progress_callback is not None:
+                progress_callback(0, total, f"Retrieving {total} PDFs")
+
+            # Wrap get_pdf so each completion increments a shared counter and
+            # emits a progress event. pool.map uses threads, so guard with a lock.
+            counter_lock = threading.Lock()
+            done_count = [0]
+
+            def _get_pdf_with_progress(item: dict) -> dict:
+                result = self.get_pdf(item)
+                if progress_callback is not None:
+                    with counter_lock:
+                        done_count[0] += 1
+                        current = done_count[0]
+                    progress_callback(current, total, f"Retrieved {current}/{total} PDFs")
+                return result
+
             pool = Pool(4)
-            retrieved_record_list = pool.map(self.get_pdf, pdf_get_data["items"])
+            retrieved_record_list = pool.map(
+                _get_pdf_with_progress, pdf_get_data["items"]
+            )
             pool.close()
             pool.join()
 

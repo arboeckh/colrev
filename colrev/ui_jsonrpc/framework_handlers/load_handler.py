@@ -6,8 +6,10 @@ import logging
 
 from colrev.constants import OperationsType
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import ProgressEventKind
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
+from colrev.ui_jsonrpc.framework import make_progress_callback
 from colrev.ui_jsonrpc.framework import rpc_method
 
 logger = logging.getLogger(__name__)
@@ -38,7 +40,12 @@ class LoadHandler(BaseHandler):
         logger.info("Running load operation for project %s", req.project_id)
 
         load_operation = self.review_manager.get_load_operation()
-        load_operation.main(keep_ids=req.keep_ids)
+        load_operation.main(
+            keep_ids=req.keep_ids,
+            progress_callback=make_progress_callback(
+                ProgressEventKind.load_progress, source="load"
+            ),
+        )
 
         return LoadResponse(
             project_id=req.project_id,

@@ -7,6 +7,8 @@ import re
 import shutil
 import string
 from pathlib import Path
+from typing import Callable
+from typing import Optional
 
 import colrev.exceptions as colrev_exceptions
 import colrev.loader.load_utils_formatter
@@ -21,6 +23,9 @@ from colrev.constants import OperationsType
 from colrev.constants import RecordState
 from colrev.constants import SearchType
 from colrev.package_manager.package_manager import PackageManager
+
+# (current, total, message) — emitted before each source is loaded.
+ProgressCallback = Optional[Callable[[int, int, str], None]]
 
 
 class Load(colrev.process.operation.Operation):
@@ -548,13 +553,22 @@ class Load(colrev.process.operation.Operation):
         self,
         *,
         keep_ids: bool = False,
+        progress_callback: ProgressCallback = None,
     ) -> None:
         """Load records (main entrypoint)"""
 
         if not self.review_manager.high_level_operation:
             print()
 
-        for source in self.load_active_sources():
+        sources = list(self.load_active_sources())
+        total = len(sources)
+        for idx, source in enumerate(sources, start=1):
+            if progress_callback is not None:
+                progress_callback(
+                    idx,
+                    total,
+                    f"Loading {source.search_source.get_search_history_path()}",
+                )
             try:
                 self.review_manager.logger.info(
                     f"Load {source.search_source.get_search_history_path()}"

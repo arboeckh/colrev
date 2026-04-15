@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import typing
 from pathlib import Path
+from typing import Callable
+from typing import Optional
 
 import colrev.exceptions as colrev_exceptions
 import colrev.process.operation
@@ -16,6 +18,9 @@ from colrev.constants import OperationsType
 from colrev.constants import SearchType
 from colrev.package_manager.package_manager import PackageManager
 from colrev.writer.write_utils import write_file
+
+# (current, total, message) — emitted before each source is searched.
+ProgressCallback = Optional[Callable[[int, int, str], None]]
 
 
 class Search(colrev.process.operation.Operation):
@@ -309,6 +314,7 @@ class Search(colrev.process.operation.Operation):
         selection_str: str = "all",
         rerun: bool,
         skip_commit: bool = False,
+        progress_callback: ProgressCallback = None,
     ) -> None:
         """Search for records (main entrypoint)"""
 
@@ -323,7 +329,15 @@ class Search(colrev.process.operation.Operation):
 
         # Reload the settings because the search sources may have been updated
         self.review_manager.settings = self.review_manager.load_settings()
-        for source in self._get_search_sources(selection_str=selection_str):
+        sources = list(self._get_search_sources(selection_str=selection_str))
+        total = len(sources)
+        for idx, source in enumerate(sources, start=1):
+            if progress_callback is not None:
+                progress_callback(
+                    idx,
+                    total,
+                    f"Searching {source.platform}:{source.search_type}",
+                )
             try:
 
                 if not self.review_manager.high_level_operation:

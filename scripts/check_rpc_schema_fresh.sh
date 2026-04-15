@@ -20,25 +20,15 @@ trap 'rm -f "$TMP_SCHEMAS"; rm -rf "$TMP_TYPES"' EXIT
 SCHEMAS_COMMITTED="electron-app/src/renderer/types/generated/rpc-schemas.json"
 TYPES_COMMITTED="electron-app/src/renderer/types/generated/rpc.d.ts"
 
-# Regenerate schemas into a scratch file and diff.
-python - <<'PY' > "$TMP_SCHEMAS"
-import json, colrev.ui_jsonrpc.framework_handlers  # noqa: F401
-from colrev.ui_jsonrpc.framework import registry
-doc = {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "title": "CoLRev JSON-RPC Method Schemas",
-    "version": 1,
-    "methods": {
-        s.name: {
-            "request": s.request_model.model_json_schema(),
-            "response": s.response_model.model_json_schema(),
-            "requires_project": s.requires_project,
-            "writes": s.writes,
-        }
-        for s in sorted(registry.all(), key=lambda m: m.name)
-    },
-}
-print(json.dumps(doc, indent=2, sort_keys=True))
+# Regenerate schemas into a scratch file and diff. Reuse the single source of
+# truth (``scripts/export_rpc_schemas.py``) so this check can't drift from
+# what regeneration actually writes.
+python - <<PY > "$TMP_SCHEMAS"
+import json, runpy, sys
+module = runpy.run_path("scripts/export_rpc_schemas.py")
+doc = module["build_schema_document"]()
+json.dump(doc, sys.stdout, indent=2, sort_keys=True)
+sys.stdout.write("\n")
 PY
 
 if ! diff -q "$TMP_SCHEMAS" "$SCHEMAS_COMMITTED" > /dev/null; then
