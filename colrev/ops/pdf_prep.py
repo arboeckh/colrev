@@ -8,6 +8,7 @@ import shutil
 from multiprocessing.pool import ThreadPool as Pool
 from pathlib import Path
 
+import pymupdf
 import requests
 
 import colrev.exceptions as colrev_exceptions
@@ -139,7 +140,20 @@ class PDFPrep(colrev.process.operation.Operation):
             record_dict, path=self.review_manager.path
         )
         if record_dict[Fields.FILE].endswith(".pdf"):
-            record.set_text_from_pdf(first_pages=True)
+            try:
+                record.set_text_from_pdf(first_pages=True)
+            except pymupdf.FileDataError as err:
+                self.review_manager.logger.error(
+                    f"{record_dict[Fields.ID]}".ljust(46, " ")
+                    + f"PDF unreadable ({err})"
+                )
+                record.add_field_provenance_note(
+                    key=Fields.FILE, note="pdf-unreadable"
+                )
+                record.set_status(RecordState.pdf_needs_manual_preparation)
+                record.data.pop(Fields.TEXT_FROM_PDF, None)
+                record.data.pop(Fields.NR_PAGES_IN_FILE, None)
+                return record.get_data()
         original_filename = record_dict[Fields.FILE]
 
         self.review_manager.logger.debug(f"Start PDF prep of {record_dict[Fields.ID]}")
