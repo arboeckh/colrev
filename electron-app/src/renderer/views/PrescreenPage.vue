@@ -5,14 +5,10 @@ import {
   Check,
   X,
   Loader2,
-  ChevronLeft,
-  ChevronRight,
-  ArrowRight,
   CircleCheck,
   Pencil,
   Search,
 } from 'lucide-vue-next';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -27,6 +23,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { EmptyState } from '@/components/common';
+import DecisionButtons from '@/components/prescreen/DecisionButtons.vue';
+import RecordCard from '@/components/prescreen/RecordCard.vue';
+import ProgressTrack from '@/components/prescreen/ProgressTrack.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
@@ -79,10 +78,6 @@ const accessState = ref<'loading' | 'switching' | 'ready' | 'blocked'>('loading'
 const activeManagedTask = ref<ManagedReviewTask | null>(null);
 const assignedReviewerBranch = ref<string | null>(null);
 const allDecisionsMade = ref(false);
-
-// Progress bar drag state
-const trackRef = ref<HTMLElement | null>(null);
-const isDragging = ref(false);
 
 // Decision debounce to prevent duplicate notifications
 const lastDecisionTime = ref(0);
@@ -177,24 +172,6 @@ const isPrescreenComplete = computed(() => {
   return md_processed === 0 && (rev_prescreen_included > 0 || rev_prescreen_excluded > 0);
 });
 
-// Progress bar: thumb position as percentage
-const thumbPercent = computed(() => {
-  const n = queue.value.length;
-  if (n <= 1) return 50;
-  // Position at the center of the segment
-  return ((currentIndex.value + 0.5) / n) * 100;
-});
-
-// Track width: full width, or capped when few items so segments aren't absurdly wide
-const SEGMENT_MAX_PX = 28;
-const trackWidthStyle = computed(() => {
-  const n = queue.value.length;
-  if (n === 0) return '0px';
-  // Each segment up to max + 1px gap between them
-  const maxPx = n * SEGMENT_MAX_PX + (n - 1);
-  return `min(100%, ${maxPx}px)`;
-});
-
 // Check if current record is ready to display (has abstract or enrichment complete/failed)
 const isCurrentRecordReady = computed(() => {
   const record = currentRecord.value;
@@ -218,38 +195,6 @@ const isNextRecordReady = computed(() => {
     !nextRecord.can_enrich
   );
 });
-
-// --- Drag logic ---
-
-function indexFromPointerX(clientX: number): number {
-  if (!trackRef.value || queue.value.length === 0) return 0;
-  const rect = trackRef.value.getBoundingClientRect();
-  const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
-  const ratio = x / rect.width;
-  return Math.min(Math.floor(ratio * queue.value.length), queue.value.length - 1);
-}
-
-function onTrackPointerDown(e: PointerEvent) {
-  // Click on track = jump to that index
-  const index = indexFromPointerX(e.clientX);
-  goToRecord(index);
-}
-
-function onThumbPointerDown(e: PointerEvent) {
-  e.stopPropagation(); // Don't trigger track click
-  isDragging.value = true;
-  (e.target as HTMLElement).setPointerCapture(e.pointerId);
-}
-
-function onThumbPointerMove(e: PointerEvent) {
-  if (!isDragging.value) return;
-  const index = indexFromPointerX(e.clientX);
-  goToRecord(index);
-}
-
-function onThumbPointerUp() {
-  isDragging.value = false;
-}
 
 // --- Data loading ---
 
@@ -895,200 +840,42 @@ onUnmounted(() => {
 
     <!-- Screening interface -->
     <div v-else class="flex-1 flex flex-col min-h-0">
-      <!-- Zone 2: Decision Buttons — fixed height prevents jitter -->
-      <div
-        class="flex items-center justify-center gap-4 h-[56px] shrink-0 mb-2"
-        data-testid="prescreen-decision-bar"
-      >
-        <!-- Undecided: show Include/Exclude buttons -->
-        <template v-if="currentRecord && !isCurrentDecided">
-          <Button
-            variant="destructive"
-            size="lg"
-            class="min-w-[140px] h-11 text-base"
-            data-testid="prescreen-btn-exclude"
-            :disabled="!currentRecord || isDeciding || !isCurrentRecordReady || isReadOnly"
-            @click="makeDecision('exclude')"
-          >
-            <Loader2 v-if="isDeciding" class="h-5 w-5 mr-2 animate-spin" />
-            <X v-else class="h-5 w-5 mr-2" />
-            Exclude
-            <kbd class="ml-2 text-xs opacity-60 bg-white/20 px-1.5 py-0.5 rounded">&larr;</kbd>
-          </Button>
-
-          <Button
-            size="lg"
-            class="min-w-[140px] h-11 text-base bg-green-600 hover:bg-green-700 text-white"
-            data-testid="prescreen-btn-include"
-            :disabled="!currentRecord || isDeciding || !isCurrentRecordReady || isReadOnly"
-            @click="makeDecision('include')"
-          >
-            <Loader2 v-if="isDeciding" class="h-5 w-5 mr-2 animate-spin" />
-            <Check v-else class="h-5 w-5 mr-2" />
-            Include
-            <kbd class="ml-2 text-xs opacity-60 bg-white/20 px-1.5 py-0.5 rounded">&rarr;</kbd>
-          </Button>
-        </template>
-
-        <!-- Decided: show decision indicator -->
-        <template v-else-if="currentRecord && isCurrentDecided">
-          <div
-            class="flex items-center gap-2 px-4 py-2 rounded-lg"
-            :class="
-              currentRecord._decision === 'included'
-                ? 'bg-green-600/15 text-green-500 border border-green-600/30'
-                : 'bg-destructive/15 text-red-400 border border-destructive/30'
-            "
-            data-testid="prescreen-decision-indicator"
-          >
-            <Check v-if="currentRecord._decision === 'included'" class="h-5 w-5" />
-            <X v-else class="h-5 w-5" />
-            <span class="font-medium text-sm">
-              {{ currentRecord._decision === 'included' ? 'Included' : 'Excluded' }}
-            </span>
-          </div>
-
-          <Button
-            v-if="nextUndecidedIndex !== -1"
-            variant="outline"
-            size="lg"
-            data-testid="prescreen-btn-skip-to-undecided"
-            @click="skipToNextUndecided"
-          >
-            <ArrowRight class="h-4 w-4 mr-2" />
-            Next undecided
-          </Button>
-        </template>
+      <!-- Zone 2: Decision Buttons -->
+      <div class="mb-2">
+        <DecisionButtons
+          v-if="currentRecord"
+          :decision="currentRecord._decision"
+          :disabled="!isCurrentRecordReady || isReadOnly"
+          :is-submitting="isDeciding"
+          :show-skip-to-next="nextUndecidedIndex !== -1"
+          test-id-prefix="prescreen"
+          @decide="makeDecision"
+          @skip-to-next="skipToNextUndecided"
+        />
       </div>
 
-      <!-- Zone 3: Progress Bar — fixed height prevents jitter -->
-      <div class="h-[48px] shrink-0 mb-2" data-testid="prescreen-progress-bar">
-        <!-- Draggable track -->
-        <div
-          ref="trackRef"
-          class="relative h-6 select-none touch-none cursor-pointer"
-          :style="{ width: trackWidthStyle }"
-          @pointerdown="onTrackPointerDown"
-        >
-          <!-- Track background (full width, muted) -->
-          <div
-            class="absolute inset-x-0 top-1/2 -translate-y-1/2 h-2.5 rounded-full bg-muted"
-          />
-
-          <!-- Colored segments overlay -->
-          <div
-            class="absolute inset-x-0 top-1/2 -translate-y-1/2 h-2.5 flex rounded-full overflow-hidden"
-          >
-            <div
-              v-for="(record, index) in queue"
-              :key="record.id"
-              class="flex-1 min-w-0 border-r border-background/60 last:border-r-0"
-              :class="[
-                record._decision === 'included'
-                  ? 'bg-green-600'
-                  : record._decision === 'excluded'
-                    ? 'bg-destructive'
-                    : 'bg-muted-foreground/25',
-              ]"
-              :data-testid="`prescreen-progress-cell-${index}`"
-            />
-          </div>
-
-          <!-- Draggable thumb -->
-          <div
-            class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-10 w-[18px] h-[18px] rounded-full bg-foreground border-2 border-background shadow-md"
-            :class="isDragging ? 'cursor-grabbing scale-110' : 'cursor-grab transition-[left] duration-150'"
-            :style="{ left: thumbPercent + '%' }"
-            data-testid="prescreen-progress-thumb"
-            @pointerdown="onThumbPointerDown"
-            @pointermove="onThumbPointerMove"
-            @pointerup="onThumbPointerUp"
-            @lostpointercapture="onThumbPointerUp"
-          />
-        </div>
-
-        <!-- Position text -->
-        <div class="flex items-center justify-between mt-1.5 text-xs text-muted-foreground">
-          <span data-testid="prescreen-record-counter">
-            Record {{ currentIndex + 1 }} of {{ queue.length }}
-          </span>
-          <span data-testid="prescreen-progress-text">
-            {{ decidedCount }} decided / {{ overallTotal }} total
-          </span>
-        </div>
+      <!-- Zone 3: Progress Bar -->
+      <div class="mb-2">
+        <ProgressTrack
+          :items="queue.map((r) => ({ id: r.id, decision: r._decision }))"
+          :current-index="currentIndex"
+          :decided-count="decidedCount"
+          :total-count="overallTotal"
+          test-id-prefix="prescreen"
+          @seek="goToRecord"
+        />
       </div>
 
       <!-- Zone 4: Record Card -->
-      <Card
+      <RecordCard
         v-if="currentRecord"
-        class="flex-1 flex flex-col min-h-0 border-0 shadow-none"
-        data-testid="prescreen-record-card"
-      >
-        <CardHeader class="pb-2">
-          <div class="flex items-center justify-between">
-            <Badge variant="outline" class="font-mono" data-testid="prescreen-record-id">
-              {{ currentRecord.id }}
-            </Badge>
-            <div class="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                :disabled="currentIndex === 0"
-                data-testid="prescreen-btn-previous"
-                @click="prevRecord"
-              >
-                <ChevronLeft class="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                :disabled="currentIndex >= queue.length - 1"
-                data-testid="prescreen-btn-next"
-                @click="nextRecord"
-              >
-                <ChevronRight class="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-          <CardTitle class="text-lg leading-tight break-words" data-testid="prescreen-record-title">
-            {{ currentRecord.title }}
-          </CardTitle>
-          <CardDescription>
-            {{ currentRecord.author }} ({{ currentRecord.year }})
-            <span v-if="currentRecord.journal" class="block">{{ currentRecord.journal }}</span>
-            <span v-else-if="currentRecord.booktitle" class="block">{{
-              currentRecord.booktitle
-            }}</span>
-          </CardDescription>
-        </CardHeader>
-
-        <CardContent class="flex-1 min-h-0 flex flex-col overflow-hidden">
-          <h4 class="text-sm font-medium mb-2">Abstract</h4>
-          <ScrollArea class="flex-1 pr-4">
-            <div
-              v-if="currentRecord._enrichmentStatus === 'loading'"
-              class="space-y-3 max-w-prose"
-            >
-              <div class="flex items-center gap-2 text-sm text-muted-foreground mb-3">
-                <Loader2 class="h-4 w-4 animate-spin" />
-                <span>Fetching abstract from external sources...</span>
-              </div>
-              <div class="space-y-2.5 animate-pulse">
-                <div class="h-3.5 bg-muted rounded w-full" />
-                <div class="h-3.5 bg-muted rounded w-full" />
-                <div class="h-3.5 bg-muted rounded w-[95%]" />
-                <div class="h-3.5 bg-muted rounded w-full" />
-                <div class="h-3.5 bg-muted rounded w-[88%]" />
-                <div class="h-3.5 bg-muted rounded w-full" />
-                <div class="h-3.5 bg-muted rounded w-[70%]" />
-              </div>
-            </div>
-            <p v-else class="text-sm text-muted-foreground whitespace-pre-wrap max-w-prose">
-              {{ currentRecord.abstract || 'No abstract available' }}
-            </p>
-          </ScrollArea>
-        </CardContent>
-      </Card>
+        :record="currentRecord"
+        :can-prev="currentIndex > 0"
+        :can-next="currentIndex < queue.length - 1"
+        test-id-prefix="prescreen"
+        @prev="prevRecord"
+        @next="nextRecord"
+      />
     </div>
     </template>
   </div>

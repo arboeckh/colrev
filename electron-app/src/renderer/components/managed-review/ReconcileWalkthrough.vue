@@ -1,0 +1,454 @@
+<script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-vue-next';
+import { useAuthStore } from '@/stores/auth';
+import { useBackendStore } from '@/stores/backend';
+import { useNotificationsStore } from '@/stores/notifications';
+import { useProjectsStore } from '@/stores/projects';
+import DecisionButtons from '@/components/prescreen/DecisionButtons.vue';
+import ProgressTrack from '@/components/prescreen/ProgressTrack.vue';
+import RecordCard, { type DisplayRecord } from '@/components/prescreen/RecordCard.vue';
+import ReviewerAnswersStrip from './ReviewerAnswersStrip.vue';
+import ReconcileApplyBar from './ReconcileApplyBar.vue';
+import { selectedReviewerFor, type ReconcileKind, type ReviewerRole } from './reconcile-utils';
+import type {
+  ApplyReconciliationResponse,
+  BatchEnrichRecordsResponse,
+  GetRecordsResponse,
+  ReconciliationPreviewItem,
+  ReconciliationPreviewResponse,
+} from '@/types/api';
+
+const props = defineProps<{
+  taskId: string;
+  kind: ReconcileKind;
+}>();
+
+const emit = defineEmits<{
+  (e: 'close'): void;
+  (e: 'applied', result: ApplyReconciliationResponse): void;
+}>();
+
+const auth = useAuthStore();
+const backend = useBackendStore();
+const notifications = useNotificationsStore();
+const projects = useProjectsStore();
+
+type StagedDecision = {
+  decision: 'include' | 'exclude';
+  selected_reviewer: ReviewerRole;
+};
+
+const isLoading = ref(false);
+const isApplying = ref(false);
+const preview = ref<ReconciliationPreviewResponse | null>(null);
+const recordDetails = ref<Record<string, DisplayRecord>>({});
+const stagedDecisions = ref<Record<string, StagedDecision>>({});
+const currentIndex = ref(0);
+
+const conflictItems = computed<ReconciliationPreviewItem[]>(() =>
+  preview.value ? preview.value.items.filter((item) => item.status === 'conflict') : [],
+);
+
+const blockedItems = computed<ReconciliationPreviewItem[]>(() =>
+  preview.value ? preview.value.items.filter((item) => item.status === 'blocked') : [],
+);
+
+const pendingItems = computed<ReconciliationPreviewItem[]>(() =>
+  preview.value ? preview.value.items.filter((item) => item.status === 'pending') : [],
+);
+
+const currentItem = computed<ReconciliationPreviewItem | null>(() =>
+  conflictItems.value[currentIndex.value] ?? null,
+);
+
+const currentRecord = computed<DisplayRecord | null>(() => {
+  if (!currentItem.value) return null;
+  const detail = recordDetails.value[currentItem.value.id];
+  if (detail) return detail;
+  return {
+    id: currentItem.value.id,
+    title: currentItem.value.title,
+    author: currentItem.value.author,
+    year: currentItem.value.year,
+    _enrichmentStatus: 'pending',
+  };
+});
+
+const stagedCount = computed(() => Object.keys(stagedDecisions.value).length);
+const allDecided = computed(
+  () => conflictItems.value.length > 0 && stagedCount.value === conflictItems.value.length,
+);
+
+const currentStagedDecision = computed(() => {
+  if (!currentItem.value) return 'undecided' as const;
+  const staged = stagedDecisions.value[currentItem.value.id];
+  if (!staged) return 'undecided' as const;
+  return staged.decision === 'include' ? 'included' : 'excluded';
+});
+
+const progressItems = computed(() =>
+  conflictItems.value.map((item) => {
+    const staged = stagedDecisions.value[item.id];
+    return {
+      id: item.id,
+      decision: staged
+        ? ((staged.decision === 'include' ? 'included' : 'excluded') as
+            | 'included'
+            | 'excluded')
+        : ('undecided' as const),
+    };
+  }),
+);
+
+const nextUndecidedIndex = computed(() => {
+  for (let i = currentIndex.value + 1; i < conflictItems.value.length; i++) {
+    if (!stagedDecisions.value[conflictItems.value[i].id]) return i;
+  }
+  for (let i = 0; i < currentIndex.value; i++) {
+    if (!stagedDecisions.value[conflictItems.value[i].id]) return i;
+  }
+  return -1;
+});
+
+async function loadPreview() {
+  if (!projects.currentProjectId) return;
+  isLoading.value = true;
+  try {
+    const response = await backend.call<ReconciliationPreviewResponse>(
+      'get_reconciliation_preview',
+      {
+        project_id: projects.currentProjectId,
+        task_id: props.taskId,
+      },
+    );
+    preview.value = response;
+    stagedDecisions.value = {};
+    currentIndex.value = 0;
+    if (conflictItems.value.length > 0) {
+      await loadRecordDetails(conflictItems.value.map((item) => item.id));
+    }
+  } catch (err) {
+    notifications.error(
+      'Preview failed',
+      err instanceof Error ? err.message : 'Unknown error',
+    );
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+async function loadRecordDetails(ids: string[]) {
+  if (!projects.currentProjectId || ids.length === 0) return;
+  try {
+    const response = await backend.call<GetRecordsResponse>('get_records', {
+      project_id: projects.currentProjectId,
+      filters: {},
+      pagination: { offset: 0, limit: 1000 },
+      fields: ['ID', 'title', 'author', 'year', 'journal', 'booktitle', 'abstract'],
+    });
+    const wanted = new Set(ids);
+    const details: Record<string, DisplayRecord> = {};
+    for (const record of response.records) {
+      const rid = (record as any).ID ?? (record as any).id;
+      if (!rid || !wanted.has(rid)) continue;
+      details[rid] = {
+        id: rid,
+        title: (record as any).title,
+        author: (record as any).author,
+        year: (record as any).year,
+        journal: (record as any).journal,
+        booktitle: (record as any).booktitle,
+        abstract: (record as any).abstract,
+        _enrichmentStatus: (record as any).abstract ? 'complete' : 'pending',
+      };
+    }
+    recordDetails.value = details;
+
+    const missingAbstracts = ids.filter((id) => !details[id]?.abstract);
+    if (missingAbstracts.length > 0) {
+      enrichMissingAbstracts(missingAbstracts);
+    }
+  } catch (err) {
+    notifications.error(
+      'Failed to load records',
+      err instanceof Error ? err.message : 'Unknown error',
+    );
+  }
+}
+
+async function enrichMissingAbstracts(ids: string[]) {
+  if (!projects.currentProjectId) return;
+  for (const id of ids) {
+    const detail = recordDetails.value[id];
+    if (detail) detail._enrichmentStatus = 'loading';
+  }
+  try {
+    const response = await backend.call<BatchEnrichRecordsResponse>('batch_enrich_records', {
+      project_id: projects.currentProjectId,
+      record_ids: ids,
+    });
+    for (const result of response.records) {
+      const detail = recordDetails.value[result.id];
+      if (!detail) continue;
+      if (result.success && result.record) {
+        detail.abstract = (result.record as any).abstract ?? detail.abstract;
+        detail._enrichmentStatus = 'complete';
+      } else {
+        detail._enrichmentStatus = 'failed';
+      }
+    }
+  } catch {
+    for (const id of ids) {
+      const detail = recordDetails.value[id];
+      if (detail && detail._enrichmentStatus === 'loading') {
+        detail._enrichmentStatus = 'failed';
+      }
+    }
+  }
+}
+
+function onDecide(decision: 'include' | 'exclude') {
+  const item = currentItem.value;
+  if (!item) return;
+  const reviewer = selectedReviewerFor(item, decision, props.kind);
+  if (!reviewer) {
+    notifications.error(
+      'Cannot reconcile',
+      "Neither reviewer chose that decision; this shouldn't happen on a conflict item.",
+    );
+    return;
+  }
+  stagedDecisions.value = {
+    ...stagedDecisions.value,
+    [item.id]: { decision, selected_reviewer: reviewer },
+  };
+  const next = nextUndecidedIndex.value;
+  if (next !== -1) {
+    currentIndex.value = next;
+  }
+}
+
+function skipToNextUndecided() {
+  const next = nextUndecidedIndex.value;
+  if (next !== -1) currentIndex.value = next;
+}
+
+function goTo(index: number) {
+  if (index >= 0 && index < conflictItems.value.length) {
+    currentIndex.value = index;
+  }
+}
+
+async function applyReconciliation() {
+  if (!projects.currentProjectId || !preview.value) return;
+  if (blockedItems.value.length > 0 || pendingItems.value.length > 0) return;
+  if (conflictItems.value.length > 0 && !allDecided.value) return;
+
+  isApplying.value = true;
+  try {
+    const resolutions = Object.entries(stagedDecisions.value).map(
+      ([record_id, staged]) => ({
+        record_id,
+        selected_reviewer: staged.selected_reviewer,
+      }),
+    );
+    const response = await backend.call<ApplyReconciliationResponse>(
+      'apply_reconciliation',
+      {
+        project_id: projects.currentProjectId,
+        task_id: props.taskId,
+        resolutions,
+        resolved_by: auth.user?.login ?? 'local-user',
+      },
+    );
+    notifications.success(
+      'Reconciliation applied',
+      `${response.resolved_count} record(s) · ${response.commit_sha.slice(0, 8)}`,
+    );
+    emit('applied', response);
+  } catch (err) {
+    notifications.error(
+      'Reconciliation failed',
+      err instanceof Error ? err.message : 'Unknown error',
+    );
+  } finally {
+    isApplying.value = false;
+  }
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+  if (!currentItem.value) return;
+  switch (e.key) {
+    case 'ArrowLeft':
+      e.preventDefault();
+      if (currentStagedDecision.value === 'undecided') onDecide('exclude');
+      break;
+    case 'ArrowRight':
+      e.preventDefault();
+      if (currentStagedDecision.value === 'undecided') onDecide('include');
+      break;
+    case 'ArrowUp':
+      e.preventDefault();
+      goTo(currentIndex.value - 1);
+      break;
+    case 'ArrowDown':
+      e.preventDefault();
+      goTo(currentIndex.value + 1);
+      break;
+  }
+}
+
+watch(
+  () => props.taskId,
+  () => loadPreview(),
+);
+
+onMounted(() => {
+  loadPreview();
+  window.addEventListener('keydown', onKeydown);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown);
+});
+</script>
+
+<template>
+  <div class="h-full flex flex-col min-h-0" data-testid="reconcile-walkthrough">
+    <!-- Loading -->
+    <div
+      v-if="isLoading && !preview"
+      class="flex-1 flex items-center justify-center text-sm text-muted-foreground"
+    >
+      <Loader2 class="h-4 w-4 animate-spin mr-2" />
+      Loading reconciliation preview...
+    </div>
+
+    <!-- Blocked guard -->
+    <div
+      v-else-if="blockedItems.length > 0"
+      class="flex-1 flex flex-col items-center justify-center max-w-xl mx-auto text-center gap-4"
+      data-testid="reconcile-blocked"
+    >
+      <div class="rounded-full bg-amber-500/15 p-3">
+        <AlertTriangle class="h-6 w-6 text-amber-600 dark:text-amber-400" />
+      </div>
+      <div class="space-y-1">
+        <h3 class="text-lg font-medium">Blocked records prevent reconciliation</h3>
+        <p class="text-sm text-muted-foreground">
+          Resolve the issues below before reconciling this task.
+        </p>
+      </div>
+      <ul class="w-full space-y-2 text-left">
+        <li
+          v-for="item in blockedItems"
+          :key="item.id"
+          class="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2"
+        >
+          <div class="text-sm font-medium">{{ item.title || item.id }}</div>
+          <ul class="mt-1 space-y-1">
+            <li
+              v-for="reason in item.blocked_reasons"
+              :key="reason"
+              class="text-xs text-amber-700 dark:text-amber-300"
+            >
+              {{ reason }}
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+
+    <!-- Pending guard -->
+    <div
+      v-else-if="pendingItems.length > 0"
+      class="flex-1 flex flex-col items-center justify-center max-w-xl mx-auto text-center gap-4"
+      data-testid="reconcile-pending"
+    >
+      <div class="rounded-full bg-muted p-3">
+        <Loader2 class="h-6 w-6 text-muted-foreground" />
+      </div>
+      <div class="space-y-1">
+        <h3 class="text-lg font-medium">Waiting on reviewers</h3>
+        <p class="text-sm text-muted-foreground">
+          Both reviewers must finish all records before reconciliation can begin.
+          {{ pendingItems.length }} record{{ pendingItems.length === 1 ? '' : 's' }} still pending.
+        </p>
+      </div>
+    </div>
+
+    <!-- No conflicts: can apply directly -->
+    <div
+      v-else-if="preview && conflictItems.length === 0"
+      class="flex-1 flex flex-col items-center justify-center max-w-xl mx-auto text-center gap-4"
+      data-testid="reconcile-no-conflicts"
+    >
+      <div class="rounded-full bg-green-600/15 p-3">
+        <CheckCircle2 class="h-6 w-6 text-green-600 dark:text-green-500" />
+      </div>
+      <div class="space-y-1">
+        <h3 class="text-lg font-medium">No conflicts to resolve</h3>
+        <p class="text-sm text-muted-foreground">
+          Both reviewers agreed on every record. Apply reconciliation to finalize
+          {{ preview.summary.auto_resolved_count }} auto-resolved decision{{ preview.summary.auto_resolved_count === 1 ? '' : 's' }}.
+        </p>
+      </div>
+      <ReconcileApplyBar
+        :decided-count="0"
+        :total-conflicts="0"
+        :can-apply="true"
+        :is-applying="isApplying"
+        class="w-full"
+        @apply="applyReconciliation"
+        @cancel="emit('close')"
+      />
+    </div>
+
+    <!-- Walkthrough -->
+    <template v-else-if="currentItem">
+      <div class="flex-1 flex flex-col min-h-0 gap-3">
+        <ReviewerAnswersStrip :reviewers="currentItem.reviewers" :kind="kind" />
+
+        <DecisionButtons
+          :decision="currentStagedDecision"
+          :is-submitting="false"
+          :show-skip-to-next="nextUndecidedIndex !== -1"
+          test-id-prefix="reconcile"
+          @decide="onDecide"
+          @skip-to-next="skipToNextUndecided"
+        />
+
+        <ProgressTrack
+          :items="progressItems"
+          :current-index="currentIndex"
+          :decided-count="stagedCount"
+          :total-count="conflictItems.length"
+          test-id-prefix="reconcile"
+          @seek="goTo"
+        />
+
+        <RecordCard
+          v-if="currentRecord"
+          :record="currentRecord"
+          :can-prev="currentIndex > 0"
+          :can-next="currentIndex < conflictItems.length - 1"
+          test-id-prefix="reconcile"
+          @prev="goTo(currentIndex - 1)"
+          @next="goTo(currentIndex + 1)"
+        />
+      </div>
+
+      <ReconcileApplyBar
+        class="mt-4"
+        :decided-count="stagedCount"
+        :total-conflicts="conflictItems.length"
+        :can-apply="allDecided"
+        :is-applying="isApplying"
+        @apply="applyReconciliation"
+        @cancel="emit('close')"
+      />
+    </template>
+  </div>
+</template>

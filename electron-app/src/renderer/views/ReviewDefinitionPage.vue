@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { onBeforeRouteLeave } from 'vue-router';
-import { Save } from 'lucide-vue-next';
+import { Save, ExternalLink } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
@@ -19,6 +19,11 @@ const { isReadOnly } = useReadOnly();
 // Local form state
 const protocolUrl = ref('');
 const objectives = ref('');
+
+const isValidProtocolUrl = computed(() => {
+  const url = protocolUrl.value.trim();
+  return url.startsWith('http://') || url.startsWith('https://');
+});
 
 // Tracks criteria changes staged to git but not yet committed
 const hasPendingCriteriaChanges = ref(false);
@@ -157,9 +162,22 @@ async function handleDeleteCriterion(name: string) {
     <div class="max-w-6xl mx-auto px-8 pt-10 pb-20">
       <!-- Metadata row -->
       <section class="pb-8 border-b border-border">
-        <label class="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground block mb-2">
-          Protocol URL
-        </label>
+        <div class="flex items-center gap-2 mb-2">
+          <label class="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            Protocol URL
+          </label>
+          <a
+            v-if="isValidProtocolUrl"
+            :href="protocolUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center justify-center h-5 w-5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            :title="`Open ${protocolUrl}`"
+            data-testid="protocol-url-open"
+          >
+            <ExternalLink class="h-3.5 w-3.5" />
+          </a>
+        </div>
         <Input
           v-model="protocolUrl"
           placeholder="https://... (e.g., PROSPERO registration)"

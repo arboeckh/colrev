@@ -125,9 +125,11 @@ function cancel() {
         <div class="flex items-center gap-2 mb-2">
           <span class="font-medium">{{ criterion?.name }}</span>
           <Badge
-            :variant="criterion?.criterion_type === 'inclusion_criterion' ? 'default' : 'secondary'"
+            variant="outline"
             class="text-xs"
-            :class="criterion?.criterion_type === 'inclusion_criterion' ? 'bg-green-600 hover:bg-green-700' : ''"
+            :class="criterion?.criterion_type === 'inclusion_criterion'
+              ? 'bg-green-500/10 text-green-700 border-green-500/30 dark:text-green-400'
+              : 'bg-red-500/10 text-red-700 border-red-500/30 dark:text-red-400'"
           >
             {{ criterion?.criterion_type === 'inclusion_criterion' ? 'Inclusion' : 'Exclusion' }}
           </Badge>

@@ -347,7 +347,7 @@ defineExpose({ refreshData, activeTask, tasks });
             class="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400"
           >
             <AlertTriangle class="h-3.5 w-3.5 shrink-0" />
-            <span class="flex-1">{{ issue.message }}</span>
+            <span>{{ issue.message }}</span>
             <Button
               v-if="issue.action"
               variant="outline"
