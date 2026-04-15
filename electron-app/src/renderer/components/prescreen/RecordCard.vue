@@ -1,9 +1,7 @@
 <script setup lang="ts">
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-vue-next';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 
 export interface DisplayRecord {
   id: string;
@@ -16,7 +14,7 @@ export interface DisplayRecord {
   _enrichmentStatus?: 'pending' | 'loading' | 'complete' | 'failed';
 }
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     record: DisplayRecord;
     canPrev?: boolean;
@@ -34,77 +32,188 @@ const emit = defineEmits<{
   (e: 'prev'): void;
   (e: 'next'): void;
 }>();
+
+const scrollEl = ref<HTMLElement | null>(null);
+const showFade = ref(false);
+
+function updateFade() {
+  const el = scrollEl.value;
+  if (!el) {
+    showFade.value = false;
+    return;
+  }
+  const overflowing = el.scrollHeight - el.clientHeight > 2;
+  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
+  showFade.value = overflowing && !atBottom;
+}
+
+let ro: ResizeObserver | null = null;
+
+watch(
+  () => props.record?.id,
+  async () => {
+    await nextTick();
+    if (scrollEl.value) scrollEl.value.scrollTop = 0;
+    updateFade();
+  },
+);
+
+watch(
+  () => props.record?.abstract,
+  async () => {
+    await nextTick();
+    updateFade();
+  },
+);
+
+onMounted(() => {
+  updateFade();
+  if (scrollEl.value && typeof ResizeObserver !== 'undefined') {
+    ro = new ResizeObserver(() => updateFade());
+    ro.observe(scrollEl.value);
+  }
+});
+
+onUnmounted(() => {
+  ro?.disconnect();
+  ro = null;
+});
+
+const metaParts = computed(() => {
+  const r = props.record;
+  const parts: string[] = [];
+  const authorYear = r.author
+    ? r.year
+      ? `${r.author} (${r.year})`
+      : r.author
+    : r.year
+      ? String(r.year)
+      : '';
+  if (authorYear) parts.push(authorYear);
+  const venue = r.journal || r.booktitle;
+  if (venue) parts.push(venue);
+  return parts;
+});
 </script>
 
 <template>
-  <Card
-    class="flex-1 flex flex-col min-h-0 border-0 shadow-none"
+  <article
+    class="flex-1 flex flex-col min-h-0 rounded-lg w-full max-w-[65ch] mx-auto"
     :data-testid="`${testIdPrefix}-record-card`"
   >
-    <CardHeader class="pb-2">
-      <div class="flex items-center justify-between">
-        <Badge variant="outline" class="font-mono" :data-testid="`${testIdPrefix}-record-id`">
-          {{ record.id }}
-        </Badge>
-        <div class="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            :disabled="!canPrev"
-            :data-testid="`${testIdPrefix}-btn-previous`"
-            @click="emit('prev')"
-          >
-            <ChevronLeft class="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            :disabled="!canNext"
-            :data-testid="`${testIdPrefix}-btn-next`"
-            @click="emit('next')"
-          >
-            <ChevronRight class="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-      <CardTitle
-        class="text-lg leading-tight break-words"
-        :data-testid="`${testIdPrefix}-record-title`"
+    <!-- Top row: ID · meta · nav -->
+    <div class="flex items-center gap-3 px-1 pb-2">
+      <span
+        class="font-mono text-[11px] uppercase tracking-wider text-muted-foreground/70 shrink-0"
+        :data-testid="`${testIdPrefix}-record-id`"
       >
-        {{ record.title || 'Untitled record' }}
-      </CardTitle>
-      <CardDescription>
-        <span>{{ record.author || 'Unknown author' }}<span v-if="record.year"> ({{ record.year }})</span></span>
-        <span v-if="record.journal" class="block">{{ record.journal }}</span>
-        <span v-else-if="record.booktitle" class="block">{{ record.booktitle }}</span>
-      </CardDescription>
-    </CardHeader>
+        {{ record.id }}
+      </span>
+      <div
+        v-if="metaParts.length"
+        class="flex-1 min-w-0 text-xs text-muted-foreground truncate"
+      >
+        <template v-for="(part, i) in metaParts" :key="i">
+          <span v-if="i > 0" class="mx-2 text-muted-foreground/40">·</span>
+          <span>{{ part }}</span>
+        </template>
+      </div>
+      <div v-else class="flex-1" />
+      <div class="flex items-center gap-0.5 shrink-0">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="h-7 w-7"
+          :disabled="!canPrev"
+          :data-testid="`${testIdPrefix}-btn-previous`"
+          @click="emit('prev')"
+        >
+          <ChevronLeft class="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="h-7 w-7"
+          :disabled="!canNext"
+          :data-testid="`${testIdPrefix}-btn-next`"
+          @click="emit('next')"
+        >
+          <ChevronRight class="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
 
-    <CardContent class="flex-1 min-h-0 flex flex-col overflow-hidden">
-      <h4 class="text-sm font-medium mb-2">Abstract</h4>
-      <ScrollArea class="flex-1 pr-4">
+    <!-- Title -->
+    <h3
+      class="px-1 text-[17px] font-semibold leading-snug tracking-tight break-words line-clamp-3"
+      :title="record.title || 'Untitled record'"
+      :data-testid="`${testIdPrefix}-record-title`"
+    >
+      {{ record.title || 'Untitled record' }}
+    </h3>
+
+    <!-- Hairline divider -->
+    <div class="mx-1 mt-3 mb-4 h-px bg-border/50" />
+
+    <!-- Abstract -->
+    <div class="relative flex-1 min-h-0">
+      <div
+        ref="scrollEl"
+        class="absolute inset-0 overflow-y-auto pr-3 pl-1 custom-scroll"
+        @scroll="updateFade"
+      >
         <div
           v-if="record._enrichmentStatus === 'loading'"
-          class="space-y-3 max-w-prose"
+          class="space-y-2"
         >
-          <div class="flex items-center gap-2 text-sm text-muted-foreground mb-3">
-            <Loader2 class="h-4 w-4 animate-spin" />
+          <div class="flex items-center gap-2 text-[13px] text-muted-foreground mb-3">
+            <Loader2 class="h-3.5 w-3.5 animate-spin" />
             <span>Fetching abstract from external sources...</span>
           </div>
-          <div class="space-y-2.5 animate-pulse">
-            <div class="h-3.5 bg-muted rounded w-full" />
-            <div class="h-3.5 bg-muted rounded w-full" />
-            <div class="h-3.5 bg-muted rounded w-[95%]" />
-            <div class="h-3.5 bg-muted rounded w-full" />
-            <div class="h-3.5 bg-muted rounded w-[88%]" />
-            <div class="h-3.5 bg-muted rounded w-full" />
-            <div class="h-3.5 bg-muted rounded w-[70%]" />
+          <div class="space-y-2 animate-pulse">
+            <div class="h-3 bg-muted/70 rounded w-full" />
+            <div class="h-3 bg-muted/70 rounded w-full" />
+            <div class="h-3 bg-muted/70 rounded w-[95%]" />
+            <div class="h-3 bg-muted/70 rounded w-full" />
+            <div class="h-3 bg-muted/70 rounded w-[88%]" />
+            <div class="h-3 bg-muted/70 rounded w-full" />
+            <div class="h-3 bg-muted/70 rounded w-[70%]" />
           </div>
         </div>
-        <p v-else class="text-sm text-muted-foreground whitespace-pre-wrap max-w-prose">
+        <p
+          v-else
+          class="text-[16px] leading-[1.7] text-foreground whitespace-pre-wrap break-words"
+        >
           {{ record.abstract || 'No abstract available' }}
         </p>
-      </ScrollArea>
-    </CardContent>
-  </Card>
+      </div>
+      <div
+        v-show="showFade"
+        class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background to-transparent"
+      />
+    </div>
+  </article>
 </template>
+
+<style scoped>
+.custom-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent) transparent;
+}
+.custom-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.custom-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scroll::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklch, var(--muted-foreground) 25%, transparent);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklch, var(--muted-foreground) 45%, transparent);
+  background-clip: padding-box;
+}
+</style>

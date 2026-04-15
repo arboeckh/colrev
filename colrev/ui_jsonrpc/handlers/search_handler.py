@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import colrev.review_manager
 from colrev.ui_jsonrpc import response_formatter, validation
+from colrev.ui_jsonrpc.handlers._api_params_builders import build_api_params
 
 logger = logging.getLogger(__name__)
 
@@ -370,13 +371,12 @@ class SearchHandler:
             version=version,
         )
 
-        # For API-based sources like PubMed, set up search_parameters with the proper URL
-        if search_type_enum == SearchType.API and endpoint == "colrev.pubmed":
-            # Construct the PubMed eSearch URL from the search string
-            import urllib.parse
-            encoded_query = urllib.parse.quote(search_string)
-            pubmed_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={encoded_query}"
-            new_source.search_parameters = {"url": pubmed_url}
+        # For API-based sources, build the package-specific search_parameters
+        # shape (URL, query dict, etc.) from the user's query string.
+        if search_type_enum == SearchType.API:
+            api_params = build_api_params(endpoint, search_string)
+            if api_params is not None:
+                new_source.search_parameters = api_params
 
         # Add to settings
         self.review_manager.settings.sources.append(new_source)
@@ -639,19 +639,20 @@ class SearchHandler:
                 query_changed = True
             source_to_update.search_string = search_string
 
-            # For PubMed API sources, rebuild the URL from the new search string
+            # For known API endpoints, rebuild search_parameters from the new query
             from colrev.constants import SearchType
 
-            if (
-                source_to_update.search_type == SearchType.API
-                and source_to_update.platform == "colrev.pubmed"
-            ):
-                import urllib.parse
-
-                encoded_query = urllib.parse.quote(search_string)
-                pubmed_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={encoded_query}"
-                source_to_update.search_parameters["url"] = pubmed_url
-                logger.info(f"Rebuilt PubMed URL: {pubmed_url}")
+            if source_to_update.search_type == SearchType.API:
+                rebuilt = build_api_params(
+                    source_to_update.platform, search_string
+                )
+                if rebuilt is not None:
+                    if source_to_update.search_parameters is None:
+                        source_to_update.search_parameters = {}
+                    source_to_update.search_parameters.update(rebuilt)
+                    logger.info(
+                        f"Rebuilt API params for {source_to_update.platform}: {rebuilt}"
+                    )
 
         if search_parameters is not None:
             # Check if URL parameter changed (main query for API sources)

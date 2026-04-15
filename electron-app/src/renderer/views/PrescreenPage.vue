@@ -841,7 +841,7 @@ onUnmounted(() => {
     <!-- Screening interface -->
     <div v-else class="flex-1 flex flex-col min-h-0">
       <!-- Zone 2: Decision Buttons -->
-      <div class="mb-2">
+      <div class="mb-1.5">
         <DecisionButtons
           v-if="currentRecord"
           :decision="currentRecord._decision"
@@ -855,7 +855,7 @@ onUnmounted(() => {
       </div>
 
       <!-- Zone 3: Progress Bar -->
-      <div class="mb-2">
+      <div class="mb-1.5">
         <ProgressTrack
           :items="queue.map((r) => ({ id: r.id, decision: r._decision }))"
           :current-index="currentIndex"

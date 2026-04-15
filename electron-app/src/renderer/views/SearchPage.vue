@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { Search, Plus, Globe, Database, Loader2, AlertTriangle, Play } from 'lucide-vue-next';
+import { Search, Plus, Loader2, AlertTriangle, Play } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
-import { AddFileSourceDialog, AddApiSourceDialog, SourceCard } from '@/components/search';
+import { AddSourceDialog, SourceCard } from '@/components/search';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
@@ -49,11 +49,13 @@ const apiSourceCount = computed(() => {
   return visibleSources.value.filter(s => s.search_type === 'API').length;
 });
 
-// Check if a PubMed source already exists (to disable adding another)
-const hasPubmedSource = computed(() => {
-  return sources.value.some(s =>
-    s.platform === 'colrev.pubmed' || s.endpoint === 'colrev.pubmed'
-  );
+// Endpoints already configured as API sources — gallery uses these to disable
+// duplicate tiles.
+const existingApiEndpoints = computed(() => {
+  return sources.value
+    .filter(s => s.search_type === 'API')
+    .map(s => s.platform ?? s.endpoint ?? '')
+    .filter(Boolean);
 });
 
 // Per-source staleness tracking
@@ -86,10 +88,8 @@ const canGoToNextStep = computed(() => {
   return isSearchComplete.value;
 });
 
-// Dialog states
-const showAddFileDialog = ref(false);
-const showAddApiDialog = ref(false);
-const showAddMenu = ref(false);
+// Dialog state — single unified Add Source dialog
+const showAddSourceDialog = ref(false);
 
 // Run search for a specific source
 async function runSourceSearch(sourceFilename: string) {
@@ -385,7 +385,7 @@ onMounted(() => {
       <div v-if="!isReadOnly" class="relative w-72" data-testid="add-source-card">
         <Card
           class="h-full border-dashed border-2 hover:border-primary/50 hover:bg-accent/50 transition-colors cursor-pointer"
-          @click="showAddMenu = !showAddMenu"
+          @click="showAddSourceDialog = true"
         >
           <CardContent class="flex flex-col items-center justify-center py-6 text-muted-foreground h-full">
             <div class="h-8 w-8 rounded-full bg-muted flex items-center justify-center mb-2">
@@ -394,62 +394,15 @@ onMounted(() => {
             <p class="font-medium text-sm">Add Source</p>
           </CardContent>
         </Card>
-
-        <!-- Add source dropdown menu -->
-        <div
-          v-if="showAddMenu"
-          class="absolute left-0 top-full mt-2 w-64 bg-popover border border-border rounded-md shadow-lg z-50"
-          data-testid="add-source-menu"
-        >
-          <div class="p-1">
-            <button
-              class="w-full flex items-center gap-3 px-3 py-3 text-sm rounded-sm"
-              :class="hasPubmedSource
-                ? 'opacity-50 cursor-not-allowed'
-                : 'hover:bg-accent hover:text-accent-foreground cursor-pointer'"
-              :disabled="hasPubmedSource"
-              data-testid="add-api-source-option"
-              @click="!hasPubmedSource && (showAddApiDialog = true, showAddMenu = false)"
-            >
-              <Globe class="h-5 w-5" />
-              <div class="text-left">
-                <div class="font-medium">PubMed Search</div>
-                <div class="text-xs text-muted-foreground">
-                  {{ hasPubmedSource ? 'Already added - edit existing source' : 'Search via API' }}
-                </div>
-              </div>
-            </button>
-            <button
-              class="w-full flex items-center gap-3 px-3 py-3 text-sm rounded-sm hover:bg-accent hover:text-accent-foreground"
-              data-testid="add-file-source-option"
-              @click="showAddFileDialog = true; showAddMenu = false"
-            >
-              <Database class="h-5 w-5" />
-              <div class="text-left">
-                <div class="font-medium">Database Export</div>
-                <div class="text-xs text-muted-foreground">Upload BibTeX, RIS, etc.</div>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        <!-- Click outside to close -->
-        <div v-if="showAddMenu" class="fixed inset-0 z-40" @click="showAddMenu = false" />
       </div>
     </div>
 
-    <!-- Dialogs -->
-    <AddFileSourceDialog
+    <!-- Unified Add Source dialog -->
+    <AddSourceDialog
       v-if="projects.currentProjectId"
-      v-model:open="showAddFileDialog"
+      v-model:open="showAddSourceDialog"
       :project-id="projects.currentProjectId"
-      @source-added="handleSourceAdded"
-    />
-
-    <AddApiSourceDialog
-      v-if="projects.currentProjectId"
-      v-model:open="showAddApiDialog"
-      :project-id="projects.currentProjectId"
+      :existing-api-endpoints="existingApiEndpoints"
       @source-added="handleSourceAdded"
     />
   </div>
