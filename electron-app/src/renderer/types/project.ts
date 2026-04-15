@@ -368,9 +368,10 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     inputStates: [
       'rev_prescreen_included',
       'pdf_needs_manual_retrieval',
+      'pdf_imported',
       'pdf_needs_manual_preparation',
     ],
-    outputStates: ['pdf_imported', 'pdf_prepared', 'pdf_not_available'],
+    outputStates: ['pdf_prepared', 'pdf_not_available'],
     terminalOutputStates: ['pdf_not_available'],
   },
   {

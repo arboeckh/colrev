@@ -75,13 +75,39 @@ const showRetrieveButton = computed(
     pageState.value === 'post-run' &&
     (readyToRetrieveCount.value > 0 || canRunPdfGet.value),
 );
+const showPrepareButton = computed(
+  () => pageState.value === 'post-run' && importedCount.value > 0,
+);
+const canRunPdfPrep = computed(
+  () =>
+    importedCount.value > 0 &&
+    needsRetrievalCount.value === 0 &&
+    needsPrepCount.value === 0 &&
+    readyToRetrieveCount.value === 0,
+);
 const allDone = computed(
   () =>
     pageState.value === 'post-run' &&
     actionCount.value === 0 &&
     readyToRetrieveCount.value === 0 &&
+    importedCount.value === 0 &&
     preparedCount.value > 0,
 );
+
+const prepHelperText = computed<string | null>(() => {
+  if (!showPrepareButton.value) return null;
+  if (canRunPdfPrep.value) {
+    return `${importedCount.value} retrieved PDF${importedCount.value === 1 ? '' : 's'} ready to prepare. Run "Prepare PDFs" to move them to the Screen step.`;
+  }
+  const reasons: string[] = [];
+  if (readyToRetrieveCount.value > 0) {
+    reasons.push(`${readyToRetrieveCount.value} record${readyToRetrieveCount.value === 1 ? '' : 's'} still need${readyToRetrieveCount.value === 1 ? 's' : ''} a PDF (upload or mark unavailable)`);
+  }
+  if (needsPrepCount.value > 0) {
+    reasons.push(`${needsPrepCount.value} record${needsPrepCount.value === 1 ? '' : 's'} need${needsPrepCount.value === 1 ? 's' : ''} manual preparation`);
+  }
+  return `Prepare PDFs will be available once all records are settled — ${reasons.join(' and ')}.`;
+});
 
 const filteredRecords = computed(() => {
   if (activeFilter.value === 'action') {
@@ -306,7 +332,7 @@ onMounted(async () => {
           class="flex items-center gap-2 text-green-600 dark:text-green-400"
         >
           <CheckCircle2 class="h-5 w-5" />
-          <span class="text-sm font-medium">All retrieved</span>
+          <span class="text-sm font-medium">All prepared</span>
         </div>
 
         <OperationButton
@@ -319,8 +345,28 @@ onMounted(async () => {
           test-id="pdfs-retrieve-btn"
           @success="handleOperationComplete"
         />
+
+        <OperationButton
+          v-if="projects.currentProjectId && showPrepareButton"
+          operation="pdf_prep"
+          :project-id="projects.currentProjectId"
+          label="Prepare PDFs"
+          :disabled="!canRunPdfPrep"
+          show-progress
+          test-id="pdfs-prepare-btn"
+          @success="handleOperationComplete"
+        />
       </div>
     </div>
+
+    <p
+      v-if="prepHelperText"
+      class="text-xs text-muted-foreground -mt-2"
+      data-testid="pdfs-prep-helper"
+      :class="canRunPdfPrep ? 'text-foreground/80' : ''"
+    >
+      {{ prepHelperText }}
+    </p>
 
     <Separator />
 
@@ -347,8 +393,8 @@ onMounted(async () => {
         record{{ prescreenIncludedCount === 1 ? '' : 's' }}
       </h3>
       <p class="text-sm text-muted-foreground max-w-md mb-8">
-        CoLRev will attempt automated retrieval and preparation.
-        Records it can't find will be listed for manual upload.
+        CoLRev will attempt automated retrieval. Records it can't find will be listed for
+        manual upload. After all PDFs are in place, run "Prepare PDFs" to finalize them.
       </p>
       <OperationButton
         v-if="projects.currentProjectId"

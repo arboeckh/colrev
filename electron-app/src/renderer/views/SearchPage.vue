@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
-import { Search, Plus, Globe, Database, CheckCircle2, ArrowRight, Loader2, AlertTriangle, Play } from 'lucide-vue-next';
+import { Search, Plus, Globe, Database, Loader2, AlertTriangle, Play } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -14,7 +13,6 @@ import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
 import type { GetSourcesResponse, SearchSource } from '@/types';
 
-const router = useRouter();
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
@@ -87,12 +85,6 @@ const isSearchComplete = computed(() => {
 const canGoToNextStep = computed(() => {
   return isSearchComplete.value;
 });
-
-function goToNextStep() {
-  if (projects.currentProjectId) {
-    router.push(`/project/${projects.currentProjectId}/preprocessing`);
-  }
-}
 
 // Dialog states
 const showAddFileDialog = ref(false);
@@ -283,28 +275,8 @@ onMounted(() => {
 
       <!-- Status indicator (top right) -->
       <div class="flex items-center gap-3">
-        <!-- Complete state -->
-        <template v-if="canGoToNextStep">
-          <div class="flex items-center gap-2 text-green-600 dark:text-green-400">
-            <CheckCircle2 class="h-5 w-5" />
-            <span class="text-sm font-medium">{{ totalSourceRecords.toLocaleString() }} records</span>
-          </div>
-          <Button data-testid="next-step-button" @click="goToNextStep">
-            Next: Prescreen
-            <ArrowRight class="h-4 w-4 ml-2" />
-          </Button>
-        </template>
-
-        <!-- Search complete but preprocessing pending -->
-        <template v-else-if="isSearchComplete">
-          <div class="flex items-center gap-2 text-green-600 dark:text-green-400">
-            <CheckCircle2 class="h-5 w-5" />
-            <span class="text-sm font-medium">{{ totalSourceRecords.toLocaleString() }} records</span>
-          </div>
-        </template>
-
         <!-- Stale state -->
-        <template v-else-if="hasStaleSource">
+        <template v-if="hasStaleSource">
           <div class="flex items-center gap-2 text-yellow-600 dark:text-yellow-400">
             <AlertTriangle class="h-5 w-5" />
             <span class="text-sm font-medium">{{ staleSourceCount }} stale</span>
