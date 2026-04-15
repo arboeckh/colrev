@@ -326,7 +326,7 @@ onMounted(async () => {
             <div v-if="item.status === 'conflict'" class="mt-2">
               <select
                 v-model="selectedResolutions[item.id]"
-                class="w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
+                class="w-full max-w-xs rounded-md border border-input bg-background px-2 py-1 text-xs"
               >
                 <option value="">Choose reviewer...</option>
                 <option

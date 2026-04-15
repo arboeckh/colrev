@@ -56,6 +56,16 @@ const processedRecords = computed(() => {
   }, 0);
 });
 
+// Count of records in non-terminal output states — i.e. records this step
+// successfully moved forward to later steps. Drives the green "+n" badge.
+const forwardedRecords = computed(() => {
+  if (props.suppressCounts || !props.recordCounts) return 0;
+  const terminal = new Set(props.step.terminalOutputStates ?? []);
+  return props.step.outputStates
+    .filter((state) => !terminal.has(state))
+    .reduce((sum, state) => sum + (props.recordCounts?.[state] ?? 0), 0);
+});
+
 // Records that have *ever been* in output states (survives downstream processing)
 // e.g. preprocessing produced md_processed records even if prescreen moved them on
 const everProcessedRecords = computed(() => {
@@ -223,16 +233,16 @@ const stepStatus = computed((): StepStatus => {
               <p class="text-xs">{{ deltaPendingRecords }} new record{{ deltaPendingRecords !== 1 ? 's' : '' }} from dev that have reached this step</p>
             </TooltipContent>
           </Tooltip>
-          <Tooltip v-if="processedRecords > 0 && pendingRecords > 0 && !deltaPendingRecords">
+          <Tooltip v-if="forwardedRecords > 0 && !deltaPendingRecords">
             <TooltipTrigger as-child>
               <span
                 class="flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500/15 px-1.5 text-xs tabular-nums text-emerald-500 font-medium"
               >
-                +{{ processedRecords }}
+                +{{ forwardedRecords }}
               </span>
             </TooltipTrigger>
             <TooltipContent side="right" class="max-w-[200px]">
-              <p class="text-xs">{{ processedRecords }} record{{ processedRecords !== 1 ? 's' : '' }} completed at this step</p>
+              <p class="text-xs">{{ forwardedRecords }} record{{ forwardedRecords !== 1 ? 's' : '' }} completed at this step</p>
             </TooltipContent>
           </Tooltip>
           <Tooltip v-if="pendingRecords > 0">

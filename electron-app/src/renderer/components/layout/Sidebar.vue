@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
-import { LayoutDashboard, Settings } from 'lucide-vue-next';
+import { LayoutDashboard } from 'lucide-vue-next';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import SidebarItem from './SidebarItem.vue';
@@ -22,10 +22,6 @@ const managedReview = useManagedReviewStore();
 
 const isOverviewActive = computed(() => {
   return route.name === 'project-overview';
-});
-
-const isSettingsActive = computed(() => {
-  return route.name === 'project-settings';
 });
 
 function getOperationInfo(stepId: WorkflowStep) {
@@ -184,18 +180,6 @@ const priorStepHasPending = computed(() => {
           :is-first="index === 0" :is-last="index === WORKFLOW_STEPS.length - 1" />
       </nav>
 
-      <Separator class="my-3" />
-
-      <!-- Settings link -->
-      <RouterLink :to="`/project/${projectId}/settings`" data-testid="sidebar-settings"
-        class="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors" :class="[
-          isSettingsActive
-            ? 'bg-accent text-accent-foreground font-medium'
-            : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-        ]">
-        <Settings class="h-4 w-4" />
-        <span>Settings</span>
-      </RouterLink>
     </ScrollArea>
 
     <!-- User menu at the bottom -->

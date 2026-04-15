@@ -224,6 +224,10 @@ export interface WorkflowStepInfo {
   // Record states that indicate this step has processed records
   // Used to determine if the step has ever been run
   outputStates: (keyof RecordCounts)[];
+  // Subset of outputStates that represent records dropped out of the workflow
+  // (e.g. rev_prescreen_excluded, pdf_not_available, rev_excluded).
+  // These count as "processed" but not as "forwarded" to later steps.
+  terminalOutputStates?: (keyof RecordCounts)[];
   // Whether this is a grouped/combined step
   isGrouped?: boolean;
   // Sub-steps if this is a grouped step
@@ -353,6 +357,7 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     route: 'prescreen',
     inputStates: ['md_processed'],
     outputStates: ['rev_prescreen_included', 'rev_prescreen_excluded'],
+    terminalOutputStates: ['rev_prescreen_excluded'],
     managedReviewKind: 'prescreen',
   },
   {
@@ -366,6 +371,7 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
       'pdf_needs_manual_preparation',
     ],
     outputStates: ['pdf_imported', 'pdf_prepared', 'pdf_not_available'],
+    terminalOutputStates: ['pdf_not_available'],
   },
   {
     id: 'screen',
@@ -374,6 +380,7 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     route: 'screen',
     inputStates: ['pdf_prepared'],
     outputStates: ['rev_included', 'rev_excluded'],
+    terminalOutputStates: ['rev_excluded'],
     managedReviewKind: 'screen',
   },
   {

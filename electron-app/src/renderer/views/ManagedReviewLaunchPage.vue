@@ -359,7 +359,7 @@ onMounted(async () => {
 
       <!-- Create task form (when no active task) -->
       <div v-if="!activeTask" class="space-y-4">
-        <div class="flex items-center justify-between">
+        <div class="flex items-start gap-3">
           <div>
             <h3 class="text-sm font-medium">Assign Reviewers</h3>
             <p class="text-xs text-muted-foreground mt-0.5">
@@ -379,7 +379,7 @@ onMounted(async () => {
         </div>
 
         <!-- Invite collaborator inline form -->
-        <div v-if="showInviteForm" class="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+        <div v-if="showInviteForm" class="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 max-w-md">
           <UserPlus class="h-4 w-4 text-muted-foreground shrink-0" />
           <input
             v-model="inviteUsername"
@@ -406,7 +406,7 @@ onMounted(async () => {
         </div>
 
         <!-- Reviewer selection dropdowns -->
-        <div class="grid gap-4 md:grid-cols-2">
+        <div class="grid gap-4 md:grid-cols-2 max-w-md">
           <div class="space-y-1.5">
             <label class="text-xs font-medium text-muted-foreground">Reviewer A</label>
             <ReviewerSelector
@@ -444,7 +444,7 @@ onMounted(async () => {
       </div>
 
       <!-- Active/completed task display -->
-      <div v-if="displayTask" class="space-y-4">
+      <div v-if="displayTask" class="space-y-4 max-w-md">
         <div class="flex items-center justify-between">
           <div>
             <h3 class="text-sm font-medium">{{ displayTask.id }}</h3>

@@ -52,17 +52,20 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
       ? latestCompletedPrescreenTask.value
       : latestCompletedScreenTask.value;
 
-    // Completed task — step is done
-    if (completedTask && !activeTask) return 'complete';
-
     // Active task — step is in progress
     if (activeTask) return 'active';
 
-    // No task — check if there are eligible records
+    // New eligible records take precedence over a past completed task:
+    // if records are waiting to be screened, the step is active again.
     const eligibleState = kind === 'prescreen' ? 'md_processed' : 'pdf_prepared';
     const currently = projects.currentStatus?.currently;
     const eligibleCount = currently?.[eligibleState] ?? 0;
-    return eligibleCount > 0 ? 'active' : 'pending';
+    if (eligibleCount > 0) return 'active';
+
+    // Completed task and no eligible records — step is done
+    if (completedTask) return 'complete';
+
+    return 'pending';
   }
 
   async function refresh(): Promise<void> {
