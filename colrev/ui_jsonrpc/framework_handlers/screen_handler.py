@@ -7,7 +7,6 @@ are driven explicitly via the ``commit_changes`` endpoint in ``git_handler``.
 from __future__ import annotations
 
 import logging
-from typing import Any
 from typing import Dict
 from typing import List
 from typing import Literal
@@ -91,8 +90,9 @@ class ScreenedRecord(BaseModel):
 
 
 class ScreenRecordResponse(ProjectResponse):
-    operation: str
-    details: Dict[str, Any]
+    record: ScreenedRecord
+    remaining_count: int
+    already_decided: bool = False
 
 
 class ScreenDecisionChange(BaseModel):
@@ -250,7 +250,19 @@ class ScreenHandler(BaseHandler):
 
         record_dict = records_dict[req.record_id]
         current_status = record_dict.get(Fields.STATUS)
-        if current_status != RecordState.pdf_prepared:
+        target_status = (
+            RecordState.rev_included
+            if req.decision == "include"
+            else RecordState.rev_excluded
+        )
+        already_decided = current_status == target_status
+
+        valid_source_states = {
+            RecordState.pdf_prepared,
+            RecordState.rev_included,
+            RecordState.rev_excluded,
+        }
+        if not already_decided and current_status not in valid_source_states:
             raise ValueError(
                 f"Record '{req.record_id}' is not ready for screening "
                 f"(current status: {current_status})"
@@ -265,11 +277,12 @@ class ScreenHandler(BaseHandler):
             criteria_str = "NA"
 
         record = colrev.record.record.Record(record_dict)
-        screen_op.screen(
-            record=record,
-            screen_inclusion=(req.decision == "include"),
-            screening_criteria=criteria_str,
-        )
+        if not already_decided:
+            screen_op.screen(
+                record=record,
+                screen_inclusion=(req.decision == "include"),
+                screening_criteria=criteria_str,
+            )
 
         remaining_count = sum(
             1
@@ -282,17 +295,14 @@ class ScreenHandler(BaseHandler):
         new_status = record.get_data().get(Fields.STATUS)
         return ScreenRecordResponse(
             project_id=req.project_id,
-            operation="screen_record",
-            details={
-                "record": {
-                    "id": req.record_id,
-                    "decision": req.decision,
-                    "new_status": new_status.name if new_status else "",
-                    "criteria_decisions": req.criteria_decisions,
-                },
-                "remaining_count": remaining_count,
-                "message": f"Record {req.record_id} screened as {req.decision}",
-            },
+            record=ScreenedRecord(
+                id=req.record_id,
+                decision=req.decision,
+                new_status=new_status.name if new_status else target_status.name,
+                criteria_decisions=req.criteria_decisions,
+            ),
+            remaining_count=remaining_count,
+            already_decided=already_decided,
         )
 
     # -- update_screen_decisions --------------------------------------------

@@ -65,6 +65,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -189,6 +190,7 @@
                 "type": "string"
               },
               "source": {
+                "additionalProperties": true,
                 "title": "Source",
                 "type": "object"
               }
@@ -678,6 +680,7 @@
         "properties": {
           "fields": {
             "items": {
+              "additionalProperties": true,
               "type": "object"
             },
             "title": "Fields",
@@ -819,6 +822,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -884,6 +888,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -1445,6 +1450,7 @@
           },
           "templates": {
             "items": {
+              "additionalProperties": true,
               "type": "object"
             },
             "title": "Templates",
@@ -3161,6 +3167,7 @@
             "type": "string"
           },
           "settings": {
+            "additionalProperties": true,
             "title": "Settings",
             "type": "object"
           },
@@ -3448,6 +3455,7 @@
             "type": "string"
           },
           "status": {
+            "additionalProperties": true,
             "title": "Status",
             "type": "object"
           },
@@ -3791,6 +3799,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4118,6 +4127,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4193,6 +4203,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4305,6 +4316,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4350,6 +4362,7 @@
             "title": "Base Path"
           },
           "fields": {
+            "additionalProperties": true,
             "title": "Fields",
             "type": "object"
           },
@@ -4380,6 +4393,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4650,6 +4664,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4805,6 +4820,7 @@
             "type": "string"
           },
           "values": {
+            "additionalProperties": true,
             "title": "Values",
             "type": "object"
           },
@@ -5003,19 +5019,66 @@
       },
       "requires_project": true,
       "response": {
+        "$defs": {
+          "ScreenedRecord": {
+            "additionalProperties": false,
+            "properties": {
+              "criteria_decisions": {
+                "additionalProperties": {
+                  "enum": [
+                    "in",
+                    "out",
+                    "TODO"
+                  ],
+                  "type": "string"
+                },
+                "title": "Criteria Decisions",
+                "type": "object"
+              },
+              "decision": {
+                "enum": [
+                  "include",
+                  "exclude"
+                ],
+                "title": "Decision",
+                "type": "string"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "new_status": {
+                "title": "New Status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "decision",
+              "new_status",
+              "criteria_decisions"
+            ],
+            "title": "ScreenedRecord",
+            "type": "object"
+          }
+        },
         "additionalProperties": true,
         "properties": {
-          "details": {
-            "title": "Details",
-            "type": "object"
-          },
-          "operation": {
-            "title": "Operation",
-            "type": "string"
+          "already_decided": {
+            "default": false,
+            "title": "Already Decided",
+            "type": "boolean"
           },
           "project_id": {
             "title": "Project Id",
             "type": "string"
+          },
+          "record": {
+            "$ref": "#/$defs/ScreenedRecord"
+          },
+          "remaining_count": {
+            "title": "Remaining Count",
+            "type": "integer"
           },
           "success": {
             "const": true,
@@ -5026,8 +5089,8 @@
         },
         "required": [
           "project_id",
-          "operation",
-          "details"
+          "record",
+          "remaining_count"
         ],
         "title": "ScreenRecordResponse",
         "type": "object"
@@ -5185,6 +5248,7 @@
             "type": "string"
           },
           "status": {
+            "additionalProperties": true,
             "title": "Status",
             "type": "object"
           },
@@ -5429,6 +5493,7 @@
           "fields": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -5471,6 +5536,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -5575,6 +5641,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -5816,6 +5883,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -5865,6 +5933,7 @@
             "type": "string"
           },
           "settings": {
+            "additionalProperties": true,
             "title": "Settings",
             "type": "object"
           },
@@ -5886,6 +5955,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -5966,6 +6036,7 @@
           "search_parameters": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -6010,6 +6081,7 @@
                 "type": "string"
               },
               "source": {
+                "additionalProperties": true,
                 "title": "Source",
                 "type": "object"
               }
@@ -6317,6 +6389,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },

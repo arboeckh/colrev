@@ -223,7 +223,19 @@ const stepStatus = computed((): StepStatus => {
               <p class="text-xs">{{ deltaPendingRecords }} new record{{ deltaPendingRecords !== 1 ? 's' : '' }} from dev that have reached this step</p>
             </TooltipContent>
           </Tooltip>
-<Tooltip v-if="pendingRecords > 0">
+          <Tooltip v-if="processedRecords > 0 && pendingRecords > 0 && !deltaPendingRecords">
+            <TooltipTrigger as-child>
+              <span
+                class="flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500/15 px-1.5 text-xs tabular-nums text-emerald-500 font-medium"
+              >
+                +{{ processedRecords }}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="right" class="max-w-[200px]">
+              <p class="text-xs">{{ processedRecords }} record{{ processedRecords !== 1 ? 's' : '' }} completed at this step</p>
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip v-if="pendingRecords > 0">
             <TooltipTrigger as-child>
               <span
                 class="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary/10 px-1.5 text-xs tabular-nums text-primary font-medium"

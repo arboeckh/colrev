@@ -159,7 +159,9 @@ export interface AddScreeningCriterionResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {}
+export interface Details {
+  [k: string]: unknown;
+}
 
 // add_source
 export type BasePath = string | null;
@@ -201,7 +203,9 @@ export interface AddSourceDetails {
   source: Source;
   [k: string]: unknown;
 }
-export interface Source {}
+export interface Source {
+  [k: string]: unknown;
+}
 
 // apply_reconciliation
 export type BasePath = string | null;
@@ -354,7 +358,9 @@ export interface StructuredFieldSpec {
   [k: string]: unknown;
 }
 
-export type Fields = {}[];
+export type Fields = {
+  [k: string]: unknown;
+}[];
 export type Message = string;
 export type ProjectId = string;
 export type Success = true;
@@ -419,7 +425,9 @@ export interface DataResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {}
+export interface Details {
+  [k: string]: unknown;
+}
 
 // dedupe
 export type BasePath = string | null;
@@ -443,7 +451,9 @@ export interface DedupeResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {}
+export interface Details {
+  [k: string]: unknown;
+}
 
 // delete_project
 export type BasePath = string;
@@ -631,7 +641,9 @@ export interface GetCSVSourceTemplatesRequest {
 }
 
 export type Success = true;
-export type Templates = {}[];
+export type Templates = {
+  [k: string]: unknown;
+}[];
 
 export interface GetCSVSourceTemplatesResponse {
   success?: Success;
@@ -1235,7 +1247,9 @@ export interface GetSettingsResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Settings {}
+export interface Settings {
+  [k: string]: unknown;
+}
 
 // get_source_records
 export type BasePath = string | null;
@@ -1334,7 +1348,9 @@ export interface GetStatusResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Status {}
+export interface Status {
+  [k: string]: unknown;
+}
 
 // include_all_screen
 export type BasePath = string | null;
@@ -1469,7 +1485,9 @@ export interface LoadResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {}
+export interface Details {
+  [k: string]: unknown;
+}
 
 // mark_pdf_not_available
 export type BasePath = string | null;
@@ -1582,7 +1600,9 @@ export interface PDFGetResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {}
+export interface Details {
+  [k: string]: unknown;
+}
 
 // pdf_prep
 export type BasePath = string | null;
@@ -1610,7 +1630,9 @@ export interface PDFPrepResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {}
+export interface Details {
+  [k: string]: unknown;
+}
 
 // ping
 export type BasePath = string | null;
@@ -1652,7 +1674,9 @@ export interface PrepResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {}
+export interface Details {
+  [k: string]: unknown;
+}
 
 // prep_man_update_record
 export type BasePath = string | null;
@@ -1667,7 +1691,9 @@ export interface PrepManUpdateRecordRequest {
   record_id: RecordId;
   verbose?: Verbose;
 }
-export interface Fields {}
+export interface Fields {
+  [k: string]: unknown;
+}
 
 export type Operation = string;
 export type ProjectId = string;
@@ -1680,7 +1706,9 @@ export interface PrepManUpdateRecordResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {}
+export interface Details {
+  [k: string]: unknown;
+}
 
 // prescreen
 export type BasePath = string | null;
@@ -1773,7 +1801,9 @@ export interface RemoveScreeningCriterionResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {}
+export interface Details {
+  [k: string]: unknown;
+}
 
 // remove_source
 export type BasePath = string | null;
@@ -1822,7 +1852,9 @@ export interface SaveDataExtractionRequest {
   values: Values;
   verbose?: Verbose;
 }
-export interface Values {}
+export interface Values {
+  [k: string]: unknown;
+}
 
 export type Message = string;
 export type ProjectId = string;
@@ -1886,18 +1918,31 @@ export interface CriteriaDecisions {
   [k: string]: "in" | "out" | "TODO";
 }
 
-export type Operation = string;
+export type AlreadyDecided = boolean;
 export type ProjectId = string;
+export type Decision = "include" | "exclude";
+export type Id = string;
+export type NewStatus = string;
+export type RemainingCount = number;
 export type Success = true;
 
 export interface ScreenRecordResponse {
-  details: Details;
-  operation: Operation;
+  already_decided?: AlreadyDecided;
   project_id: ProjectId;
+  record: ScreenedRecord;
+  remaining_count: RemainingCount;
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {}
+export interface ScreenedRecord {
+  criteria_decisions: CriteriaDecisions;
+  decision: Decision;
+  id: Id;
+  new_status: NewStatus;
+}
+export interface CriteriaDecisions {
+  [k: string]: "in" | "out" | "TODO";
+}
 
 // search
 export type BasePath = string | null;
@@ -1962,7 +2007,9 @@ export interface GetStatusResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Status {}
+export interface Status {
+  [k: string]: unknown;
+}
 
 // undo_pdf_not_available
 export type BasePath = string | null;
@@ -2034,7 +2081,9 @@ export interface SkippedChange {
 
 // update_record
 export type BasePath = string | null;
-export type Fields = {} | null;
+export type Fields = {
+  [k: string]: unknown;
+} | null;
 export type ProjectId = string;
 export type RecordId = string | null;
 export type Verbose = boolean;
@@ -2058,7 +2107,9 @@ export interface UpdateRecordResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {}
+export interface Details {
+  [k: string]: unknown;
+}
 
 // update_review_definition
 export type BasePath = string | null;
@@ -2088,7 +2139,9 @@ export interface UpdateReviewDefinitionResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {}
+export interface Details {
+  [k: string]: unknown;
+}
 
 // update_screen_decisions
 export type BasePath = string | null;
@@ -2162,7 +2215,9 @@ export interface UpdateScreeningCriterionResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {}
+export interface Details {
+  [k: string]: unknown;
+}
 
 // update_settings
 export type BasePath = string | null;
@@ -2175,7 +2230,9 @@ export interface UpdateSettingsRequest {
   settings: Settings;
   verbose?: Verbose;
 }
-export interface Settings {}
+export interface Settings {
+  [k: string]: unknown;
+}
 
 export type Message = string;
 export type Operation = string;
@@ -2190,14 +2247,18 @@ export interface UpdateSettingsResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {}
+export interface Details {
+  [k: string]: unknown;
+}
 
 // update_source
 export type BasePath = string | null;
 export type Filename = string | null;
 export type ProjectId = string;
 export type RunDate = string | null;
-export type SearchParameters = {} | null;
+export type SearchParameters = {
+  [k: string]: unknown;
+} | null;
 export type SearchString = string | null;
 export type Verbose = boolean;
 
@@ -2230,7 +2291,9 @@ export interface UpdateSourceDetails {
   source: Source;
   [k: string]: unknown;
 }
-export interface Source {}
+export interface Source {
+  [k: string]: unknown;
+}
 
 // upload_pdf
 export type BasePath = string | null;
@@ -2330,7 +2393,9 @@ export interface ValidateResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {}
+export interface Details {
+  [k: string]: unknown;
+}
 
 /** Discriminated map: method name → request/response types. */
 export interface RPCMethods {
