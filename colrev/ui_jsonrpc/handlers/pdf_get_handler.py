@@ -279,9 +279,8 @@ class PDFGetHandler:
             f"Marking PDF not available for record {record_id} in project {project_id}"
         )
 
-        # Instantiate PDFGetMan first to notify the review manager
-        # (required before load_records_dict can be called)
-        pdf_get_man = colrev.ops.pdf_get_man.PDFGetMan(
+        # Instantiate PDFGetMan to notify the review manager (no state-transition check)
+        colrev.ops.pdf_get_man.PDFGetMan(
             review_manager=self.review_manager,
             notify_state_transition_operation=False,
         )
@@ -292,17 +291,39 @@ class PDFGetHandler:
             raise ValueError(f"Record '{record_id}' not found")
 
         record_dict = records[record_id]
-        if record_dict[Fields.STATUS] != RecordState.pdf_needs_manual_retrieval:
+        current_status = record_dict[Fields.STATUS]
+        if current_status not in (
+            RecordState.pdf_needs_manual_retrieval,
+            RecordState.pdf_needs_manual_preparation,
+        ):
             raise ValueError(
-                f"Record '{record_id}' is not in pdf_needs_manual_retrieval state "
-                f"(current: {record_dict[Fields.STATUS]})"
+                f"Record '{record_id}' is not in a state that can be marked "
+                f"unavailable (current: {current_status})"
             )
 
-        # Use PDFGetMan with filepath=None to mark as not available
         record = colrev.record.record.Record(record_dict)
-        pdf_get_man.pdf_get_man_record(record=record, filepath=None)
 
-        # Determine the new status from the record
+        # In pdf_needs_manual_preparation the record has an unusable linked PDF;
+        # drop it so the "not available" state is internally consistent.
+        if current_status == RecordState.pdf_needs_manual_preparation:
+            record.data.pop(Fields.FILE, None)
+
+        pdf_required = (
+            self.review_manager.settings.pdf_get.pdf_required_for_screen_and_synthesis
+        )
+        target = (
+            RecordState.pdf_not_available if pdf_required else RecordState.pdf_prepared
+        )
+        record.set_status(target_state=target, force=True)
+        if not pdf_required:
+            record.add_field_provenance(
+                key=Fields.FILE, source="pdf-get-man", note="not_available"
+            )
+
+        self.review_manager.dataset.save_records_dict(
+            {record_id: record.data}, partial=True
+        )
+
         new_status = str(record.data[Fields.STATUS])
 
         # Commit if requested

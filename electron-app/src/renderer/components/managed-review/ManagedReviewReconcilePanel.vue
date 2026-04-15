@@ -178,37 +178,39 @@ defineExpose({ refreshData });
 
     <!-- Task display -->
     <template v-else>
-      <!-- Task header -->
-      <div class="flex items-center justify-between">
-        <div>
-          <h3 class="text-sm font-medium">{{ displayTask.id }}</h3>
-          <p class="text-xs text-muted-foreground">Created by {{ displayTask.created_by }} · {{ prettyDate(displayTask.created_at) }}</p>
-        </div>
-        <Badge :variant="displayTask.state === 'completed' ? 'default' : 'secondary'" class="text-xs">
-          {{ displayTask.state }}
-        </Badge>
-      </div>
-
-      <!-- Reviewer progress -->
-      <div class="border border-border rounded-md overflow-hidden">
-        <div
-          v-for="(reviewer, index) in displayTask.reviewer_progress"
-          :key="reviewer.role"
-          class="flex items-center justify-between py-2.5 px-3"
-          :class="index > 0 ? 'border-t border-border' : ''"
-        >
-          <div class="flex items-center gap-2">
-            <span class="h-2 w-2 rounded-full shrink-0" :class="reviewer.available ? 'bg-green-500' : 'bg-muted-foreground/30'" />
-            <span class="text-sm font-medium">{{ reviewer.github_login }}</span>
+      <div class="space-y-4 max-w-md">
+        <!-- Task header -->
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-medium">{{ displayTask.id }}</h3>
+            <p class="text-xs text-muted-foreground">Created by {{ displayTask.created_by }} · {{ prettyDate(displayTask.created_at) }}</p>
           </div>
-          <span class="text-xs text-muted-foreground tabular-nums">{{ reviewer.completed_count }} / {{ displayTask.record_count }}</span>
+          <Badge :variant="displayTask.state === 'completed' ? 'default' : 'secondary'" class="text-xs">
+            {{ displayTask.state }}
+          </Badge>
         </div>
-      </div>
 
-      <!-- Reconciliation summary (if completed) -->
-      <div v-if="displayTask.reconciliation_summary" class="flex items-center gap-2 text-sm text-muted-foreground">
-        <CheckCircle2 class="h-3.5 w-3.5 text-emerald-600" />
-        <span>Reconciled by {{ displayTask.reconciliation_summary.resolved_by }} — {{ displayTask.reconciliation_summary.auto_resolved_count }} auto, {{ displayTask.reconciliation_summary.manual_conflict_count }} manual</span>
+        <!-- Reviewer progress -->
+        <div class="border border-border rounded-md overflow-hidden">
+          <div
+            v-for="(reviewer, index) in displayTask.reviewer_progress"
+            :key="reviewer.role"
+            class="flex items-center justify-between py-2.5 px-3"
+            :class="index > 0 ? 'border-t border-border' : ''"
+          >
+            <div class="flex items-center gap-2">
+              <span class="h-2 w-2 rounded-full shrink-0" :class="reviewer.available ? 'bg-green-500' : 'bg-muted-foreground/30'" />
+              <span class="text-sm font-medium">{{ reviewer.github_login }}</span>
+            </div>
+            <span class="text-xs text-muted-foreground tabular-nums">{{ reviewer.completed_count }} / {{ displayTask.record_count }}</span>
+          </div>
+        </div>
+
+        <!-- Reconciliation summary (if completed) -->
+        <div v-if="displayTask.reconciliation_summary" class="flex items-center gap-2 text-sm text-muted-foreground">
+          <CheckCircle2 class="h-3.5 w-3.5 text-emerald-600" />
+          <span>Reconciled by {{ displayTask.reconciliation_summary.resolved_by }} — {{ displayTask.reconciliation_summary.auto_resolved_count }} auto, {{ displayTask.reconciliation_summary.manual_conflict_count }} manual</span>
+        </div>
       </div>
 
       <!-- Not on dev warning -->
