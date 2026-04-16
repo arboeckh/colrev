@@ -16,13 +16,19 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
+from typing import Callable
 from typing import Dict
+from typing import TypeVar
 
+from git import GitCommandError
 from pydantic import ValidationError
 
+import colrev.exceptions as colrev_exceptions
 import colrev.review_manager
 from colrev.ui_jsonrpc import validation
 from colrev.ui_jsonrpc.framework.context import HandlerContext
@@ -31,6 +37,48 @@ from colrev.ui_jsonrpc.framework.registry import MethodSpec
 from colrev.ui_jsonrpc.framework.registry import registry
 
 logger = logging.getLogger(__name__)
+
+# Lock-contention patterns we retry transparently. External tools (user's
+# terminal, IDE git integration, antivirus on Windows) can grab `.git/index.lock`
+# briefly — the main-process git mutex stops our own paths from racing, but
+# third-party holders still surface as transient errors here.
+_LOCK_ERROR_PATTERNS = (
+    re.compile(r"index\.lock"),
+    re.compile(r"Unable to create .*\.lock"),
+    re.compile(r"File exists.*\.lock"),
+)
+_LOCK_RETRY_BACKOFFS_SEC: tuple[float, ...] = (0.1, 0.3, 0.9)
+
+_T = TypeVar("_T")
+
+
+def _is_lock_error(exc: BaseException) -> bool:
+    if isinstance(exc, colrev_exceptions.GitNotAvailableError):
+        return True
+    message = str(exc)
+    return any(pat.search(message) for pat in _LOCK_ERROR_PATTERNS)
+
+
+def _retry_on_lock(method_name: str, fn: Callable[[], _T]) -> _T:
+    """Run ``fn`` with transparent retry on git index-lock contention."""
+    last_exc: BaseException | None = None
+    for attempt, backoff in enumerate((0.0,) + _LOCK_RETRY_BACKOFFS_SEC):
+        if backoff:
+            time.sleep(backoff)
+        try:
+            return fn()
+        except (GitCommandError, colrev_exceptions.GitNotAvailableError) as exc:
+            if not _is_lock_error(exc):
+                raise
+            last_exc = exc
+            logger.warning(
+                "Git lock contention on %s (attempt %d): %s",
+                method_name,
+                attempt + 1,
+                exc,
+            )
+    assert last_exc is not None  # loop always executes at least once
+    raise last_exc
 
 
 class Dispatcher:
@@ -52,8 +100,10 @@ class Dispatcher:
             raise ValueError(f"Invalid params for {method!r}: {exc}") from exc
 
         if spec.requires_project:
-            return self._dispatch_project_scoped(spec, request_obj)
-        return self._dispatch_no_project(spec, request_obj)
+            return _retry_on_lock(
+                method, lambda: self._dispatch_project_scoped(spec, request_obj)
+            )
+        return _retry_on_lock(method, lambda: self._dispatch_no_project(spec, request_obj))
 
     def _dispatch_no_project(
         self,

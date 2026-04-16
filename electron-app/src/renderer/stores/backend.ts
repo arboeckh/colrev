@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { useDebugStore } from './debug';
-import { enqueueGitOp } from '@/lib/gitQueue';
 import rpcSchemas from '@/types/generated/rpc-schemas.json';
 import type {
   ProgressEvent,
@@ -44,10 +43,6 @@ export const useBackendStore = defineStore('backend', () => {
   const operationProgress = ref<number | null>(null);
   const operationTotal = ref<number>(0);
   const operationDone = ref<number>(0);
-
-  // Track active git-touching backend calls (for background sync suppression)
-  const activeGitCalls = ref(0);
-  const isGitCallActive = computed(() => activeGitCalls.value > 0);
 
   // Request ID counter for tracking
   let requestIdCounter = 0;
@@ -203,17 +198,9 @@ export const useBackendStore = defineStore('backend', () => {
     addLog('Backend stopped');
   }
 
-  // Methods that never touch git — can bypass the queue
-  const GIT_FREE_METHODS = new Set([
-    'ping',
-    'init_project',
-    'list_projects',
-    'delete_project',
-    'get_csv_source_templates',
-  ]);
-
   /**
-   * Internal call that sends JSON-RPC without queue coordination.
+   * Send a JSON-RPC call. Git-touching methods are serialized in the main
+   * process (see `main/gitMutex.ts`) so the renderer doesn't queue locally.
    */
   async function callRaw<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
     const debug = useDebugStore();
@@ -265,9 +252,9 @@ export const useBackendStore = defineStore('backend', () => {
   }
 
   /**
-   * Call a JSON-RPC method. Git-touching methods are automatically serialized
-   * through the shared git operation queue to prevent .git/index.lock conflicts
-   * with concurrent frontend git operations (fetch, checkout, etc.).
+   * Call a JSON-RPC method. Serialization against other git-touching
+   * operations (dugite + backend RPC) happens in the Electron main process
+   * via the shared git mutex — the renderer just forwards the call.
    *
    * Typed overload: when ``method`` is a known RPC method name, the params and
    * return type are inferred from the generated schema. Generic ``<T>`` fallback
@@ -279,17 +266,7 @@ export const useBackendStore = defineStore('backend', () => {
   ): Promise<RPCResult<M>>;
   function call<T>(method: string, params?: Record<string, unknown>): Promise<T>;
   function call(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
-    if (GIT_FREE_METHODS.has(method)) {
-      return callRaw(method, params);
-    }
-    return enqueueGitOp(async () => {
-      activeGitCalls.value++;
-      try {
-        return await callRaw(method, params);
-      } finally {
-        activeGitCalls.value--;
-      }
-    });
+    return callRaw(method, params);
   }
 
   async function ping(): Promise<boolean> {
@@ -309,7 +286,6 @@ export const useBackendStore = defineStore('backend', () => {
     basePath,
     searchProgress,
     operationProgress,
-    isGitCallActive,
     // Computed
     isRunning,
     isStarting,

@@ -8,6 +8,12 @@ export interface PdfRecord {
   booktitle?: string;
   doi?: string;
   colrev_data_provenance?: globalThis.Record<string, { source: string; note: string }>;
+  /**
+   * Backend-computed: true = PDF file present on this machine, false = metadata
+   * references a PDF but the file is missing locally (gitignored — needs to be
+   * pulled from a collaborator or re-uploaded), null = no PDF expected.
+   */
+  file_on_disk?: boolean | null;
 }
 
 export interface UploadResult {
@@ -19,6 +25,10 @@ export interface StatusFilterPill {
   label: string;
   /** Null matches all records; array matches any listed colrev_status. */
   statuses: string[] | null;
+  /** When true, filter further to records with file_on_disk === true. */
+  requireOnDisk?: boolean;
+  /** When true, filter further to records with file_on_disk === false. */
+  requireMissing?: boolean;
 }
 
 export const RETRIEVED_STATUSES = [
@@ -46,6 +56,13 @@ export const PREPARE_STAGE_PILLS: StatusFilterPill[] = [
 export const FIX_STAGE_PILLS: StatusFilterPill[] = [
   { label: 'Needs fixing', statuses: ['pdf_needs_manual_preparation'] },
   { label: 'Prepared', statuses: ['pdf_prepared'] },
+  { label: 'All', statuses: null },
+];
+
+export const SUMMARY_STAGE_PILLS: StatusFilterPill[] = [
+  { label: 'Missing on disk', statuses: null, requireMissing: true },
+  { label: 'Ready', statuses: ['pdf_prepared'], requireOnDisk: true },
+  { label: 'Unavailable', statuses: ['pdf_not_available'] },
   { label: 'All', statuses: null },
 ];
 

@@ -12,6 +12,7 @@ via the ``commit_changes`` endpoint in ``git_handler``.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 from typing import Dict
 from typing import List
@@ -415,8 +416,27 @@ class RecordsHandler(BaseHandler):
             else:
                 formatted[key] = value
 
+        # Computed: whether the PDF file referenced by this record is present
+        # on disk. PDFs are gitignored, so metadata can say "prepared" while
+        # the file is missing locally (e.g. collaborator uploaded but hasn't
+        # shared the zip). None = no file expected.
+        file_value = record.get(Fields.FILE)
+        if file_value:
+            assert self.review_manager is not None
+            file_path = Path(str(file_value))
+            if not file_path.is_absolute():
+                file_path = self.review_manager.path / file_path
+            formatted["file_on_disk"] = file_path.exists()
+        else:
+            formatted["file_on_disk"] = None
+
         if requested_fields:
-            always_include = {Fields.ID, Fields.STATUS, Fields.ENTRYTYPE}
+            always_include = {
+                Fields.ID,
+                Fields.STATUS,
+                Fields.ENTRYTYPE,
+                "file_on_disk",
+            }
             fields_to_include = set(requested_fields) | always_include
             formatted = {
                 k: v for k, v in formatted.items() if k in fields_to_include

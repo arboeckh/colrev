@@ -65,7 +65,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -190,7 +189,6 @@
                 "type": "string"
               },
               "source": {
-                "additionalProperties": true,
                 "title": "Source",
                 "type": "object"
               }
@@ -680,7 +678,6 @@
         "properties": {
           "fields": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Fields",
@@ -822,7 +819,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -888,7 +884,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -1259,6 +1254,81 @@
       },
       "writes": false
     },
+    "export_pdfs": {
+      "request": {
+        "additionalProperties": false,
+        "properties": {
+          "base_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Path"
+          },
+          "output_path": {
+            "title": "Output Path",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "verbose": {
+            "default": false,
+            "title": "Verbose",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "output_path"
+        ],
+        "title": "ExportPDFsRequest",
+        "type": "object"
+      },
+      "requires_project": true,
+      "response": {
+        "additionalProperties": true,
+        "properties": {
+          "file_count": {
+            "title": "File Count",
+            "type": "integer"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          },
+          "total_bytes": {
+            "title": "Total Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id",
+          "file_count",
+          "total_bytes",
+          "path"
+        ],
+        "title": "ExportPDFsResponse",
+        "type": "object"
+      },
+      "writes": false
+    },
     "export_reconciliation_audit": {
       "request": {
         "additionalProperties": false,
@@ -1350,6 +1420,18 @@
             "title": "Project Id",
             "type": "string"
           },
+          "source_branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Branch"
+          },
           "verbose": {
             "default": false,
             "title": "Verbose",
@@ -1397,6 +1479,17 @@
             "title": "Removed Record Count",
             "type": "integer"
           },
+          "source_branch": {
+            "title": "Source Branch",
+            "type": "string"
+          },
+          "source_branch_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Source Branch Counts",
+            "type": "object"
+          },
           "success": {
             "const": true,
             "default": true,
@@ -1408,10 +1501,12 @@
           "project_id",
           "base_branch",
           "current_branch",
+          "source_branch",
           "new_record_count",
           "removed_record_count",
           "changed_record_count",
-          "delta_by_state"
+          "delta_by_state",
+          "source_branch_counts"
         ],
         "title": "GetBranchDeltaResponse",
         "type": "object"
@@ -1450,7 +1545,6 @@
           },
           "templates": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Templates",
@@ -3167,7 +3261,6 @@
             "type": "string"
           },
           "settings": {
-            "additionalProperties": true,
             "title": "Settings",
             "type": "object"
           },
@@ -3455,7 +3548,6 @@
             "type": "string"
           },
           "status": {
-            "additionalProperties": true,
             "title": "Status",
             "type": "object"
           },
@@ -3475,6 +3567,115 @@
         "type": "object"
       },
       "writes": false
+    },
+    "import_pdfs": {
+      "request": {
+        "additionalProperties": false,
+        "properties": {
+          "base_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Path"
+          },
+          "on_conflict": {
+            "default": "skip",
+            "enum": [
+              "skip",
+              "overwrite"
+            ],
+            "title": "On Conflict",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "verbose": {
+            "default": false,
+            "title": "Verbose",
+            "type": "boolean"
+          },
+          "zip_path": {
+            "title": "Zip Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "zip_path"
+        ],
+        "title": "ImportPDFsRequest",
+        "type": "object"
+      },
+      "requires_project": true,
+      "response": {
+        "additionalProperties": true,
+        "properties": {
+          "conflicts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Conflicts",
+            "type": "array"
+          },
+          "imported_count": {
+            "title": "Imported Count",
+            "type": "integer"
+          },
+          "manifest_mismatch": {
+            "default": false,
+            "title": "Manifest Mismatch",
+            "type": "boolean"
+          },
+          "manifest_project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Manifest Project Id"
+          },
+          "overwritten_count": {
+            "title": "Overwritten Count",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "skipped_count": {
+            "title": "Skipped Count",
+            "type": "integer"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "imported_count",
+          "skipped_count",
+          "overwritten_count",
+          "conflicts"
+        ],
+        "title": "ImportPDFsResponse",
+        "type": "object"
+      },
+      "writes": true
     },
     "include_all_screen": {
       "request": {
@@ -3799,7 +4000,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4127,7 +4327,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4203,7 +4402,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4316,7 +4514,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4362,7 +4559,6 @@
             "title": "Base Path"
           },
           "fields": {
-            "additionalProperties": true,
             "title": "Fields",
             "type": "object"
           },
@@ -4393,7 +4589,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4664,7 +4859,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4795,6 +4989,86 @@
       },
       "writes": true
     },
+    "restore_pdf_file": {
+      "request": {
+        "additionalProperties": false,
+        "properties": {
+          "base_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Path"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "record_id": {
+            "title": "Record Id",
+            "type": "string"
+          },
+          "verbose": {
+            "default": false,
+            "title": "Verbose",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "record_id",
+          "content"
+        ],
+        "title": "RestorePDFFileRequest",
+        "type": "object"
+      },
+      "requires_project": true,
+      "response": {
+        "additionalProperties": true,
+        "properties": {
+          "bytes_written": {
+            "title": "Bytes Written",
+            "type": "integer"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "record_id": {
+            "title": "Record Id",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "record_id",
+          "path",
+          "bytes_written"
+        ],
+        "title": "RestorePDFFileResponse",
+        "type": "object"
+      },
+      "writes": false
+    },
     "save_data_extraction": {
       "request": {
         "additionalProperties": false,
@@ -4820,7 +5094,6 @@
             "type": "string"
           },
           "values": {
-            "additionalProperties": true,
             "title": "Values",
             "type": "object"
           },
@@ -5248,7 +5521,6 @@
             "type": "string"
           },
           "status": {
-            "additionalProperties": true,
             "title": "Status",
             "type": "object"
           },
@@ -5493,7 +5765,6 @@
           "fields": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -5536,7 +5807,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -5641,7 +5911,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -5883,7 +6152,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -5933,7 +6201,6 @@
             "type": "string"
           },
           "settings": {
-            "additionalProperties": true,
             "title": "Settings",
             "type": "object"
           },
@@ -5955,7 +6222,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -6036,7 +6302,6 @@
           "search_parameters": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -6081,7 +6346,6 @@
                 "type": "string"
               },
               "source": {
-                "additionalProperties": true,
                 "title": "Source",
                 "type": "object"
               }
@@ -6389,7 +6653,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },

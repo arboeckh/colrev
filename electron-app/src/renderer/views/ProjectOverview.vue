@@ -343,6 +343,7 @@ const newRecordFunnel = computed(() => {
             <ArrowRight class="h-3.5 w-3.5" />
           </Button>
         </div>
+
       </div>
 
       <Separator />

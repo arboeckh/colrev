@@ -180,6 +180,16 @@ class ScreenHandler:
                 formatted["booktitle"] = record[Fields.BOOKTITLE]
             if Fields.FILE in record:
                 formatted["pdf_path"] = record[Fields.FILE]
+                logger.info(
+                    "[pdf-debug] queue record %s pdf_path=%r",
+                    record.get(Fields.ID),
+                    record[Fields.FILE],
+                )
+            else:
+                logger.info(
+                    "[pdf-debug] queue record %s has no FILE field",
+                    record.get(Fields.ID),
+                )
 
             # Parse current screening criteria if present
             if Fields.SCREENING_CRITERIA in record:

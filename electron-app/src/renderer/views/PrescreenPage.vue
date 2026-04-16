@@ -30,6 +30,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
+import { useManagedReviewStore } from '@/stores/managedReview';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
 import type {
@@ -64,6 +65,7 @@ const auth = useAuthStore();
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const git = useGitStore();
+const managedReview = useManagedReviewStore();
 const notifications = useNotificationsStore();
 const { isReadOnly } = useReadOnly();
 
@@ -356,11 +358,10 @@ async function makeDecision(decision: 'include' | 'exclude') {
       } else if (response.remaining_count > 0) {
         await loadQueue();
       } else {
-        // All done — set flag immediately so completion screen shows
-        // without waiting for project status refresh
-        allDecisionsMade.value = true;
         queue.value = [];
-        projects.refreshCurrentProject(); // Fire and forget
+        await projects.refreshCurrentProject();
+        allDecisionsMade.value = true;
+        managedReview.refresh();
       }
     }
   } catch (err) {

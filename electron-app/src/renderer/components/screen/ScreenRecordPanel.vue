@@ -6,7 +6,6 @@ import {
   Loader2,
   ArrowRight,
   Pencil,
-  Settings2,
 } from 'lucide-vue-next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -48,7 +47,6 @@ const emit = defineEmits<{
   submitCriteriaDecision: [];
   skipToNextUndecided: [];
   enterEditMode: [];
-  showCriteriaDialog: [];
   navigate: [index: number];
 }>();
 </script>
@@ -75,11 +73,6 @@ const emit = defineEmits<{
           {{ totalCount }} left
         </Badge>
 
-        <Button variant="ghost" size="icon" class="h-7 w-7" data-testid="screen-manage-criteria-btn"
-          @click="emit('showCriteriaDialog')">
-          <Settings2 class="h-3.5 w-3.5" />
-        </Button>
-
         <Button v-if="decidedCount > 0 && !readOnly" variant="ghost" size="icon" class="h-7 w-7" data-testid="screen-edit-mode-btn"
           @click="emit('enterEditMode')">
           <Pencil class="h-3.5 w-3.5" />
@@ -91,43 +84,21 @@ const emit = defineEmits<{
 
     <!-- Decision bar -->
     <div class="flex items-center justify-center gap-3 px-3 py-2 shrink-0" data-testid="screen-decision-bar">
-      <!-- Undecided: show buttons -->
+      <!-- Undecided: show submit-derived-decision button -->
       <template v-if="!isCurrentDecided">
-        <!-- No criteria mode: simple include/exclude -->
-        <template v-if="!hasCriteria">
-          <Button variant="destructive" size="sm" class="min-w-[100px] h-8" data-testid="screen-btn-exclude"
-            :disabled="isDeciding || readOnly" @click="emit('makeDecision', 'exclude')">
-            <Loader2 v-if="isDeciding" class="h-4 w-4 mr-1.5 animate-spin" />
-            <X v-else class="h-4 w-4 mr-1.5" />
-            Exclude
-            <kbd class="ml-1.5 text-xs opacity-60 bg-white/20 px-1 py-0.5 rounded">&larr;</kbd>
-          </Button>
-
-          <Button size="sm" class="min-w-[100px] h-8 bg-green-600 hover:bg-green-700 text-white"
-            data-testid="screen-btn-include" :disabled="isDeciding || readOnly" @click="emit('makeDecision', 'include')">
-            <Loader2 v-if="isDeciding" class="h-4 w-4 mr-1.5 animate-spin" />
-            <Check v-else class="h-4 w-4 mr-1.5" />
-            Include
-            <kbd class="ml-1.5 text-xs opacity-60 bg-white/20 px-1 py-0.5 rounded">&rarr;</kbd>
-          </Button>
-        </template>
-
-        <!-- Criteria mode: submit derived decision -->
-        <template v-else>
-          <Button v-if="derivedDecision" size="sm" class="min-w-[120px] h-8" :class="derivedDecision === 'include'
-            ? 'bg-green-600 hover:bg-green-700 text-white'
-            : 'bg-destructive hover:bg-destructive/90 text-white'
-            " data-testid="screen-btn-submit-criteria" :disabled="!canSubmitCriteria || isDeciding || readOnly"
-            @click="emit('submitCriteriaDecision')">
-            <Loader2 v-if="isDeciding" class="h-4 w-4 mr-1.5 animate-spin" />
-            <Check v-else-if="derivedDecision === 'include'" class="h-4 w-4 mr-1.5" />
-            <X v-else class="h-4 w-4 mr-1.5" />
-            {{ derivedDecision === 'include' ? 'Include' : 'Exclude' }}
-          </Button>
-          <span v-else class="text-xs text-muted-foreground">
-            Evaluate all criteria to submit
-          </span>
-        </template>
+        <Button v-if="derivedDecision" size="sm" class="min-w-[120px] h-8" :class="derivedDecision === 'include'
+          ? 'bg-green-600 hover:bg-green-700 text-white'
+          : 'bg-destructive hover:bg-destructive/90 text-white'
+          " data-testid="screen-btn-submit-criteria" :disabled="!canSubmitCriteria || isDeciding || readOnly"
+          @click="emit('submitCriteriaDecision')">
+          <Loader2 v-if="isDeciding" class="h-4 w-4 mr-1.5 animate-spin" />
+          <Check v-else-if="derivedDecision === 'include'" class="h-4 w-4 mr-1.5" />
+          <X v-else class="h-4 w-4 mr-1.5" />
+          {{ derivedDecision === 'include' ? 'Include' : 'Exclude' }}
+        </Button>
+        <span v-else class="text-xs text-muted-foreground">
+          Evaluate all criteria to submit
+        </span>
       </template>
 
       <!-- Decided: show indicator -->
@@ -170,9 +141,9 @@ const emit = defineEmits<{
     <Separator />
 
     <!-- Tabs -->
-    <Tabs :default-value="hasCriteria ? 'criteria' : 'details'" class="flex-1 flex flex-col min-h-0">
+    <Tabs default-value="criteria" class="flex-1 flex flex-col min-h-0">
       <TabsList class="mx-3 mt-2 shrink-0">
-        <TabsTrigger v-if="hasCriteria" value="criteria" data-testid="screen-tab-criteria">
+        <TabsTrigger value="criteria" data-testid="screen-tab-criteria">
           Criteria
         </TabsTrigger>
         <TabsTrigger value="details" data-testid="screen-tab-details">
@@ -181,7 +152,7 @@ const emit = defineEmits<{
       </TabsList>
 
       <!-- Criteria tab -->
-      <TabsContent v-if="hasCriteria" value="criteria" class="flex-1 min-h-0 overflow-auto px-3 pb-3">
+      <TabsContent value="criteria" class="flex-1 min-h-0 overflow-auto px-3 pb-3">
         <ScreenCriteriaChecklist :criteria="criteria" :decisions="criteriaDecisions"
           @toggle="(name, value) => emit('toggleCriterion', name, value)" />
       </TabsContent>

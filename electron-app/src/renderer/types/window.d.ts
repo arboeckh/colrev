@@ -39,6 +39,21 @@ export interface FileOpsAPI {
     content: string;
     filters?: { name: string; extensions: string[] }[];
   }) => Promise<{ success: boolean; filePath?: string; canceled?: boolean; error?: string }>;
+  chooseSavePath: (options: {
+    defaultName?: string;
+    filters?: { name: string; extensions: string[] }[];
+  }) => Promise<{ success: boolean; filePath?: string; canceled?: boolean; error?: string }>;
+  openDialog: (options: {
+    title?: string;
+    filters?: { name: string; extensions: string[] }[];
+  }) => Promise<{ success: boolean; filePath?: string; canceled?: boolean; error?: string }>;
+}
+
+export interface PdfFilesAPI {
+  exists: (params: {
+    projectId: string;
+    relativePath: string;
+  }) => Promise<{ exists: boolean }>;
 }
 
 export interface AppInfoAPI {
@@ -198,6 +213,8 @@ export interface GitLogEntry {
 export interface GitOperationResult {
   success: boolean;
   error?: string;
+  recovered?: boolean;
+  recoveryMessage?: string;
 }
 
 export interface GitBranchListResult extends GitOperationResult {
@@ -276,6 +293,7 @@ declare global {
   interface Window {
     colrev: ColrevAPI;
     fileOps: FileOpsAPI;
+    pdfFiles: PdfFilesAPI;
     appInfo: AppInfoAPI;
     auth: AuthAPI;
     github: GitHubAPI;

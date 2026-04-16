@@ -19,7 +19,7 @@ const props = defineProps<{
   recordCounts?: RecordCounts | null;
   overallCounts?: OverallRecordCounts | null;
   deltaByState?: globalThis.Record<string, number> | null;
-  isOnDev?: boolean;
+  showDelta?: boolean;
   hasPriorPending?: boolean;
   downstreamStates?: string[];
   managedStepStatus?: 'pending' | 'active' | 'complete' | null;
@@ -79,7 +79,7 @@ const everProcessedRecords = computed(() => {
 // Count of new records (from delta) that have reached this step or beyond
 // Only show for steps that actually process records (have inputStates)
 const deltaPendingRecords = computed(() => {
-  if (!props.isOnDev || !props.deltaByState) return 0;
+  if (!props.showDelta || !props.deltaByState) return 0;
   if (props.step.inputStates.length === 0 && props.step.outputStates.length === 0) return 0;
   const states = props.downstreamStates ?? props.step.inputStates;
   return states.reduce((sum, state) => {

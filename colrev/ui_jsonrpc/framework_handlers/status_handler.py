@@ -135,6 +135,7 @@ class GetPreprocessingSummaryResponse(ProjectResponse):
 
 class GetBranchDeltaRequest(ProjectScopedRequest):
     base_branch: str = "main"
+    source_branch: Optional[str] = None
 
 
 class GetBranchDeltaResponse(ProjectResponse):
@@ -142,10 +143,12 @@ class GetBranchDeltaResponse(ProjectResponse):
 
     base_branch: str
     current_branch: str
+    source_branch: str
     new_record_count: int
     removed_record_count: int
     changed_record_count: int
     delta_by_state: Dict[str, int]
+    source_branch_counts: Dict[str, int]
 
 
 # ---------------------------------------------------------------------------
@@ -372,24 +375,31 @@ class StatusHandler(BaseHandler):
         except TypeError:
             current_branch = str(git_repo.head.commit)[:8]
 
-        try:
-            self.review_manager.get_status_operation()
-            current_records = self.review_manager.dataset.load_records_dict()
-        except Exception:  # noqa: BLE001
-            current_records = {}
+        source_branch = req.source_branch or current_branch
+
+        if source_branch == current_branch:
+            try:
+                self.review_manager.get_status_operation()
+                source_records = self.review_manager.dataset.load_records_dict()
+            except Exception:  # noqa: BLE001
+                source_records = {}
+        else:
+            source_records = self._load_records_from_branch(
+                git_repo, source_branch
+            )
 
         base_records = self._load_records_from_branch(git_repo, req.base_branch)
 
-        current_ids = set(current_records.keys())
+        source_ids = set(source_records.keys())
         base_ids = set(base_records.keys())
 
-        new_ids = current_ids - base_ids
-        removed_ids = base_ids - current_ids
-        common_ids = current_ids & base_ids
+        new_ids = source_ids - base_ids
+        removed_ids = base_ids - source_ids
+        common_ids = source_ids & base_ids
 
         changed_count = 0
         for rid in common_ids:
-            cur_status = str(current_records[rid].get(Fields.STATUS, ""))
+            cur_status = str(source_records[rid].get(Fields.STATUS, ""))
             base_status = str(base_records[rid].get(Fields.STATUS, ""))
             if cur_status != base_status:
                 changed_count += 1
@@ -397,20 +407,31 @@ class StatusHandler(BaseHandler):
         delta_by_state: Dict[str, int] = {}
         for rid in new_ids:
             status = str(
-                current_records[rid].get(Fields.STATUS, "unknown")
+                source_records[rid].get(Fields.STATUS, "unknown")
             )
             if hasattr(status, "name"):
                 status = status.name  # type: ignore[attr-defined]
             delta_by_state[status] = delta_by_state.get(status, 0) + 1
 
+        source_branch_counts: Dict[str, int] = {}
+        for record in source_records.values():
+            status = str(record.get(Fields.STATUS, "unknown"))
+            if hasattr(status, "name"):
+                status = status.name  # type: ignore[attr-defined]
+            source_branch_counts[status] = (
+                source_branch_counts.get(status, 0) + 1
+            )
+
         return GetBranchDeltaResponse(
             project_id=req.project_id,
             base_branch=req.base_branch,
             current_branch=current_branch,
+            source_branch=source_branch,
             new_record_count=len(new_ids),
             removed_record_count=len(removed_ids),
             changed_record_count=changed_count,
             delta_by_state=delta_by_state,
+            source_branch_counts=source_branch_counts,
         )
 
     # -- helpers -------------------------------------------------------------

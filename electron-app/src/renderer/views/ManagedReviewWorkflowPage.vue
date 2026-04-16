@@ -62,6 +62,12 @@ function phaseStatus(phaseId: Phase): 'complete' | 'active' | 'pending' {
     if (completed && !task) return 'complete';
     if (task) {
       const allDone = task.reviewer_progress.every((r) => r.pending_count === 0);
+      // eslint-disable-next-line no-console
+      console.log('[phaseStatus/review]', {
+        login: auth.user?.login,
+        reviewer_progress: task.reviewer_progress,
+        allDone,
+      });
       if (allDone) return 'complete';
       // Show as complete for the current user if they finished their part
       const login = auth.user?.login?.toLowerCase();

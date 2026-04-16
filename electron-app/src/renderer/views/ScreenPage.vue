@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { CheckSquare, FileDown, AlertCircle, RefreshCw, GitBranch } from 'lucide-vue-next';
+import { CheckSquare, FileDown, AlertCircle, RefreshCw } from 'lucide-vue-next';
 import { EmptyState } from '@/components/common';
 import { Button } from '@/components/ui/button';
 import {
@@ -9,12 +9,13 @@ import {
   ScreenRecordPanel,
   ScreenEditMode,
   ScreenComplete,
-  CriteriaManagementDialog,
 } from '@/components/screen';
+import PdfShareActions from '@/components/shared/PdfShareActions.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
+import { useManagedReviewStore } from '@/stores/managedReview';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
 import { useReadOnly } from '@/composables/useReadOnly';
@@ -46,6 +47,7 @@ const auth = useAuthStore();
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const git = useGitStore();
+const managedReview = useManagedReviewStore();
 const notifications = useNotificationsStore();
 const reviewDefStore = useReviewDefinitionStore();
 const { isReadOnly } = useReadOnly();
@@ -59,13 +61,14 @@ const loadError = ref<string | null>(null);
 const currentIndex = ref(0);
 const isDeciding = ref(false);
 const mode = ref<ScreenMode>('screening');
-const showCriteriaDialog = ref(false);
+const allDecisionsMade = ref(false);
 const managedTask = ref<GetCurrentManagedReviewTaskResponse['task']>(null);
 const accessState = ref<'loading' | 'switching' | 'ready' | 'blocked'>('loading');
 const activeManagedTask = ref<ManagedReviewTask | null>(null);
 const assignedReviewerBranch = ref<string | null>(null);
 
 const statusCounts = computed(() => projects.currentStatus?.currently ?? null);
+const overallCounts = computed(() => projects.currentStatus?.overall ?? null);
 const pdfPreparedCount = computed(() => statusCounts.value?.pdf_prepared ?? 0);
 const currentRecord = computed(() => queue.value[currentIndex.value] || null);
 const hasCriteria = computed(() => Object.keys(criteria.value).length > 0);
@@ -93,9 +96,12 @@ const derivedDecision = computed((): 'include' | 'exclude' | null => {
 });
 const canSubmitCriteria = computed(() => derivedDecision.value !== null);
 const isScreenComplete = computed(() => {
+  if (allDecisionsMade.value) return true;
   if (!statusCounts.value) return false;
-  const { rev_included, rev_excluded, pdf_prepared } = statusCounts.value;
-  return pdf_prepared === 0 && (rev_included > 0 || rev_excluded > 0);
+  const { pdf_prepared } = statusCounts.value;
+  const included = overallCounts.value?.rev_included ?? statusCounts.value.rev_included;
+  const excluded = overallCounts.value?.rev_excluded ?? statusCounts.value.rev_excluded;
+  return pdf_prepared === 0 && (included > 0 || excluded > 0);
 });
 const assignedReviewer = computed(() => {
   if (!activeManagedTask.value || !auth.user?.login) return null;
@@ -199,6 +205,7 @@ async function loadQueue() {
   if (!projects.currentProjectId || !backend.isRunning) return;
   isLoading.value = true;
   loadError.value = null;
+  allDecisionsMade.value = false;
   try {
     const response = await backend.call<GetScreenQueueResponse>('get_screen_queue', {
       project_id: projects.currentProjectId,
@@ -263,6 +270,8 @@ async function makeDecision(decision: 'include' | 'exclude') {
       } else {
         queue.value = [];
         await projects.refreshCurrentProject();
+        allDecisionsMade.value = true;
+        managedReview.refresh();
       }
     }
   } catch (err) {
@@ -298,10 +307,6 @@ function exitEditMode() {
   mode.value = isScreenComplete.value ? 'complete' : 'screening';
 }
 
-async function handleCriteriaChanged() {
-  await loadQueue();
-}
-
 function handleKeydown(e: KeyboardEvent) {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
   if (mode.value !== 'screening') return;
@@ -315,15 +320,14 @@ function handleKeydown(e: KeyboardEvent) {
       e.preventDefault();
       if (currentIndex.value < queue.value.length - 1) currentIndex.value += 1;
       break;
-    case 'ArrowLeft':
-      e.preventDefault();
-      if (!hasCriteria.value && !isCurrentDecided.value && currentRecord.value) makeDecision('exclude');
-      break;
-    case 'ArrowRight':
-      e.preventDefault();
-      if (!hasCriteria.value && !isCurrentDecided.value && currentRecord.value) makeDecision('include');
-      break;
   }
+}
+
+async function handlePdfsImported() {
+  // A zip import placed new PDFs on disk — queue items that showed
+  // "No PDF available" may now have files. Refresh everything that
+  // depends on PDF presence.
+  await Promise.all([loadQueue(), projects.refreshCurrentProject()]);
 }
 
 onMounted(async () => {
@@ -351,21 +355,18 @@ onUnmounted(() => {
 <template>
   <div class="h-full flex flex-col" data-testid="screen-page">
     <div
+      v-if="!embedded"
+      class="flex items-center justify-end gap-2 px-4 pt-2"
+    >
+      <PdfShareActions variant="compact" @imported="handlePdfsImported" />
+    </div>
+    <div
       v-if="accessState === 'switching'"
       class="mx-6 mt-6 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm"
     >
       <div class="font-medium">Opening your assigned screening branch</div>
       <div class="text-muted-foreground">
         Full-text screening happens on reviewer branches. The app is switching you behind the scenes.
-      </div>
-    </div>
-    <div v-if="managedTask" class="mx-6 mt-6 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
-      <div class="flex items-center gap-2 font-medium">
-        <GitBranch class="h-4 w-4" />
-        Managed screen task
-      </div>
-      <div class="text-muted-foreground">
-        Working on <code>{{ managedTask.id }}</code>. This queue only includes records assigned to the current reviewer branch.
       </div>
     </div>
     <EmptyState
@@ -383,8 +384,8 @@ onUnmounted(() => {
     <ScreenComplete
       v-else-if="mode === 'complete' || (!isLoading && queue.length === 0 && isScreenComplete)"
       class="px-4 py-3"
-      :included-count="statusCounts?.rev_included ?? 0"
-      :excluded-count="statusCounts?.rev_excluded ?? 0"
+      :included-count="overallCounts?.rev_included ?? statusCounts?.rev_included ?? 0"
+      :excluded-count="overallCounts?.rev_excluded ?? statusCounts?.rev_excluded ?? 0"
       :read-only="isReadOnly"
       @edit-decisions="enterEditMode"
     />
@@ -417,6 +418,13 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <EmptyState
+      v-else-if="!isLoading && !hasCriteria"
+      :icon="CheckSquare"
+      title="No screening criteria defined"
+      description="Add screening criteria on the Screen Launch page before starting. Criteria can only be defined on the dev branch and are frozen once a managed task is active."
+    />
+
     <div v-else-if="isLoading" class="flex-1 flex items-center justify-center">
       <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
     </div>
@@ -434,7 +442,10 @@ onUnmounted(() => {
       data-testid="screen-record-card"
     >
       <template #left>
-        <PdfViewerPanel :pdf-path="currentRecord.pdf_path" />
+        <PdfViewerPanel
+          :pdf-path="currentRecord.pdf_path"
+          @imported="handlePdfsImported"
+        />
       </template>
       <template #right>
         <ScreenRecordPanel
@@ -461,16 +472,10 @@ onUnmounted(() => {
           @submit-criteria-decision="submitCriteriaDecision"
           @skip-to-next-undecided="skipToNextUndecided"
           @enter-edit-mode="enterEditMode"
-          @show-criteria-dialog="showCriteriaDialog = true"
           @navigate="goToRecord"
         />
       </template>
     </ScreenSplitPanel>
-
-    <CriteriaManagementDialog
-      v-model:open="showCriteriaDialog"
-      @criteria-changed="handleCriteriaChanged"
-    />
     </template>
   </div>
 </template>

@@ -14,11 +14,13 @@ import { Button } from '@/components/ui/button';
 import { OperationButton, EmptyState } from '@/components/common';
 import PdfRecordTable from '@/components/pdf-get/PdfRecordTable.vue';
 import BatchUploadDialog from '@/components/pdf-get/BatchUploadDialog.vue';
+import PdfShareActions from '@/components/shared/PdfShareActions.vue';
 import type { PdfRecord, UploadResult } from '@/components/pdf-get/pdf-record-utils';
 import {
   UPLOAD_STAGE_PILLS,
   PREPARE_STAGE_PILLS,
   FIX_STAGE_PILLS,
+  SUMMARY_STAGE_PILLS,
 } from '@/components/pdf-get/pdf-record-utils';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
@@ -26,14 +28,22 @@ import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
 import type { GetRecordsResponse, UploadPdfResponse, MarkPdfNotAvailableResponse } from '@/types/api';
 
+interface RestorePdfFileResponse {
+  success: boolean;
+  record_id: string;
+  path: string;
+  bytes_written: number;
+}
+
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
 const { isReadOnly } = useReadOnly();
 const router = useRouter();
 
-type StageId = 'retrieve' | 'upload' | 'prepare' | 'fix';
+type StageId = 'retrieve' | 'upload' | 'prepare' | 'fix' | 'summary';
 type StageState = 'locked' | 'active' | 'complete';
+type PendingUploadKind = 'normal' | 'missing-restore';
 
 const records = ref<PdfRecord[]>([]);
 const isLoading = ref(false);
@@ -43,6 +53,7 @@ const undoingRecordId = ref<string | null>(null);
 const showBatchUpload = ref(false);
 const pdfFileInput = ref<HTMLInputElement | null>(null);
 const pendingUploadRecordId = ref<string | null>(null);
+const pendingUploadKind = ref<PendingUploadKind>('normal');
 const uploadResults = ref<Record<string, UploadResult>>({});
 
 const userSelectedStage = ref<StageId | null>(null);
@@ -54,6 +65,9 @@ const importedCount = computed(() => counts.value?.pdf_imported ?? 0);
 const preparedCount = computed(() => counts.value?.pdf_prepared ?? 0);
 const needsPrepCount = computed(() => counts.value?.pdf_needs_manual_preparation ?? 0);
 const notAvailableCount = computed(() => counts.value?.pdf_not_available ?? 0);
+const missingOnDiskCount = computed(
+  () => records.value.filter((r) => r.file_on_disk === false).length,
+);
 
 const anyPdfActivity = computed(
   () =>
@@ -71,7 +85,13 @@ const pageBlocked = computed(
 
 const stageStatus = computed<Record<StageId, StageState>>(() => {
   if (!anyPdfActivity.value) {
-    return { retrieve: 'active', upload: 'locked', prepare: 'locked', fix: 'locked' };
+    return {
+      retrieve: 'active',
+      upload: 'locked',
+      prepare: 'locked',
+      fix: 'locked',
+      summary: 'locked',
+    };
   }
   const uploadDone = needsRetrievalCount.value === 0;
   const prepareDone = uploadDone && importedCount.value === 0;
@@ -85,12 +105,17 @@ const stageStatus = computed<Record<StageId, StageState>>(() => {
       : needsPrepCount.value === 0
         ? 'complete'
         : 'active',
+    summary: !fixDone
+      ? 'locked'
+      : missingOnDiskCount.value === 0
+        ? 'complete'
+        : 'active',
   };
 });
 
 const firstActiveStage = computed<StageId>(() => {
-  const order: StageId[] = ['retrieve', 'upload', 'prepare', 'fix'];
-  return order.find((id) => stageStatus.value[id] === 'active') ?? 'fix';
+  const order: StageId[] = ['retrieve', 'upload', 'prepare', 'fix', 'summary'];
+  return order.find((id) => stageStatus.value[id] === 'active') ?? 'summary';
 });
 
 const activeStage = computed<StageId>(
@@ -107,6 +132,7 @@ const allDone = computed(
     needsRetrievalCount.value === 0 &&
     importedCount.value === 0 &&
     needsPrepCount.value === 0 &&
+    missingOnDiskCount.value === 0 &&
     preparedCount.value > 0,
 );
 
@@ -163,6 +189,16 @@ const stages = computed<StageMeta[]>(() => [
         : stageStatus.value.fix === 'complete'
           ? 'done'
           : `${needsPrepCount.value} to fix`,
+  },
+  {
+    id: 'summary',
+    label: 'Summary',
+    meta:
+      stageStatus.value.summary === 'locked'
+        ? ''
+        : stageStatus.value.summary === 'complete'
+          ? 'done'
+          : `${missingOnDiskCount.value} missing`,
   },
 ]);
 
@@ -225,6 +261,16 @@ function readFileAsBase64(file: File): Promise<string> {
 
 function uploadPdfForRecord(recordId: string) {
   pendingUploadRecordId.value = recordId;
+  pendingUploadKind.value = 'normal';
+  if (pdfFileInput.value) {
+    pdfFileInput.value.value = '';
+    pdfFileInput.value.click();
+  }
+}
+
+function uploadMissingFileForRecord(recordId: string) {
+  pendingUploadRecordId.value = recordId;
+  pendingUploadKind.value = 'missing-restore';
   if (pdfFileInput.value) {
     pdfFileInput.value.value = '';
     pdfFileInput.value.click();
@@ -235,11 +281,27 @@ async function handlePdfFileSelected(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   const recordId = pendingUploadRecordId.value;
+  const kind = pendingUploadKind.value;
   if (!file || !recordId || !projects.currentProjectId) return;
 
   uploadingRecordId.value = recordId;
   try {
     const content = await readFileAsBase64(file);
+
+    if (kind === 'missing-restore') {
+      await backend.call<RestorePdfFileResponse>('restore_pdf_file', {
+        project_id: projects.currentProjectId,
+        record_id: recordId,
+        content,
+      });
+      uploadResults.value[recordId] = { status: 'success' };
+      notifications.success('PDF restored', `File placed on disk for ${recordId}`);
+      setTimeout(async () => {
+        await refresh();
+      }, 500);
+      return;
+    }
+
     const response = await backend.call<UploadPdfResponse>('upload_pdf', {
       project_id: projects.currentProjectId,
       record_id: recordId,
@@ -275,10 +337,14 @@ async function handlePdfFileSelected(event: Event) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     uploadResults.value[recordId] = { status: 'error', message };
-    notifications.error('Upload failed', message);
+    notifications.error(
+      kind === 'missing-restore' ? 'Restore failed' : 'Upload failed',
+      message,
+    );
   } finally {
     uploadingRecordId.value = null;
     pendingUploadRecordId.value = null;
+    pendingUploadKind.value = 'normal';
   }
 }
 
@@ -359,11 +425,14 @@ onMounted(async () => {
 <template>
   <div class="h-full flex flex-col" data-testid="pdfs-page">
     <!-- Header -->
-    <div class="px-8 pt-8 pb-6">
-      <h1 class="text-2xl font-semibold tracking-tight">PDFs</h1>
-      <p class="text-sm text-muted-foreground mt-1">
-        Retrieve and prepare the full-text PDFs for included records.
-      </p>
+    <div class="px-8 pt-8 pb-6 flex items-start justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">PDFs</h1>
+        <p class="text-sm text-muted-foreground mt-1">
+          Retrieve and prepare the full-text PDFs for included records.
+        </p>
+      </div>
+      <PdfShareActions variant="default" />
     </div>
 
     <!-- Blocked: prescreen not done -->
@@ -421,38 +490,9 @@ onMounted(async () => {
 
       <!-- Stage panels -->
       <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
-        <!-- All done -->
-        <div
-          v-if="allDone && activeStage === 'fix'"
-          class="flex-1 min-h-0 overflow-auto max-w-xl mx-auto px-8 py-20 text-center"
-          data-testid="pdfs-all-done"
-        >
-          <div
-            class="h-12 w-12 rounded-full bg-green-50 dark:bg-green-950/30 flex items-center justify-center mx-auto mb-6"
-          >
-            <CheckCircle2 class="h-6 w-6 text-green-600 dark:text-green-400" />
-          </div>
-          <h2 class="text-xl font-medium mb-2">
-            All
-            <span class="tabular-nums">{{ preparedCount }}</span>
-            {{ preparedCount === 1 ? 'PDF is' : 'PDFs are' }} ready.
-          </h2>
-          <p class="text-sm text-muted-foreground leading-relaxed mb-8">
-            You can move on to the Screen step whenever you're ready.
-          </p>
-          <Button
-            variant="default"
-            data-testid="pdfs-continue-screen"
-            @click="continueToScreen"
-          >
-            Continue to Screen
-            <ArrowRight class="h-4 w-4 ml-2" />
-          </Button>
-        </div>
-
         <!-- Stage 1: Retrieve -->
         <section
-          v-else-if="activeStage === 'retrieve'"
+          v-if="activeStage === 'retrieve'"
           class="flex-1 min-h-0 overflow-auto px-8 py-16 text-center"
           data-testid="pdfs-stage-retrieve-panel"
         >
@@ -672,6 +712,100 @@ onMounted(async () => {
               @upload="uploadPdfForRecord"
               @mark-not-available="markNotAvailable"
               @undo-not-available="undoNotAvailable"
+            />
+          </div>
+        </section>
+
+        <!-- Stage 5: Summary -->
+        <div
+          v-else-if="activeStage === 'summary' && allDone"
+          class="flex-1 min-h-0 overflow-auto max-w-xl mx-auto px-8 py-20 text-center"
+          data-testid="pdfs-all-done"
+        >
+          <div
+            class="h-12 w-12 rounded-full bg-green-50 dark:bg-green-950/30 flex items-center justify-center mx-auto mb-6"
+          >
+            <CheckCircle2 class="h-6 w-6 text-green-600 dark:text-green-400" />
+          </div>
+          <h2 class="text-xl font-medium mb-2">
+            All
+            <span class="tabular-nums">{{ preparedCount }}</span>
+            {{ preparedCount === 1 ? 'PDF is' : 'PDFs are' }} ready.
+          </h2>
+          <p class="text-sm text-muted-foreground leading-relaxed mb-8">
+            You can move on to the Screen step whenever you're ready.
+          </p>
+          <Button
+            variant="default"
+            data-testid="pdfs-continue-screen"
+            @click="continueToScreen"
+          >
+            Continue to Screen
+            <ArrowRight class="h-4 w-4 ml-2" />
+          </Button>
+        </div>
+
+        <section
+          v-else-if="activeStage === 'summary'"
+          class="flex-1 min-h-0 flex flex-col overflow-hidden px-8 pt-10 pb-6"
+          data-testid="pdfs-stage-summary-panel"
+        >
+          <div class="max-w-2xl mx-auto text-center mb-8 shrink-0">
+            <h2 class="text-xl font-medium mb-3">
+              <template v-if="missingOnDiskCount > 0">
+                <span class="tabular-nums">{{ missingOnDiskCount }}</span>
+                {{ missingOnDiskCount === 1 ? "PDF isn't" : "PDFs aren't" }}
+                on this machine.
+              </template>
+              <template v-else>PDF summary.</template>
+            </h2>
+            <p class="text-sm text-muted-foreground leading-relaxed max-w-prose mx-auto mb-4">
+              <template v-if="missingOnDiskCount > 0">
+                PDFs aren't synced by git. Import a teammate's zip to restore them in one shot,
+                or upload each one individually from the table below.
+              </template>
+              <template v-else>
+                Everything checks out. Browse the full record list below for a final review.
+              </template>
+            </p>
+            <div
+              v-if="missingOnDiskCount > 0 && !isReadOnly"
+              class="flex items-center justify-center gap-2"
+              data-testid="pdfs-summary-import-cta"
+            >
+              <PdfShareActions variant="default" actions="import-only" />
+              <span class="text-[11px] text-muted-foreground/70">
+                Import a teammate's PDFs zip.
+              </span>
+            </div>
+          </div>
+
+          <div
+            v-if="isLoading"
+            class="max-w-4xl mx-auto w-full flex items-center justify-center py-12"
+          >
+            <Loader2 class="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+          <div
+            v-else
+            class="max-w-7xl mx-auto w-full flex-1 min-h-0 flex flex-col"
+          >
+            <PdfRecordTable
+              :records="records"
+              title="records"
+              :show-status="true"
+              :show-actions="!isReadOnly"
+              :uploading-record-id="uploadingRecordId"
+              :marking-record-id="markingRecordId"
+              :undoing-record-id="undoingRecordId"
+              :upload-results="uploadResults"
+              :filter-pills="SUMMARY_STAGE_PILLS"
+              :default-pill-idx="missingOnDiskCount > 0 ? 0 : 1"
+              test-id="pdfs-summary-section"
+              @upload="uploadPdfForRecord"
+              @mark-not-available="markNotAvailable"
+              @undo-not-available="undoNotAvailable"
+              @upload-missing="uploadMissingFileForRecord"
             />
           </div>
         </section>

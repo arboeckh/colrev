@@ -67,6 +67,20 @@ contextBridge.exposeInMainWorld('colrev', {
 contextBridge.exposeInMainWorld('fileOps', {
   saveDialog: (options: { defaultName: string; content: string; filters?: { name: string; extensions: string[] }[] }) =>
     ipcRenderer.invoke('file:save-dialog', options),
+  chooseSavePath: (options: { defaultName?: string; filters?: { name: string; extensions: string[] }[] }) =>
+    ipcRenderer.invoke('file:choose-save-path', options),
+  openDialog: (options: { title?: string; filters?: { name: string; extensions: string[] }[] }) =>
+    ipcRenderer.invoke('file:open-dialog', options),
+});
+
+/**
+ * Expose PDF file helpers (resolve against the same path the colrev-pdf://
+ * protocol handler uses, so the renderer can detect missing PDFs without
+ * racing the iframe's 404).
+ */
+contextBridge.exposeInMainWorld('pdfFiles', {
+  exists: (params: { projectId: string; relativePath: string }) =>
+    ipcRenderer.invoke('pdf:exists', params),
 });
 
 /**

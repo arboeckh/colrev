@@ -25,6 +25,8 @@ export interface GitLogEntry {
 export interface GitResult {
   success: boolean;
   error?: string;
+  recovered?: boolean;
+  recoveryMessage?: string;
 }
 
 export interface GitBranchListResult extends GitResult {
@@ -263,23 +265,68 @@ export async function gitCheckout(
 ): Promise<GitResult> {
   const { exec } = await import('dugite');
 
+  const tryCheckout = async (args: string[]) => exec(args, projectPath);
+
+  const isDirtyTreeError = (stderr: string) =>
+    stderr.includes('would be overwritten by checkout') ||
+    stderr.includes('would be overwritten by merge') ||
+    stderr.includes('Please commit your changes or stash them');
+
+  // Stash the dirty/untracked tree, retry the checkout, and report whether
+  // the recovery succeeded. The stash is intentionally left in place so the
+  // user can recover anything they care about with `git stash list/pop` —
+  // auto-popping would just re-trigger the same conflict on the new branch.
+  const recoverViaStash = async (
+    checkoutArgs: string[],
+    originalError: string,
+  ): Promise<GitResult> => {
+    const stashMessage = `colrev: auto-stash before switching to ${branchName} (${new Date().toISOString()})`;
+    const stashResult = await exec(
+      ['stash', 'push', '--include-untracked', '-m', stashMessage],
+      projectPath,
+    );
+    if (stashResult.exitCode !== 0) {
+      // Stash itself failed — surface the original checkout error, not the stash error.
+      return { success: false, error: originalError };
+    }
+
+    const retry = await tryCheckout(checkoutArgs);
+    if (retry.exitCode !== 0) {
+      return { success: false, error: retry.stderr || originalError };
+    }
+
+    return {
+      success: true,
+      recovered: true,
+      recoveryMessage:
+        'Local changes were saved to a stash so the branch switch could complete.',
+    };
+  };
+
   // Check for local branch first, then try remote tracking
   const localCheck = await exec(['rev-parse', '--verify', branchName], projectPath);
   if (localCheck.exitCode !== 0) {
     // Try to create local tracking branch from remote
-    const trackResult = await exec(
-      ['checkout', '-b', branchName, `origin/${branchName}`],
-      projectPath,
-    );
+    const trackArgs = ['checkout', '-b', branchName, `origin/${branchName}`];
+    const trackResult = await tryCheckout(trackArgs);
     if (trackResult.exitCode !== 0) {
-      return { success: false, error: trackResult.stderr || `Branch ${branchName} not found` };
+      const trackErr = trackResult.stderr || `Branch ${branchName} not found`;
+      if (isDirtyTreeError(trackResult.stderr)) {
+        return recoverViaStash(trackArgs, trackErr);
+      }
+      return { success: false, error: trackErr };
     }
     return { success: true };
   }
 
-  const result = await exec(['checkout', branchName], projectPath);
+  const checkoutArgs = ['checkout', branchName];
+  const result = await tryCheckout(checkoutArgs);
   if (result.exitCode !== 0) {
-    return { success: false, error: result.stderr || `Failed to checkout ${branchName}` };
+    const err = result.stderr || `Failed to checkout ${branchName}`;
+    if (isDirtyTreeError(result.stderr)) {
+      return recoverViaStash(checkoutArgs, err);
+    }
+    return { success: false, error: err };
   }
   return { success: true };
 }

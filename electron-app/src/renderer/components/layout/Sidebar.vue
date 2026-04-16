@@ -9,7 +9,7 @@ import { UserMenu } from '@/components/common';
 import { useProjectsStore } from '@/stores/projects';
 import { useGitStore } from '@/stores/git';
 import { useManagedReviewStore } from '@/stores/managedReview';
-import { WORKFLOW_STEPS, type WorkflowStep } from '@/types/project';
+import { WORKFLOW_STEPS, type WorkflowStep, type RecordCounts } from '@/types/project';
 
 const props = defineProps<{
   projectId: string;
@@ -38,6 +38,21 @@ const recordCounts = computed(() => {
     ...status.currently,
     total: status.total_records ?? 0,
   };
+});
+
+// On a reviewer branch, prefer dev's per-state counts (from get_branch_delta)
+// over the reviewer branch's working-tree counts. The reviewer branch is
+// temporary; dev is the authoritative view of progress.
+const effectiveRecordCounts = computed<(RecordCounts & { total: number }) | null>(() => {
+  if (managedReview.isOnReviewerBranch && git.devRecordCounts) {
+    const devCounts = git.devRecordCounts as globalThis.Record<string, number>;
+    const total = Object.values(devCounts).reduce((sum, n) => sum + n, 0);
+    return {
+      ...(devCounts as unknown as RecordCounts),
+      total,
+    };
+  }
+  return recordCounts.value;
 });
 
 // Overall counts: records that have *ever been* in each state
@@ -71,10 +86,19 @@ const managedStepStatuses = computed(() => {
   return map;
 });
 
-// Whether to show the badge legend (only when on dev with new records)
+// Whether to show the badge legend — on dev, or on a reviewer branch (where
+// we mirror dev's view) with new records relative to main.
 const showBadgeLegend = computed(() => {
-  return git.isOnDev && git.branchDelta && git.branchDelta.new_record_count > 0;
+  return (
+    (git.isOnDev || managedReview.isOnReviewerBranch) &&
+    git.branchDelta != null &&
+    git.branchDelta.new_record_count > 0
+  );
 });
+
+// True when delta badges should render (dev itself, or a reviewer branch
+// mirroring dev's perspective).
+const showDelta = computed(() => git.isOnDev || managedReview.isOnReviewerBranch);
 
 // On a reviewer branch, suppress record counts for steps after the active managed review step
 // (e.g. pdf_get, pdf_prep, screen shouldn't show counts because those records aren't actionable
@@ -97,7 +121,7 @@ const suppressCountsForStep = computed(() => {
 
 // Freeze sidebar data during branch switches to prevent flicker.
 // When isSwitchingBranch is true, hold onto the last known snapshot.
-type CountSnapshot = typeof recordCounts.value;
+type CountSnapshot = typeof effectiveRecordCounts.value;
 type OverallSnapshot = typeof overallCounts.value;
 type StatusSnapshot = typeof managedStepStatuses.value;
 
@@ -108,14 +132,14 @@ const frozenManagedStatuses = ref<StatusSnapshot>({});
 watch(() => git.isSwitchingBranch, (switching) => {
   if (switching) {
     // Snapshot current state before the reload
-    frozenRecordCounts.value = recordCounts.value;
+    frozenRecordCounts.value = effectiveRecordCounts.value;
     frozenOverallCounts.value = overallCounts.value;
     frozenManagedStatuses.value = { ...managedStepStatuses.value };
   }
 });
 
 const stableRecordCounts = computed(() =>
-  git.isSwitchingBranch ? frozenRecordCounts.value : recordCounts.value,
+  git.isSwitchingBranch ? frozenRecordCounts.value : effectiveRecordCounts.value,
 );
 const stableOverallCounts = computed(() =>
   git.isSwitchingBranch ? frozenOverallCounts.value : overallCounts.value,
@@ -172,7 +196,7 @@ const priorStepHasPending = computed(() => {
       <nav class="flex flex-col pl-2">
         <SidebarItem v-for="(step, index) in WORKFLOW_STEPS" :key="step.id" :step="step" :project-id="projectId"
           :operation-info="getOperationInfo(step.id)" :record-counts="stableRecordCounts" :overall-counts="stableOverallCounts"
-          :delta-by-state="git.branchDelta?.delta_by_state ?? null" :is-on-dev="git.isOnDev"
+          :delta-by-state="git.branchDelta?.delta_by_state ?? null" :show-delta="showDelta"
           :has-prior-pending="priorStepHasPending[index]"
           :downstream-states="downstreamStatesPerStep[index]"
           :managed-step-status="stableManagedStatuses[step.id] ?? null"

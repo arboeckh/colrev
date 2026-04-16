@@ -14,6 +14,7 @@ import {
   Copy,
   Check,
   ExternalLink,
+  FileWarning,
 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -77,6 +78,7 @@ defineEmits<{
   upload: [recordId: string];
   'mark-not-available': [recordId: string];
   'undo-not-available': [recordId: string];
+  'upload-missing': [recordId: string];
 }>();
 
 const search = ref('');
@@ -90,10 +92,17 @@ const activePill = computed<StatusFilterPill | null>(() => {
   return props.filterPills[activePillIdx.value] ?? props.filterPills[0];
 });
 
+function matchesPill(record: PdfRecord, pill: StatusFilterPill): boolean {
+  if (pill.statuses !== null) {
+    if (!pill.statuses.includes(record.colrev_status)) return false;
+  }
+  if (pill.requireOnDisk && record.file_on_disk !== true) return false;
+  if (pill.requireMissing && record.file_on_disk !== false) return false;
+  return true;
+}
+
 function pillCount(pill: StatusFilterPill): number {
-  if (pill.statuses === null) return props.records.length;
-  const set = new Set(pill.statuses);
-  return props.records.filter((r) => set.has(r.colrev_status)).length;
+  return props.records.filter((r) => matchesPill(r, pill)).length;
 }
 
 function toggleSort(key: SortKey) {
@@ -157,9 +166,8 @@ function openDoi(record: PdfRecord) {
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase();
   const pill = activePill.value;
-  const statusSet = pill?.statuses ? new Set(pill.statuses) : null;
   const matched = props.records.filter((r) => {
-    if (statusSet && !statusSet.has(r.colrev_status)) return false;
+    if (pill && !matchesPill(r, pill)) return false;
     if (!q) return true;
     return (
       r.title?.toLowerCase().includes(q) ||
@@ -334,27 +342,47 @@ function defectTooltip(record: PdfRecord): string {
                 </TableCell>
                 <TableCell class="py-1.5 px-3 tabular-nums">{{ record.year }}</TableCell>
                 <TableCell v-if="showStatus" class="py-1.5 px-3 whitespace-nowrap overflow-hidden">
-                  <TooltipProvider v-if="defectsAsProse && hasDefects(record)">
-                    <Tooltip>
-                      <TooltipTrigger as-child>
-                        <span :class="statusPillClass(record.colrev_status)" :data-testid="`pdf-defects-${record.ID}`">
-                          <span class="h-1.5 w-1.5 rounded-full shrink-0"
-                            :class="statusPillDotClass(record.colrev_status)" />
-                          <template v-for="defect in getDefects(record)" :key="defect">
-                            <span :data-testid="`pdf-defect-badge-${defect}`" class="sr-only">{{ defect }}</span>
-                          </template>
-                          {{ defectStatusLabel(record) }}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="left" class="max-w-xs">
-                        <p class="leading-relaxed">{{ defectTooltip(record) }}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <span v-else :class="statusPillClass(record.colrev_status)">
-                    <span class="h-1.5 w-1.5 rounded-full shrink-0" :class="statusPillDotClass(record.colrev_status)" />
-                    {{ statusLabel(record.colrev_status) }}
-                  </span>
+                  <div class="flex items-center gap-1.5">
+                    <TooltipProvider v-if="defectsAsProse && hasDefects(record)">
+                      <Tooltip>
+                        <TooltipTrigger as-child>
+                          <span :class="statusPillClass(record.colrev_status)" :data-testid="`pdf-defects-${record.ID}`">
+                            <span class="h-1.5 w-1.5 rounded-full shrink-0"
+                              :class="statusPillDotClass(record.colrev_status)" />
+                            <template v-for="defect in getDefects(record)" :key="defect">
+                              <span :data-testid="`pdf-defect-badge-${defect}`" class="sr-only">{{ defect }}</span>
+                            </template>
+                            {{ defectStatusLabel(record) }}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" class="max-w-xs">
+                          <p class="leading-relaxed">{{ defectTooltip(record) }}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <span v-else :class="statusPillClass(record.colrev_status)">
+                      <span class="h-1.5 w-1.5 rounded-full shrink-0" :class="statusPillDotClass(record.colrev_status)" />
+                      {{ statusLabel(record.colrev_status) }}
+                    </span>
+                    <TooltipProvider v-if="record.file_on_disk === false">
+                      <Tooltip>
+                        <TooltipTrigger as-child>
+                          <span
+                            class="inline-flex items-center justify-center h-4 w-4 rounded-full bg-amber-500/10 text-amber-700 dark:bg-amber-400/10 dark:text-amber-300 shrink-0"
+                            :data-testid="`pdf-missing-badge-${record.ID}`"
+                            aria-label="Missing on disk"
+                          >
+                            <FileWarning class="h-3 w-3" />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" class="max-w-xs">
+                          <p class="leading-relaxed">
+                            PDF file not on this machine — import a teammate's zip or upload the file manually.
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
                 </TableCell>
                 <TableCell v-if="showActions" class="py-1 pl-4 pr-3 text-right overflow-hidden">
                   <div class="flex items-center justify-end gap-1">
@@ -469,6 +497,26 @@ function defectTooltip(record: PdfRecord): string {
                         <Loader2 v-if="markingRecordId === record.ID" class="h-3 w-3 mr-1 animate-spin" />
                         <Ban v-else class="h-3 w-3 mr-1" />
                         Unavailable
+                      </Button>
+                    </template>
+
+                    <template v-else-if="record.file_on_disk === false">
+                      <Button v-if="uploadingRecordId === record.ID" size="sm" variant="ghost" disabled
+                        class="h-7 px-2.5 text-xs" :data-testid="`pdf-upload-missing-btn-${record.ID}`">
+                        <Loader2 class="h-3 w-3 mr-1 animate-spin" />
+                        Uploading
+                      </Button>
+                      <Button v-else-if="uploadResults?.[record.ID]?.status === 'success'" size="sm" variant="ghost"
+                        disabled class="h-7 px-2.5 text-xs text-green-600"
+                        :data-testid="`pdf-upload-missing-btn-${record.ID}`">
+                        <CheckCircle2 class="h-3 w-3 mr-1" />
+                        Restored
+                      </Button>
+                      <Button v-else size="sm" variant="ghost" class="h-7 px-2.5 text-xs"
+                        :data-testid="`pdf-upload-missing-btn-${record.ID}`"
+                        @click="$emit('upload-missing', record.ID)">
+                        <Upload class="h-3 w-3 mr-1" />
+                        Upload file
                       </Button>
                     </template>
                   </div>

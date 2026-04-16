@@ -6,7 +6,6 @@ import type { GitBranchInfo, GitLogEntry, GitHubRelease, MergeAnalysis, MergeCon
 import type { BranchDelta } from '@/types/project';
 import type { GetBranchDeltaResponse } from '@/types/api';
 import { useBackendStore } from './backend';
-import { enqueueGitOp } from '@/lib/gitQueue';
 
 export const useGitStore = defineStore('git', () => {
   const projects = useProjectsStore();
@@ -45,6 +44,11 @@ export const useGitStore = defineStore('git', () => {
   // Branch delta (record-level diff between dev and main)
   const branchDelta = ref<BranchDelta | null>(null);
   const isLoadingDelta = ref(false);
+  // Per-state record counts on dev (mirrored from branch delta's source).
+  // Set whenever we have visibility into dev's state — i.e. when on dev itself
+  // or on a review/* branch. Used by the sidebar to render dev's badges even
+  // when the user is checked out on a temporary reviewer branch.
+  const devRecordCounts = ref<Record<string, number> | null>(null);
 
   let fetchIntervalId: ReturnType<typeof setInterval> | null = null;
 
@@ -98,82 +102,77 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  // Actions
+  // Actions — serialization against concurrent git ops is handled by the
+  // main-process git mutex (see `electron-app/src/main/gitMutex.ts`).
   async function fetch(): Promise<boolean> {
     const path = getProjectPath();
     if (!path || isFetching.value) return false;
 
-    return enqueueGitOp(async () => {
-      isFetching.value = true;
-      try {
-        const result = await window.git.fetch(path);
-        if (result.success) {
-          lastFetchTime.value = Date.now();
-          isOffline.value = false;
-          await refreshStatus();
-          return true;
-        } else {
-          // Network error -> offline
-          if (result.error?.includes('Could not resolve') || result.error?.includes('unable to access')) {
-            isOffline.value = true;
-          }
-          return false;
+    isFetching.value = true;
+    try {
+      const result = await window.git.fetch(path);
+      if (result.success) {
+        lastFetchTime.value = Date.now();
+        isOffline.value = false;
+        await refreshStatus();
+        return true;
+      } else {
+        // Network error -> offline
+        if (result.error?.includes('Could not resolve') || result.error?.includes('unable to access')) {
+          isOffline.value = true;
         }
-      } catch {
-        isOffline.value = true;
         return false;
-      } finally {
-        isFetching.value = false;
       }
-    });
+    } catch {
+      isOffline.value = true;
+      return false;
+    } finally {
+      isFetching.value = false;
+    }
   }
 
   async function pull(): Promise<boolean> {
     const path = getProjectPath();
     if (!path || isPulling.value) return false;
 
-    return enqueueGitOp(async () => {
-      isPulling.value = true;
-      try {
-        const result = await window.git.pull(path, true);
-        if (result.success) {
-          await refreshStatus();
-          await projects.refreshCurrentProject();
-          return true;
-        } else if (result.error === 'DIVERGED') {
-          // Trigger semantic conflict resolution instead of dead-end message
-          await startDivergenceResolution();
-          return false;
-        } else {
-          notifications.error('Pull failed', result.error || 'Unknown error');
-          return false;
-        }
-      } finally {
-        isPulling.value = false;
+    isPulling.value = true;
+    try {
+      const result = await window.git.pull(path, true);
+      if (result.success) {
+        await refreshStatus();
+        await projects.refreshCurrentProject();
+        return true;
+      } else if (result.error === 'DIVERGED') {
+        // Trigger semantic conflict resolution instead of dead-end message
+        await startDivergenceResolution();
+        return false;
+      } else {
+        notifications.error('Pull failed', result.error || 'Unknown error');
+        return false;
       }
-    });
+    } finally {
+      isPulling.value = false;
+    }
   }
 
   async function push(): Promise<boolean> {
     const path = getProjectPath();
     if (!path || isPushing.value) return false;
 
-    return enqueueGitOp(async () => {
-      isPushing.value = true;
-      try {
-        const result = await window.git.push(path);
-        if (result.success) {
-          await refreshStatus();
-          notifications.success('Changes saved to remote');
-          return true;
-        } else {
-          notifications.error('Push failed', result.error || 'Unknown error');
-          return false;
-        }
-      } finally {
-        isPushing.value = false;
+    isPushing.value = true;
+    try {
+      const result = await window.git.push(path);
+      if (result.success) {
+        await refreshStatus();
+        notifications.success('Changes saved to remote');
+        return true;
+      } else {
+        notifications.error('Push failed', result.error || 'Unknown error');
+        return false;
       }
-    });
+    } finally {
+      isPushing.value = false;
+    }
   }
 
   async function refreshStatus(): Promise<void> {
@@ -229,32 +228,39 @@ export const useGitStore = defineStore('git', () => {
     // Skip if already on the target branch
     if (currentBranch.value === branchName) return true;
 
-    return enqueueGitOp(async () => {
-      // Re-check inside queue — a prior queued switch may have already landed here
-      if (currentBranch.value === branchName) return true;
+    isSwitchingBranch.value = true;
+    try {
+      // Auto-save dirty derived files (e.g. status.yaml) before checkout, so
+      // git doesn't refuse with "would be overwritten by checkout". Mirrors
+      // the auto-commit pattern in refreshStatus.
+      await refreshStatus();
 
-      isSwitchingBranch.value = true;
-      try {
-        const result = await window.git.checkout(path, branchName);
-        if (!result.success) {
-          notifications.error('Branch switch failed', result.error || 'Unknown error');
-          return false;
-        }
-
-        currentBranch.value = branchName;
-
-        // Reload all project data since branch content differs
-        if (projects.currentProjectId) {
-          await projects.loadProject(projects.currentProjectId);
-        }
-
-        await refreshBranches();
-        refreshBranchDelta(); // Fire and forget
-        return true;
-      } finally {
-        isSwitchingBranch.value = false;
+      const result = await window.git.checkout(path, branchName);
+      if (!result.success) {
+        notifications.error('Branch switch failed', result.error || 'Unknown error');
+        return false;
       }
-    });
+
+      if (result.recovered) {
+        notifications.info(
+          'Switched with auto-recovery',
+          result.recoveryMessage ?? 'Local changes were stashed so the switch could complete.',
+        );
+      }
+
+      currentBranch.value = branchName;
+
+      // Reload all project data since branch content differs
+      if (projects.currentProjectId) {
+        await projects.loadProject(projects.currentProjectId);
+      }
+
+      await refreshBranches();
+      refreshBranchDelta(); // Fire and forget
+      return true;
+    } finally {
+      isSwitchingBranch.value = false;
+    }
   }
 
   /**
@@ -361,11 +367,30 @@ export const useGitStore = defineStore('git', () => {
   }
 
   /**
-   * Refresh the record-level delta between current branch and main.
+   * Refresh the record-level delta between dev and main.
+   *
+   * The reviewer branch is temporary — its working-tree counts diverge from
+   * dev as the user screens records. For sidebar progress we always want
+   * dev's view, so when checked out on a review/* branch we explicitly ask
+   * the backend to read records from dev's tree (no checkout needed).
    */
   async function refreshBranchDelta(): Promise<void> {
-    if (!isOnDev.value || !projects.currentProjectId) {
+    if (!projects.currentProjectId) {
       branchDelta.value = null;
+      devRecordCounts.value = null;
+      return;
+    }
+
+    const branch = currentBranch.value;
+    let sourceBranch: string | undefined;
+    if (branch === 'dev') {
+      sourceBranch = undefined; // backend defaults to active branch
+    } else if (branch.startsWith('review/')) {
+      sourceBranch = 'dev';
+    } else {
+      // main or any other branch — nothing meaningful to show
+      branchDelta.value = null;
+      devRecordCounts.value = null;
       return;
     }
 
@@ -374,12 +399,15 @@ export const useGitStore = defineStore('git', () => {
     try {
       const response = await backend.call<GetBranchDeltaResponse>('get_branch_delta', {
         project_id: projects.currentProjectId,
+        ...(sourceBranch ? { source_branch: sourceBranch } : {}),
       });
       if (response.success) {
         branchDelta.value = response;
+        devRecordCounts.value = response.source_branch_counts ?? null;
       }
     } catch {
       branchDelta.value = null;
+      devRecordCounts.value = null;
     } finally {
       isLoadingDelta.value = false;
     }
@@ -576,8 +604,10 @@ export const useGitStore = defineStore('git', () => {
   function startBackgroundFetch(interval = 60000): void {
     stopBackgroundFetch();
     fetchIntervalId = setInterval(async () => {
-      const backend = useBackendStore();
-      if (!isOperationRunning.value && !backend.isGitCallActive && hasRemote.value) {
+      // The main-process git mutex will make us wait if a user op is mid-flight;
+      // we just skip when a long operation is running to avoid piling fetches
+      // behind it. Remote presence is the only other precondition.
+      if (!isOperationRunning.value && hasRemote.value) {
         await fetch();
         await autoSyncIfSafe();
       }
@@ -625,6 +655,7 @@ export const useGitStore = defineStore('git', () => {
     devAheadOfMain.value = 0;
     mainAheadOfDev.value = 0;
     branchDelta.value = null;
+    devRecordCounts.value = null;
   }
 
   return {
@@ -655,6 +686,7 @@ export const useGitStore = defineStore('git', () => {
     mainAheadOfDev,
     branchDelta,
     isLoadingDelta,
+    devRecordCounts,
     // Computed
     hasRemote,
     isGitHubRemote,

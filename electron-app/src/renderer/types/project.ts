@@ -192,10 +192,12 @@ export interface ScreenCriterion {
 export interface BranchDelta {
   base_branch: string;
   current_branch: string;
+  source_branch: string;
   new_record_count: number;
   removed_record_count: number;
   changed_record_count: number;
   delta_by_state: globalThis.Record<string, number>;
+  source_branch_counts: globalThis.Record<string, number>;
 }
 
 // Workflow step definitions

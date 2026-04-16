@@ -55,6 +55,36 @@ import {
   type MergeAnalysis,
   type ConflictResolution,
 } from './semantic-merge';
+import { withGitLock, withLockRetry } from './gitMutex';
+
+/**
+ * RPC methods that never touch git — bypass the mutex so they don't serialize
+ * behind long-running git operations. Keep in sync with the allowlist in
+ * `src/renderer/stores/backend.ts` (GIT_FREE_METHODS).
+ */
+const GIT_FREE_RPC_METHODS = new Set<string>([
+  'ping',
+  'init_project',
+  'list_projects',
+  'delete_project',
+  'get_csv_source_templates',
+]);
+
+/**
+ * Register a `git:*` IPC handler that acquires the shared git mutex before
+ * running. Use for every handler that touches the repo via dugite so they
+ * can't race with the Python backend's GitPython ops.
+ */
+function registerGit<A extends unknown[], R>(
+  channel: string,
+  fn: (event: Electron.IpcMainInvokeEvent, ...args: A) => Promise<R>,
+): void {
+  ipcMain.handle(channel, async (event, ...args) => {
+    return withLockRetry(channel, () =>
+      withGitLock(channel, () => fn(event, ...(args as A))),
+    );
+  });
+}
 
 // Register custom protocol scheme before app is ready
 protocol.registerSchemesAsPrivileged([
@@ -162,12 +192,18 @@ function setupIPC() {
     }
   });
 
-  // Make RPC call
+  // Make RPC call. Git-touching methods go through the shared git mutex so
+  // they can't race with dugite handlers on `.git/index.lock`.
   ipcMain.handle('colrev:call', async (_, method: string, params: Record<string, unknown>) => {
     if (!backend) {
       throw new Error('Backend not running');
     }
-    return backend.call(method, params);
+    if (GIT_FREE_RPC_METHODS.has(method)) {
+      return backend.call(method, params);
+    }
+    // Lock-retry lives in the Python dispatcher (see
+    // colrev/ui_jsonrpc/framework/dispatcher.py); don't double-retry here.
+    return withGitLock(`rpc:${method}`, () => backend!.call(method, params));
   });
 
   // Stop backend
@@ -199,6 +235,64 @@ function setupIPC() {
     },
   );
 
+  // Choose save path (does NOT write a file — caller writes via RPC)
+  ipcMain.handle(
+    'file:choose-save-path',
+    async (_, options: { defaultName?: string; filters?: { name: string; extensions: string[] }[] }) => {
+      if (!mainWindow) return { success: false, error: 'No window' };
+
+      const result = await dialog.showSaveDialog(mainWindow, {
+        defaultPath: options.defaultName,
+        filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
+      });
+
+      if (result.canceled || !result.filePath) {
+        return { success: false, canceled: true };
+      }
+
+      return { success: true, filePath: result.filePath };
+    },
+  );
+
+  // Open file dialog
+  ipcMain.handle(
+    'file:open-dialog',
+    async (_, options: { filters?: { name: string; extensions: string[] }[]; title?: string }) => {
+      if (!mainWindow) return { success: false, error: 'No window' };
+
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: options.title,
+        properties: ['openFile'],
+        filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, canceled: true };
+      }
+
+      return { success: true, filePath: result.filePaths[0] };
+    },
+  );
+
+  // Check whether a PDF file exists at the resolved path the colrev-pdf://
+  // protocol handler would serve — lets the renderer show the import hint
+  // instead of an iframe that will 404.
+  ipcMain.handle(
+    'pdf:exists',
+    async (_, params: { projectId: string; relativePath: string }) => {
+      if (!params?.projectId || !params?.relativePath) {
+        return { exists: false };
+      }
+      const projectsPath = path.join(app.getPath('userData'), 'projects');
+      const filePath = path.resolve(projectsPath, params.projectId, params.relativePath);
+      // Same containment check as the protocol handler
+      if (!filePath.startsWith(path.resolve(projectsPath))) {
+        return { exists: false };
+      }
+      return { exists: fs.existsSync(filePath) };
+    },
+  );
+
   // Auth handlers
   authManager.setAuthUpdateCallback((session) => {
     mainWindow?.webContents.send('auth:update', session);
@@ -219,7 +313,7 @@ function setupIPC() {
   });
 
   // GitHub handlers
-  ipcMain.handle(
+  registerGit(
     'github:create-repo-and-push',
     async (
       _,
@@ -248,7 +342,7 @@ function setupIPC() {
   });
 
   // GitHub: clone a repo into the projects directory
-  ipcMain.handle(
+  registerGit(
     'github:clone-repo',
     async (_, params: { cloneUrl: string; projectId: string }) => {
       const token = authManager.getToken();
@@ -270,78 +364,78 @@ function setupIPC() {
     },
   );
 
-  // Git operation handlers
-  ipcMain.handle('git:fetch', async (_, projectPath: string) => {
+  // Git operation handlers — every handler runs through the shared git mutex.
+  registerGit('git:fetch', async (_, projectPath: string) => {
     const token = authManager.getToken();
     return gitFetch(projectPath, token);
   });
 
-  ipcMain.handle('git:pull', async (_, projectPath: string, ffOnly?: boolean) => {
+  registerGit('git:pull', async (_, projectPath: string, ffOnly?: boolean) => {
     const token = authManager.getToken();
     return gitPull(projectPath, token, ffOnly ?? true);
   });
 
-  ipcMain.handle('git:push', async (_, projectPath: string) => {
+  registerGit('git:push', async (_, projectPath: string) => {
     const token = authManager.getToken();
     return gitPush(projectPath, token);
   });
 
-  ipcMain.handle('git:push-branch', async (_, projectPath: string, branchName: string) => {
+  registerGit('git:push-branch', async (_, projectPath: string, branchName: string) => {
     const token = authManager.getToken();
     return gitPushBranch(projectPath, branchName, token);
   });
 
-  ipcMain.handle('git:list-branches', async (_, projectPath: string) => {
+  registerGit('git:list-branches', async (_, projectPath: string) => {
     return gitListBranches(projectPath);
   });
 
-  ipcMain.handle('git:create-branch', async (_, projectPath: string, name: string, baseBranch?: string) => {
+  registerGit('git:create-branch', async (_, projectPath: string, name: string, baseBranch?: string) => {
     return gitCreateBranch(projectPath, name, baseBranch);
   });
 
-  ipcMain.handle('git:create-local-branch', async (_, projectPath: string, name: string, baseRef: string) => {
+  registerGit('git:create-local-branch', async (_, projectPath: string, name: string, baseRef: string) => {
     return gitCreateLocalBranch(projectPath, name, baseRef);
   });
 
-  ipcMain.handle('git:delete-local-branch', async (_, projectPath: string, name: string) => {
+  registerGit('git:delete-local-branch', async (_, projectPath: string, name: string) => {
     return gitDeleteLocalBranch(projectPath, name);
   });
 
-  ipcMain.handle('git:checkout', async (_, projectPath: string, branchName: string) => {
+  registerGit('git:checkout', async (_, projectPath: string, branchName: string) => {
     return gitCheckout(projectPath, branchName);
   });
 
-  ipcMain.handle('git:merge', async (_, projectPath: string, source: string, ffOnly?: boolean) => {
+  registerGit('git:merge', async (_, projectPath: string, source: string, ffOnly?: boolean) => {
     return gitMerge(projectPath, source, ffOnly ?? true);
   });
 
-  ipcMain.handle('git:log', async (_, projectPath: string, count?: number) => {
+  registerGit('git:log', async (_, projectPath: string, count?: number) => {
     return gitLog(projectPath, count);
   });
 
-  ipcMain.handle('git:dirty-state', async (_, projectPath: string) => {
+  registerGit('git:dirty-state', async (_, projectPath: string) => {
     return gitGetDirtyState(projectPath);
   });
 
-  ipcMain.handle('git:abort-merge', async (_, projectPath: string) => {
+  registerGit('git:abort-merge', async (_, projectPath: string) => {
     return gitAbortMerge(projectPath);
   });
 
-  ipcMain.handle('git:has-merge-conflict', async (_, projectPath: string) => {
+  registerGit('git:has-merge-conflict', async (_, projectPath: string) => {
     return gitHasMergeConflict(projectPath);
   });
 
-  ipcMain.handle('git:add-and-commit', async (_, projectPath: string, message: string) => {
+  registerGit('git:add-and-commit', async (_, projectPath: string, message: string) => {
     return gitAddAndCommit(projectPath, message);
   });
 
-  ipcMain.handle('git:rev-list-count', async (_, projectPath: string, from: string, to: string) => {
+  registerGit('git:rev-list-count', async (_, projectPath: string, from: string, to: string) => {
     return gitRevListCount(projectPath, from, to);
   });
 
   // --- Conflict resolution handlers ---
 
-  ipcMain.handle('git:analyze-divergence', async (_, projectPath: string) => {
+  registerGit('git:analyze-divergence', async (_, projectPath: string) => {
     try {
       // 1. Find merge base
       const baseResult = await gitMergeBase(projectPath, 'HEAD', 'origin/dev');
@@ -378,7 +472,7 @@ function setupIPC() {
     }
   });
 
-  ipcMain.handle(
+  registerGit(
     'git:apply-merge',
     async (
       _,
@@ -573,7 +667,7 @@ function setupIPC() {
   });
 
   // GitHub: create release (tag + push tags + GitHub release)
-  ipcMain.handle(
+  registerGit(
     'github:create-release',
     async (_, params: { remoteUrl: string; tagName: string; name: string; body: string; projectPath: string }) => {
       const token = authManager.getToken();
@@ -638,6 +732,9 @@ app.whenReady().then(() => {
     }
 
     if (!fs.existsSync(filePath)) {
+      console.warn(
+        `[pdf-debug] 404 for ${request.url} -> resolved=${filePath} (projectId=${projectId}, relativePath=${relativePath}, projectsPath=${projectsPath})`,
+      );
       return new Response('PDF not found', { status: 404 });
     }
 

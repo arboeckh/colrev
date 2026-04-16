@@ -6,11 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ReviewerSelector } from '@/components/common';
+import { CriteriaList } from '@/components/review-definition';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useAuthStore } from '@/stores/auth';
 import { useGitStore } from '@/stores/git';
+import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
 import { useReadOnly } from '@/composables/useReadOnly';
 import type {
   CreateManagedReviewTaskResponse,
@@ -34,6 +36,7 @@ const projects = useProjectsStore();
 const notifications = useNotificationsStore();
 const auth = useAuthStore();
 const git = useGitStore();
+const reviewDefStore = useReviewDefinitionStore();
 const { isReadOnly } = useReadOnly();
 
 const isLoading = ref(false);
@@ -55,6 +58,12 @@ const kindLabel = computed(() => (props.kind === 'screen' ? 'Screen' : 'Prescree
 const activeTask = computed(() => tasks.value.find((task) => ['active', 'reconciling'].includes(task.state)) ?? null);
 const displayTask = computed(() => activeTask.value ?? tasks.value[0] ?? null);
 const remoteUrl = computed(() => projects.currentGitStatus?.remote_url ?? null);
+
+// Screen-only: criteria are required to launch and editable only on dev
+const showCriteria = computed(() => props.kind === 'screen');
+const criteria = computed(() => reviewDefStore.definition?.criteria ?? {});
+const criteriaCount = computed(() => Object.keys(criteria.value).length);
+const criteriaReadOnly = computed(() => !git.isOnDev || !!activeTask.value || isReadOnly.value);
 
 // Map backend issue strings to user-friendly messages with optional actions
 interface MappedIssue {
@@ -286,6 +295,42 @@ async function cancelTask() {
   }
 }
 
+async function handleAddCriterion(data: {
+  name: string;
+  explanation: string;
+  comment?: string;
+  criterion_type: 'inclusion_criterion' | 'exclusion_criterion';
+}) {
+  const success = await reviewDefStore.addCriterion(data);
+  if (success) {
+    notifications.success('Added', `Criterion "${data.name}" added`);
+  } else {
+    notifications.error('Failed', 'Could not add criterion');
+  }
+}
+
+async function handleUpdateCriterion(name: string, data: {
+  explanation: string;
+  comment?: string;
+  criterion_type: 'inclusion_criterion' | 'exclusion_criterion';
+}) {
+  const success = await reviewDefStore.updateCriterion({ criterion_name: name, ...data });
+  if (success) {
+    notifications.success('Updated', `Criterion "${name}" updated`);
+  } else {
+    notifications.error('Failed', 'Could not update criterion');
+  }
+}
+
+async function handleDeleteCriterion(name: string) {
+  const success = await reviewDefStore.removeCriterion(name);
+  if (success) {
+    notifications.success('Removed', `Criterion "${name}" removed`);
+  } else {
+    notifications.error('Failed', 'Could not remove criterion');
+  }
+}
+
 async function inviteCollaborator() {
   if (!inviteUsername.value || !remoteUrl.value) return;
   isInviting.value = true;
@@ -315,6 +360,9 @@ async function inviteCollaborator() {
 onMounted(async () => {
   await refreshData();
   await loadCollaborators();
+  if (showCriteria.value) {
+    await reviewDefStore.loadDefinition();
+  }
 });
 
 defineExpose({ refreshData, activeTask, tasks });
@@ -364,6 +412,44 @@ defineExpose({ refreshData, activeTask, tasks });
       </div>
 
       <Separator />
+
+      <!-- Screening criteria (screen kind only, dev branch only) -->
+      <template v-if="showCriteria">
+        <div class="space-y-3 max-w-md">
+          <div class="flex items-baseline justify-between">
+            <h3 class="text-sm font-medium">Screening criteria</h3>
+            <span class="text-xs text-muted-foreground">
+              {{ criteriaCount }} defined
+            </span>
+          </div>
+
+          <div
+            v-if="!git.isOnDev"
+            class="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400"
+          >
+            <AlertTriangle class="h-3.5 w-3.5 shrink-0" />
+            <span>Switch to the dev branch to edit screening criteria.</span>
+          </div>
+          <div
+            v-else-if="activeTask"
+            class="flex items-center gap-2 text-xs text-muted-foreground"
+          >
+            <AlertTriangle class="h-3.5 w-3.5 shrink-0" />
+            <span>Criteria are frozen while a managed task is active. Cancel the task and relaunch to change them.</span>
+          </div>
+
+          <CriteriaList
+            :criteria="criteria"
+            :is-saving="reviewDefStore.isSaving"
+            :read-only="criteriaReadOnly"
+            @add-criterion="handleAddCriterion"
+            @update-criterion="handleUpdateCriterion"
+            @delete-criterion="handleDeleteCriterion"
+          />
+        </div>
+
+        <Separator />
+      </template>
 
       <!-- Create task form (when no active task) -->
       <div v-if="!activeTask" class="space-y-4">
@@ -440,13 +526,16 @@ defineExpose({ refreshData, activeTask, tasks });
         <div class="flex items-center gap-3">
           <Button
             size="sm"
-            :disabled="isReadOnly || isCreating || !readiness?.ready || !reviewerA || !reviewerB || reviewerA === reviewerB"
+            :disabled="isReadOnly || isCreating || !readiness?.ready || !reviewerA || !reviewerB || reviewerA === reviewerB || (showCriteria && criteriaCount === 0)"
             @click="createTask"
           >
             {{ isCreating ? 'Launching...' : `Launch ${kindLabel} Task` }}
           </Button>
           <span v-if="reviewerA && reviewerB && reviewerA === reviewerB" class="text-xs text-destructive">
             Reviewers must be different
+          </span>
+          <span v-else-if="showCriteria && criteriaCount === 0" class="text-xs text-destructive">
+            Add at least one screening criterion
           </span>
         </div>
       </div>
