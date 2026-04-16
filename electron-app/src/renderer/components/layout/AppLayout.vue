@@ -35,17 +35,30 @@ async function loadProjectFromRoute() {
     if (!success) {
       notifications.error('Failed to load review', projects.projectError || undefined);
     } else {
-      // Initialize git state after project loads
+      // One-shot initialization — no intervals. Freshness is driven by window
+      // focus, explicit Refresh / Fetch buttons, and post-write hooks.
       await git.initialize();
-      pending.startPolling();
+      await pending.refresh();
     }
   }
 }
 
-// Fetch on window focus
-function handleWindowFocus() {
-  if (git.hasRemote && projects.currentProjectId) {
-    git.fetch();
+// Refresh everything on window focus — the app is the user's "view" into the
+// repo; tabbing back is the natural moment to pick up external changes
+// (collaborator pushes, CLI commits) without running interval polls.
+let focusRefreshInFlight = false;
+async function handleWindowFocus() {
+  if (!projects.currentProjectId || !backend.isRunning) return;
+  if (focusRefreshInFlight) return;
+  focusRefreshInFlight = true;
+  try {
+    await Promise.all([
+      pending.refresh(),
+      git.refreshStatus(),
+      git.hasRemote ? git.fetch() : Promise.resolve(),
+    ]);
+  } finally {
+    focusRefreshInFlight = false;
   }
 }
 
@@ -81,7 +94,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('focus', handleWindowFocus);
   git.cleanup();
-  pending.stopPolling();
+  pending.reset();
 });
 </script>
 

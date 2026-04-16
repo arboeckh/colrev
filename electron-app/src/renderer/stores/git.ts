@@ -7,6 +7,10 @@ import type { BranchDelta } from '@/types/project';
 import type { GetBranchDeltaResponse } from '@/types/api';
 import { useBackendStore } from './backend';
 
+// No interval polling. Remote state refreshes on: (a) window focus,
+// (b) explicit user action (Refresh / Fetch buttons), (c) after a write
+// operation's success hook. See `AppLayout.vue` and `Header.vue`.
+
 export const useGitStore = defineStore('git', () => {
   const projects = useProjectsStore();
   const notifications = useNotificationsStore();
@@ -49,8 +53,6 @@ export const useGitStore = defineStore('git', () => {
   // or on a review/* branch. Used by the sidebar to render dev's badges even
   // when the user is checked out on a temporary reviewer branch.
   const devRecordCounts = ref<Record<string, number> | null>(null);
-
-  let fetchIntervalId: ReturnType<typeof setInterval> | null = null;
 
   // Computed
   const hasRemote = computed(() => remoteUrl.value !== null);
@@ -140,6 +142,7 @@ export const useGitStore = defineStore('git', () => {
       const result = await window.git.pull(path, true);
       if (result.success) {
         await refreshStatus();
+        await refreshMergeConflictState();
         await projects.refreshCurrentProject();
         return true;
       } else if (result.error === 'DIVERGED') {
@@ -179,31 +182,24 @@ export const useGitStore = defineStore('git', () => {
     const path = getProjectPath();
     if (!path) return;
 
-    // Use existing JSON-RPC get_git_status to update ahead/behind/branch
+    // Pure read — mutex-bypassing on the main side. No auto-commit, no
+    // hasMergeConflict roundtrip. Callers that mutate repo state call
+    // refreshMergeConflictState() explicitly.
     await projects.refreshGitStatus();
 
-    // If there are uncommitted changes, silently commit them and re-fetch
-    // so that ahead/behind counts are correct for auto-push logic
-    const gitStatus = projects.currentGitStatus;
-    if (gitStatus && gitStatus.uncommitted_changes > 0) {
-      try {
-        await window.git.addAndCommit(path, 'colrev auto-commit');
-        await projects.refreshGitStatus();
-      } catch {
-        // Silently ignore commit failures
-      }
+    const status = projects.currentGitStatus;
+    if (status) {
+      currentBranch.value = status.branch;
+      ahead.value = status.ahead;
+      behind.value = status.behind;
+      isClean.value = status.is_clean;
+      remoteUrl.value = status.remote_url;
     }
+  }
 
-    const updatedStatus = projects.currentGitStatus;
-    if (updatedStatus) {
-      currentBranch.value = updatedStatus.branch;
-      ahead.value = updatedStatus.ahead;
-      behind.value = updatedStatus.behind;
-      isClean.value = updatedStatus.is_clean;
-      remoteUrl.value = updatedStatus.remote_url;
-    }
-
-    // Check for merge conflicts
+  async function refreshMergeConflictState(): Promise<void> {
+    const path = getProjectPath();
+    if (!path) return;
     try {
       hasMergeConflict.value = await window.git.hasMergeConflict(path);
     } catch {
@@ -230,9 +226,6 @@ export const useGitStore = defineStore('git', () => {
 
     isSwitchingBranch.value = true;
     try {
-      // Auto-save dirty derived files (e.g. status.yaml) before checkout, so
-      // git doesn't refuse with "would be overwritten by checkout". Mirrors
-      // the auto-commit pattern in refreshStatus.
       await refreshStatus();
 
       const result = await window.git.checkout(path, branchName);
@@ -549,6 +542,7 @@ export const useGitStore = defineStore('git', () => {
         showConflictDialog.value = false;
         mergeAnalysis.value = null;
         await refreshStatus();
+        await refreshMergeConflictState();
         // Reload project to pick up merged settings
         if (projects.currentProjectId) {
           await projects.loadProject(projects.currentProjectId);
@@ -584,6 +578,7 @@ export const useGitStore = defineStore('git', () => {
     if (result.success) {
       hasMergeConflict.value = false;
       await refreshStatus();
+      await refreshMergeConflictState();
       notifications.success('Merge aborted');
       return true;
     }
@@ -601,31 +596,16 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  function startBackgroundFetch(interval = 60000): void {
-    stopBackgroundFetch();
-    fetchIntervalId = setInterval(async () => {
-      // The main-process git mutex will make us wait if a user op is mid-flight;
-      // we just skip when a long operation is running to avoid piling fetches
-      // behind it. Remote presence is the only other precondition.
-      if (!isOperationRunning.value && hasRemote.value) {
-        await fetch();
-        await autoSyncIfSafe();
-      }
-    }, interval);
-  }
-
-  function stopBackgroundFetch(): void {
-    if (fetchIntervalId !== null) {
-      clearInterval(fetchIntervalId);
-      fetchIntervalId = null;
-    }
-  }
-
   /**
    * Initialize git state for the current project.
+   *
+   * Performs a one-shot sync. After this, freshness is driven by window-focus
+   * refresh, explicit user actions (Refresh / Fetch buttons), and post-write
+   * hooks — no intervals.
    */
   async function initialize(): Promise<void> {
     await refreshStatus();
+    await refreshMergeConflictState();
     await refreshBranches();
     await refreshBranchDiff();
     refreshBranchDelta(); // Fire and forget
@@ -634,12 +614,10 @@ export const useGitStore = defineStore('git', () => {
       if (isGitHubRemote.value) {
         loadReleases(); // Fire and forget
       }
-      startBackgroundFetch();
     }
   }
 
   function cleanup(): void {
-    stopBackgroundFetch();
     branches.value = [];
     recentCommits.value = [];
     releases.value = [];
@@ -705,6 +683,7 @@ export const useGitStore = defineStore('git', () => {
     pull,
     push,
     refreshStatus,
+    refreshMergeConflictState,
     refreshBranches,
     switchBranch,
     ensureDevBranch,
@@ -719,8 +698,6 @@ export const useGitStore = defineStore('git', () => {
     applyMergeResolutions,
     cancelMerge,
     autoSyncIfSafe,
-    startBackgroundFetch,
-    stopBackgroundFetch,
     initialize,
     cleanup,
   };

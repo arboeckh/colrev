@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/tooltip';
 import type { GitStatus } from '@/types/project';
 import { useGitStore } from '@/stores/git';
+import { usePendingChangesStore } from '@/stores/pendingChanges';
 
 const props = defineProps<{
   status: GitStatus;
@@ -18,6 +19,22 @@ const props = defineProps<{
 }>();
 
 const git = useGitStore();
+const pending = usePendingChangesStore();
+
+// "to save" = committed-unpushed (ahead) + uncommitted UI-staged work (pending).
+// Both count as work the user hasn't gotten to the remote yet.
+const unsavedCount = computed(() => git.ahead + pending.pendingCount);
+
+async function saveAndPush() {
+  if (pending.hasPending) {
+    const committed = await pending.commit('Save changes');
+    if (!committed) return;
+    await git.refreshStatus();
+  }
+  if (git.ahead > 0) {
+    await git.push();
+  }
+}
 
 const syncState = computed(() => {
   if (git.isOffline) {
@@ -27,12 +44,13 @@ const syncState = computed(() => {
       variant: 'outline' as const,
       class: 'text-muted-foreground',
       clickable: false,
-      action: null as (() => void) | null,
+      action: null as (() => void | Promise<void>) | null,
       tooltip: 'No connection to remote. Local operations still work.',
     };
   }
 
-  const { ahead, behind } = props.status;
+  const { behind } = props.status;
+  const ahead = unsavedCount.value;
 
   if (git.isResolving) {
     return {
@@ -46,7 +64,7 @@ const syncState = computed(() => {
     };
   }
 
-  if (ahead > 0 && behind > 0) {
+  if (git.ahead > 0 && behind > 0) {
     return {
       icon: AlertCircle,
       label: 'Needs attention',
@@ -59,17 +77,17 @@ const syncState = computed(() => {
   }
 
   if (ahead > 0) {
+    const hasPending = pending.hasPending;
     return {
       icon: ArrowUp,
       label: `${ahead} to save`,
       variant: 'outline' as const,
       class: 'text-blue-500',
       clickable: true,
-      action: () => git.push(),
-      tooltip:
-        `${ahead} local commit(s) not yet pushed to remote. ` +
-        'Running search, load, prep, dedupe, pdf-get or data creates a commit. ' +
-        'Click to push.',
+      action: saveAndPush,
+      tooltip: hasPending
+        ? `${ahead} change(s) not yet saved to remote. Click to commit and push.`
+        : `${git.ahead} local commit(s) not yet pushed to remote. Click to push.`,
     };
   }
 
@@ -96,11 +114,13 @@ const syncState = computed(() => {
   };
 });
 
-const isLoading = computed(() => git.isPushing || git.isPulling || git.isFetching);
+const isLoading = computed(
+  () => git.isPushing || git.isPulling || git.isFetching || pending.isCommitting,
+);
 
 function handleClick() {
   if (syncState.value.action && !isLoading.value) {
-    syncState.value.action();
+    void syncState.value.action();
   }
 }
 </script>

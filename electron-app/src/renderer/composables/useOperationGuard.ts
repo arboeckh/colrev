@@ -2,18 +2,22 @@ import { useGitStore } from '@/stores/git';
 import { useNotificationsStore } from '@/stores/notifications';
 
 /**
- * Wraps colrev operations with pre-operation sync (pull) and post-operation auto-save (push).
- * This is the primary conflict prevention mechanism.
+ * Wraps colrev operations with post-operation auto-save (push).
+ *
+ * Pre-op fetch/pull were removed: they held the shared git mutex in the main
+ * process and queued every other git call behind a network round-trip, which
+ * the user experienced as "the app is frozen while the sync pill spins."
+ * Remote freshness is driven by window-focus fetch and the manual Refresh
+ * button. If the push at the end fails due to divergence, the existing
+ * divergence-resolution flow on the sync pill handles it.
  *
  * Flow:
- * 1. Set isOperationRunning = true
- * 2. Fetch from remote
- * 3. If behind > 0 and ahead == 0 and clean → auto-pull (FF)
- * 4. If diverged → show error, return null (block operation)
- * 5. Run the colrev operation
- * 6. Refresh git status
- * 7. If autoSave → push to remote
- * 8. Set isOperationRunning = false
+ * 1. Block on main (read-only) and on known divergence
+ * 2. Set isOperationRunning = true
+ * 3. Run the colrev operation
+ * 4. Refresh git status (local read)
+ * 5. If autoSave and ahead > 0 → push
+ * 6. Set isOperationRunning = false
  */
 export function useOperationGuard() {
   const git = useGitStore();
@@ -22,7 +26,6 @@ export function useOperationGuard() {
   async function guardedOperation<T>(
     operation: () => Promise<T>,
   ): Promise<T | null> {
-    // Block operations on main branch
     if (git.isOnMain) {
       notifications.warning(
         'Read-only on main',
@@ -31,39 +34,19 @@ export function useOperationGuard() {
       return null;
     }
 
+    if (git.isDiverged) {
+      notifications.error(
+        'Cannot run operation',
+        'Remote has changes that conflict with your local changes. Click Refresh, then resolve the conflict before running.',
+      );
+      return null;
+    }
+
     git.isOperationRunning = true;
 
     try {
-      // Pre-operation: sync with remote
-      if (git.hasRemote) {
-        await git.fetch();
-
-        // Auto-pull if safe
-        if (git.behind > 0 && git.ahead === 0 && git.isClean) {
-          const pullSuccess = await git.pull();
-          if (!pullSuccess) {
-            notifications.error(
-              'Sync failed',
-              'Could not pull latest changes. Please try again.',
-            );
-            return null;
-          }
-        }
-
-        // Block if diverged
-        if (git.isDiverged) {
-          notifications.error(
-            'Cannot run operation',
-            'Remote has changes that conflict with your local changes. Push your changes or create a Pull Request first.',
-          );
-          return null;
-        }
-      }
-
-      // Run the actual operation
       const result = await operation();
 
-      // Post-operation: refresh and optionally push
       await git.refreshStatus();
 
       if (git.hasRemote && git.autoSave && git.ahead > 0) {

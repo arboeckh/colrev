@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
+import { useManagedReviewStore } from '@/stores/managedReview';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
 import ReconcileWalkthrough from './ReconcileWalkthrough.vue';
@@ -27,6 +28,7 @@ const props = defineProps<{
 
 const backend = useBackendStore();
 const git = useGitStore();
+const managedReview = useManagedReviewStore();
 const notifications = useNotificationsStore();
 const projects = useProjectsStore();
 
@@ -94,7 +96,11 @@ function onWalkthroughClose() {
 
 async function onWalkthroughApplied(_: ApplyReconciliationResponse) {
   showWalkthrough.value = false;
-  await refreshData();
+  await Promise.all([
+    refreshData(),
+    managedReview.refresh(),
+    projects.refreshCurrentProject(),
+  ]);
 }
 
 async function exportAudit(format: 'csv' | 'json') {
@@ -135,7 +141,7 @@ defineExpose({ refreshData });
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="h-full flex flex-col gap-6 min-h-0">
     <div v-if="isLoading && !displayTask" class="flex items-center gap-2 text-sm text-muted-foreground">
       <Loader2 class="h-4 w-4 animate-spin" />
       Loading task data...
@@ -147,7 +153,7 @@ defineExpose({ refreshData });
     </div>
 
     <template v-else>
-      <div class="space-y-4 max-w-md">
+      <div class="space-y-4 max-w-md shrink-0">
         <div class="flex items-center justify-between">
           <div>
             <h3 class="text-sm font-medium">{{ displayTask.id }}</h3>
@@ -199,7 +205,7 @@ defineExpose({ refreshData });
 
       <div
         v-if="!isOnDev"
-        class="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400"
+        class="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400 shrink-0"
       >
         <AlertTriangle class="h-3.5 w-3.5 shrink-0" />
         <span>Reconciliation must run from the dev branch.</span>
@@ -208,7 +214,7 @@ defineExpose({ refreshData });
         </Button>
       </div>
 
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 shrink-0">
         <Button
           v-if="canStartReconciliation"
           size="sm"
@@ -240,8 +246,8 @@ defineExpose({ refreshData });
       </div>
 
       <template v-if="showWalkthrough">
-        <Separator />
-        <div class="min-h-[540px] flex flex-col">
+        <Separator class="shrink-0" />
+        <div class="flex-1 min-h-0 flex flex-col">
           <ReconcileWalkthrough
             :task-id="displayTask.id"
             :kind="kind"

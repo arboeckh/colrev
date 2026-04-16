@@ -62,20 +62,23 @@ function phaseStatus(phaseId: Phase): 'complete' | 'active' | 'pending' {
     if (completed && !task) return 'complete';
     if (task) {
       const allDone = task.reviewer_progress.every((r) => r.pending_count === 0);
-      // eslint-disable-next-line no-console
-      console.log('[phaseStatus/review]', {
-        login: auth.user?.login,
-        reviewer_progress: task.reviewer_progress,
-        allDone,
-      });
       if (allDone) return 'complete';
-      // Show as complete for the current user if they finished their part
+      // Show as complete for the current user if they finished their part.
+      // reviewer_progress reads the branch HEAD (committed state), but screen
+      // decisions only update the working tree until the user explicitly
+      // commits. So also treat "on my reviewer branch + no eligible records
+      // left in the working tree" as done.
       const login = auth.user?.login?.toLowerCase();
       if (login) {
         const myProgress = task.reviewer_progress.find(
           (r) => r.github_login.toLowerCase() === login,
         );
         if (myProgress && myProgress.pending_count === 0) return 'complete';
+        if (myProgress && git.currentBranch === myProgress.branch_name) {
+          const eligibleState = kind.value === 'prescreen' ? 'md_processed' : 'pdf_prepared';
+          const eligibleCount = projects.currentStatus?.currently?.[eligibleState] ?? null;
+          if (eligibleCount === 0) return 'complete';
+        }
       }
       return currentPhase.value === 'review' ? 'active' : 'pending';
     }

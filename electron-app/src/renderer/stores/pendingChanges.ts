@@ -12,8 +12,6 @@ import type {
 
 type GitStatusPayload = GetGitStatusResponse['git'];
 
-const POLL_INTERVAL_MS = 5000;
-
 export const usePendingChangesStore = defineStore('pendingChanges', () => {
   const backend = useBackendStore();
   const projects = useProjectsStore();
@@ -24,8 +22,6 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
   const isDiscarding = ref(false);
   const lastRefreshError = ref<string | null>(null);
 
-  let pollIntervalId: ReturnType<typeof setInterval> | null = null;
-  let visibilityHandler: (() => void) | null = null;
   let inFlightRefresh: Promise<void> | null = null;
 
   const stagedRecordChanges = computed<StagedRecordChange[]>(
@@ -135,35 +131,9 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
     }
   }
 
-  function startPolling() {
-    if (pollIntervalId !== null) return;
-
-    // Immediate fetch + interval
-    void refresh();
-    pollIntervalId = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        void refresh();
-      }
-    }, POLL_INTERVAL_MS);
-
-    visibilityHandler = () => {
-      if (document.visibilityState === 'visible') {
-        void refresh();
-      }
-    };
-    document.addEventListener('visibilitychange', visibilityHandler);
-  }
-
-  function stopPolling() {
-    if (pollIntervalId !== null) {
-      clearInterval(pollIntervalId);
-      pollIntervalId = null;
-    }
-    if (visibilityHandler) {
-      document.removeEventListener('visibilitychange', visibilityHandler);
-      visibilityHandler = null;
-    }
+  function reset() {
     gitStatus.value = null;
+    lastRefreshError.value = null;
   }
 
   return {
@@ -181,7 +151,6 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
     refresh,
     commit,
     discardAll,
-    startPolling,
-    stopPolling,
+    reset,
   };
 });

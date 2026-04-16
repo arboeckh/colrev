@@ -58,9 +58,14 @@ import {
 import { withGitLock, withLockRetry } from './gitMutex';
 
 /**
- * RPC methods that never touch git — bypass the mutex so they don't serialize
- * behind long-running git operations. Keep in sync with the allowlist in
- * `src/renderer/stores/backend.ts` (GIT_FREE_METHODS).
+ * RPC methods that bypass the mutex.
+ *
+ * Two categories:
+ *  - Truly git-free: `ping`, `init_project`, etc.
+ *  - Read-only introspection: `get_git_status` creates a fresh `git.Repo`
+ *    and reads state without acquiring `.git/index.lock`. Lock races are a
+ *    writer↔writer problem; letting reads skip the queue stops UI refreshes
+ *    from piling up behind long user operations.
  */
 const GIT_FREE_RPC_METHODS = new Set<string>([
   'ping',
@@ -68,6 +73,7 @@ const GIT_FREE_RPC_METHODS = new Set<string>([
   'list_projects',
   'delete_project',
   'get_csv_source_templates',
+  'get_git_status',
 ]);
 
 /**
@@ -84,6 +90,19 @@ function registerGit<A extends unknown[], R>(
       withGitLock(channel, () => fn(event, ...(args as A))),
     );
   });
+}
+
+/**
+ * Register a read-only `git:*` IPC handler that bypasses the mutex. Safe for
+ * dugite calls that don't take `.git/index.lock` (status, log, rev-list,
+ * show-ref). Concurrent reads during a write may return a stale-but-consistent
+ * view — acceptable for UI display.
+ */
+function registerGitRead<A extends unknown[], R>(
+  channel: string,
+  fn: (event: Electron.IpcMainInvokeEvent, ...args: A) => Promise<R>,
+): void {
+  ipcMain.handle(channel, fn);
 }
 
 // Register custom protocol scheme before app is ready
@@ -385,7 +404,7 @@ function setupIPC() {
     return gitPushBranch(projectPath, branchName, token);
   });
 
-  registerGit('git:list-branches', async (_, projectPath: string) => {
+  registerGitRead('git:list-branches', async (_, projectPath: string) => {
     return gitListBranches(projectPath);
   });
 
@@ -409,11 +428,11 @@ function setupIPC() {
     return gitMerge(projectPath, source, ffOnly ?? true);
   });
 
-  registerGit('git:log', async (_, projectPath: string, count?: number) => {
+  registerGitRead('git:log', async (_, projectPath: string, count?: number) => {
     return gitLog(projectPath, count);
   });
 
-  registerGit('git:dirty-state', async (_, projectPath: string) => {
+  registerGitRead('git:dirty-state', async (_, projectPath: string) => {
     return gitGetDirtyState(projectPath);
   });
 
@@ -421,7 +440,7 @@ function setupIPC() {
     return gitAbortMerge(projectPath);
   });
 
-  registerGit('git:has-merge-conflict', async (_, projectPath: string) => {
+  registerGitRead('git:has-merge-conflict', async (_, projectPath: string) => {
     return gitHasMergeConflict(projectPath);
   });
 
@@ -429,13 +448,13 @@ function setupIPC() {
     return gitAddAndCommit(projectPath, message);
   });
 
-  registerGit('git:rev-list-count', async (_, projectPath: string, from: string, to: string) => {
+  registerGitRead('git:rev-list-count', async (_, projectPath: string, from: string, to: string) => {
     return gitRevListCount(projectPath, from, to);
   });
 
   // --- Conflict resolution handlers ---
 
-  registerGit('git:analyze-divergence', async (_, projectPath: string) => {
+  registerGitRead('git:analyze-divergence', async (_, projectPath: string) => {
     try {
       // 1. Find merge base
       const baseResult = await gitMergeBase(projectPath, 'HEAD', 'origin/dev');

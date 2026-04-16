@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ArrowLeft, RefreshCw } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
@@ -8,16 +8,21 @@ import ThemeToggle from '@/components/common/ThemeToggle.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
+import { usePendingChangesStore } from '@/stores/pendingChanges';
 const router = useRouter();
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const git = useGitStore();
+const pending = usePendingChangesStore();
 
 const projectTitle = computed(() => {
   return projects.currentSettings?.project?.title || projects.currentProjectId || 'Review';
 });
 
-const isRefreshing = computed(() => projects.isLoadingProject);
+const isRefreshingManual = ref(false);
+const isRefreshing = computed(
+  () => projects.isLoadingProject || isRefreshingManual.value,
+);
 
 function goToProjects() {
   git.cleanup();
@@ -25,9 +30,22 @@ function goToProjects() {
   router.push('/');
 }
 
+// Single user-initiated refresh covering project metadata, local git state,
+// pending changes, and (if remote) a fetch so ahead/behind is fresh. This is
+// the explicit replacement for the interval polling that used to run.
 async function refresh() {
-  await projects.refreshCurrentProject();
-  await git.refreshStatus();
+  if (isRefreshingManual.value) return;
+  isRefreshingManual.value = true;
+  try {
+    await Promise.all([
+      projects.refreshCurrentProject(),
+      git.refreshStatus(),
+      pending.refresh(),
+      git.hasRemote ? git.fetch() : Promise.resolve(),
+    ]);
+  } finally {
+    isRefreshingManual.value = false;
+  }
 }
 
 </script>
@@ -59,6 +77,8 @@ async function refresh() {
           variant="ghost"
           size="icon"
           :disabled="!backend.isRunning || isRefreshing"
+          data-testid="refresh-git-state"
+          title="Refresh project and git state"
           @click="refresh"
         >
           <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': isRefreshing }" />

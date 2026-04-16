@@ -20,11 +20,13 @@ const props = withDefaults(
     canPrev?: boolean;
     canNext?: boolean;
     testIdPrefix?: string;
+    layout?: 'stacked' | 'side-by-side';
   }>(),
   {
     canPrev: false,
     canNext: false,
     testIdPrefix: 'prescreen',
+    layout: 'stacked',
   },
 );
 
@@ -98,7 +100,8 @@ const metaParts = computed(() => {
 
 <template>
   <article
-    class="flex-1 flex flex-col min-h-0 rounded-lg w-full max-w-[65ch] mx-auto"
+    class="flex-1 flex flex-col min-h-0 rounded-lg w-full mx-auto"
+    :class="layout === 'side-by-side' ? 'max-w-5xl' : 'max-w-[65ch]'"
     :data-testid="`${testIdPrefix}-record-card`"
   >
     <!-- Top row: ID · meta · nav -->
@@ -110,7 +113,7 @@ const metaParts = computed(() => {
         {{ record.id }}
       </span>
       <div
-        v-if="metaParts.length"
+        v-if="layout === 'stacked' && metaParts.length"
         class="flex-1 min-w-0 text-xs text-muted-foreground truncate"
       >
         <template v-for="(part, i) in metaParts" :key="i">
@@ -143,55 +146,123 @@ const metaParts = computed(() => {
       </div>
     </div>
 
-    <!-- Title -->
-    <h3
-      class="px-1 text-[17px] font-semibold leading-snug tracking-tight break-words line-clamp-3"
-      :title="record.title || 'Untitled record'"
-      :data-testid="`${testIdPrefix}-record-title`"
-    >
-      {{ record.title || 'Untitled record' }}
-    </h3>
-
-    <!-- Hairline divider -->
-    <div class="mx-1 mt-3 mb-4 h-px bg-border/50" />
-
-    <!-- Abstract -->
-    <div class="relative flex-1 min-h-0">
-      <div
-        ref="scrollEl"
-        class="absolute inset-0 overflow-y-auto pr-3 pl-1 custom-scroll"
-        @scroll="updateFade"
+    <!-- Stacked layout: title above, abstract below -->
+    <template v-if="layout === 'stacked'">
+      <h3
+        class="px-1 text-[17px] font-semibold leading-snug tracking-tight break-words line-clamp-3"
+        :title="record.title || 'Untitled record'"
+        :data-testid="`${testIdPrefix}-record-title`"
       >
+        {{ record.title || 'Untitled record' }}
+      </h3>
+
+      <div class="mx-1 mt-3 mb-4 h-px bg-border/50" />
+
+      <div class="relative flex-1 min-h-0">
         <div
-          v-if="record._enrichmentStatus === 'loading'"
-          class="space-y-2"
+          ref="scrollEl"
+          class="absolute inset-0 overflow-y-auto pr-3 pl-1 custom-scroll"
+          @scroll="updateFade"
         >
-          <div class="flex items-center gap-2 text-[13px] text-muted-foreground mb-3">
-            <Loader2 class="h-3.5 w-3.5 animate-spin" />
-            <span>Fetching abstract from external sources...</span>
+          <div
+            v-if="record._enrichmentStatus === 'loading'"
+            class="space-y-2"
+          >
+            <div class="flex items-center gap-2 text-[13px] text-muted-foreground mb-3">
+              <Loader2 class="h-3.5 w-3.5 animate-spin" />
+              <span>Fetching abstract from external sources...</span>
+            </div>
+            <div class="space-y-2 animate-pulse">
+              <div class="h-3 bg-muted/70 rounded w-full" />
+              <div class="h-3 bg-muted/70 rounded w-full" />
+              <div class="h-3 bg-muted/70 rounded w-[95%]" />
+              <div class="h-3 bg-muted/70 rounded w-full" />
+              <div class="h-3 bg-muted/70 rounded w-[88%]" />
+              <div class="h-3 bg-muted/70 rounded w-full" />
+              <div class="h-3 bg-muted/70 rounded w-[70%]" />
+            </div>
           </div>
-          <div class="space-y-2 animate-pulse">
-            <div class="h-3 bg-muted/70 rounded w-full" />
-            <div class="h-3 bg-muted/70 rounded w-full" />
-            <div class="h-3 bg-muted/70 rounded w-[95%]" />
-            <div class="h-3 bg-muted/70 rounded w-full" />
-            <div class="h-3 bg-muted/70 rounded w-[88%]" />
-            <div class="h-3 bg-muted/70 rounded w-full" />
-            <div class="h-3 bg-muted/70 rounded w-[70%]" />
+          <p
+            v-else
+            class="text-[16px] leading-[1.7] text-foreground whitespace-pre-wrap break-words"
+          >
+            {{ record.abstract || 'No abstract available' }}
+          </p>
+        </div>
+        <div
+          v-show="showFade"
+          class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background to-transparent"
+        />
+      </div>
+    </template>
+
+    <!-- Side-by-side layout: title left, abstract right -->
+    <template v-else>
+      <div class="flex-1 min-h-0 flex gap-5 pt-1">
+        <div class="w-[36%] min-w-[240px] shrink-0 flex flex-col min-h-0 pl-1 pr-1">
+          <div class="flex-1 min-h-0 overflow-y-auto custom-scroll">
+            <h3
+              class="text-[17px] font-semibold leading-snug tracking-tight break-words"
+              :title="record.title || 'Untitled record'"
+              :data-testid="`${testIdPrefix}-record-title`"
+            >
+              {{ record.title || 'Untitled record' }}
+            </h3>
+            <div
+              v-if="metaParts.length"
+              class="mt-2 text-sm text-muted-foreground leading-snug break-words"
+            >
+              <template v-for="(part, i) in metaParts" :key="i">
+                <span v-if="i > 0" class="mx-1.5 text-muted-foreground/40">·</span>
+                <span>{{ part }}</span>
+              </template>
+            </div>
+          </div>
+          <div v-if="$slots.aside" class="shrink-0 pt-4">
+            <slot name="aside" />
           </div>
         </div>
-        <p
-          v-else
-          class="text-[16px] leading-[1.7] text-foreground whitespace-pre-wrap break-words"
-        >
-          {{ record.abstract || 'No abstract available' }}
-        </p>
+
+        <div class="w-px bg-border/50 shrink-0" />
+
+        <div class="relative flex-1 min-w-0">
+          <div
+            ref="scrollEl"
+            class="absolute inset-0 overflow-y-auto pr-3 pl-1 custom-scroll"
+            @scroll="updateFade"
+          >
+            <div
+              v-if="record._enrichmentStatus === 'loading'"
+              class="space-y-2"
+            >
+              <div class="flex items-center gap-2 text-[13px] text-muted-foreground mb-3">
+                <Loader2 class="h-3.5 w-3.5 animate-spin" />
+                <span>Fetching abstract from external sources...</span>
+              </div>
+              <div class="space-y-2 animate-pulse">
+                <div class="h-3 bg-muted/70 rounded w-full" />
+                <div class="h-3 bg-muted/70 rounded w-full" />
+                <div class="h-3 bg-muted/70 rounded w-[95%]" />
+                <div class="h-3 bg-muted/70 rounded w-full" />
+                <div class="h-3 bg-muted/70 rounded w-[88%]" />
+                <div class="h-3 bg-muted/70 rounded w-full" />
+                <div class="h-3 bg-muted/70 rounded w-[70%]" />
+              </div>
+            </div>
+            <p
+              v-else
+              class="text-[16px] leading-[1.7] text-foreground whitespace-pre-wrap break-words"
+            >
+              {{ record.abstract || 'No abstract available' }}
+            </p>
+          </div>
+          <div
+            v-show="showFade"
+            class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background to-transparent"
+          />
+        </div>
       </div>
-      <div
-        v-show="showFade"
-        class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background to-transparent"
-      />
-    </div>
+    </template>
   </article>
 </template>
 

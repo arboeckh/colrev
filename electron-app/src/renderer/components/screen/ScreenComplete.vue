@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue';
 import { Check, X, Pencil, CircleCheck } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { useGitStore } from '@/stores/git';
+import { usePendingChangesStore } from '@/stores/pendingChanges';
 
 defineProps<{
   includedCount: number;
@@ -12,6 +15,29 @@ defineProps<{
 const emit = defineEmits<{
   editDecisions: [];
 }>();
+
+const git = useGitStore();
+const pending = usePendingChangesStore();
+
+const isSavingToRemote = ref(false);
+const hasUnsavedWork = computed(() => git.ahead > 0 || pending.hasPending);
+
+async function saveToRemote() {
+  if (isSavingToRemote.value) return;
+  isSavingToRemote.value = true;
+  try {
+    if (pending.hasPending) {
+      const committed = await pending.commit('Save changes');
+      if (!committed) return;
+      await git.refreshStatus();
+    }
+    if (git.hasRemote && git.ahead > 0) {
+      await git.push();
+    }
+  } finally {
+    isSavingToRemote.value = false;
+  }
+}
 </script>
 
 <template>
@@ -60,16 +86,35 @@ const emit = defineEmits<{
       </div>
     </div>
 
-    <Button
-      variant="outline"
-      size="sm"
-      class="mt-6"
-      data-testid="screen-edit-decisions-btn"
-      :disabled="readOnly"
-      @click="emit('editDecisions')"
+    <p
+      v-if="git.hasRemote && hasUnsavedWork"
+      class="text-xs text-amber-500 mt-5"
+      data-testid="screen-unsaved-hint"
     >
-      <Pencil class="h-4 w-4 mr-1.5" />
-      Edit Decisions
-    </Button>
+      Your decisions are saved on this device. Push them to the remote so
+      collaborators can see your work.
+    </p>
+
+    <div class="flex items-center gap-3 mt-6">
+      <Button
+        v-if="git.hasRemote && hasUnsavedWork"
+        size="sm"
+        :disabled="isSavingToRemote"
+        data-testid="screen-save-to-remote"
+        @click="saveToRemote"
+      >
+        {{ isSavingToRemote ? 'Saving...' : 'Save to remote' }}
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        data-testid="screen-edit-decisions-btn"
+        :disabled="readOnly"
+        @click="emit('editDecisions')"
+      >
+        <Pencil class="h-4 w-4 mr-1.5" />
+        Edit Decisions
+      </Button>
+    </div>
   </div>
 </template>

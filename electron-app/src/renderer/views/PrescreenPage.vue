@@ -32,6 +32,7 @@ import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
 import { useManagedReviewStore } from '@/stores/managedReview';
 import { useNotificationsStore } from '@/stores/notifications';
+import { usePendingChangesStore } from '@/stores/pendingChanges';
 import { useReadOnly } from '@/composables/useReadOnly';
 import type {
   GetCurrentManagedReviewTaskResponse,
@@ -67,7 +68,28 @@ const backend = useBackendStore();
 const git = useGitStore();
 const managedReview = useManagedReviewStore();
 const notifications = useNotificationsStore();
+const pending = usePendingChangesStore();
 const { isReadOnly } = useReadOnly();
+
+const isSavingToRemote = ref(false);
+const hasUnsavedWork = computed(() => git.ahead > 0 || pending.hasPending);
+
+async function saveToRemote() {
+  if (isSavingToRemote.value) return;
+  isSavingToRemote.value = true;
+  try {
+    if (pending.hasPending) {
+      const committed = await pending.commit('Save changes');
+      if (!committed) return;
+      await git.refreshStatus();
+    }
+    if (git.hasRemote && git.ahead > 0) {
+      await git.push();
+    }
+  } finally {
+    isSavingToRemote.value = false;
+  }
+}
 
 const queue = ref<EnrichedRecord[]>([]);
 const decisionHistory = ref<EnrichedRecord[]>([]);
@@ -165,7 +187,6 @@ const nextUndecidedIndex = computed(() => {
 
 // Completion detection from project status (for when user navigates back after finishing)
 const statusCounts = computed(() => projects.currentStatus?.currently ?? null);
-const overallCounts = computed(() => projects.currentStatus?.overall ?? null);
 const isPrescreenComplete = computed(() => {
   // Local flag set immediately when the last decision is made — no refresh needed
   if (allDecisionsMade.value) return true;
@@ -779,7 +800,7 @@ onUnmounted(() => {
             class="text-2xl font-semibold text-green-500"
             data-testid="prescreen-complete-included"
           >
-            {{ overallCounts?.rev_prescreen_included ?? statusCounts?.rev_prescreen_included ?? 0 }}
+            {{ statusCounts?.rev_prescreen_included ?? 0 }}
           </span>
           <span class="text-xs text-muted-foreground flex items-center gap-1">
             <Check class="h-3 w-3" /> Included
@@ -791,7 +812,7 @@ onUnmounted(() => {
             class="text-2xl font-semibold text-red-400"
             data-testid="prescreen-complete-excluded"
           >
-            {{ overallCounts?.rev_prescreen_excluded ?? statusCounts?.rev_prescreen_excluded ?? 0 }}
+            {{ statusCounts?.rev_prescreen_excluded ?? 0 }}
           </span>
           <span class="text-xs text-muted-foreground flex items-center gap-1">
             <X class="h-3 w-3" /> Excluded
@@ -801,22 +822,32 @@ onUnmounted(() => {
         <div class="flex flex-col items-center gap-1">
           <span class="text-2xl font-semibold" data-testid="prescreen-complete-total">
             {{
-              (overallCounts?.rev_prescreen_included ?? statusCounts?.rev_prescreen_included ?? 0) +
-              (overallCounts?.rev_prescreen_excluded ?? statusCounts?.rev_prescreen_excluded ?? 0)
+              (statusCounts?.rev_prescreen_included ?? 0) +
+              (statusCounts?.rev_prescreen_excluded ?? 0)
             }}
           </span>
           <span class="text-xs text-muted-foreground">Total reviewed</span>
         </div>
       </div>
 
+      <p
+        v-if="git.hasRemote && hasUnsavedWork"
+        class="text-xs text-amber-500 mt-5"
+        data-testid="prescreen-unsaved-hint"
+      >
+        Your decisions are saved on this device. Push them to the remote so
+        collaborators can see your work.
+      </p>
+
       <div class="flex items-center gap-3 mt-6">
         <Button
-          v-if="git.hasRemote && git.ahead > 0"
+          v-if="git.hasRemote && hasUnsavedWork"
           size="sm"
-          :disabled="git.isPushing"
-          @click="git.push()"
+          :disabled="isSavingToRemote"
+          data-testid="prescreen-save-to-remote"
+          @click="saveToRemote"
         >
-          {{ git.isPushing ? 'Pushing...' : 'Push changes' }}
+          {{ isSavingToRemote ? 'Saving...' : 'Save to remote' }}
         </Button>
         <Button
           variant="outline"
@@ -841,22 +872,8 @@ onUnmounted(() => {
 
     <!-- Screening interface -->
     <div v-else class="flex-1 flex flex-col min-h-0">
-      <!-- Zone 2: Decision Buttons -->
-      <div class="mb-1.5">
-        <DecisionButtons
-          v-if="currentRecord"
-          :decision="currentRecord._decision"
-          :disabled="!isCurrentRecordReady || isReadOnly"
-          :is-submitting="isDeciding"
-          :show-skip-to-next="nextUndecidedIndex !== -1"
-          test-id-prefix="prescreen"
-          @decide="makeDecision"
-          @skip-to-next="skipToNextUndecided"
-        />
-      </div>
-
-      <!-- Zone 3: Progress Bar -->
-      <div class="mb-1.5">
+      <!-- Progress Bar -->
+      <div class="mb-2">
         <ProgressTrack
           :items="queue.map((r) => ({ id: r.id, decision: r._decision }))"
           :current-index="currentIndex"
@@ -867,16 +884,29 @@ onUnmounted(() => {
         />
       </div>
 
-      <!-- Zone 4: Record Card -->
+      <!-- Record Card with side-by-side title + decision and abstract -->
       <RecordCard
         v-if="currentRecord"
         :record="currentRecord"
         :can-prev="currentIndex > 0"
         :can-next="currentIndex < queue.length - 1"
+        layout="side-by-side"
         test-id-prefix="prescreen"
         @prev="prevRecord"
         @next="nextRecord"
-      />
+      >
+        <template #aside>
+          <DecisionButtons
+            :decision="currentRecord._decision"
+            :disabled="!isCurrentRecordReady || isReadOnly"
+            :is-submitting="isDeciding"
+            :show-skip-to-next="nextUndecidedIndex !== -1"
+            test-id-prefix="prescreen"
+            @decide="makeDecision"
+            @skip-to-next="skipToNextUndecided"
+          />
+        </template>
+      </RecordCard>
     </div>
     </template>
   </div>

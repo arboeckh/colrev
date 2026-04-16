@@ -434,6 +434,7 @@ onUnmounted(() => {
           :record="currentRecord"
           :can-prev="currentIndex > 0"
           :can-next="currentIndex < conflictItems.length - 1"
+          layout="side-by-side"
           test-id-prefix="reconcile"
           @prev="goTo(currentIndex - 1)"
           @next="goTo(currentIndex + 1)"
