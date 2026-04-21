@@ -782,6 +782,8 @@ export type Hash = string;
 export type Message = string;
 export type ShortHash = string;
 export type Timestamp = string;
+export type MainAhead = number;
+export type MainBehind = number;
 export type ModifiedFiles = string[];
 export type RemoteUrl = string | null;
 export type StagedFiles = string[];
@@ -805,6 +807,8 @@ export interface GitStatus {
   branch: Branch;
   is_clean: IsClean;
   last_commit?: LastCommitInfo | null;
+  main_ahead?: MainAhead;
+  main_behind?: MainBehind;
   modified_files: ModifiedFiles;
   remote_url?: RemoteUrl;
   staged_files: StagedFiles;
@@ -1881,6 +1885,38 @@ export interface RemoveSourceDetails {
   [k: string]: unknown;
 }
 
+// reset_to_remote
+export type BasePath = string | null;
+export type Confirm = boolean;
+export type ProjectId = string;
+export type Verbose = boolean;
+
+export interface ResetToRemoteRequest {
+  base_path?: BasePath;
+  confirm?: Confirm;
+  project_id: ProjectId;
+  verbose?: Verbose;
+}
+
+export type DiscardedCommits = number;
+export type DiscardedFiles = string[];
+export type Message = string;
+export type ProjectId = string;
+export type Reset = boolean;
+export type Success = true;
+export type TargetRef = string;
+
+export interface ResetToRemoteResponse {
+  discarded_commits: DiscardedCommits;
+  discarded_files?: DiscardedFiles;
+  message: Message;
+  project_id: ProjectId;
+  reset: Reset;
+  success?: Success;
+  target_ref: TargetRef;
+  [k: string]: unknown;
+}
+
 // restore_pdf_file
 export type BasePath = string | null;
 export type Content = string;
@@ -2660,6 +2696,10 @@ export interface RPCMethods {
   "remove_source": {
     params: RemoveSourceRequest;
     result: RemoveSourceResponse;
+  };
+  "reset_to_remote": {
+    params: ResetToRemoteRequest;
+    result: ResetToRemoteResponse;
   };
   "restore_pdf_file": {
     params: RestorePdfFileRequest;

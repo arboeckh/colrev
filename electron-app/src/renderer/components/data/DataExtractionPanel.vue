@@ -97,6 +97,7 @@ function typeLabel(dt: string): string {
       <DataProgressBar
         :records="queueRecords"
         :current-index="currentIndex"
+        :completed-count="completedCount"
         @navigate="emit('navigate', $event)"
       />
     </div>

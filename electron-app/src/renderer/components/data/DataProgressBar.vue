@@ -6,6 +6,7 @@ type CompletionState = 'pending' | 'completed';
 const props = defineProps<{
   records: Array<{ id: string; _completed: boolean }>;
   currentIndex: number;
+  completedCount: number;
 }>();
 
 const emit = defineEmits<{
@@ -29,10 +30,6 @@ const trackWidthStyle = computed(() => {
   const maxPx = n * SEGMENT_MAX_PX + (n - 1);
   return `min(100%, ${maxPx}px)`;
 });
-
-const completedCount = computed(
-  () => props.records.filter((r) => r._completed).length,
-);
 
 function indexFromPointerX(clientX: number): number {
   if (!trackRef.value || props.records.length === 0) return 0;
@@ -102,7 +99,7 @@ function onThumbPointerUp() {
         Record {{ currentIndex + 1 }} of {{ records.length }}
       </span>
       <span>
-        {{ completedCount }} completed / {{ records.length }} total
+        {{ props.completedCount }} completed / {{ records.length }} total
       </span>
     </div>
   </div>

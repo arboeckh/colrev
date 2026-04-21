@@ -150,6 +150,7 @@ contextBridge.exposeInMainWorld('github', {
 contextBridge.exposeInMainWorld('git', {
   fetch: (projectPath: string) => ipcRenderer.invoke('git:fetch', projectPath),
   pull: (projectPath: string, ffOnly?: boolean) => ipcRenderer.invoke('git:pull', projectPath, ffOnly),
+  fastForwardMain: (projectPath: string) => ipcRenderer.invoke('git:fast-forward-main', projectPath),
   push: (projectPath: string) => ipcRenderer.invoke('git:push', projectPath),
   pushBranch: (projectPath: string, branchName: string) => ipcRenderer.invoke('git:push-branch', projectPath, branchName),
   listBranches: (projectPath: string) => ipcRenderer.invoke('git:list-branches', projectPath),

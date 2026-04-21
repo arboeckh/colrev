@@ -19,6 +19,7 @@ import { useManagedReviewStore } from '@/stores/managedReview';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
 import { useReadOnly } from '@/composables/useReadOnly';
+import { deriveScreenDecision } from '@/lib/screen-decision';
 import type {
   GetCurrentManagedReviewTaskResponse,
   GetScreenQueueResponse,
@@ -83,16 +84,8 @@ const nextUndecidedIndex = computed(() => {
   return -1;
 });
 const derivedDecision = computed((): 'include' | 'exclude' | null => {
-  if (!currentRecord.value || !hasCriteria.value) return null;
-  const decisions = currentRecord.value._criteriaDecisions;
-  if (Object.values(decisions).some((value) => value === 'out')) return 'exclude';
-  const inclusionNames = Object.keys(criteria.value).filter(
-    (name) => criteria.value[name]?.criterion_type !== 'exclusion_criterion',
-  );
-  if (inclusionNames.length > 0 && inclusionNames.every((name) => decisions[name] === 'in')) {
-    return 'include';
-  }
-  return null;
+  if (!currentRecord.value) return null;
+  return deriveScreenDecision(criteria.value, currentRecord.value._criteriaDecisions);
 });
 const canSubmitCriteria = computed(() => derivedDecision.value !== null);
 const isScreenComplete = computed(() => {

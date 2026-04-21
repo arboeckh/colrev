@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, type Ref } from 'vue';
+import { computed, onMounted, ref, watch, type Ref } from 'vue';
 import { AlertTriangle, CheckCircle2, Loader2, UserPlus } from 'lucide-vue-next';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -351,6 +351,15 @@ async function inviteCollaborator() {
     isInviting.value = false;
   }
 }
+
+// Re-fetch readiness whenever any input that affects it changes. The git
+// store refreshes after every writer RPC (see backend.ts post-write hook),
+// so committing/pushing/adding a criterion all flow through here and keep
+// the "Blocked" state + action buttons in sync without a page refresh.
+watch(
+  () => [git.isClean, git.ahead, git.behind, git.currentBranch, criteriaCount.value],
+  () => { void refreshData(); },
+);
 
 onMounted(async () => {
   await refreshData();

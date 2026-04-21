@@ -5,10 +5,9 @@ import { useAuthStore } from '@/stores/auth';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
-import DecisionButtons from '@/components/prescreen/DecisionButtons.vue';
 import ProgressTrack from '@/components/prescreen/ProgressTrack.vue';
 import RecordCard, { type DisplayRecord } from '@/components/prescreen/RecordCard.vue';
-import ReviewerAnswersStrip from './ReviewerAnswersStrip.vue';
+import ReconcileDecisionButtons from './ReconcileDecisionButtons.vue';
 import ReconcileApplyBar from './ReconcileApplyBar.vue';
 import { selectedReviewerFor, type ReconcileKind, type ReviewerRole } from './reconcile-utils';
 import type {
@@ -409,17 +408,6 @@ onUnmounted(() => {
     <!-- Walkthrough -->
     <template v-else-if="currentItem">
       <div class="flex-1 flex flex-col min-h-0 gap-3">
-        <ReviewerAnswersStrip :reviewers="currentItem.reviewers" :kind="kind" />
-
-        <DecisionButtons
-          :decision="currentStagedDecision"
-          :is-submitting="false"
-          :show-skip-to-next="nextUndecidedIndex !== -1"
-          test-id-prefix="reconcile"
-          @decide="onDecide"
-          @skip-to-next="skipToNextUndecided"
-        />
-
         <ProgressTrack
           :items="progressItems"
           :current-index="currentIndex"
@@ -429,15 +417,28 @@ onUnmounted(() => {
           @seek="goTo"
         />
 
-        <RecordCard
-          v-if="currentRecord"
-          :record="currentRecord"
-          :can-prev="currentIndex > 0"
-          :can-next="currentIndex < conflictItems.length - 1"
-          layout="side-by-side"
+        <div class="flex-1 min-h-0 flex flex-col">
+          <RecordCard
+            v-if="currentRecord"
+            :record="currentRecord"
+            :can-prev="currentIndex > 0"
+            :can-next="currentIndex < conflictItems.length - 1"
+            layout="side-by-side"
+            test-id-prefix="reconcile"
+            @prev="goTo(currentIndex - 1)"
+            @next="goTo(currentIndex + 1)"
+          />
+        </div>
+
+        <ReconcileDecisionButtons
+          :decision="currentStagedDecision"
+          :reviewers="currentItem.reviewers"
+          :kind="kind"
+          :is-submitting="false"
+          :show-skip-to-next="nextUndecidedIndex !== -1"
           test-id-prefix="reconcile"
-          @prev="goTo(currentIndex - 1)"
-          @next="goTo(currentIndex + 1)"
+          @decide="onDecide"
+          @skip-to-next="skipToNextUndecided"
         />
       </div>
 

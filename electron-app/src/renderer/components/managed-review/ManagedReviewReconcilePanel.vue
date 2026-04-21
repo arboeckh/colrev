@@ -8,13 +8,13 @@ import {
 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
 import { useManagedReviewStore } from '@/stores/managedReview';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
 import ReconcileWalkthrough from './ReconcileWalkthrough.vue';
+import ScreenReconcileWalkthrough from './ScreenReconcileWalkthrough.vue';
 import type {
   ApplyReconciliationResponse,
   ExportReconciliationAuditResponse,
@@ -141,7 +141,7 @@ defineExpose({ refreshData });
 </script>
 
 <template>
-  <div class="h-full flex flex-col gap-6 min-h-0">
+  <div class="h-full flex flex-col min-h-0" :class="showWalkthrough ? 'gap-0' : 'gap-6'">
     <div v-if="isLoading && !displayTask" class="flex items-center gap-2 text-sm text-muted-foreground">
       <Loader2 class="h-4 w-4 animate-spin" />
       Loading task data...
@@ -153,7 +153,7 @@ defineExpose({ refreshData });
     </div>
 
     <template v-else>
-      <div class="space-y-4 max-w-md shrink-0">
+      <div v-if="!showWalkthrough" class="space-y-4 max-w-md shrink-0">
         <div class="flex items-center justify-between">
           <div>
             <h3 class="text-sm font-medium">{{ displayTask.id }}</h3>
@@ -204,7 +204,7 @@ defineExpose({ refreshData });
       </div>
 
       <div
-        v-if="!isOnDev"
+        v-if="!isOnDev && !showWalkthrough"
         class="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400 shrink-0"
       >
         <AlertTriangle class="h-3.5 w-3.5 shrink-0" />
@@ -214,7 +214,7 @@ defineExpose({ refreshData });
         </Button>
       </div>
 
-      <div class="flex items-center gap-2 shrink-0">
+      <div v-if="!showWalkthrough" class="flex items-center gap-2 shrink-0">
         <Button
           v-if="canStartReconciliation"
           size="sm"
@@ -246,9 +246,15 @@ defineExpose({ refreshData });
       </div>
 
       <template v-if="showWalkthrough">
-        <Separator class="shrink-0" />
         <div class="flex-1 min-h-0 flex flex-col">
+          <ScreenReconcileWalkthrough
+            v-if="kind === 'screen'"
+            :task-id="displayTask.id"
+            @close="onWalkthroughClose"
+            @applied="onWalkthroughApplied"
+          />
           <ReconcileWalkthrough
+            v-else
             :task-id="displayTask.id"
             :kind="kind"
             @close="onWalkthroughClose"

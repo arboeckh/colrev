@@ -1,7 +1,7 @@
 {
-  "name": "colrev-electron-poc",
+  "name": "colrev",
   "version": "0.1.0",
-  "description": "CoLRev Electron POC - JSON-RPC integration test",
+  "description": "ColRev desktop app",
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -22,8 +22,8 @@
     "gen-types:full": "cd .. && python scripts/export_rpc_schemas.py && cd electron-app && npm run gen-types"
   },
   "build": {
-    "appId": "com.colrev.poc",
-    "productName": "CoLRev POC",
+    "appId": "com.colrev.app",
+    "productName": "ColRev",
     "directories": {
       "output": "release"
     },
@@ -41,6 +41,7 @@
     ],
     "mac": {
       "target": "dmg",
+      "icon": "resources/icons/icon.icns",
       "extraResources": [
         {
           "from": "node_modules/dugite/git",

@@ -12,6 +12,7 @@ const props = defineProps<{
   operation: string;
   projectId: string;
   label?: string;
+  runningLabel?: string;
   disabled?: boolean;
   params?: Record<string, unknown>;
   testId?: string;
@@ -89,6 +90,6 @@ async function run() {
     <!-- Indeterminate spinner when running without percentage data -->
     <Loader2 v-else-if="isRunning" class="h-4 w-4 mr-2 animate-spin" />
     <Play v-else class="h-4 w-4 mr-2" />
-    {{ label || operation }}
+    {{ isRunning && runningLabel ? runningLabel : (label || operation) }}
   </Button>
 </template>

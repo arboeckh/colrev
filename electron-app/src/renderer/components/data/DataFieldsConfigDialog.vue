@@ -10,7 +10,6 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import type { DataField } from '@/types/api';
 
@@ -153,11 +152,11 @@ function save() {
           class="rounded-md border border-l-[3px] bg-card/50 p-3"
           :class="typeConfig[field.data_type]?.border"
         >
-          <!-- Row 1: Icon + Name + Type + Optional badge + Delete -->
+          <!-- Row 1: Icon + Name + Type + Required checkbox + Delete -->
           <div class="flex items-end gap-2">
             <component
               :is="typeConfig[field.data_type]?.icon"
-              class="h-4 w-4 mb-2 shrink-0 text-muted-foreground"
+              class="h-4 w-4 shrink-0 text-muted-foreground mb-2"
             />
             <div class="flex-1 min-w-0 flex flex-col gap-0.5">
               <span class="text-xs text-muted-foreground leading-none">
@@ -174,33 +173,37 @@ function save() {
                 :data-testid="`data-field-name-${index}`"
               />
             </div>
-            <NativeSelect
-              v-model="field.data_type"
-              class="w-[130px] shrink-0 mb-0.5"
-              :data-testid="`data-field-type-${index}`"
-              @change="onTypeChange(field)"
+            <div class="shrink-0 flex flex-col gap-0.5">
+              <span class="text-xs text-muted-foreground leading-none">Type</span>
+              <NativeSelect
+                v-model="field.data_type"
+                class="w-[130px] h-8"
+                :data-testid="`data-field-type-${index}`"
+                @change="onTypeChange(field)"
+              >
+                <NativeSelectOption value="str">Text</NativeSelectOption>
+                <NativeSelectOption value="int">Integer</NativeSelectOption>
+                <NativeSelectOption value="double">Decimal</NativeSelectOption>
+                <NativeSelectOption value="select">Single Choice</NativeSelectOption>
+                <NativeSelectOption value="multi_select">Multi Select</NativeSelectOption>
+              </NativeSelect>
+            </div>
+            <label
+              class="shrink-0 flex items-center gap-1.5 cursor-pointer select-none text-xs text-muted-foreground h-8"
+              :data-testid="`data-field-required-${index}`"
             >
-              <NativeSelectOption value="str">Text</NativeSelectOption>
-              <NativeSelectOption value="int">Integer</NativeSelectOption>
-              <NativeSelectOption value="double">Decimal</NativeSelectOption>
-              <NativeSelectOption value="select">Single Choice</NativeSelectOption>
-              <NativeSelectOption value="multi_select">Multi Select</NativeSelectOption>
-            </NativeSelect>
-            <Badge
-              variant="outline"
-              class="shrink-0 cursor-pointer select-none text-[11px] px-1.5 py-0 mb-0.5"
-              :class="field.optional
-                ? 'bg-muted text-muted-foreground'
-                : 'text-muted-foreground/50 opacity-60 hover:opacity-100'"
-              :data-testid="`data-field-optional-${index}`"
-              @click="field.optional = !field.optional"
-            >
-              {{ field.optional ? 'Optional' : 'Required' }}
-            </Badge>
+              <input
+                type="checkbox"
+                :checked="!field.optional"
+                class="h-4 w-4 rounded border-input text-primary focus:ring-ring/50"
+                @change="(e) => (field.optional = !(e.target as HTMLInputElement).checked)"
+              />
+              Required
+            </label>
             <Button
               variant="ghost"
               size="icon"
-              class="h-7 w-7 shrink-0 mb-0.5"
+              class="h-8 w-8 shrink-0"
               :disabled="fields.length <= 1"
               :data-testid="`data-remove-field-${index}`"
               @click="removeField(index)"

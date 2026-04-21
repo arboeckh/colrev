@@ -35,7 +35,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import ActivityFeed from '@/components/common/ActivityFeed.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
 import { useGitStore } from '@/stores/git';
@@ -348,10 +347,9 @@ const newRecordFunnel = computed(() => {
 
       <Separator />
 
-      <!-- Two-column grid: Versions + Activity -->
-      <div class="grid grid-cols-1 lg:grid-cols-5 gap-0 pt-4">
-        <!-- Versions & Publishing (3/5 width) -->
-        <div class="lg:col-span-3 lg:pr-5 lg:border-r border-border">
+      <!-- Versions & Publishing -->
+      <div class="pt-4">
+        <div>
           <!-- Publish section -->
           <div class="flex items-center gap-2 mb-3">
             <h3 class="text-sm font-medium text-muted-foreground">Publishing</h3>
@@ -602,21 +600,6 @@ const newRecordFunnel = computed(() => {
           </div>
         </div>
 
-        <!-- Activity (2/5 width) -->
-        <div class="lg:col-span-2 lg:pl-5 pt-4 lg:pt-0 border-t lg:border-t-0 border-border">
-          <div class="flex items-center gap-2 mb-3">
-            <h3 class="text-sm font-medium text-muted-foreground">Activity</h3>
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <HelpCircle class="h-3 w-3 text-muted-foreground/40 cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent side="top" class="max-w-[200px]">
-                <p class="text-xs">Recent changes made to this review, including operations run by you and your collaborators.</p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-          <ActivityFeed />
-        </div>
       </div>
 
       <!-- New Release Dialog -->

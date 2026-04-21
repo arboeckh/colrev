@@ -84,12 +84,7 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
         return false;
       }
 
-      const shortSha = response.commit_sha?.slice(0, 7) ?? '';
-      const changedCount = response.changed_files?.length ?? 0;
-      notifications.success(
-        'Committed',
-        shortSha ? `${shortSha} — ${changedCount} file(s)` : `${changedCount} file(s)`,
-      );
+      notifications.success('Saved');
       await refresh();
       return true;
     } catch (err) {

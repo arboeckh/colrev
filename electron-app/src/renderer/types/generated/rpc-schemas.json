@@ -1849,6 +1849,16 @@
                 ],
                 "default": null
               },
+              "main_ahead": {
+                "default": 0,
+                "title": "Main Ahead",
+                "type": "integer"
+              },
+              "main_behind": {
+                "default": 0,
+                "title": "Main Behind",
+                "type": "integer"
+              },
               "modified_files": {
                 "items": {
                   "type": "string"
@@ -4985,6 +4995,93 @@
           "details"
         ],
         "title": "RemoveSourceResponse",
+        "type": "object"
+      },
+      "writes": true
+    },
+    "reset_to_remote": {
+      "request": {
+        "additionalProperties": false,
+        "properties": {
+          "base_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Path"
+          },
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "verbose": {
+            "default": false,
+            "title": "Verbose",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "title": "ResetToRemoteRequest",
+        "type": "object"
+      },
+      "requires_project": true,
+      "response": {
+        "additionalProperties": true,
+        "properties": {
+          "discarded_commits": {
+            "title": "Discarded Commits",
+            "type": "integer"
+          },
+          "discarded_files": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Discarded Files",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "reset": {
+            "title": "Reset",
+            "type": "boolean"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          },
+          "target_ref": {
+            "title": "Target Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "reset",
+          "target_ref",
+          "discarded_commits",
+          "message"
+        ],
+        "title": "ResetToRemoteResponse",
         "type": "object"
       },
       "writes": true

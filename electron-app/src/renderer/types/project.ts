@@ -53,6 +53,8 @@ export interface GitStatus {
   staged_files: string[];
   ahead: number;
   behind: number;
+  main_ahead: number;
+  main_behind: number;
   remote_url: string | null;
   last_commit: {
     hash: string;
@@ -322,6 +324,7 @@ export const ALL_WORKFLOW_STEPS: WorkflowStepInfo[] = [
     route: 'data',
     inputStates: ['rev_included'],
     outputStates: ['rev_synthesized'],
+    terminalOutputStates: ['rev_synthesized'],
   },
 ];
 
@@ -393,5 +396,6 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     route: 'data',
     inputStates: ['rev_included'],
     outputStates: ['rev_synthesized'],
+    terminalOutputStates: ['rev_synthesized'],
   },
 ];

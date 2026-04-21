@@ -225,7 +225,7 @@ export const useBackendStore = defineStore('backend', () => {
       const result = await window.colrev.call<T>(method, paramsWithPath);
       debug.logRpcResponse(requestId, result, false);
       if (WRITER_METHODS.has(method)) {
-        schedulePendingChangesRefresh();
+        schedulePostWriteRefresh();
       }
       return result;
     } catch (err) {
@@ -235,19 +235,25 @@ export const useBackendStore = defineStore('backend', () => {
     }
   }
 
-  // Lazy import to avoid a circular `backend -> pendingChanges -> backend`
+  // Lazy imports to avoid circular `backend -> pendingChanges/git -> backend`
   // load. Resolved on first use and memoized.
   let pendingChangesRefresh: (() => Promise<void>) | null = null;
-  async function schedulePendingChangesRefresh() {
+  let gitRefresh: (() => Promise<void>) | null = null;
+  async function schedulePostWriteRefresh() {
     try {
       if (!pendingChangesRefresh) {
         const mod = await import('./pendingChanges');
         const store = mod.usePendingChangesStore();
         pendingChangesRefresh = () => store.refresh();
       }
-      void pendingChangesRefresh();
+      if (!gitRefresh) {
+        const mod = await import('./git');
+        const store = mod.useGitStore();
+        gitRefresh = () => store.refreshStatus();
+      }
+      void Promise.all([pendingChangesRefresh(), gitRefresh()]);
     } catch {
-      // Pending-changes store is optional for the backend layer; swallow.
+      // Post-write refresh is best-effort; swallow.
     }
   }
 

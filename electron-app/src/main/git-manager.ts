@@ -109,6 +109,12 @@ export async function gitPull(
       if (stderr.includes('Not possible to fast-forward') || stderr.includes('fatal: Not possible')) {
         return { success: false, error: 'DIVERGED' };
       }
+      if (
+        stderr.includes('would be overwritten by merge') ||
+        stderr.includes('Please commit your changes or stash them')
+      ) {
+        return { success: false, error: 'DIRTY_WORKTREE' };
+      }
       return { success: false, error: stderr || 'Pull failed' };
     }
     return { success: true };
@@ -572,6 +578,66 @@ export async function gitHasMergeConflict(
   const { exec } = await import('dugite');
   const result = await exec(['rev-parse', '--verify', 'MERGE_HEAD'], projectPath);
   return result.exitCode === 0;
+}
+
+/**
+ * Fast-forward local ``main`` to ``origin/main`` without requiring a checkout.
+ *
+ * Used when a collaborator has pushed to ``main`` while the user is working on
+ * ``dev``. Refuses when local ``main`` has diverged (has commits that aren't
+ * in ``origin/main``) — callers should fall back to a normal pull after
+ * checking out main.
+ */
+export async function gitFastForwardMain(
+  projectPath: string,
+  token: string | null = null,
+): Promise<GitResult> {
+  const { exec } = await import('dugite');
+
+  return withTokenAuth(projectPath, token, async () => {
+    const fetchRes = await exec(['fetch', '--prune', 'origin'], projectPath);
+    if (fetchRes.exitCode !== 0) {
+      return { success: false, error: fetchRes.stderr || 'Fetch failed' };
+    }
+
+    const ancestorRes = await exec(
+      ['merge-base', '--is-ancestor', 'main', 'origin/main'],
+      projectPath,
+    );
+    if (ancestorRes.exitCode !== 0) {
+      // Exit code 1 means "not an ancestor" → local main has diverged.
+      return { success: false, error: 'DIVERGED' };
+    }
+
+    // Check current branch — if on main, use a plain pull-equivalent so
+    // the working tree updates too.
+    const headRes = await exec(
+      ['rev-parse', '--abbrev-ref', 'HEAD'],
+      projectPath,
+    );
+    const currentBranch = headRes.stdout.trim();
+
+    if (currentBranch === 'main') {
+      const pullRes = await exec(
+        ['merge', '--ff-only', 'origin/main'],
+        projectPath,
+      );
+      if (pullRes.exitCode !== 0) {
+        return { success: false, error: pullRes.stderr || 'Fast-forward failed' };
+      }
+      return { success: true };
+    }
+
+    // Off-main: move the ref without touching the working tree.
+    const updateRes = await exec(
+      ['update-ref', 'refs/heads/main', 'refs/remotes/origin/main'],
+      projectPath,
+    );
+    if (updateRes.exitCode !== 0) {
+      return { success: false, error: updateRes.stderr || 'update-ref failed' };
+    }
+    return { success: true };
+  });
 }
 
 /**

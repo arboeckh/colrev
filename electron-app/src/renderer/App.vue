@@ -6,6 +6,8 @@ import { Toaster } from '@/components/ui/sonner';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import DebugPanel from '@/components/common/DebugPanel.vue';
 import ConflictResolutionDialog from '@/components/common/ConflictResolutionDialog.vue';
+import PullBlockedDialog from '@/components/common/PullBlockedDialog.vue';
+import ResetToRemoteDialog from '@/components/common/ResetToRemoteDialog.vue';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
@@ -88,6 +90,12 @@ watch(
 
     <!-- Conflict resolution dialog (app-level overlay) -->
     <ConflictResolutionDialog />
+
+    <!-- Pull blocked by local changes — recovery dialog -->
+    <PullBlockedDialog />
+
+    <!-- Last-resort reset-to-remote dialog -->
+    <ResetToRemoteDialog />
 
     <!-- Main content with conditional layout -->
     <AppLayout v-if="useProjectLayout">

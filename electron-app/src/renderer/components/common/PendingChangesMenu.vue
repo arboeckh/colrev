@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { FileDiff, GitCommit, RefreshCw, RotateCcw } from 'lucide-vue-next';
+import { FileDiff, GitCommit, LifeBuoy, RefreshCw, RotateCcw } from 'lucide-vue-next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -9,10 +9,12 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
+import { useGitStore } from '@/stores/git';
 import CommitDialog from './CommitDialog.vue';
 import DiscardDialog from './DiscardDialog.vue';
 
 const pending = usePendingChangesStore();
+const git = useGitStore();
 
 const commitOpen = ref(false);
 const discardOpen = ref(false);
@@ -46,6 +48,11 @@ function openDiscard() {
   popoverOpen.value = false;
   discardOpen.value = true;
 }
+
+function openRecover() {
+  popoverOpen.value = false;
+  git.showResetToRemoteDialog = true;
+}
 </script>
 
 <template>
@@ -56,7 +63,7 @@ function openDiscard() {
           variant="ghost"
           size="sm"
           class="gap-2"
-          :disabled="!pending.hasPending"
+          :disabled="!pending.hasPending && !git.hasRemote"
           data-testid="pending-changes-badge"
         >
           <FileDiff class="h-4 w-4" />
@@ -136,6 +143,29 @@ function openDiscard() {
             <RefreshCw class="h-3.5 w-3.5" />
             Refresh
           </Button>
+
+          <div
+            v-if="git.hasRemote"
+            class="border-t border-border pt-2 mt-1 space-y-1"
+          >
+            <div class="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Recover
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              class="w-full justify-start gap-2 text-muted-foreground hover:text-destructive"
+              data-testid="open-reset-to-remote"
+              @click="openRecover"
+            >
+              <LifeBuoy class="h-3.5 w-3.5" />
+              Reset project to remote…
+            </Button>
+            <p class="text-[10px] text-muted-foreground px-2">
+              Last resort. Discards local changes and unpushed commits so the project
+              matches <span class="font-mono">origin/{{ git.currentBranch }}</span>.
+            </p>
+          </div>
         </div>
       </PopoverContent>
     </Popover>

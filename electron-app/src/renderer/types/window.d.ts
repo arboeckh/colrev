@@ -271,6 +271,7 @@ export interface MergeConflictResolution {
 export interface GitAPI {
   fetch: (projectPath: string) => Promise<GitOperationResult>;
   pull: (projectPath: string, ffOnly?: boolean) => Promise<GitOperationResult>;
+  fastForwardMain: (projectPath: string) => Promise<GitOperationResult>;
   push: (projectPath: string) => Promise<GitOperationResult>;
   pushBranch: (projectPath: string, branchName: string) => Promise<GitOperationResult>;
   listBranches: (projectPath: string) => Promise<GitBranchListResult>;

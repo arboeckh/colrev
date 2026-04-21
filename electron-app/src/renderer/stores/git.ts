@@ -5,6 +5,7 @@ import { useNotificationsStore } from './notifications';
 import type { GitBranchInfo, GitLogEntry, GitHubRelease, MergeAnalysis, MergeConflictResolution } from '@/types/window';
 import type { BranchDelta } from '@/types/project';
 import type { GetBranchDeltaResponse } from '@/types/api';
+import type { ResetToRemoteResponse } from '@/types/generated/rpc';
 import { useBackendStore } from './backend';
 
 // No interval polling. Remote state refreshes on: (a) window focus,
@@ -20,6 +21,10 @@ export const useGitStore = defineStore('git', () => {
   const branches = ref<GitBranchInfo[]>([]);
   const ahead = ref(0);
   const behind = ref(0);
+  // main-vs-origin/main counts — independent of current branch so the
+  // "collaborator pushed" banner can appear while on dev.
+  const mainAhead = ref(0);
+  const mainBehind = ref(0);
   const isClean = ref(true);
   const remoteUrl = ref<string | null>(null);
   const isFetching = ref(false);
@@ -37,6 +42,16 @@ export const useGitStore = defineStore('git', () => {
   const isResolving = ref(false);
   const mergeAnalysis = ref<MergeAnalysis | null>(null);
   const showConflictDialog = ref(false);
+
+  // Pull blocked by dirty working tree (uncommitted local changes). When this
+  // is true, the UI shows PullBlockedDialog so the user can save-then-pull,
+  // discard-then-pull, or reset to remote — without touching the terminal.
+  const showPullBlockedDialog = ref(false);
+
+  // Reset-to-remote (nuclear) recovery dialog. Opened from Recover menu or
+  // from PullBlockedDialog as a last-resort escape hatch.
+  const showResetToRemoteDialog = ref(false);
+  const isResettingToRemote = ref(false);
 
   // New state for dev/release model
   const releases = ref<GitHubRelease[]>([]);
@@ -144,13 +159,93 @@ export const useGitStore = defineStore('git', () => {
         await refreshStatus();
         await refreshMergeConflictState();
         await projects.refreshCurrentProject();
+        window.location.reload();
         return true;
       } else if (result.error === 'DIVERGED') {
         // Trigger semantic conflict resolution instead of dead-end message
         await startDivergenceResolution();
         return false;
+      } else if (result.error === 'DIRTY_WORKTREE') {
+        // Local changes block the merge. Offer recovery options in a dialog
+        // instead of a dead-end toast — the user never needs the terminal.
+        showPullBlockedDialog.value = true;
+        return false;
       } else {
         notifications.error('Pull failed', result.error || 'Unknown error');
+        return false;
+      }
+    } finally {
+      isPulling.value = false;
+    }
+  }
+
+  /**
+   * Last-resort recovery: hard-reset the current branch to its remote
+   * tracking branch. Wipes uncommitted local changes AND unpushed commits.
+   * Callers must have confirmed with the user before invoking this.
+   */
+  async function resetToRemote(): Promise<boolean> {
+    if (!projects.currentProjectId || isResettingToRemote.value) return false;
+    const backend = useBackendStore();
+
+    isResettingToRemote.value = true;
+    try {
+      const response = await backend.call<ResetToRemoteResponse>('reset_to_remote', {
+        project_id: projects.currentProjectId,
+        confirm: true,
+      });
+      notifications.success(
+        'Reset to remote',
+        `Project now matches ${response.target_ref}.`,
+      );
+      showResetToRemoteDialog.value = false;
+      showPullBlockedDialog.value = false;
+      await refreshStatus();
+      await refreshMergeConflictState();
+      // Reload so any in-memory record / settings state matches the new tree.
+      window.location.reload();
+      return true;
+    } catch (err) {
+      notifications.error(
+        'Reset failed',
+        err instanceof Error ? err.message : 'Unknown error',
+      );
+      return false;
+    } finally {
+      isResettingToRemote.value = false;
+    }
+  }
+
+  /**
+   * Fast-forward local ``main`` to ``origin/main`` without requiring a checkout.
+   * Used by the "collaborator pushed" banner when the user is off-main (e.g.
+   * on ``dev``). If on main, reuses the normal pull path so the working tree
+   * updates too.
+   */
+  async function fastForwardMain(): Promise<boolean> {
+    const path = getProjectPath();
+    if (!path || isPulling.value) return false;
+
+    if (isOnMain.value) {
+      return pull();
+    }
+
+    isPulling.value = true;
+    try {
+      const result = await window.git.fastForwardMain(path);
+      if (result.success) {
+        await refreshStatus();
+        await refreshBranchDiff();
+        notifications.success('Main updated', 'Local main is now up to date with the remote.');
+        return true;
+      } else if (result.error === 'DIVERGED') {
+        notifications.error(
+          'Cannot fast-forward main',
+          'Local main has diverged from the remote. Switch to main to resolve.',
+        );
+        return false;
+      } else {
+        notifications.error('Update failed', result.error || 'Unknown error');
         return false;
       }
     } finally {
@@ -192,6 +287,8 @@ export const useGitStore = defineStore('git', () => {
       currentBranch.value = status.branch;
       ahead.value = status.ahead;
       behind.value = status.behind;
+      mainAhead.value = status.main_ahead ?? 0;
+      mainBehind.value = status.main_behind ?? 0;
       isClean.value = status.is_clean;
       remoteUrl.value = status.remote_url;
     }
@@ -624,12 +721,17 @@ export const useGitStore = defineStore('git', () => {
     releasesLoaded.value = false;
     ahead.value = 0;
     behind.value = 0;
+    mainAhead.value = 0;
+    mainBehind.value = 0;
     isClean.value = true;
     hasMergeConflict.value = false;
     isOffline.value = false;
     isResolving.value = false;
     mergeAnalysis.value = null;
     showConflictDialog.value = false;
+    showPullBlockedDialog.value = false;
+    showResetToRemoteDialog.value = false;
+    isResettingToRemote.value = false;
     devAheadOfMain.value = 0;
     mainAheadOfDev.value = 0;
     branchDelta.value = null;
@@ -642,6 +744,8 @@ export const useGitStore = defineStore('git', () => {
     branches,
     ahead,
     behind,
+    mainAhead,
+    mainBehind,
     isClean,
     remoteUrl,
     isFetching,
@@ -657,6 +761,9 @@ export const useGitStore = defineStore('git', () => {
     isResolving,
     mergeAnalysis,
     showConflictDialog,
+    showPullBlockedDialog,
+    showResetToRemoteDialog,
+    isResettingToRemote,
     releases,
     isLoadingReleases,
     releasesLoaded,
@@ -681,6 +788,7 @@ export const useGitStore = defineStore('git', () => {
     setAutoSave,
     fetch,
     pull,
+    fastForwardMain,
     push,
     refreshStatus,
     refreshMergeConflictState,
@@ -700,5 +808,6 @@ export const useGitStore = defineStore('git', () => {
     autoSyncIfSafe,
     initialize,
     cleanup,
+    resetToRemote,
   };
 });

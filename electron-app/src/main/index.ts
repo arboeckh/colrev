@@ -38,6 +38,7 @@ import {
   gitGetDirtyState,
   gitAbortMerge,
   gitHasMergeConflict,
+  gitFastForwardMain,
   gitClone,
   gitCreateTag,
   gitPushTags,
@@ -126,6 +127,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    title: 'ColRev',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -392,6 +394,11 @@ function setupIPC() {
   registerGit('git:pull', async (_, projectPath: string, ffOnly?: boolean) => {
     const token = authManager.getToken();
     return gitPull(projectPath, token, ffOnly ?? true);
+  });
+
+  registerGit('git:fast-forward-main', async (_, projectPath: string) => {
+    const token = authManager.getToken();
+    return gitFastForwardMain(projectPath, token);
   });
 
   registerGit('git:push', async (_, projectPath: string) => {

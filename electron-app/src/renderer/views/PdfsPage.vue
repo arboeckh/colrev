@@ -534,6 +534,7 @@ onMounted(async () => {
             operation="pdf_get"
             :project-id="projects.currentProjectId"
             :label="stageStatus.retrieve === 'complete' ? 'Re-run retrieval' : 'Start retrieval'"
+            running-label="Retrieving PDFs"
             :disabled="!canRunPdfGet"
             show-progress
             test-id="pdfs-retrieve-cta"
@@ -646,6 +647,7 @@ onMounted(async () => {
               operation="pdf_prep"
               :project-id="projects.currentProjectId"
               label="Prepare PDFs"
+              running-label="Preparing PDFs"
               :disabled="!canRunPdfPrep"
               show-progress
               test-id="pdfs-prepare-btn"

@@ -124,14 +124,15 @@ onUnmounted(() => {
       </Button>
     </div>
 
-    <!-- Remote has new changes banner -->
+    <!-- Remote has new changes banner. Keys off main-vs-origin/main so the
+         banner appears even when the user is on dev. -->
     <div
-      v-if="git.behind > 0 && !git.isDiverged && !git.hasMergeConflict"
+      v-if="git.mainBehind > 0 && !git.hasMergeConflict"
       class="bg-blue-500/10 border-b border-blue-500/30 px-4 py-2 flex items-center gap-2"
     >
       <ArrowDown class="h-4 w-4 text-blue-500 shrink-0" />
       <span class="text-sm text-blue-500">
-        Collaborators pushed {{ git.behind }} new commit{{ git.behind === 1 ? '' : 's' }}.
+        Collaborators pushed {{ git.mainBehind }} new commit{{ git.mainBehind === 1 ? '' : 's' }}.
       </span>
       <Button
         variant="outline"
@@ -139,7 +140,7 @@ onUnmounted(() => {
         class="ml-auto h-7 text-xs"
         :disabled="git.isPulling"
         data-testid="pull-changes-button"
-        @click="git.pull()"
+        @click="git.fastForwardMain()"
       >
         {{ git.isPulling ? 'Pulling...' : 'Pull now' }}
       </Button>
