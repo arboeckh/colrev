@@ -294,7 +294,7 @@ loadInvitations();
             <!-- New project button -->
             <Dialog v-model:open="showNewProjectDialog">
               <DialogTrigger as-child>
-                <Button :disabled="!backend.isRunning">
+                <Button :disabled="!backend.isRunning" data-testid="new-review-trigger">
                   <Plus class="h-4 w-4 mr-2" />
                   New Review
                 </Button>

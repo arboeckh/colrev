@@ -201,6 +201,15 @@ class DataHandler(BaseHandler):
                 field_dicts.append(fd)
 
         field_names = [f["name"] for f in field_dicts]
+        optional_names = {f["name"] for f in field_dicts if f.get("optional")}
+
+        def _new_row(rid: str, columns: List[str]) -> pd.DataFrame:
+            row: Dict[str, List[str]] = {Fields.ID: [rid]}
+            for col in columns:
+                if col == Fields.ID:
+                    continue
+                row[col] = [""] if col in optional_names else ["TODO"]
+            return pd.DataFrame(row)[columns]
 
         # Run operation to prime state notifications & load records
         self.op(OperationsType.data, notify=True)
@@ -217,11 +226,12 @@ class DataHandler(BaseHandler):
 
         if not data_path.is_file():
             data_path.parent.mkdir(parents=True, exist_ok=True)
-            data_df = pd.DataFrame(columns=[Fields.ID] + field_names)
+            columns = [Fields.ID] + field_names
+            data_df = pd.DataFrame(columns=columns)
             for rid in eligible_records:
-                add_row = pd.DataFrame({Fields.ID: [rid]})
-                add_row = add_row.reindex(columns=data_df.columns, fill_value="TODO")
-                data_df = pd.concat([data_df, add_row], axis=0, ignore_index=True)
+                data_df = pd.concat(
+                    [data_df, _new_row(rid, columns)], axis=0, ignore_index=True
+                )
             data_df.sort_values(by=[Fields.ID], inplace=True)
             data_df.to_csv(data_path, index=False, quoting=csv.QUOTE_ALL)
         else:
@@ -230,11 +240,22 @@ class DataHandler(BaseHandler):
             added = False
             for rid in eligible_records:
                 if rid not in existing_ids:
-                    add_row = pd.DataFrame({Fields.ID: [rid]})
-                    add_row = add_row.reindex(columns=data_df.columns, fill_value="TODO")
-                    data_df = pd.concat([data_df, add_row], axis=0, ignore_index=True)
+                    data_df = pd.concat(
+                        [data_df, _new_row(rid, list(data_df.columns))],
+                        axis=0,
+                        ignore_index=True,
+                    )
                     added = True
-            if added:
+            # Backfill: any pre-existing row with "TODO" in an optional column
+            # should be "" so structured.update_record_status_matrix accepts it.
+            backfilled = False
+            for col in optional_names:
+                if col in data_df.columns:
+                    mask = data_df[col] == "TODO"
+                    if mask.any():
+                        data_df.loc[mask, col] = ""
+                        backfilled = True
+            if added or backfilled:
                 data_df.sort_values(by=[Fields.ID], inplace=True)
                 data_df.to_csv(data_path, index=False, quoting=csv.QUOTE_ALL)
 
@@ -318,6 +339,23 @@ class DataHandler(BaseHandler):
         for field_name, field_value in req.values.items():
             if field_name in data_df.columns:
                 data_df.loc[mask, field_name] = str(field_value)
+
+        # Clear "TODO" placeholders in optional-field columns so CoLRev's
+        # structured endpoint (which requires `"TODO" not in row` to transition
+        # a record to rev_synthesized) accepts them as complete.
+        optional_names = {
+            (f["name"] if isinstance(f, dict) else f.name)
+            for f in ep_settings.get("fields", [])
+            if (
+                f.get("optional") if isinstance(f, dict)
+                else getattr(f, "optional", False)
+            )
+        }
+        for col in optional_names:
+            if col in data_df.columns:
+                todo_mask = data_df[col] == "TODO"
+                if todo_mask.any():
+                    data_df.loc[todo_mask, col] = ""
 
         data_df.to_csv(data_path, index=False, quoting=csv.QUOTE_ALL)
 

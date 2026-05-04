@@ -34,6 +34,32 @@ from colrev.ui_jsonrpc.framework import rpc_method
 logger = logging.getLogger(__name__)
 
 
+def _ensure_main_branch(target_path: Path) -> None:
+    """Rename the initial branch to ``main`` if git created it as something else.
+
+    Packaged-app environments resolve to dugite's bundled git, which has no
+    user config, so ``init.defaultBranch`` is unset and ``git init`` defaults
+    to ``master``. ``git branch -M main`` force-renames the current branch
+    and atomically updates ``HEAD``; it's idempotent on a repo already on
+    ``main``. Uses subprocess directly (not gitpython) — gitpython's
+    ``Head.rename`` was observed leaving ``.git/HEAD`` dangling at
+    ``refs/heads/master`` after the ref had been renamed away, which broke
+    downstream ``git push`` with ``src refspec master does not match any``.
+    """
+    result = subprocess.run(
+        ["git", "branch", "-M", "main"],
+        cwd=str(target_path),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.warning(
+            "Branch normalize to main failed at %s: %s",
+            target_path,
+            result.stderr.strip(),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Request / response models
 # ---------------------------------------------------------------------------
@@ -122,6 +148,8 @@ class InitHandler(BaseHandler):
             )
 
             logger.info("Project %s initialized successfully", project_id)
+
+            _ensure_main_branch(target_path)
 
             settings_path = target_path / "settings.json"
             if settings_path.exists() and title != project_id:

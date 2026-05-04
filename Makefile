@@ -22,15 +22,15 @@ install-all: install install-electron ## Install everything
 # ── Development ──────────────────────────────────────────────────────
 
 dev-backend: ## Run JSON-RPC server via Python (fast iteration)
-	python main.py
+	python -m colrev.ui_jsonrpc.server
 
 dev-electron: ## Run Electron app in dev mode (hot reload)
 	cd electron-app && npm run dev
 
 # ── Build ────────────────────────────────────────────────────────────
 
-build-backend: ## Build PyInstaller executable
-	./scripts/build_jsonrpc.sh
+build-backend: ## Build python-build-standalone bundle for the JSON-RPC server
+	./scripts/build_python_bundle.sh
 
 build-electron: ## Build Electron app assets
 	cd electron-app && npm run build

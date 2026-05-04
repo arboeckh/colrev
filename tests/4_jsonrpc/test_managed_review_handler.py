@@ -396,3 +396,190 @@ class TestManagedReviewJSONRPC:
         records = review_manager.dataset.load_records_dict()
         assert records["R1"]["colrev_status"].name == "rev_excluded"
         assert records["R1"]["screening_criteria"] == "topic=out"
+
+    def _prepare_screen_conflict(
+        self,
+        *,
+        reviewer_a_criteria: str,
+        reviewer_a_status: str,
+        reviewer_b_criteria: str,
+        reviewer_b_status: str,
+        extra_criteria: list[tuple[str, str, str]] = (),
+    ) -> dict:
+        for name, explanation, criterion_type in [
+            ("topic", "Topic alignment", "inclusion_criterion"),
+            ("method", "Method acceptable", "inclusion_criterion"),
+            *extra_criteria,
+        ]:
+            resp = _request(
+                "add_screening_criterion",
+                self.project_id,
+                self.base_path,
+                name=name,
+                explanation=explanation,
+                criterion_type=criterion_type,
+            )
+            assert "error" not in resp
+        self.repo.git.push()
+
+        self._commit_records(
+            [
+                {
+                    "ID": "R1",
+                    "origin": "import.bib/R1",
+                    "status": "pdf_prepared",
+                    "title": "Gamma",
+                    "author": "Doe, Jane",
+                    "year": "2023",
+                    "journal": "Journal A",
+                    "file": "data/pdfs/R1.pdf",
+                },
+            ],
+            "Add screen-ready record",
+        )
+
+        create_response = _request(
+            "create_managed_review_task",
+            self.project_id,
+            self.base_path,
+            kind="screen",
+            reviewer_logins=["alice", "bob"],
+            created_by="owner",
+        )
+        task = create_response["result"]["task"]
+        launch_ref = create_response["result"]["launch_ref"]
+        self._create_local_review_branches(task, launch_ref)
+
+        self.repo.git.checkout(task["reviewers"][0]["branch_name"])
+        self._commit_records(
+            [
+                {
+                    "ID": "R1",
+                    "origin": "import.bib/R1",
+                    "status": reviewer_a_status,
+                    "title": "Gamma",
+                    "author": "Doe, Jane",
+                    "year": "2023",
+                    "journal": "Journal A",
+                    "file": "data/pdfs/R1.pdf",
+                    "screening_criteria": reviewer_a_criteria,
+                },
+            ],
+            "Alice screen decision",
+        )
+        self.repo.git.checkout(task["reviewers"][1]["branch_name"])
+        self._commit_records(
+            [
+                {
+                    "ID": "R1",
+                    "origin": "import.bib/R1",
+                    "status": reviewer_b_status,
+                    "title": "Gamma",
+                    "author": "Doe, Jane",
+                    "year": "2023",
+                    "journal": "Journal A",
+                    "file": "data/pdfs/R1.pdf",
+                    "screening_criteria": reviewer_b_criteria,
+                },
+            ],
+            "Bob screen decision",
+        )
+        self.repo.git.checkout("dev")
+        return task
+
+    def test_screen_reconciliation_accepts_custom_criteria_string(self):
+        task = self._prepare_screen_conflict(
+            reviewer_a_criteria="topic=in;method=in",
+            reviewer_a_status="rev_included",
+            reviewer_b_criteria="topic=out;method=in",
+            reviewer_b_status="rev_excluded",
+        )
+
+        apply_response = _request(
+            "apply_reconciliation",
+            self.project_id,
+            self.base_path,
+            task_id=task["id"],
+            resolved_by="owner",
+            resolutions=[
+                {
+                    "record_id": "R1",
+                    "resolved_status": "rev_included",
+                    "resolved_criteria_string": "method=in;topic=in",
+                }
+            ],
+        )
+        assert "error" not in apply_response
+
+        review_manager = colrev.review_manager.ReviewManager(path_str=str(self.test_dir))
+        review_manager.get_screen_operation(notify_state_transition_operation=False)
+        records = review_manager.dataset.load_records_dict()
+        assert records["R1"]["colrev_status"].name == "rev_included"
+        assert records["R1"]["screening_criteria"] == "method=in;topic=in"
+
+        audit_json = _request(
+            "export_reconciliation_audit",
+            self.project_id,
+            self.base_path,
+            task_id=task["id"],
+            format="json",
+        )
+        assert '"resolution_type": "manual_custom"' in audit_json["result"]["content"]
+
+    def test_screen_reconciliation_rejects_invalid_resolved_status(self):
+        task = self._prepare_screen_conflict(
+            reviewer_a_criteria="topic=in;method=in",
+            reviewer_a_status="rev_included",
+            reviewer_b_criteria="topic=in;method=out",
+            reviewer_b_status="rev_excluded",
+        )
+
+        apply_response = _request(
+            "apply_reconciliation",
+            self.project_id,
+            self.base_path,
+            task_id=task["id"],
+            resolved_by="owner",
+            resolutions=[
+                {
+                    "record_id": "R1",
+                    "resolved_status": "bogus_state",
+                    "resolved_criteria_string": "topic=in;method=in",
+                }
+            ],
+        )
+        assert "error" in apply_response
+
+    def test_screen_reconciliation_custom_override_flips_to_exclude(self):
+        # Reviewer A included; reviewer B excluded via a different criterion.
+        # Admin picks a third combination — excludes via offtopic — which
+        # matches neither reviewer's submitted criteria string.
+        task = self._prepare_screen_conflict(
+            reviewer_a_criteria="topic=in;method=in;offtopic=in",
+            reviewer_a_status="rev_included",
+            reviewer_b_criteria="topic=in;method=out;offtopic=in",
+            reviewer_b_status="rev_excluded",
+            extra_criteria=[("offtopic", "Off-topic", "exclusion_criterion")],
+        )
+
+        apply_response = _request(
+            "apply_reconciliation",
+            self.project_id,
+            self.base_path,
+            task_id=task["id"],
+            resolved_by="owner",
+            resolutions=[
+                {
+                    "record_id": "R1",
+                    "resolved_status": "rev_excluded",
+                    "resolved_criteria_string": "topic=in;method=in;offtopic=out",
+                }
+            ],
+        )
+        assert "error" not in apply_response
+
+        review_manager = colrev.review_manager.ReviewManager(path_str=str(self.test_dir))
+        review_manager.get_screen_operation(notify_state_transition_operation=False)
+        records = review_manager.dataset.load_records_dict()
+        assert records["R1"]["colrev_status"].name == "rev_excluded"
+        assert "offtopic=out" in records["R1"]["screening_criteria"]

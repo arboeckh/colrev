@@ -11,13 +11,32 @@
     "package:mac": "electron-builder --mac",
     "package:win": "electron-builder --win",
     "package:linux": "electron-builder --linux",
+    "package:mac:unsigned": "electron-builder --mac -c.mac.identity=null",
+    "package:win:unsigned": "electron-builder --win -c.win.sign=false",
+    "package:linux:unsigned": "electron-builder --linux",
+    "release": "bash ../scripts/build_and_package.sh",
+    "release:mac": "bash ../scripts/build_and_package.sh mac",
+    "release:win": "bash ../scripts/build_and_package.sh win",
+    "release:linux": "bash ../scripts/build_and_package.sh linux",
+    "release:unsigned": "bash ../scripts/build_and_package.sh \"\" unsigned",
+    "release:mac:unsigned": "bash ../scripts/build_and_package.sh mac unsigned",
+    "release:win:unsigned": "bash ../scripts/build_and_package.sh win unsigned",
+    "release:linux:unsigned": "bash ../scripts/build_and_package.sh linux unsigned",
+    "release:fast": "bash ../scripts/build_and_package.sh \"\" unsigned --skip-jsonrpc",
+    "release:mac:fast": "bash ../scripts/build_and_package.sh mac unsigned --skip-jsonrpc",
+    "release:win:fast": "bash ../scripts/build_and_package.sh win unsigned --skip-jsonrpc",
+    "release:linux:fast": "bash ../scripts/build_and_package.sh linux unsigned --skip-jsonrpc",
     "dev:alice": "COLREV_USER=alice electron-vite dev",
     "dev:bob": "COLREV_USER=bob electron-vite dev",
     "dev:duo": "./dev-duo.sh",
     "dev:duo:stop": "./dev-duo.sh stop",
-    "test:e2e": "npm run build && playwright test",
-    "test:e2e:headed": "npm run build && playwright test --headed",
-    "test:e2e:debug": "npm run build && playwright test --debug",
+    "build:fast": "bash ../scripts/build_incremental.sh",
+    "build:fast:no-package": "bash ../scripts/build_incremental.sh --no-package",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:packaged": "COLREV_TEST_MODE=packaged playwright test",
+    "test:e2e:packaged:headed": "COLREV_TEST_MODE=packaged playwright test --headed",
     "gen-types": "tsx scripts/gen-rpc-types.ts",
     "gen-types:full": "cd .. && python scripts/export_rpc_schemas.py && cd electron-app && npm run gen-types"
   },
@@ -33,12 +52,6 @@
     "asarUnpack": [
       "node_modules/dugite/git/**/*"
     ],
-    "extraResources": [
-      {
-        "from": "resources/colrev-jsonrpc",
-        "to": "colrev-jsonrpc"
-      }
-    ],
     "mac": {
       "target": "dmg",
       "icon": "resources/icons/icon.icns",
@@ -46,6 +59,10 @@
         {
           "from": "node_modules/dugite/git",
           "to": "git"
+        },
+        {
+          "from": "resources/python-mac-arm64",
+          "to": "python-mac-arm64"
         }
       ]
     },
@@ -55,6 +72,10 @@
         {
           "from": "node_modules/dugite/git",
           "to": "git"
+        },
+        {
+          "from": "resources/python-win-x64",
+          "to": "python-win-x64"
         }
       ]
     },

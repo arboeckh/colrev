@@ -171,24 +171,42 @@ function setupIPC() {
       // Setup Git environment from dugite
       const gitEnv = setupGitEnvironment();
 
-      // Determine colrev-jsonrpc path
-      // In dev mode, use Python module directly for faster iteration
-      // In packaged mode, use the bundled executable
+      // Determine colrev-jsonrpc path.
+      //   Dev: invoke `python -m colrev.ui_jsonrpc.server` against whatever
+      //   Python is on PATH (typically the conda colrev env).
+      //   Packaged: spawn the console-script shim from the python-build-standalone
+      //   bundle. Electron does not need to know about Python — the shim does.
       const isDev = !app.isPackaged;
 
       let colrevPath: string;
       let colrevArgs: string[];
+      let bundleBinDir: string | null = null;
 
       if (isDev) {
-        // Use Python to run main.py directly
-        colrevPath = 'python';
-        colrevArgs = [path.join(__dirname, '../../../main.py')];
+        colrevPath = process.platform === 'win32' ? 'python.exe' : 'python';
+        colrevArgs = ['-m', 'colrev.ui_jsonrpc.server'];
       } else {
-        colrevPath = path.join(process.resourcesPath, 'colrev-jsonrpc');
+        const platformDir = process.platform === 'win32' ? 'python-win-x64' : 'python-mac-arm64';
+        const bundleRoot = path.join(process.resourcesPath, platformDir);
+        if (process.platform === 'win32') {
+          bundleBinDir = path.join(bundleRoot, 'Scripts');
+          colrevPath = path.join(bundleBinDir, 'colrev-jsonrpc.cmd');
+        } else {
+          bundleBinDir = path.join(bundleRoot, 'bin');
+          colrevPath = path.join(bundleBinDir, 'colrev-jsonrpc');
+        }
         colrevArgs = [];
       }
 
-      backend = new ColrevBackend(colrevPath, colrevArgs, gitEnv);
+      // Prepend the bundle's bin/Scripts dir to PATH so subprocess calls from
+      // inside colrev (e.g. subprocess.check_call(["pre-commit", ...])) resolve
+      // to the bundled shims rather than whatever happens to be on the host.
+      const spawnEnv: Record<string, string> = { ...gitEnv };
+      if (bundleBinDir) {
+        spawnEnv.PATH = `${bundleBinDir}${path.delimiter}${spawnEnv.PATH ?? process.env.PATH ?? ''}`;
+      }
+
+      backend = new ColrevBackend(colrevPath, colrevArgs, spawnEnv);
 
       // Forward events to renderer
       backend.on('log', (msg) => {
@@ -735,6 +753,11 @@ function setupIPC() {
 }
 
 app.whenReady().then(() => {
+  // Configure dugite's git binary path before any dugite call. This sets
+  // LOCAL_GIT_DIRECTORY on process.env so github:* / git:* IPC handlers work
+  // regardless of whether the Python backend has been started yet.
+  setupGitEnvironment();
+
   // Register colrev-pdf:// protocol handler for serving PDFs from project directories
   // URL format: colrev-pdf://pdf/<project-id>/<relative-path>
   protocol.handle('colrev-pdf', (request) => {

@@ -1,3 +1,6 @@
+### Build cache ###
+.build-cache/
+
 ### Python ###
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -25,11 +28,8 @@ share/python-wheels/
 MANIFEST
 .report.log
 
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+# Manifest files
 *.manifest
-# Note: colrev_jsonrpc.spec is tracked intentionally (not ignored)
 
 # Installer logs
 pip-log.txt
@@ -87,8 +87,13 @@ docs/**/_autosummary/
 # Projects (test/dev data)
 projects/
 
+# Top-level node tooling (e.g. sandcastle)
+/node_modules/
+
 # Electron app
 electron-app/node_modules/
 electron-app/dist/
 electron-app/release/
 electron-app/resources/
+electron-app/resources/python-mac-arm64/
+electron-app/resources/python-win-x64/

@@ -389,12 +389,29 @@ The JSON-RPC server provides a bridge between the Electron app and CoLRev Python
 
 **Building the Server:**
 
+The packaged backend is a python-build-standalone interpreter plus a real
+`pip install` into a real `site-packages/`. Built per-platform via:
+
 ```bash
-# Build standalone executable with PyInstaller
-./scripts/build_jsonrpc.sh
+# Build the bundle for the current Mac (arm64)
+./scripts/build_python_bundle.sh --platform mac-arm64
+
+# Cross-build the Windows x64 bundle from a Mac host
+./scripts/build_python_bundle.sh --platform win-x64
+
+# Both at once (default)
+./scripts/build_python_bundle.sh
 ```
 
-The built executable is placed in `dist/colrev-jsonrpc` and bundled with the Electron app.
+The build script downloads the python-build-standalone tarball into
+`~/.cache/colrev-build/tarballs/`, builds wheels into
+`~/.cache/colrev-build/wheels/`, and writes the populated bundle into
+`electron-app/resources/python-<platform>/`. `electron-builder` picks it
+up via `extraResources` in `electron-app/package.json`.
+
+`npm run release:mac` / `release:win` (or `scripts/build_and_package.sh`)
+call the bundle build then package the Electron app. Pass `--skip-bundle`
+to reuse a previously built bundle.
 
 ### JSON-RPC Endpoint Development Guidelines
 
@@ -663,7 +680,7 @@ window.appInfo.get(); // Get app metadata
 
 The Electron app includes Playwright E2E tests that allow iterative debugging of the JSON-RPC backend.
 
-**IMPORTANT:** The Electron app spawns `python main.py` to run the JSON-RPC backend as a child process. The test fixture automatically configures the PATH to use the conda environment.
+**IMPORTANT:** In dev mode, the Electron app spawns `python -m colrev.ui_jsonrpc.server` to run the JSON-RPC backend as a child process. The test fixture automatically configures the PATH to use the conda environment.
 
 **Conda Environment Location:**
 The colrev conda environment is located at: `~/miniforge3/envs/colrev`

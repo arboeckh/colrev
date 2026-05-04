@@ -128,7 +128,13 @@ export async function gitPush(
   const { exec } = await import('dugite');
 
   return withTokenAuth(projectPath, token, async () => {
-    const result = await exec(['push', '-u', 'origin', 'HEAD'], projectPath);
+    // --no-verify: skip pre-commit pre-push hook. In the packaged app the
+    // hook's INSTALL_PYTHON is the PyInstaller bundle, not a real Python,
+    // and crashes when invoked with `-mpre_commit hook-impl …`.
+    const result = await exec(
+      ['push', '--no-verify', '-u', 'origin', 'HEAD'],
+      projectPath,
+    );
     if (result.exitCode !== 0) {
       return { success: false, error: result.stderr || 'Push failed' };
     }
@@ -144,7 +150,10 @@ export async function gitPushBranch(
   const { exec } = await import('dugite');
 
   return withTokenAuth(projectPath, token, async () => {
-    const result = await exec(['push', '-u', 'origin', `${branchName}:${branchName}`], projectPath);
+    const result = await exec(
+      ['push', '--no-verify', '-u', 'origin', `${branchName}:${branchName}`],
+      projectPath,
+    );
     if (result.exitCode !== 0) {
       return { success: false, error: result.stderr || `Failed to push ${branchName}` };
     }
@@ -458,7 +467,7 @@ export async function gitPushTags(
   const { exec } = await import('dugite');
 
   return withTokenAuth(projectPath, token, async () => {
-    const result = await exec(['push', 'origin', '--tags'], projectPath);
+    const result = await exec(['push', '--no-verify', 'origin', '--tags'], projectPath);
     if (result.exitCode !== 0) {
       return { success: false, error: result.stderr || 'Failed to push tags' };
     }

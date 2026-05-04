@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ import pymupdf
 from pydantic import BaseModel
 from pydantic import ConfigDict
 
+import colrev.exceptions as colrev_exceptions
 import colrev.ops.pdf_get_man
 import colrev.ops.pdf_prep
 import colrev.record.record
@@ -149,18 +151,108 @@ class PDFGetHandler(BaseHandler):
         assert self.review_manager is not None
         logger.info("Running pdf-get operation for project %s", req.project_id)
 
-        pdf_get_operation = self.op(OperationsType.pdf_get, notify=True)
-        pdf_get_operation.main(
-            progress_callback=make_progress_callback(
-                ProgressEventKind.pdf_get_progress, source="pdf_get"
-            ),
-        )
+        max_attempts = 4
+        quarantined: List[str] = []
+        last_exc: Optional[BaseException] = None
+
+        for attempt in range(1, max_attempts + 1):
+            pdf_get_operation = self.op(OperationsType.pdf_get, notify=True)
+            try:
+                pdf_get_operation.main(
+                    progress_callback=make_progress_callback(
+                        ProgressEventKind.pdf_get_progress, source="pdf_get"
+                    ),
+                )
+                last_exc = None
+                break
+            except (
+                pymupdf.FileDataError,
+                colrev_exceptions.InvalidPDFException,
+            ) as exc:
+                last_exc = exc
+                bad_path = self._extract_bad_pdf_path(exc)
+                if bad_path is None:
+                    logger.error(
+                        "pdf_get failed with unreadable-PDF error but path "
+                        "could not be extracted: %s",
+                        exc,
+                    )
+                    raise
+                moved = self._quarantine_pdf(bad_path)
+                if moved is None:
+                    logger.error(
+                        "pdf_get failed on %s but file could not be "
+                        "quarantined; aborting retry loop",
+                        bad_path,
+                    )
+                    raise
+                quarantined.append(moved)
+                logger.warning(
+                    "Quarantined unreadable PDF %s (attempt %d/%d); retrying",
+                    moved, attempt, max_attempts,
+                )
+
+        if last_exc is not None:
+            raise last_exc
+
+        details: Dict[str, Any] = {"message": "PDF retrieval completed"}
+        if quarantined:
+            details["quarantined"] = quarantined
+            details["message"] = (
+                f"PDF retrieval completed. {len(quarantined)} unreadable "
+                f"PDF(s) moved to data/pdfs/_quarantine/."
+            )
 
         return PDFGetResponse(
             project_id=req.project_id,
             operation="pdf_get",
-            details={"message": "PDF retrieval completed"},
+            details=details,
         )
+
+    # -- corrupt-PDF helpers -----------------------------------------------
+
+    @staticmethod
+    def _extract_bad_pdf_path(exc: BaseException) -> Optional[Path]:
+        """Extract the offending PDF path from a pymupdf/InvalidPDF exception."""
+        msg = str(exc)
+        # pymupdf.FileDataError: "Failed to open file '<path>'."
+        match = re.search(r"Failed to open file '([^']+)'", msg)
+        if match:
+            return Path(match.group(1))
+        # colrev InvalidPDFException: "Invalid PDF (empty/broken): <path>"
+        match = re.search(r"Invalid PDF \(empty/broken\): (.+)$", msg)
+        if match:
+            return Path(match.group(1).strip())
+        # Walk the cause chain for nested pymupdf errors.
+        cause = exc.__cause__
+        if cause is not None and cause is not exc:
+            return PDFGetHandler._extract_bad_pdf_path(cause)
+        return None
+
+    def _quarantine_pdf(self, bad_path: Path) -> Optional[str]:
+        """Move an unreadable PDF into data/pdfs/_quarantine/; return relative path."""
+        assert self.review_manager is not None
+        project_root = self.review_manager.path
+        candidate = bad_path
+        if not candidate.is_absolute():
+            candidate = project_root / candidate
+        if not candidate.exists():
+            return None
+
+        quarantine_dir = self.review_manager.paths.pdf / "_quarantine"
+        quarantine_dir.mkdir(parents=True, exist_ok=True)
+
+        target = quarantine_dir / candidate.name
+        counter = 1
+        while target.exists():
+            target = quarantine_dir / f"{candidate.stem}_{counter}{candidate.suffix}"
+            counter += 1
+
+        shutil.move(str(candidate), str(target))
+        try:
+            return str(target.relative_to(project_root))
+        except ValueError:
+            return str(target)
 
     # -- upload_pdf ---------------------------------------------------------
 

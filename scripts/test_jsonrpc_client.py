@@ -48,9 +48,9 @@ class CoLRevJSONRPCClient:
                 )
             else:
                 # Run via Python module (faster for development)
-                print("Starting JSON-RPC server via Python module (main.py)")
+                print("Starting JSON-RPC server via Python module")
                 self.process = subprocess.Popen(
-                    [sys.executable, "main.py"],
+                    [sys.executable, "-m", "colrev.ui_jsonrpc.server"],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,

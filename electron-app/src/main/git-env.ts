@@ -51,6 +51,12 @@ export function setupGitEnvironment(): Record<string, string> {
   const currentPath = process.env.PATH || '';
   const newPath = `${gitBinPath}${path.delimiter}${currentPath}`;
 
+  // dugite reads LOCAL_GIT_DIRECTORY to locate its git binary. In packaged
+  // apps __dirname resolves inside app.asar where child_process.spawn cannot
+  // execute, so this must be set explicitly for dugite calls in the main
+  // process (github-manager, git-manager).
+  process.env.LOCAL_GIT_DIRECTORY = dugiteGitPath;
+
   return {
     PATH: newPath,
     GIT_EXEC_PATH: gitExecPath,

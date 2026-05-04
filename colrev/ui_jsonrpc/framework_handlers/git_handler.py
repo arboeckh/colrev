@@ -68,6 +68,11 @@ class GitStatus(BaseModel):
     staged_record_changes: List[StagedRecordChange] = Field(default_factory=list)
     ahead: int
     behind: int
+    # Counts for local ``main`` vs ``origin/main`` regardless of the currently
+    # checked-out branch. Lets the UI show a "collaborator pushed" banner when
+    # the user is working on ``dev`` and a teammate publishes to ``main``.
+    main_ahead: int = 0
+    main_behind: int = 0
     remote_url: Optional[str] = None
     last_commit: Optional[LastCommitInfo] = None
 
@@ -94,6 +99,18 @@ class DiscardChangesRequest(ProjectScopedRequest):
 
 class DiscardChangesResponse(ProjectResponse):
     discarded_files: List[str] = Field(default_factory=list)
+
+
+class ResetToRemoteRequest(ProjectScopedRequest):
+    confirm: bool = False
+
+
+class ResetToRemoteResponse(ProjectResponse):
+    reset: bool
+    target_ref: str
+    discarded_commits: int
+    discarded_files: List[str] = Field(default_factory=list)
+    message: str
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +167,8 @@ class GitHandler(BaseHandler):
 
         ahead = 0
         behind = 0
+        main_ahead = 0
+        main_behind = 0
         remote_url: Optional[str] = None
 
         try:
@@ -164,6 +183,22 @@ class GitHandler(BaseHandler):
                     behind = len(
                         list(git_repo.iter_commits(f"{branch}..{tracking_branch}"))
                     )
+
+                # Independently report main vs origin/main so the UI can flag
+                # "collaborator pushed" even when the user is checked out on
+                # a non-main branch (e.g. dev).
+                try:
+                    origin_main_ref = f"{origin.name}/main"
+                    if ("main" in [h.name for h in git_repo.heads]
+                            and origin_main_ref in [r.name for r in origin.refs]):
+                        main_ahead = len(
+                            list(git_repo.iter_commits(f"{origin_main_ref}..main"))
+                        )
+                        main_behind = len(
+                            list(git_repo.iter_commits(f"main..{origin_main_ref}"))
+                        )
+                except Exception as e:  # noqa: BLE001
+                    logger.debug("Could not compute main vs origin/main: %s", e)
         except Exception as e:  # noqa: BLE001
             logger.debug("Could not get remote info: %s", e)
 
@@ -181,6 +216,8 @@ class GitHandler(BaseHandler):
                 staged_record_changes=staged_record_changes,
                 ahead=ahead,
                 behind=behind,
+                main_ahead=main_ahead,
+                main_behind=main_behind,
                 remote_url=remote_url,
                 last_commit=last_commit,
             ),
@@ -197,6 +234,16 @@ class GitHandler(BaseHandler):
         logger.info("commit_changes for project %s", req.project_id)
 
         repo = git.Repo(self.review_manager.path)
+
+        # Stage every working-tree change (including untracked and deleted
+        # files) before inspecting the index. Write handlers are expected to
+        # stage as they go, but the "Save" button must never be a dead-end
+        # when a file was modified outside an RPC write path (e.g. a data
+        # extraction output, or a user edit made while the app was closed).
+        try:
+            repo.git.add("-A")
+        except Exception as e:  # noqa: BLE001
+            logger.debug("commit_changes add -A failed: %s", e)
 
         # Detect staged changes. For a repo with no HEAD yet, any index entries
         # count as staged.
@@ -296,6 +343,92 @@ class GitHandler(BaseHandler):
         return DiscardChangesResponse(
             project_id=req.project_id,
             discarded_files=discarded,
+        )
+
+    @rpc_method(
+        name="reset_to_remote",
+        request=ResetToRemoteRequest,
+        response=ResetToRemoteResponse,
+        writes=True,
+    )
+    def reset_to_remote(
+        self, req: ResetToRemoteRequest
+    ) -> ResetToRemoteResponse:
+        """Hard-reset the current branch to match its remote tracking branch.
+
+        Last-resort recovery path for users stuck in a wedged git state.
+        Discards:
+        - all uncommitted/untracked local changes,
+        - all local commits ahead of the remote.
+
+        Requires ``confirm=True`` because the operation is irreversible.
+        """
+        assert self.review_manager is not None
+        logger.info(
+            "reset_to_remote for project %s (confirm=%s)",
+            req.project_id,
+            req.confirm,
+        )
+
+        if not req.confirm:
+            raise ValueError("reset_to_remote requires confirm=True")
+
+        repo = git.Repo(self.review_manager.path)
+
+        if not repo.remotes:
+            raise ValueError(
+                "No remote configured. Reset to remote requires an 'origin' "
+                "remote; push the project to a remote first."
+            )
+
+        try:
+            current_branch = repo.active_branch.name
+        except TypeError:
+            raise ValueError(
+                "Cannot reset: HEAD is detached, not on a branch."
+            )
+
+        tracking = repo.active_branch.tracking_branch()
+        if tracking is None:
+            raise ValueError(
+                f"Branch '{current_branch}' has no upstream. Push the branch "
+                "to the remote first so it has a tracking branch to reset to."
+            )
+        target_ref = tracking.name
+
+        # Collect what we're about to destroy, for the response.
+        try:
+            ahead_commits = len(
+                list(repo.iter_commits(f"{target_ref}..{current_branch}"))
+            )
+        except Exception:
+            ahead_commits = 0
+
+        modified = [item.a_path for item in repo.index.diff(None)]
+        try:
+            staged = [item.a_path for item in repo.index.diff("HEAD")]
+        except Exception:
+            staged = []
+        untracked = list(repo.untracked_files)
+        discarded_files = sorted(set(modified) | set(staged) | set(untracked))
+
+        # Fetch first so the tracking ref is current.
+        try:
+            repo.remotes[0].fetch()
+        except Exception as e:  # noqa: BLE001
+            logger.debug("reset_to_remote: fetch failed: %s", e)
+
+        repo.git.reset("--hard", target_ref)
+        # Drop any remaining untracked files / directories.
+        repo.git.clean("-fd")
+
+        return ResetToRemoteResponse(
+            project_id=req.project_id,
+            reset=True,
+            target_ref=target_ref,
+            discarded_commits=ahead_commits,
+            discarded_files=discarded_files,
+            message=f"Reset to {target_ref}",
         )
 
     # ------------------------------------------------------------------

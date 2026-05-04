@@ -518,19 +518,65 @@ export async function createRepoAndPush(
       await exec(['remote', 'add', 'origin', tokenUrl], projectPath);
     }
 
-    // 5. Push — try 'main' first, fallback to 'master'
-    let pushResult = await exec(['push', '-u', 'origin', 'main'], projectPath);
-    if (pushResult.exitCode !== 0) {
-      // Try master branch
-      pushResult = await exec(['push', '-u', 'origin', 'master'], projectPath);
-      if (pushResult.exitCode !== 0) {
-        // Reset URL to clean before returning error
+    // 5. Push the current branch — whatever it's named locally.
+    const branchRes = await exec(['symbolic-ref', '--short', 'HEAD'], projectPath);
+    if (branchRes.exitCode !== 0) {
+      await exec(['remote', 'set-url', 'origin', cleanUrl], projectPath);
+      return {
+        success: false,
+        error:
+          'Cannot push: the repository has no commits yet. ' +
+          'Initialize the project fully before publishing to GitHub.',
+      };
+    }
+    let branch = branchRes.stdout.trim();
+
+    // Defensive: if HEAD points at a ref that doesn't exist (dangling — can
+    // happen when an upstream rename updated the ref but not HEAD), recover
+    // before pushing. Try `main`; otherwise pick any branch with commits.
+    const refCheck = await exec(
+      ['rev-parse', '--verify', `refs/heads/${branch}`],
+      projectPath,
+    );
+    if (refCheck.exitCode !== 0) {
+      const branchesRes = await exec(
+        ['for-each-ref', '--format=%(refname:short)', 'refs/heads/'],
+        projectPath,
+      );
+      const localBranches = branchesRes.stdout
+        .trim()
+        .split('\n')
+        .map((b) => b.trim())
+        .filter((b) => b.length > 0);
+      const recoverTo =
+        localBranches.find((b) => b === 'main') ?? localBranches[0];
+      if (!recoverTo) {
         await exec(['remote', 'set-url', 'origin', cleanUrl], projectPath);
         return {
           success: false,
-          error: `Git push failed: ${pushResult.stderr || pushResult.stdout}`,
+          error:
+            'Cannot push: HEAD is dangling and no local branches have commits.',
         };
       }
+      await exec(['symbolic-ref', 'HEAD', `refs/heads/${recoverTo}`], projectPath);
+      branch = recoverTo;
+    }
+
+    // --no-verify skips git hooks. CoLRev's init installs pre-commit pre-push
+    // hooks that hard-code sys.executable, which in the packaged app is the
+    // PyInstaller bundle (`colrev-jsonrpc`) — not a real Python — so the hook
+    // crashes with "unrecognized arguments: -mpre_commit ...". The UI publish
+    // flow isn't a developer workflow gate; skip the hook entirely.
+    const pushResult = await exec(
+      ['push', '--no-verify', '-u', 'origin', branch],
+      projectPath,
+    );
+    if (pushResult.exitCode !== 0) {
+      await exec(['remote', 'set-url', 'origin', cleanUrl], projectPath);
+      return {
+        success: false,
+        error: `Git push failed (branch ${branch}): ${pushResult.stderr || pushResult.stdout}`,
+      };
     }
 
     // 6. Reset remote URL to clean (no token)

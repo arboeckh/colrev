@@ -673,7 +673,7 @@ class ManagedReviewService:
         self,
         *,
         task_id: str,
-        resolutions: list[Dict[str, str]],
+        resolutions: list[Dict[str, Any]],
         resolved_by: str,
     ) -> Dict[str, Any]:
         """Apply a reconciliation to dev and store an audit trail."""
@@ -690,9 +690,8 @@ class ManagedReviewService:
                 "Both reviewers must finish all records before reconciliation."
             )
 
-        resolution_map = {
-            resolution["record_id"]: resolution["selected_reviewer"]
-            for resolution in resolutions
+        resolution_map: Dict[str, Dict[str, Any]] = {
+            resolution["record_id"]: resolution for resolution in resolutions
         }
         current_records = self._load_records_from_ref(ref=None, kind=task["kind"])
         records_to_save: Dict[str, Dict[str, Any]] = {}
@@ -708,33 +707,70 @@ class ManagedReviewService:
                     f"Record {item['id']} is still pending reviewer decisions."
                 )
 
-            selected_role = (
-                item["auto_resolution"]["selected_reviewer"]
-                if item["status"] == "auto"
-                else resolution_map.get(item["id"])
+            resolution = resolution_map.get(item["id"], {})
+            has_custom = (
+                item["status"] != "auto"
+                and task["kind"] == "screen"
+                and resolution.get("resolved_status") is not None
+                and resolution.get("resolved_criteria_string") is not None
             )
-            if selected_role not in REVIEWER_ROLES:
-                raise ValueError(
-                    f"Missing reconciliation choice for record {item['id']}."
-                )
 
-            selected_reviewer = next(
-                reviewer for reviewer in item["reviewers"] if reviewer["role"] == selected_role
-            )
-            selected_status = selected_reviewer["status"]
             record_dict = deepcopy(current_records[item["id"]])
             record = colrev.record.record.Record(record_dict)
 
-            if task["kind"] == "prescreen":
-                record.set_status(FINAL_STATES_BY_KIND["prescreen"][selected_status])
-            else:
-                if selected_reviewer["criteria_string"]:
-                    record.data[Fields.SCREENING_CRITERIA] = selected_reviewer[
-                        "criteria_string"
-                    ]
+            if item["status"] == "auto":
+                selected_role = item["auto_resolution"]["selected_reviewer"]
+                selected_reviewer = next(
+                    r for r in item["reviewers"] if r["role"] == selected_role
+                )
+                resolved_status = selected_reviewer["status"]
+                resolved_criteria_string = selected_reviewer["criteria_string"]
+                resolution_type = "auto"
+                if task["kind"] == "prescreen":
+                    record.set_status(FINAL_STATES_BY_KIND["prescreen"][resolved_status])
+                else:
+                    if resolved_criteria_string:
+                        record.data[Fields.SCREENING_CRITERIA] = resolved_criteria_string
+                    else:
+                        record.data.pop(Fields.SCREENING_CRITERIA, None)
+                    record.set_status(FINAL_STATES_BY_KIND["screen"][resolved_status])
+            elif has_custom:
+                resolved_status = resolution["resolved_status"]
+                resolved_criteria_string_raw = resolution["resolved_criteria_string"] or ""
+                if resolved_status not in FINAL_STATES_BY_KIND["screen"]:
+                    raise ValueError(
+                        f"Invalid resolved_status for record {item['id']}: {resolved_status!r}"
+                    )
+                resolved_criteria_string = self._format_criteria(
+                    self._parse_criteria(resolved_criteria_string_raw)
+                )
+                if resolved_criteria_string:
+                    record.data[Fields.SCREENING_CRITERIA] = resolved_criteria_string
                 else:
                     record.data.pop(Fields.SCREENING_CRITERIA, None)
-                record.set_status(FINAL_STATES_BY_KIND["screen"][selected_status])
+                record.set_status(FINAL_STATES_BY_KIND["screen"][resolved_status])
+                selected_role = None
+                resolution_type = "manual_custom"
+            else:
+                selected_role = resolution.get("selected_reviewer")
+                if selected_role not in REVIEWER_ROLES:
+                    raise ValueError(
+                        f"Missing reconciliation choice for record {item['id']}."
+                    )
+                selected_reviewer = next(
+                    r for r in item["reviewers"] if r["role"] == selected_role
+                )
+                resolved_status = selected_reviewer["status"]
+                resolved_criteria_string = selected_reviewer["criteria_string"]
+                resolution_type = "manual"
+                if task["kind"] == "prescreen":
+                    record.set_status(FINAL_STATES_BY_KIND["prescreen"][resolved_status])
+                else:
+                    if resolved_criteria_string:
+                        record.data[Fields.SCREENING_CRITERIA] = resolved_criteria_string
+                    else:
+                        record.data.pop(Fields.SCREENING_CRITERIA, None)
+                    record.set_status(FINAL_STATES_BY_KIND["screen"][resolved_status])
 
             records_to_save[item["id"]] = record.get_data()
             audit_rows.append(
@@ -743,10 +779,10 @@ class ManagedReviewService:
                     "title": item["title"],
                     "author": item["author"],
                     "year": item["year"],
-                    "resolution_type": "auto" if item["status"] == "auto" else "manual",
+                    "resolution_type": resolution_type,
                     "selected_reviewer": selected_role,
-                    "resolved_status": selected_reviewer["status"],
-                    "resolved_criteria_string": selected_reviewer["criteria_string"],
+                    "resolved_status": resolved_status,
+                    "resolved_criteria_string": resolved_criteria_string,
                     "reviewers": item["reviewers"],
                 }
             )

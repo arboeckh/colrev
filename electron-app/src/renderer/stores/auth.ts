@@ -2,12 +2,19 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { AuthSession, DeviceFlowStatus, AccountInfo } from '@/types/window';
 
+const KEYCHAIN_EXPLAINED_KEY = 'colrev:keychain-explained';
+
+function isMacPlatform(): boolean {
+  return typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac');
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const session = ref<AuthSession | null>(null);
   const isLocalMode = ref(false);
   const deviceFlowStatus = ref<DeviceFlowStatus | null>(null);
   const isLoading = ref(true);
   const accounts = ref<AccountInfo[]>([]);
+  const keychainExplainerOpen = ref(false);
 
   const isAuthenticated = computed(() => session.value !== null);
   const user = computed(() => session.value?.user ?? null);
@@ -17,19 +24,29 @@ export const useAuthStore = defineStore('auth', () => {
   let unsubAuthUpdate: (() => void) | null = null;
   let unsubDeviceFlow: (() => void) | null = null;
 
+  let pendingExplainerResolvers: Array<() => void> = [];
+
+  function ensureKeychainExplained(): Promise<void> {
+    if (!isMacPlatform()) return Promise.resolve();
+    if (localStorage.getItem(KEYCHAIN_EXPLAINED_KEY) === '1') return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      pendingExplainerResolvers.push(resolve);
+      keychainExplainerOpen.value = true;
+    });
+  }
+
+  function acknowledgeKeychainExplainer() {
+    localStorage.setItem(KEYCHAIN_EXPLAINED_KEY, '1');
+    keychainExplainerOpen.value = false;
+    const resolvers = pendingExplainerResolvers;
+    pendingExplainerResolvers = [];
+    for (const r of resolvers) r();
+  }
+
   async function initialize() {
     isLoading.value = true;
     try {
-      // Check for existing session
-      const existing = await window.auth.getSession();
-      if (existing) {
-        session.value = existing;
-      }
-
-      // Load account list
-      await refreshAccounts();
-
-      // Subscribe to auth events
+      // Subscribe to auth events first so we don't miss the update fired by getSession.
       unsubAuthUpdate = window.auth.onAuthUpdate((updatedSession) => {
         session.value = updatedSession;
         if (updatedSession) {
@@ -41,6 +58,18 @@ export const useAuthStore = defineStore('auth', () => {
       unsubDeviceFlow = window.auth.onDeviceFlowStatus((status) => {
         deviceFlowStatus.value = status;
       });
+
+      // listAccounts only reads JSON metadata and does NOT touch safeStorage —
+      // safe to call before the explainer.
+      await refreshAccounts();
+
+      if (accounts.value.length > 0) {
+        await ensureKeychainExplained();
+        const existing = await window.auth.getSession();
+        if (existing) {
+          session.value = existing;
+        }
+      }
     } catch (err) {
       console.error('Failed to initialize auth:', err);
     } finally {
@@ -57,6 +86,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function login() {
+    await ensureKeychainExplained();
     deviceFlowStatus.value = { status: 'awaiting_code' };
     await window.auth.login();
   }
@@ -69,6 +99,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function switchAccount(login: string) {
+    await ensureKeychainExplained();
     const result = await window.auth.switchAccount(login);
     if (result) {
       session.value = result;
@@ -98,6 +129,7 @@ export const useAuthStore = defineStore('auth', () => {
     deviceFlowStatus,
     isLoading,
     accounts,
+    keychainExplainerOpen,
     isAuthenticated,
     user,
     hasAccess,
@@ -109,6 +141,7 @@ export const useAuthStore = defineStore('auth', () => {
     removeAccount,
     refreshAccounts,
     continueWithoutLogin,
+    acknowledgeKeychainExplainer,
     dispose,
   };
 });

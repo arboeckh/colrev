@@ -1,6 +1,7 @@
 import { test as base, _electron as electron, ElectronApplication, Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 
 /**
  * Debug log entry structure - matches the Pinia debug store
@@ -38,58 +39,116 @@ type ElectronFixtures = {
   waitForBackend: (timeout?: number) => Promise<boolean>;
 };
 
+type TestMode = 'dev' | 'packaged';
+
+/**
+ * Resolve the packaged .app executable path for the current platform/arch.
+ * Throws with a clear hint if the app hasn't been built yet.
+ */
+function resolvePackagedAppExecutable(): string {
+  const repoRoot = path.join(__dirname, '../..');
+  const releaseDir = path.join(repoRoot, 'release');
+
+  if (process.platform === 'darwin') {
+    const archDir = process.arch === 'arm64' ? 'mac-arm64' : 'mac';
+    const exe = path.join(releaseDir, archDir, 'ColRev.app/Contents/MacOS/ColRev');
+    if (!fs.existsSync(exe)) {
+      throw new Error(
+        `Packaged app not found at:\n  ${exe}\n` +
+        `Run 'npm run build:fast' (or 'npm run release:mac:unsigned') first.`
+      );
+    }
+    return exe;
+  }
+
+  if (process.platform === 'linux') {
+    // electron-builder AppImage isn't directly executable as a Playwright executablePath;
+    // for now, point at the linux-unpacked binary if it exists.
+    const exe = path.join(releaseDir, 'linux-unpacked', 'colrev');
+    if (!fs.existsSync(exe)) {
+      throw new Error(
+        `Packaged app not found at ${exe}. Run 'npm run build:fast --platform linux' first.`
+      );
+    }
+    return exe;
+  }
+
+  if (process.platform === 'win32') {
+    const exe = path.join(releaseDir, 'win-unpacked', 'ColRev.exe');
+    if (!fs.existsSync(exe)) {
+      throw new Error(
+        `Packaged app not found at ${exe}. Run 'npm run build:fast --platform win' first.`
+      );
+    }
+    return exe;
+  }
+
+  throw new Error(`Unsupported platform: ${process.platform}`);
+}
+
 /**
  * Extended Playwright test with Electron-specific fixtures
  *
- * The Electron app when not packaged (app.isPackaged = false) will use
- * `python main.py` to start the JSON-RPC backend.
+ * Mode is selected via COLREV_TEST_MODE:
+ *   - 'dev'      (default): launch unpacked dist/main/index.js with `python main.py`
+ *                as the JSON-RPC backend (uses conda env in PATH).
+ *   - 'packaged': launch the built .app with the bundled PyInstaller binary.
+ *                Run `npm run build:fast` first.
  *
- * The fixture automatically configures PATH to use the colrev conda environment.
- * If tests fail with Python errors, verify the conda path in this file.
+ * Both modes use a per-test temporary --user-data-dir so tests never touch
+ * the user's real Application Support directory.
  */
 export const test = base.extend<ElectronFixtures>({
   // Launch Electron app
   electronApp: async ({}, use) => {
-    const appPath = path.join(__dirname, '../../dist/main/index.js');
+    const mode = ((process.env.COLREV_TEST_MODE as TestMode | undefined) ?? 'dev') as TestMode;
 
-    // Get conda path - using miniforge3 (update this if your conda is elsewhere)
-    const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-    const condaEnvPath = `${homeDir}/miniforge3/envs/colrev`;
-    const condaBinPath = `${condaEnvPath}/bin`;
+    // Per-test isolated user-data directory. Removed after test ends.
+    const tmpUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'colrev-e2e-'));
+    const userDataArg = `--user-data-dir=${tmpUserData}`;
 
-    // Use production mode to load from built files (not dev server)
-    // The app will still use python main.py because app.isPackaged is false
-    const electronApp = await electron.launch({
-      args: [appPath],
-      env: {
-        ...process.env,
-        NODE_ENV: 'production',
-        // Add conda env to PATH so python resolves to the colrev env
-        PATH: `${condaBinPath}:${process.env.PATH}`,
-        // Set CONDA_PREFIX to help any conda-aware scripts
-        CONDA_PREFIX: condaEnvPath,
-        // Ensure Python uses the right environment
-        PYTHONHOME: condaEnvPath,
-      },
-    });
+    let electronApp: ElectronApplication;
 
-    // Get the userData path before closing so we can clean up test projects
-    const userDataPath = await electronApp.evaluate(({ app }) => app.getPath('userData'));
+    if (mode === 'packaged') {
+      const executablePath = resolvePackagedAppExecutable();
+      electronApp = await electron.launch({
+        executablePath,
+        args: [userDataArg],
+        env: {
+          ...process.env,
+        },
+      });
+    } else {
+      const appPath = path.join(__dirname, '../../dist/main/index.js');
+
+      // Conda env for `python -m colrev.ui_jsonrpc.server` resolution in dev mode
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const condaEnvPath = `${homeDir}/miniforge3/envs/colrev`;
+      const condaBinPath = `${condaEnvPath}/bin`;
+
+      electronApp = await electron.launch({
+        args: [appPath, userDataArg],
+        env: {
+          ...process.env,
+          NODE_ENV: 'production',
+          PATH: `${condaBinPath}:${process.env.PATH}`,
+          CONDA_PREFIX: condaEnvPath,
+          PYTHONHOME: condaEnvPath,
+        },
+      });
+    }
 
     await use(electronApp);
-    await electronApp.close();
 
-    // Clean up test projects created during this test run
-    const projectsDir = path.join(userDataPath, 'projects');
-    if (fs.existsSync(projectsDir)) {
-      const entries = fs.readdirSync(projectsDir);
-      for (const entry of entries) {
-        const fullPath = path.join(projectsDir, entry);
-        if (fs.statSync(fullPath).isDirectory()) {
-          fs.rmSync(fullPath, { recursive: true, force: true });
-        }
-      }
-      console.log(`Cleaned up ${entries.length} test project(s) from ${projectsDir}`);
+    try {
+      await electronApp.close();
+    } catch {
+      // ignore — process may have already exited
+    }
+
+    // Clean up temp user-data dir.
+    if (fs.existsSync(tmpUserData)) {
+      fs.rmSync(tmpUserData, { recursive: true, force: true });
     }
   },
 

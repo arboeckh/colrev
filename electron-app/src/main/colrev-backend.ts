@@ -70,13 +70,17 @@ export class ColrevBackend extends EventEmitter {
         this.cleanup();
       });
 
-      // Retry ping until server is ready (more robust than parsing stderr)
+      // Retry ping until server is ready. Cold start of the packaged
+      // python-build-standalone bundle takes the time of a Python interpreter
+      // boot plus colrev imports — budget generously the first time macOS
+      // loads it. The renderer shows a splash overlay in the meantime.
+      const START_TIMEOUT_MS = 60_000;
       const startTimeout = setTimeout(() => {
         reject(new Error('Backend start timeout'));
         this.stop();
-      }, 30000); // 30s for PyInstaller startup
+      }, START_TIMEOUT_MS);
 
-      this.pingUntilReady(20, 500) // 20 retries, 500ms apart
+      this.pingUntilReady(START_TIMEOUT_MS)
         .then(() => {
           clearTimeout(startTimeout);
           resolve();
@@ -89,20 +93,66 @@ export class ColrevBackend extends EventEmitter {
   }
 
   /**
-   * Retry ping until server responds.
+   * Ping the server periodically until it responds or the deadline passes.
+   *
+   * Each attempt uses a short per-call timeout (~1s) so a stalled request
+   * doesn't prevent the next retry — the previous implementation reused the
+   * default 120s request timeout, which meant the first ping just blocked on
+   * the pipe forever and the "retry" loop never actually fired.
    */
-  private async pingUntilReady(retries: number, delayMs: number): Promise<void> {
-    for (let i = 0; i < retries; i++) {
+  private async pingUntilReady(deadlineMs: number): Promise<void> {
+    const PING_TIMEOUT_MS = 1000;
+    const PING_INTERVAL_MS = 500;
+    const start = Date.now();
+
+    while (Date.now() - start < deadlineMs) {
       try {
-        await this.call('ping', {});
-        return; // Success
+        await this.callWithTimeout('ping', {}, PING_TIMEOUT_MS);
+        return;
       } catch {
-        if (i < retries - 1) {
-          await new Promise((r) => setTimeout(r, delayMs));
-        }
+        // Swallow ping failures during startup; emit a log so the renderer
+        // can show elapsed-time reassurance in the splash overlay.
+        const elapsed = Math.round((Date.now() - start) / 1000);
+        this.emit('log', `[startup] waiting for backend (${elapsed}s)`);
+        await new Promise((r) => setTimeout(r, PING_INTERVAL_MS));
       }
     }
     throw new Error('Server not responding to ping');
+  }
+
+  /**
+   * Make a JSON-RPC call with a caller-supplied timeout (in ms) instead of
+   * the default 2-minute request timeout. Used for startup probes where
+   * long timeouts defeat the retry logic.
+   */
+  private callWithTimeout<T = unknown>(
+    method: string,
+    params: Record<string, unknown>,
+    timeoutMs: number,
+  ): Promise<T> {
+    return new Promise((resolve, reject) => {
+      if (!this.process?.stdin) {
+        return reject(new Error('Backend not running'));
+      }
+
+      const id = ++this.requestId;
+
+      const timeout = setTimeout(() => {
+        if (this.pending.has(id)) {
+          this.pending.delete(id);
+          reject(new Error(`Request timeout: ${method}`));
+        }
+      }, timeoutMs);
+
+      this.pending.set(id, {
+        resolve: resolve as (value: unknown) => void,
+        reject,
+        timeout,
+      });
+
+      const request = { jsonrpc: '2.0', method, params, id };
+      this.process.stdin.write(JSON.stringify(request) + '\n');
+    });
   }
 
   /**
