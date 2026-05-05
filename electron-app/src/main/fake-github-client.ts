@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
 import type { GitHubClient } from './github-client';
 import type {
   GitHubRepo,
@@ -9,7 +12,10 @@ import type {
 import type { FakeGitHubRegistry, RegistryRelease, RegistryRepo } from './fake-github-registry';
 
 export class FakeGitHubClient implements GitHubClient {
-  constructor(private readonly registry: FakeGitHubRegistry) {}
+  constructor(
+    private readonly registry: FakeGitHubRegistry,
+    private readonly bareRemoteDir?: string,
+  ) {}
 
   async listUserRepos(token: string): Promise<GitHubRepo[]> {
     const account = this.registry.getAccountByToken(token);
@@ -110,11 +116,43 @@ export class FakeGitHubClient implements GitHubClient {
     const account = this.registry.getAccountByToken(params.token);
     if (!account) return { success: false, error: 'Invalid token' };
 
+    let cloneUrl: string | undefined;
+
+    if (this.bareRemoteDir) {
+      const barePath = path.join(this.bareRemoteDir, account.login, `${params.repoName}.git`);
+      fs.mkdirSync(barePath, { recursive: true });
+      execSync('git init --bare', { cwd: barePath, stdio: 'pipe' });
+
+      const remotes = execSync('git remote', { cwd: params.projectPath, encoding: 'utf-8' })
+        .trim()
+        .split('\n')
+        .filter(Boolean);
+
+      if (remotes.includes('origin')) {
+        execSync(`git remote set-url origin ${barePath}`, { cwd: params.projectPath, stdio: 'pipe' });
+      } else {
+        execSync(`git remote add origin ${barePath}`, { cwd: params.projectPath, stdio: 'pipe' });
+      }
+
+      const branch = execSync('git symbolic-ref --short HEAD', {
+        cwd: params.projectPath,
+        encoding: 'utf-8',
+      }).trim();
+
+      execSync(`git push --no-verify -u origin ${branch}`, {
+        cwd: params.projectPath,
+        stdio: 'pipe',
+      });
+
+      cloneUrl = barePath;
+    }
+
     const repo = this.registry.createRepo(
       account.login,
       params.repoName,
       params.isPrivate,
       params.description,
+      cloneUrl,
     );
 
     return {
@@ -138,6 +176,12 @@ export class FakeGitHubClient implements GitHubClient {
     const httpsMatch = remoteUrl.match(/github\.com[/:]([^/]+)\/([^/.]+?)(?:\.git)?$/);
     if (httpsMatch) {
       return { owner: httpsMatch[1], repo: httpsMatch[2] };
+    }
+    if (remoteUrl.startsWith('/')) {
+      const filePathMatch = remoteUrl.match(/\/([^/]+)\/([^/]+?)\.git$/);
+      if (filePathMatch) {
+        return { owner: filePathMatch[1], repo: filePathMatch[2] };
+      }
     }
     return null;
   }

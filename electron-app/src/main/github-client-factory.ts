@@ -1,3 +1,4 @@
+import * as path from 'path';
 import type { GitHubClient } from './github-client';
 import { RealGitHubClient } from './real-github-client';
 import { FakeGitHubClient } from './fake-github-client';
@@ -11,7 +12,8 @@ export function getGitHubClient(): GitHubClient {
   const registryPath = process.env.COLREV_FAKE_GITHUB_REGISTRY;
   if (registryPath) {
     const registry = new FakeGitHubRegistry(registryPath);
-    instance = new FakeGitHubClient(registry);
+    const bareRemoteDir = path.join(path.dirname(registryPath), 'bare-remote');
+    instance = new FakeGitHubClient(registry, bareRemoteDir);
   } else {
     instance = new RealGitHubClient();
   }

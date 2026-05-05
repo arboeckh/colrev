@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 
 const E2E_ROOT = '/tmp/colrev-e2e';
 
@@ -76,5 +77,31 @@ export class TestWorkspace {
 
   appendRpcJsonl(entry: unknown): void {
     fs.appendFileSync(this.rpcJsonlPath, JSON.stringify(entry) + '\n');
+  }
+
+  bareRemotePath(owner: string, repoName: string): string {
+    return path.join(this.bareRemoteDir, owner, `${repoName}.git`);
+  }
+
+  createBareRemote(owner: string, repoName: string): string {
+    const barePath = this.bareRemotePath(owner, repoName);
+    fs.mkdirSync(barePath, { recursive: true });
+    execSync('git init --bare', { cwd: barePath, stdio: 'pipe' });
+    return barePath;
+  }
+
+  listBareRemotes(): { owner: string; repo: string }[] {
+    if (!fs.existsSync(this.bareRemoteDir)) return [];
+    const result: { owner: string; repo: string }[] = [];
+    for (const owner of fs.readdirSync(this.bareRemoteDir)) {
+      const ownerDir = path.join(this.bareRemoteDir, owner);
+      if (!fs.statSync(ownerDir).isDirectory()) continue;
+      for (const entry of fs.readdirSync(ownerDir)) {
+        if (entry.endsWith('.git')) {
+          result.push({ owner, repo: entry.replace(/\.git$/, '') });
+        }
+      }
+    }
+    return result;
   }
 }

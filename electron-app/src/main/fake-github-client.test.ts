@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { execSync } from 'child_process';
 import { FakeGitHubRegistry, type RegistryData } from './fake-github-registry';
 import { FakeGitHubClient } from './fake-github-client';
 import type { GitHubClient } from './github-client';
@@ -182,6 +183,197 @@ describe('FakeGitHubClient', () => {
 
       const repos = await client.listUserRepos('tok-alice');
       expect(repos.map((r) => r.name)).toContain('new-review');
+    });
+  });
+});
+
+describe('FakeGitHubClient with bare remotes', () => {
+  let tmpDir: string;
+  let registryPath: string;
+  let bareRemoteDir: string;
+  let client: FakeGitHubClient;
+  let registry: FakeGitHubRegistry;
+
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'Alice',
+    GIT_AUTHOR_EMAIL: 'alice@test.local',
+    GIT_COMMITTER_NAME: 'Alice',
+    GIT_COMMITTER_EMAIL: 'alice@test.local',
+  };
+
+  function makeProjectWithCommit(projectPath: string): void {
+    fs.mkdirSync(projectPath, { recursive: true });
+    execSync('git init', { cwd: projectPath, env: gitEnv, stdio: 'pipe' });
+    execSync('git checkout -b main', { cwd: projectPath, env: gitEnv, stdio: 'pipe' });
+    fs.writeFileSync(path.join(projectPath, 'README.md'), '# Test Project\n');
+    execSync('git add -A', { cwd: projectPath, env: gitEnv, stdio: 'pipe' });
+    execSync('git commit -m "initial commit"', { cwd: projectPath, env: gitEnv, stdio: 'pipe' });
+  }
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-gh-bare-'));
+    registryPath = path.join(tmpDir, 'registry.json');
+    bareRemoteDir = path.join(tmpDir, 'bare-remote');
+    fs.mkdirSync(bareRemoteDir, { recursive: true });
+
+    const seed: RegistryData = {
+      accounts: [
+        { login: 'alice', name: 'Alice Smith', avatarUrl: '', token: 'tok-alice' },
+        { login: 'bob', name: 'Bob Jones', avatarUrl: '', token: 'tok-bob' },
+      ],
+      repos: [],
+      collaborators: [],
+      invitations: [],
+      releases: [],
+    };
+    fs.writeFileSync(registryPath, JSON.stringify(seed));
+
+    registry = new FakeGitHubRegistry(registryPath);
+    client = new FakeGitHubClient(registry, bareRemoteDir);
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  describe('createRepoAndPush with real git', () => {
+    it('creates a bare remote and pushes the project commits to it', async () => {
+      const projectPath = path.join(tmpDir, 'project');
+      makeProjectWithCommit(projectPath);
+
+      const result = await client.createRepoAndPush({
+        token: 'tok-alice',
+        repoName: 'my-review',
+        projectPath,
+        isPrivate: true,
+        description: 'A review',
+      });
+
+      expect(result.success).toBe(true);
+
+      const barePath = path.join(bareRemoteDir, 'alice', 'my-review.git');
+      expect(fs.existsSync(barePath)).toBe(true);
+
+      const log = execSync('git log --all --oneline', { cwd: barePath }).toString().trim();
+      expect(log).toContain('initial commit');
+    });
+
+    it('sets the project origin remote to the bare path', async () => {
+      const projectPath = path.join(tmpDir, 'project');
+      makeProjectWithCommit(projectPath);
+
+      await client.createRepoAndPush({
+        token: 'tok-alice',
+        repoName: 'my-review',
+        projectPath,
+        isPrivate: true,
+      });
+
+      const remoteUrl = execSync('git remote get-url origin', { cwd: projectPath })
+        .toString()
+        .trim();
+      expect(remoteUrl).toBe(path.join(bareRemoteDir, 'alice', 'my-review.git'));
+    });
+
+    it('stores the bare path as cloneUrl in the registry', async () => {
+      const projectPath = path.join(tmpDir, 'project');
+      makeProjectWithCommit(projectPath);
+
+      await client.createRepoAndPush({
+        token: 'tok-alice',
+        repoName: 'my-review',
+        projectPath,
+        isPrivate: true,
+      });
+
+      const repos = await client.listUserRepos('tok-alice');
+      const repo = repos.find((r) => r.name === 'my-review');
+      expect(repo).toBeDefined();
+      expect(repo!.cloneUrl).toBe(path.join(bareRemoteDir, 'alice', 'my-review.git'));
+    });
+
+    it('returns error for invalid token', async () => {
+      const projectPath = path.join(tmpDir, 'project');
+      makeProjectWithCommit(projectPath);
+
+      const result = await client.createRepoAndPush({
+        token: 'tok-unknown',
+        repoName: 'my-review',
+        projectPath,
+        isPrivate: true,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+    });
+
+    it('multiple projects per account each get their own bare remote', async () => {
+      const project1 = path.join(tmpDir, 'project1');
+      const project2 = path.join(tmpDir, 'project2');
+      makeProjectWithCommit(project1);
+      makeProjectWithCommit(project2);
+
+      await client.createRepoAndPush({
+        token: 'tok-alice',
+        repoName: 'review-a',
+        projectPath: project1,
+        isPrivate: true,
+      });
+      await client.createRepoAndPush({
+        token: 'tok-alice',
+        repoName: 'review-b',
+        projectPath: project2,
+        isPrivate: true,
+      });
+
+      const bare1 = path.join(bareRemoteDir, 'alice', 'review-a.git');
+      const bare2 = path.join(bareRemoteDir, 'alice', 'review-b.git');
+      expect(fs.existsSync(bare1)).toBe(true);
+      expect(fs.existsSync(bare2)).toBe(true);
+
+      const log1 = execSync('git log --all --oneline', { cwd: bare1 }).toString().trim();
+      const log2 = execSync('git log --all --oneline', { cwd: bare2 }).toString().trim();
+      expect(log1).toContain('initial commit');
+      expect(log2).toContain('initial commit');
+    });
+
+    it('subsequent git push from the project lands in the bare remote', async () => {
+      const projectPath = path.join(tmpDir, 'project');
+      makeProjectWithCommit(projectPath);
+
+      await client.createRepoAndPush({
+        token: 'tok-alice',
+        repoName: 'my-review',
+        projectPath,
+        isPrivate: true,
+      });
+
+      fs.writeFileSync(path.join(projectPath, 'data.txt'), 'some data\n');
+      execSync('git add -A', { cwd: projectPath, env: gitEnv, stdio: 'pipe' });
+      execSync('git commit -m "add data"', { cwd: projectPath, env: gitEnv, stdio: 'pipe' });
+      execSync('git push origin main', { cwd: projectPath, stdio: 'pipe' });
+
+      const barePath = path.join(bareRemoteDir, 'alice', 'my-review.git');
+      const log = execSync('git log --all --oneline', { cwd: barePath }).toString().trim();
+      expect(log).toContain('add data');
+    });
+  });
+
+  describe('parseOwnerRepo with file paths', () => {
+    it('parses bare remote file paths', () => {
+      const barePath = path.join(bareRemoteDir, 'alice', 'lit-review.git');
+      const result = client.parseOwnerRepo(barePath);
+      expect(result).toEqual({ owner: 'alice', repo: 'lit-review' });
+    });
+
+    it('still parses HTTPS GitHub URLs', () => {
+      const result = client.parseOwnerRepo('https://github.com/alice/lit-review.git');
+      expect(result).toEqual({ owner: 'alice', repo: 'lit-review' });
+    });
+
+    it('returns null for paths without .git suffix', () => {
+      expect(client.parseOwnerRepo('/some/random/path')).toBeNull();
     });
   });
 });

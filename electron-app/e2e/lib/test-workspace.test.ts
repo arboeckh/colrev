@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import { TestWorkspace } from './test-workspace';
 
 const TEST_ROOT = '/tmp/colrev-e2e';
@@ -94,6 +95,86 @@ describe('TestWorkspace', () => {
       expect(fs.existsSync(ws.registryPath)).toBe(true);
       const data = JSON.parse(fs.readFileSync(ws.registryPath, 'utf-8'));
       expect(data.accounts[0].login).toBe('alice');
+    });
+  });
+
+  describe('bare remote lifecycle', () => {
+    it('createBareRemote creates a bare git repo at <bareRemoteDir>/<owner>/<repo>.git', () => {
+      ws = new TestWorkspace(testName);
+      const barePath = ws.createBareRemote('alice', 'lit-review');
+
+      expect(barePath).toBe(path.join(ws.bareRemoteDir, 'alice', 'lit-review.git'));
+      expect(fs.existsSync(barePath)).toBe(true);
+
+      const isBare = execSync('git rev-parse --is-bare-repository', { cwd: barePath })
+        .toString()
+        .trim();
+      expect(isBare).toBe('true');
+    });
+
+    it('multiple projects per account get their own bare remote', () => {
+      ws = new TestWorkspace(testName);
+      const bare1 = ws.createBareRemote('alice', 'review-a');
+      const bare2 = ws.createBareRemote('alice', 'review-b');
+
+      expect(bare1).not.toBe(bare2);
+      expect(fs.existsSync(bare1)).toBe(true);
+      expect(fs.existsSync(bare2)).toBe(true);
+    });
+
+    it('different accounts get separate bare remote directories', () => {
+      ws = new TestWorkspace(testName);
+      const bareAlice = ws.createBareRemote('alice', 'review');
+      const bareBob = ws.createBareRemote('bob', 'review');
+
+      expect(bareAlice).toContain('/alice/');
+      expect(bareBob).toContain('/bob/');
+      expect(bareAlice).not.toBe(bareBob);
+    });
+
+    it('bareRemotePath returns the expected path without creating anything', () => {
+      ws = new TestWorkspace(testName);
+      const expected = path.join(ws.bareRemoteDir, 'alice', 'my-repo.git');
+      expect(ws.bareRemotePath('alice', 'my-repo')).toBe(expected);
+      expect(fs.existsSync(expected)).toBe(false);
+    });
+
+    it('listBareRemotes returns created bare remotes', () => {
+      ws = new TestWorkspace(testName);
+      ws.createBareRemote('alice', 'review-a');
+      ws.createBareRemote('bob', 'review-b');
+
+      const remotes = ws.listBareRemotes();
+      expect(remotes).toHaveLength(2);
+      expect(remotes).toContainEqual({ owner: 'alice', repo: 'review-a' });
+      expect(remotes).toContainEqual({ owner: 'bob', repo: 'review-b' });
+    });
+
+    it('listBareRemotes returns empty when no bare remotes exist', () => {
+      ws = new TestWorkspace(testName);
+      expect(ws.listBareRemotes()).toEqual([]);
+    });
+
+    it('bare remotes are inspectable with plain git commands', () => {
+      ws = new TestWorkspace(testName);
+      const barePath = ws.createBareRemote('alice', 'review');
+
+      const tmpClone = path.join(ws.root, 'tmp-clone');
+      execSync(`git clone ${barePath} ${tmpClone}`);
+
+      const gitEnv = {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'Test',
+        GIT_AUTHOR_EMAIL: 'test@test.local',
+        GIT_COMMITTER_NAME: 'Test',
+        GIT_COMMITTER_EMAIL: 'test@test.local',
+      };
+      execSync('git checkout -b main', { cwd: tmpClone, env: gitEnv, stdio: 'pipe' });
+      execSync('git commit --allow-empty -m "test commit"', { cwd: tmpClone, env: gitEnv });
+      execSync('git push origin main', { cwd: tmpClone });
+
+      const log = execSync('git log --all --oneline', { cwd: barePath }).toString().trim();
+      expect(log).toContain('test commit');
     });
   });
 });
