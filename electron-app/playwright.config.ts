@@ -4,6 +4,7 @@ const isPackaged = process.env.COLREV_TEST_MODE === 'packaged';
 
 export default defineConfig({
   testDir: './e2e',
+  testMatch: /specs\/.*\.spec\.ts$/,
   // Packaged builds boot the python-build-standalone interpreter on a cold
   // disk (Gatekeeper checks, colrev imports). Give them more headroom.
   timeout: isPackaged ? 180_000 : 90_000,
