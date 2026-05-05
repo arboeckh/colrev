@@ -70,10 +70,9 @@ function emptyRegistry(): RegistryData {
   };
 }
 
-let nextId = 1;
-
 export class FakeGitHubRegistry {
   private data: RegistryData;
+  private nextId = 1;
 
   constructor(private readonly filePath: string) {
     if (fs.existsSync(filePath)) {
@@ -84,7 +83,7 @@ export class FakeGitHubRegistry {
         ...this.data.invitations.map((i) => i.id),
         ...this.data.releases.map((r) => r.id),
       );
-      nextId = maxId + 1;
+      this.nextId = maxId + 1;
     } else {
       this.data = emptyRegistry();
     }
@@ -110,7 +109,7 @@ export class FakeGitHubRegistry {
   addInvitation(owner: string, repo: string, inviteeLogin: string, permission: string): RegistryInvitation {
     const repoFullName = `${owner}/${repo}`;
     const inv: RegistryInvitation = {
-      id: nextId++,
+      id: this.nextId++,
       repoFullName,
       repoUrl: `https://github.com/${repoFullName}`,
       inviterLogin: owner,
@@ -163,7 +162,7 @@ export class FakeGitHubRegistry {
   ): RegistryRelease {
     const repoFullName = `${owner}/${repo}`;
     const release: RegistryRelease = {
-      id: nextId++,
+      id: this.nextId++,
       repoFullName,
       tagName: params.tagName,
       name: params.name,

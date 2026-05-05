@@ -6,7 +6,7 @@ import type {
   PendingRepoInvitation,
   RepoInvitation,
 } from './github-manager';
-import type { FakeGitHubRegistry } from './fake-github-registry';
+import type { FakeGitHubRegistry, RegistryRelease, RegistryRepo } from './fake-github-registry';
 
 export class FakeGitHubClient implements GitHubClient {
   constructor(private readonly registry: FakeGitHubRegistry) {}
@@ -24,18 +24,7 @@ export class FakeGitHubClient implements GitHubClient {
   }
 
   async listReleases(token: string, owner: string, repo: string): Promise<GitHubRelease[]> {
-    return this.registry.getReleases(owner, repo).map((r) => ({
-      id: r.id,
-      tagName: r.tagName,
-      name: r.name,
-      body: r.body,
-      htmlUrl: r.htmlUrl,
-      draft: r.draft,
-      prerelease: r.prerelease,
-      createdAt: r.createdAt,
-      publishedAt: r.publishedAt,
-      author: r.author,
-    }));
+    return this.registry.getReleases(owner, repo).map(toGitHubRelease);
   }
 
   async createRelease(
@@ -45,21 +34,7 @@ export class FakeGitHubClient implements GitHubClient {
     params: { tagName: string; name: string; body: string },
   ): Promise<{ success: boolean; release?: GitHubRelease; error?: string }> {
     const r = this.registry.createRelease(owner, repo, params);
-    return {
-      success: true,
-      release: {
-        id: r.id,
-        tagName: r.tagName,
-        name: r.name,
-        body: r.body,
-        htmlUrl: r.htmlUrl,
-        draft: r.draft,
-        prerelease: r.prerelease,
-        createdAt: r.createdAt,
-        publishedAt: r.publishedAt,
-        author: r.author,
-      },
-    };
+    return { success: true, release: toGitHubRelease(r) };
   }
 
   async listRepoCollaborators(
@@ -168,24 +143,12 @@ export class FakeGitHubClient implements GitHubClient {
   }
 }
 
-function toGitHubRepo(r: {
-  name: string;
-  fullName: string;
-  owner: string;
-  htmlUrl: string;
-  description: string | null;
-  isPrivate: boolean;
-  updatedAt: string;
-  cloneUrl: string;
-}): GitHubRepo {
-  return {
-    name: r.name,
-    fullName: r.fullName,
-    owner: r.owner,
-    htmlUrl: r.htmlUrl,
-    description: r.description,
-    isPrivate: r.isPrivate,
-    updatedAt: r.updatedAt,
-    cloneUrl: r.cloneUrl,
-  };
+function toGitHubRepo(r: RegistryRepo): GitHubRepo {
+  const { isColrev: _, ...repo } = r;
+  return repo;
+}
+
+function toGitHubRelease(r: RegistryRelease): GitHubRelease {
+  const { repoFullName: _, ...release } = r;
+  return release;
 }
