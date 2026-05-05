@@ -142,7 +142,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="p-6 h-full flex flex-col">
+  <div class="p-6 h-full flex flex-col" :data-testid="`managed-review-${kind}`">
     <!-- Page header -->
     <div class="flex items-center gap-2 mb-4">
       <component :is="kindIcon" class="h-5 w-5 text-muted-foreground" />

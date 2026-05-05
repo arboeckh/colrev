@@ -208,6 +208,14 @@ install_into_win_bundle() {
 
 # Generate a Mac/Linux shim from a console_scripts entry.
 # Args: bundle_dir, script_name, module:func
+#
+# The body is guarded with `if __name__ == "__main__":` so that when
+# multiprocessing.Pool() spawns a worker, the worker (which re-imports the
+# parent's main script under `__mp_main__`, not `__main__`) does NOT re-run
+# `main()`. Without this guard, every `multiprocessing.Pool()` call inside
+# colrev (e.g. bib_dedupe.block) deadlocks: each worker re-runs the
+# colrev-jsonrpc server, blocking on stdin instead of executing the pickled
+# task.
 write_mac_shim() {
     local bundle="$1"
     local name="$2"
@@ -219,12 +227,19 @@ write_mac_shim() {
 #!${bundle}/bin/python${PYTHON_VERSION%.*}
 import sys
 from ${module} import ${func}
-sys.exit(${func}())
+if __name__ == "__main__":
+    sys.exit(${func}())
 EOF
     chmod +x "$out"
 }
 
 # Generate a Windows .cmd shim from a console_scripts entry.
+#
+# The Windows shim invokes `python.exe -c "..."`, which means the parent
+# process has no `__main__.__file__` for multiprocessing.spawn to point a
+# worker at — the spawn child runs `python.exe -c "spawn_main(...)"` and
+# never re-executes this -c snippet. So unlike the mac shim, no
+# __name__-guard is needed here.
 write_win_shim() {
     local bundle="$1"
     local name="$2"
