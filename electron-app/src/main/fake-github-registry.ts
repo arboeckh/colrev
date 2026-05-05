@@ -200,7 +200,13 @@ export class FakeGitHubRegistry {
     return this.data.accounts.find((a) => a.token === token);
   }
 
-  createRepo(owner: string, repoName: string, isPrivate: boolean, description?: string, cloneUrl?: string): RegistryRepo {
+  createRepo(
+    owner: string,
+    repoName: string,
+    isPrivate: boolean,
+    description?: string,
+    cloneUrl?: string,
+  ): RegistryRepo {
     const repo: RegistryRepo = {
       name: repoName,
       fullName: `${owner}/${repoName}`,

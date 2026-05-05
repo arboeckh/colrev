@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import type { GitHubClient } from './github-client';
 import type {
   GitHubRepo,
@@ -121,25 +121,25 @@ export class FakeGitHubClient implements GitHubClient {
     if (this.bareRemoteDir) {
       const barePath = path.join(this.bareRemoteDir, account.login, `${params.repoName}.git`);
       fs.mkdirSync(barePath, { recursive: true });
-      execSync('git init --bare', { cwd: barePath, stdio: 'pipe' });
+      execFileSync('git', ['init', '--bare'], { cwd: barePath, stdio: 'pipe' });
 
-      const remotes = execSync('git remote', { cwd: params.projectPath, encoding: 'utf-8' })
+      const remotes = execFileSync('git', ['remote'], { cwd: params.projectPath, encoding: 'utf-8' })
         .trim()
         .split('\n')
         .filter(Boolean);
 
       if (remotes.includes('origin')) {
-        execSync(`git remote set-url origin ${barePath}`, { cwd: params.projectPath, stdio: 'pipe' });
+        execFileSync('git', ['remote', 'set-url', 'origin', barePath], { cwd: params.projectPath, stdio: 'pipe' });
       } else {
-        execSync(`git remote add origin ${barePath}`, { cwd: params.projectPath, stdio: 'pipe' });
+        execFileSync('git', ['remote', 'add', 'origin', barePath], { cwd: params.projectPath, stdio: 'pipe' });
       }
 
-      const branch = execSync('git symbolic-ref --short HEAD', {
+      const branch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
         cwd: params.projectPath,
         encoding: 'utf-8',
       }).trim();
 
-      execSync(`git push --no-verify -u origin ${branch}`, {
+      execFileSync('git', ['push', '--no-verify', '-u', 'origin', branch], {
         cwd: params.projectPath,
         stdio: 'pipe',
       });
