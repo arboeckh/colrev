@@ -15,7 +15,7 @@ Infer the repo from `git remote -v` — `gh` does this automatically when run in
 
 ## When a skill says "publish to the issue tracker"
 
-Create a GitHub issue. Per repo policy, `to-prd` and `to-issues` skip `needs-triage` and apply a state label directly (`ready-for-agent`, `ready-for-human`, or `needs-info`) — see `triage-labels.md`.
+Create a GitHub issue. This repo uses the global issue workflow defaults from `~/.agents/skills/issue-workflow-conventions/labels.md`: PRDs use `PRD`; implementation issues use exactly one of `autonomous` or `HIL`.
 
 ## When a skill says "fetch the relevant ticket"
 

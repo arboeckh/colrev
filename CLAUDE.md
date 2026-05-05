@@ -8,9 +8,9 @@
 
 Issues live in GitHub Issues on `arboeckh/colrev` (use the `gh` CLI). See `docs/agents/issue-tracker.md`.
 
-### Triage labels
+### Issue workflow labels
 
-Canonical labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). Repo policy: `to-prd` and `to-issues` skip `needs-triage` and apply a state label directly. See `docs/agents/triage-labels.md`.
+This repo uses the global issue workflow defaults from `~/.agents/skills/issue-workflow-conventions/labels.md`: PRDs use `PRD` and may later get `ready-for-review`; implementation issues use exactly one of `autonomous` or `HIL`.
 
 ### Domain docs
 
