@@ -10,19 +10,7 @@ import { AuthManager } from './auth-manager';
 if (process.env.COLREV_USER) {
   app.setPath('userData', path.join(app.getPath('userData') + '-' + process.env.COLREV_USER));
 }
-import {
-  createRepoAndPush,
-  listColrevRepos,
-  parseOwnerRepo,
-  listReleases,
-  createGitHubRelease,
-  listRepoCollaborators,
-  addRepoCollaborator,
-  listRepoInvitations,
-  acceptRepoInvitation,
-  listPendingRepoInvitations,
-  deleteGitHubRepo,
-} from './github-manager';
+import { getGitHubClient } from './github-client-factory';
 import {
   gitFetch,
   gitPull,
@@ -352,6 +340,8 @@ function setupIPC() {
   });
 
   // GitHub handlers
+  const gh = getGitHubClient();
+
   registerGit(
     'github:create-repo-and-push',
     async (
@@ -360,7 +350,7 @@ function setupIPC() {
     ) => {
       const token = authManager.getToken();
       if (!token) return { success: false, error: 'Not authenticated' };
-      return createRepoAndPush({ token, ...params });
+      return gh.createRepoAndPush({ token, ...params });
     },
   );
 
@@ -369,7 +359,7 @@ function setupIPC() {
     const token = authManager.getToken();
     if (!token) return { success: false, error: 'Not authenticated', repos: [] };
     try {
-      const repos = await listColrevRepos(token);
+      const repos = await gh.listColrevRepos(token);
       return { success: true, repos };
     } catch (err) {
       return {
@@ -597,10 +587,10 @@ function setupIPC() {
   ipcMain.handle('github:list-releases', async (_, params: { remoteUrl: string }) => {
     const token = authManager.getToken();
     if (!token) return { success: false, error: 'Not authenticated', releases: [] };
-    const parsed = parseOwnerRepo(params.remoteUrl);
+    const parsed = gh.parseOwnerRepo(params.remoteUrl);
     if (!parsed) return { success: false, error: 'Not a GitHub URL', releases: [] };
     try {
-      const releases = await listReleases(token, parsed.owner, parsed.repo);
+      const releases = await gh.listReleases(token, parsed.owner, parsed.repo);
       return { success: true, releases };
     } catch (err) {
       return { success: false, releases: [], error: err instanceof Error ? err.message : 'Failed to list releases' };
@@ -610,10 +600,10 @@ function setupIPC() {
   ipcMain.handle('github:list-collaborators', async (_, params: { remoteUrl: string }) => {
     const token = authManager.getToken();
     if (!token) return { success: false, error: 'Not authenticated', collaborators: [] };
-    const parsed = parseOwnerRepo(params.remoteUrl);
+    const parsed = gh.parseOwnerRepo(params.remoteUrl);
     if (!parsed) return { success: false, error: 'Not a GitHub URL', collaborators: [] };
     try {
-      const collaborators = await listRepoCollaborators(token, parsed.owner, parsed.repo);
+      const collaborators = await gh.listRepoCollaborators(token, parsed.owner, parsed.repo);
       return { success: true, collaborators };
     } catch (err) {
       return {
@@ -629,10 +619,10 @@ function setupIPC() {
     async (_, params: { remoteUrl: string; username: string; permission?: 'pull' | 'push' | 'admin' }) => {
       const token = authManager.getToken();
       if (!token) return { success: false, error: 'Not authenticated' };
-      const parsed = parseOwnerRepo(params.remoteUrl);
+      const parsed = gh.parseOwnerRepo(params.remoteUrl);
       if (!parsed) return { success: false, error: 'Not a GitHub URL' };
       try {
-        return await addRepoCollaborator(
+        return await gh.addRepoCollaborator(
           token,
           parsed.owner,
           parsed.repo,
@@ -652,10 +642,10 @@ function setupIPC() {
   ipcMain.handle('github:list-pending-invitations', async (_, params: { remoteUrl: string }) => {
     const token = authManager.getToken();
     if (!token) return { success: false, error: 'Not authenticated', invitations: [] };
-    const parsed = parseOwnerRepo(params.remoteUrl);
+    const parsed = gh.parseOwnerRepo(params.remoteUrl);
     if (!parsed) return { success: false, error: 'Not a GitHub URL', invitations: [] };
     try {
-      const invitations = await listPendingRepoInvitations(token, parsed.owner, parsed.repo);
+      const invitations = await gh.listPendingRepoInvitations(token, parsed.owner, parsed.repo);
       return { success: true, invitations };
     } catch (err) {
       return {
@@ -670,7 +660,7 @@ function setupIPC() {
     const token = authManager.getToken();
     if (!token) return { success: false, error: 'Not authenticated', invitations: [] };
     try {
-      const invitations = await listRepoInvitations(token);
+      const invitations = await gh.listRepoInvitations(token);
       return { success: true, invitations };
     } catch (err) {
       return {
@@ -685,7 +675,7 @@ function setupIPC() {
     const token = authManager.getToken();
     if (!token) return { success: false, error: 'Not authenticated' };
     try {
-      return await acceptRepoInvitation(token, params.invitationId);
+      return await gh.acceptRepoInvitation(token, params.invitationId);
     } catch (err) {
       return {
         success: false,
@@ -698,10 +688,10 @@ function setupIPC() {
   ipcMain.handle('github:delete-repo', async (_, params: { remoteUrl: string }) => {
     const token = authManager.getToken();
     if (!token) return { success: false, error: 'Not authenticated' };
-    const parsed = parseOwnerRepo(params.remoteUrl);
+    const parsed = gh.parseOwnerRepo(params.remoteUrl);
     if (!parsed) return { success: false, error: 'Not a GitHub URL' };
     try {
-      return await deleteGitHubRepo(token, parsed.owner, parsed.repo);
+      return await gh.deleteRepo(token, parsed.owner, parsed.repo);
     } catch (err) {
       return {
         success: false,
@@ -716,7 +706,7 @@ function setupIPC() {
     async (_, params: { remoteUrl: string; tagName: string; name: string; body: string; projectPath: string }) => {
       const token = authManager.getToken();
       if (!token) return { success: false, error: 'Not authenticated' };
-      const parsed = parseOwnerRepo(params.remoteUrl);
+      const parsed = gh.parseOwnerRepo(params.remoteUrl);
       if (!parsed) return { success: false, error: 'Not a GitHub URL' };
 
       // 1. Create local tag
@@ -728,7 +718,7 @@ function setupIPC() {
       if (!pushResult.success) return pushResult;
 
       // 3. Create GitHub release
-      const releaseResult = await createGitHubRelease(token, parsed.owner, parsed.repo, {
+      const releaseResult = await gh.createRelease(token, parsed.owner, parsed.repo, {
         tagName: params.tagName,
         name: params.name,
         body: params.body,
