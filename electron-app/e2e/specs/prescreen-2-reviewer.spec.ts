@@ -154,11 +154,10 @@ test.describe('prescreen-2-reviewer', () => {
     // ---------------------------------------------------------------
     console.log('[prescreen-2r] navigating to prescreen');
     await window.evaluate(() => {
-      const hash = location.hash;
-      const projectMatch = hash.match(/#\/project\/([^/]+)/);
-      if (projectMatch) {
-        location.hash = `#/project/${projectMatch[1]}/prescreen`;
-      }
+      location.hash = location.hash.replace(
+        /\/project\/([^/]+).*$/,
+        '/project/$1/prescreen',
+      );
     });
 
     await window.waitForSelector('[data-testid="managed-review-prescreen"]', {
@@ -212,18 +211,10 @@ test.describe('prescreen-2-reviewer', () => {
 
     // Record 2: Exclude
     console.log('[prescreen-2r] Alice: deciding record 2 (exclude)');
-    await window.waitForSelector(
-      '[data-testid="prescreen-btn-exclude"]:not([disabled])',
-      { timeout: 10_000 },
-    );
     await clickWhenEnabled(window, '[data-testid="prescreen-btn-exclude"]', 10_000);
 
     // Record 3: Include
     console.log('[prescreen-2r] Alice: deciding record 3 (include)');
-    await window.waitForSelector(
-      '[data-testid="prescreen-btn-include"]:not([disabled])',
-      { timeout: 10_000 },
-    );
     await clickWhenEnabled(window, '[data-testid="prescreen-btn-include"]', 10_000);
 
     // Wait for completion screen
@@ -319,18 +310,10 @@ test.describe('prescreen-2-reviewer', () => {
 
     // Record 2: Include (different from Alice)
     console.log('[prescreen-2r] Bob: deciding record 2 (include)');
-    await window.waitForSelector(
-      '[data-testid="prescreen-btn-include"]:not([disabled])',
-      { timeout: 10_000 },
-    );
     await clickWhenEnabled(window, '[data-testid="prescreen-btn-include"]', 10_000);
 
     // Record 3: Exclude (different from Alice)
     console.log('[prescreen-2r] Bob: deciding record 3 (exclude)');
-    await window.waitForSelector(
-      '[data-testid="prescreen-btn-exclude"]:not([disabled])',
-      { timeout: 10_000 },
-    );
     await clickWhenEnabled(window, '[data-testid="prescreen-btn-exclude"]', 10_000);
 
     // Wait for completion screen
