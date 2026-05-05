@@ -124,3 +124,5 @@ export async function switchAccount(
 }
 
 export { expect } from '@playwright/test';
+export { seedAccounts, seedBareRemote, seedAliceProject, seedRecords, ALICE, DEFAULT_PROJECT_ID } from '../lib/seeders';
+export type { SeedAccount } from '../lib/seeders';
