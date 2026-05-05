@@ -125,7 +125,7 @@ function prettyDate(value?: string | null) {
 
 async function loadCollaborators() {
   collaborators.value = [];
-  if (!remoteUrl.value || !remoteUrl.value.includes('github.com')) return;
+  if (!remoteUrl.value) return;
 
   isLoadingCollaborators.value = true;
   try {

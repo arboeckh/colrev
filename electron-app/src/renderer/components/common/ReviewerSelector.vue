@@ -100,6 +100,7 @@ function select(login: string) {
           v-for="collaborator in filteredCollaborators"
           :key="collaborator.login"
           class="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-sm hover:bg-accent transition-colors cursor-pointer"
+          :data-testid="`reviewer-option-${collaborator.login}`"
           @click="select(collaborator.login)"
         >
           <Avatar class="h-6 w-6 shrink-0">

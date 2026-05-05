@@ -162,7 +162,7 @@ function prettyDate(value?: string | null) {
 
 async function loadCollaborators() {
   collaborators.value = [];
-  if (!remoteUrl.value || !remoteUrl.value.includes('github.com')) return;
+  if (!remoteUrl.value) return;
 
   isLoadingCollaborators.value = true;
   try {
@@ -505,7 +505,7 @@ defineExpose({ refreshData, activeTask, tasks });
 
         <!-- Reviewer selection dropdowns -->
         <div class="grid gap-4 md:grid-cols-2 max-w-md">
-          <div class="space-y-1.5">
+          <div class="space-y-1.5" data-testid="reviewer-a-selector">
             <label class="text-xs font-medium text-muted-foreground">Reviewer A</label>
             <ReviewerSelector
               v-model="reviewerA"
@@ -515,7 +515,7 @@ defineExpose({ refreshData, activeTask, tasks });
               placeholder="Select reviewer A..."
             />
           </div>
-          <div class="space-y-1.5">
+          <div class="space-y-1.5" data-testid="reviewer-b-selector">
             <label class="text-xs font-medium text-muted-foreground">Reviewer B</label>
             <ReviewerSelector
               v-model="reviewerB"
@@ -531,6 +531,7 @@ defineExpose({ refreshData, activeTask, tasks });
           <Button
             size="sm"
             :disabled="isReadOnly || isCreating || !readiness?.ready || !reviewerA || !reviewerB || reviewerA === reviewerB || (showCriteria && criteriaCount === 0)"
+            data-testid="launch-managed-task-btn"
             @click="createTask"
           >
             {{ isCreating ? 'Launching...' : `Launch ${kindLabel} Task` }}

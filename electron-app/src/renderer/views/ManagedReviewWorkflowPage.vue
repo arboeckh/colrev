@@ -170,6 +170,7 @@ onMounted(async () => {
                 : 'text-muted-foreground/40 cursor-not-allowed',
           ]"
           :disabled="!canNavigateToPhase(phase.id)"
+          :data-testid="`workflow-phase-${phase.id}`"
           @click="selectPhase(phase.id)"
         >
           <!-- Step indicator -->

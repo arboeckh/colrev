@@ -104,7 +104,7 @@ const isPushing = ref(false);
 
 // Remote status helpers
 const remoteUrl = computed(() => projects.currentGitStatus?.remote_url ?? null);
-const isGitHubRemote = computed(() => remoteUrl.value?.includes('github.com') ?? false);
+const isGitHubRemote = computed(() => !!remoteUrl.value);
 const gitHubUrl = computed(() => {
   if (!remoteUrl.value || !isGitHubRemote.value) return null;
   return remoteUrl.value
