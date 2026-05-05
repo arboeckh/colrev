@@ -8,8 +8,12 @@ import {
   seedBareRemote,
   seedAliceProject,
   seedRecords,
+  seedCollaborator,
   ALICE,
+  BOB,
   DEFAULT_PROJECT_ID,
+  PINNED_DATE,
+  pinnedNow,
 } from './seeders';
 
 const TEST_ROOT = '/tmp/colrev-e2e';
@@ -327,5 +331,196 @@ describe('seedRecords', () => {
     }).trim();
     const addRecordsCount = log.split('\n').filter((l: string) => l.includes('Add records')).length;
     expect(addRecordsCount).toBe(1);
+  });
+});
+
+describe('seedCollaborator', () => {
+  let ws: TestWorkspace;
+  const fixtureDir = path.join(__dirname, '../fixtures/data');
+  const recordsFixture = path.join(fixtureDir, 'records.bib');
+
+  afterEach(cleanup);
+
+  it('adds collaborator to the registry', () => {
+    ws = new TestWorkspace(testName);
+    seedAccounts(ws, [ALICE, BOB]);
+    seedAliceProject(ws);
+    seedRecords(ws, recordsFixture);
+
+    seedCollaborator(ws, BOB, `alice/${DEFAULT_PROJECT_ID}`);
+
+    const registry = JSON.parse(fs.readFileSync(ws.registryPath, 'utf-8'));
+    const collab = registry.collaborators.find(
+      (c: { login: string }) => c.login === 'bob',
+    );
+    expect(collab).toBeDefined();
+    expect(collab.repoFullName).toBe(`alice/${DEFAULT_PROJECT_ID}`);
+  });
+
+  it('clones the repo into the collaborator project directory', () => {
+    ws = new TestWorkspace(testName);
+    seedAccounts(ws, [ALICE, BOB]);
+    seedAliceProject(ws);
+    seedRecords(ws, recordsFixture);
+
+    seedCollaborator(ws, BOB, `alice/${DEFAULT_PROJECT_ID}`);
+
+    const bobClone = path.join(ws.userDataDir, 'projects', 'bob', DEFAULT_PROJECT_ID);
+    expect(fs.existsSync(path.join(bobClone, '.git'))).toBe(true);
+    expect(fs.existsSync(path.join(bobClone, 'data', 'records.bib'))).toBe(true);
+  });
+
+  it('cloned repo has the same commits as the original', () => {
+    ws = new TestWorkspace(testName);
+    seedAccounts(ws, [ALICE, BOB]);
+    const alicePath = seedAliceProject(ws);
+    seedRecords(ws, recordsFixture);
+
+    seedCollaborator(ws, BOB, `alice/${DEFAULT_PROJECT_ID}`);
+
+    const aliceHead = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: alicePath,
+      encoding: 'utf-8',
+    }).trim();
+
+    const bobClone = path.join(ws.userDataDir, 'projects', 'bob', DEFAULT_PROJECT_ID);
+    const bobHead = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: bobClone,
+      encoding: 'utf-8',
+    }).trim();
+
+    expect(bobHead).toBe(aliceHead);
+  });
+
+  it('is idempotent', () => {
+    ws = new TestWorkspace(testName);
+    seedAccounts(ws, [ALICE, BOB]);
+    seedAliceProject(ws);
+    seedRecords(ws, recordsFixture);
+
+    seedCollaborator(ws, BOB, `alice/${DEFAULT_PROJECT_ID}`);
+    seedCollaborator(ws, BOB, `alice/${DEFAULT_PROJECT_ID}`);
+
+    const registry = JSON.parse(fs.readFileSync(ws.registryPath, 'utf-8'));
+    const collabs = registry.collaborators.filter(
+      (c: { login: string }) => c.login === 'bob',
+    );
+    expect(collabs).toHaveLength(1);
+  });
+
+  it('throws if repo not in registry', () => {
+    ws = new TestWorkspace(testName);
+    seedAccounts(ws, [ALICE, BOB]);
+    expect(() => seedCollaborator(ws, BOB, 'alice/nonexistent')).toThrow('not found in registry');
+  });
+});
+
+describe('COLREV_E2E_PINNED_DATES', () => {
+  let ws: TestWorkspace;
+  const originalEnv = process.env.COLREV_E2E_PINNED_DATES;
+
+  afterEach(() => {
+    if (originalEnv === undefined) {
+      delete process.env.COLREV_E2E_PINNED_DATES;
+    } else {
+      process.env.COLREV_E2E_PINNED_DATES = originalEnv;
+    }
+    cleanup();
+  });
+
+  it('pinnedNow returns PINNED_DATE when env var is set', () => {
+    process.env.COLREV_E2E_PINNED_DATES = '1';
+    expect(pinnedNow()).toBe(PINNED_DATE);
+  });
+
+  it('pinnedNow returns current time when env var is unset', () => {
+    delete process.env.COLREV_E2E_PINNED_DATES;
+    const before = new Date().toISOString();
+    const result = pinnedNow();
+    const after = new Date().toISOString();
+    expect(result >= before && result <= after).toBe(true);
+  });
+
+  it('seedAccounts uses pinned date for authenticatedAt', () => {
+    process.env.COLREV_E2E_PINNED_DATES = '1';
+    ws = new TestWorkspace(testName);
+    seedAccounts(ws, [ALICE]);
+
+    const auth = JSON.parse(fs.readFileSync(path.join(ws.userDataDir, 'auth.json'), 'utf-8'));
+    expect(auth.accounts[0].authenticatedAt).toBe(PINNED_DATE);
+  });
+
+  it('seedBareRemote uses pinned date for updatedAt', () => {
+    process.env.COLREV_E2E_PINNED_DATES = '1';
+    ws = new TestWorkspace(testName);
+    seedAccounts(ws, [ALICE]);
+    seedBareRemote(ws, 'lit-review');
+
+    const registry = JSON.parse(fs.readFileSync(ws.registryPath, 'utf-8'));
+    expect(registry.repos[0].updatedAt).toBe(PINNED_DATE);
+  });
+
+  it('git commits use pinned dates when env var is set', () => {
+    process.env.COLREV_E2E_PINNED_DATES = '1';
+    ws = new TestWorkspace(testName);
+    seedAccounts(ws, [ALICE]);
+    const projectPath = seedAliceProject(ws);
+
+    const authorDate = execFileSync(
+      'git',
+      ['log', '-1', '--format=%aI'],
+      { cwd: projectPath, encoding: 'utf-8' },
+    ).trim();
+
+    const committerDate = execFileSync(
+      'git',
+      ['log', '-1', '--format=%cI'],
+      { cwd: projectPath, encoding: 'utf-8' },
+    ).trim();
+
+    expect(authorDate).toBe('2025-01-01T00:00:00+00:00');
+    expect(committerDate).toBe('2025-01-01T00:00:00+00:00');
+  });
+
+  it('git commits use real dates when env var is unset', () => {
+    delete process.env.COLREV_E2E_PINNED_DATES;
+    ws = new TestWorkspace(testName);
+    seedAccounts(ws, [ALICE]);
+    const projectPath = seedAliceProject(ws);
+
+    const authorDate = execFileSync(
+      'git',
+      ['log', '-1', '--format=%aI'],
+      { cwd: projectPath, encoding: 'utf-8' },
+    ).trim();
+
+    expect(authorDate).not.toBe('2025-01-01T00:00:00+00:00');
+  });
+
+  it('produces identical git commits across two runs with pinned dates', () => {
+    process.env.COLREV_E2E_PINNED_DATES = '1';
+
+    ws = new TestWorkspace(testName);
+    seedAccounts(ws, [ALICE]);
+    const path1 = seedAliceProject(ws);
+    const hash1 = execFileSync(
+      'git',
+      ['rev-parse', 'HEAD'],
+      { cwd: path1, encoding: 'utf-8' },
+    ).trim();
+
+    const name2 = `${testName}-run2`;
+    const ws2 = new TestWorkspace(name2);
+    seedAccounts(ws2, [ALICE]);
+    const path2 = seedAliceProject(ws2);
+    const hash2 = execFileSync(
+      'git',
+      ['rev-parse', 'HEAD'],
+      { cwd: path2, encoding: 'utf-8' },
+    ).trim();
+
+    expect(hash1).toBe(hash2);
+
+    fs.rmSync(path.join('/tmp/colrev-e2e', name2), { recursive: true, force: true });
   });
 });

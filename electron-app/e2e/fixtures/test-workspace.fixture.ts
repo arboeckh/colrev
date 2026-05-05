@@ -129,7 +129,13 @@ export {
   seedBareRemote,
   seedAliceProject,
   seedRecords,
+  seedCollaborator,
   ALICE,
+  BOB,
   DEFAULT_PROJECT_ID,
+  PINNED_DATE,
+  pinnedNow,
 } from '../lib/seeders';
 export type { SeedAccount } from '../lib/seeders';
+export { SnapshotCache } from '../lib/snapshot-cache';
+export type { SnapshotCacheOptions } from '../lib/snapshot-cache';

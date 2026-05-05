@@ -195,6 +195,12 @@ function setupIPC() {
       if (bundleBinDir) {
         spawnEnv.PATH = `${bundleBinDir}${path.delimiter}${spawnEnv.PATH ?? process.env.PATH ?? ''}`;
       }
+      if (process.env.COLREV_E2E_PINNED_DATES === '1') {
+        const pinnedDate = '2025-01-01T00:00:00+00:00';
+        spawnEnv.GIT_AUTHOR_DATE = pinnedDate;
+        spawnEnv.GIT_COMMITTER_DATE = pinnedDate;
+        spawnEnv.COLREV_E2E_PINNED_DATES = '1';
+      }
 
       backend = new ColrevBackend(colrevPath, colrevArgs, spawnEnv);
 

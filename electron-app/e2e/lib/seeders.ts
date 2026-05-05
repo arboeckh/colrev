@@ -9,7 +9,10 @@ export interface SeedAccount {
 }
 
 export const ALICE: SeedAccount = { login: 'alice', token: 'tok-alice' };
+export const BOB: SeedAccount = { login: 'bob', token: 'tok-bob' };
 export const DEFAULT_PROJECT_ID = 'lit-review';
+
+export const PINNED_DATE = '2025-01-01T00:00:00+00:00';
 
 const GIT_ENV = {
   GIT_AUTHOR_NAME: 'Test',
@@ -18,8 +21,21 @@ const GIT_ENV = {
   GIT_COMMITTER_EMAIL: 'test@test.local',
 };
 
+function isPinnedDates(): boolean {
+  return process.env.COLREV_E2E_PINNED_DATES === '1';
+}
+
+export function pinnedNow(): string {
+  return isPinnedDates() ? PINNED_DATE : new Date().toISOString();
+}
+
 function gitEnv(): NodeJS.ProcessEnv {
-  return { ...process.env, ...GIT_ENV };
+  const env: NodeJS.ProcessEnv = { ...process.env, ...GIT_ENV };
+  if (isPinnedDates()) {
+    env.GIT_AUTHOR_DATE = PINNED_DATE;
+    env.GIT_COMMITTER_DATE = PINNED_DATE;
+  }
+  return env;
 }
 
 function readJson(filePath: string): unknown {
@@ -72,7 +88,7 @@ export function seedAccounts(workspace: TestWorkspace, accounts: SeedAccount[]):
         avatarUrl: '',
         email: `${a.login}@test.local`,
       },
-      authenticatedAt: new Date().toISOString(),
+      authenticatedAt: pinnedNow(),
     })),
   };
   writeJson(authPath, authData);
@@ -121,7 +137,7 @@ export function seedBareRemote(workspace: TestWorkspace, repoName: string): stri
       htmlUrl: `https://github.com/${fullName}`,
       description: null,
       isPrivate: false,
-      updatedAt: new Date().toISOString(),
+      updatedAt: pinnedNow(),
       cloneUrl: barePath,
       isColrev: true,
     });
@@ -274,6 +290,49 @@ export function seedRecords(workspace: TestWorkspace, recordsBibFixturePath: str
   });
   execFileSync('git', ['push', 'origin', 'main'], {
     cwd: projectPath,
+    stdio: 'pipe',
+    env,
+  });
+}
+
+export function seedCollaborator(
+  workspace: TestWorkspace,
+  collaborator: SeedAccount,
+  repoFullName: string,
+): void {
+  const registry = readOrCreateRegistry(workspace.registryPath);
+
+  const repo = registry.repos.find((r) => r.fullName === repoFullName);
+  if (!repo) {
+    throw new Error(`Repo "${repoFullName}" not found in registry`);
+  }
+
+  const existing = (registry.collaborators as { login: string; repoFullName: string }[]).find(
+    (c) => c.login === collaborator.login && c.repoFullName === repoFullName,
+  );
+  if (existing) return;
+
+  (registry.collaborators as { login: string; name: string | null; avatarUrl: string; repoFullName: string }[]).push({
+    login: collaborator.login,
+    name: collaborator.login,
+    avatarUrl: '',
+    repoFullName,
+  });
+
+  writeJson(workspace.registryPath, registry);
+
+  const clonePath = path.join(
+    workspace.userDataDir,
+    'projects',
+    collaborator.login,
+    path.basename(repoFullName),
+  );
+
+  if (fs.existsSync(path.join(clonePath, '.git'))) return;
+
+  fs.mkdirSync(path.dirname(clonePath), { recursive: true });
+  const env = gitEnv();
+  execFileSync('git', ['clone', '--branch', 'main', repo.cloneUrl, clonePath], {
     stdio: 'pipe',
     env,
   });

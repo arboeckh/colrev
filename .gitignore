@@ -97,3 +97,6 @@ electron-app/release/
 electron-app/resources/
 electron-app/resources/python-mac-arm64/
 electron-app/resources/python-win-x64/
+
+# E2E snapshot cache (derived artifacts, not committed)
+.cache/colrev-test-fixtures/
