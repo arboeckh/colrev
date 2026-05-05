@@ -46,6 +46,13 @@ function writeJson(filePath: string, data: unknown): void {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
+interface Collaborator {
+  login: string;
+  name: string | null;
+  avatarUrl: string;
+  repoFullName: string;
+}
+
 interface RegistryData {
   accounts: { login: string; name: string; avatarUrl: string; token: string }[];
   repos: {
@@ -59,7 +66,7 @@ interface RegistryData {
     cloneUrl: string;
     isColrev: boolean;
   }[];
-  collaborators: unknown[];
+  collaborators: Collaborator[];
   invitations: unknown[];
   releases: unknown[];
 }
@@ -307,12 +314,12 @@ export function seedCollaborator(
     throw new Error(`Repo "${repoFullName}" not found in registry`);
   }
 
-  const existing = (registry.collaborators as { login: string; repoFullName: string }[]).find(
+  const existing = registry.collaborators.find(
     (c) => c.login === collaborator.login && c.repoFullName === repoFullName,
   );
   if (existing) return;
 
-  (registry.collaborators as { login: string; name: string | null; avatarUrl: string; repoFullName: string }[]).push({
+  registry.collaborators.push({
     login: collaborator.login,
     name: collaborator.login,
     avatarUrl: '',
