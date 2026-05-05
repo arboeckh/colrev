@@ -55,11 +55,6 @@ function readOrCreateRegistry(registryPath: string): RegistryData {
   return { accounts: [], repos: [], collaborators: [], invitations: [], releases: [] };
 }
 
-/**
- * Writes auth.json and registry.json for the given accounts.
- * First account becomes the active login.
- * Idempotent: overwrites auth.json, merges registry accounts.
- */
 export function seedAccounts(workspace: TestWorkspace, accounts: SeedAccount[]): void {
   if (accounts.length === 0) {
     throw new Error('At least one account required');
@@ -102,11 +97,6 @@ export function seedAccounts(workspace: TestWorkspace, accounts: SeedAccount[]):
   writeJson(workspace.registryPath, registry);
 }
 
-/**
- * Creates a bare git repo and registers it in the registry as a colrev repo.
- * Owner is the active login from auth.json.
- * Idempotent: re-init of an existing bare repo is a no-op.
- */
 export function seedBareRemote(workspace: TestWorkspace, repoName: string): string {
   const authPath = path.join(workspace.userDataDir, 'auth.json');
   if (!fs.existsSync(authPath)) {
@@ -197,12 +187,6 @@ const MINIMAL_SETTINGS = {
   },
 };
 
-/**
- * Creates a minimal CoLRev project clone owned by Alice.
- * Seeds Alice's account if not already seeded.
- * Creates a bare remote, initializes the project, commits, and pushes.
- * Idempotent: returns existing project path if already created.
- */
 export function seedAliceProject(workspace: TestWorkspace): string {
   const authPath = path.join(workspace.userDataDir, 'auth.json');
   if (!fs.existsSync(authPath)) {
@@ -251,11 +235,6 @@ export function seedAliceProject(workspace: TestWorkspace): string {
   return projectPath;
 }
 
-/**
- * Copies a records.bib fixture into the project's data/ directory
- * and commits + pushes the change.
- * Idempotent: if the file is identical, the commit is skipped.
- */
 export function seedRecords(workspace: TestWorkspace, recordsBibFixturePath: string): void {
   const projectPath = path.join(
     workspace.userDataDir,
