@@ -20,8 +20,15 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 # --user 1000:1000 (Docker) map to the correct home directory owner.
 RUN usermod -d /home/agent -m -l agent node
 
-# Install pi coding agent (run as root before USER agent)
-RUN npm install -g @mariozechner/pi-coding-agent
+# Install Claude Code (run as root before USER agent)
+RUN npm install -g @anthropic-ai/claude-code
+
+# Sandcastle's docker provider runs the container with --user $HOST_UID:$HOST_GID
+# (process.getuid/getgid in node_modules/@ai-hero/sandcastle/dist/sandboxes/docker.js).
+# On macOS the host UID is 501, not 1000, so /home/agent (owned by UID 1000) is
+# not writable by the running user — claude blocks silently when creating
+# ~/.claude / ~/.cache and never emits stream-json. Make HOME writable by any UID.
+RUN chmod 777 /home/agent
 
 USER agent
 

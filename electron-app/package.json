@@ -53,7 +53,7 @@
       "node_modules/dugite/git/**/*"
     ],
     "mac": {
-      "target": "dmg",
+      "target": "dir",
       "icon": "resources/icons/icon.icns",
       "extraResources": [
         {
@@ -65,6 +65,9 @@
           "to": "python-mac-arm64"
         }
       ]
+    },
+    "dmg": {
+      "size": 1500
     },
     "win": {
       "target": "portable",
