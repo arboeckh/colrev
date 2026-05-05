@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { ColrevBackend } from './colrev-backend';
 import { setupGitEnvironment } from './git-env';
 import { AuthManager } from './auth-manager';
+import { AccountScopedProjectPaths } from './account-scoped-project-paths';
 
 // Allow running multiple instances with separate data directories via COLREV_USER env var
 // Usage: COLREV_USER=alice npm run dev  /  COLREV_USER=bob npm run dev
@@ -110,6 +111,7 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow: BrowserWindow | null = null;
 let backend: ColrevBackend | null = null;
 const authManager = new AuthManager();
+const projectPaths = new AccountScopedProjectPaths(app.getPath('userData'));
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -310,10 +312,13 @@ function setupIPC() {
       if (!params?.projectId || !params?.relativePath) {
         return { exists: false };
       }
-      const projectsPath = path.join(app.getPath('userData'), 'projects');
-      const filePath = path.resolve(projectsPath, params.projectId, params.relativePath);
-      // Same containment check as the protocol handler
-      if (!filePath.startsWith(path.resolve(projectsPath))) {
+      const login = authManager.getActiveLogin();
+      if (!login) {
+        return { exists: false };
+      }
+      const accountRoot = projectPaths.projectsRootForAccount(login);
+      const filePath = path.resolve(accountRoot, params.projectId, params.relativePath);
+      if (!filePath.startsWith(path.resolve(accountRoot))) {
         return { exists: false };
       }
       return { exists: fs.existsSync(filePath) };
@@ -375,16 +380,18 @@ function setupIPC() {
     'github:clone-repo',
     async (_, params: { cloneUrl: string; projectId: string }) => {
       const token = authManager.getToken();
-      const projectsPath = path.join(app.getPath('userData'), 'projects');
+      const login = authManager.getActiveLogin();
+      if (!login) {
+        return { success: false, error: 'No active account' };
+      }
+      const accountRoot = projectPaths.projectsRootForAccount(login);
 
-      // Ensure projects directory exists
-      if (!fs.existsSync(projectsPath)) {
-        fs.mkdirSync(projectsPath, { recursive: true });
+      if (!fs.existsSync(accountRoot)) {
+        fs.mkdirSync(accountRoot, { recursive: true });
       }
 
-      const targetPath = path.join(projectsPath, params.projectId);
+      const targetPath = path.join(accountRoot, params.projectId);
 
-      // Validate target doesn't already exist
       if (fs.existsSync(targetPath)) {
         return { success: false, error: 'Project directory already exists' };
       }
@@ -729,17 +736,30 @@ function setupIPC() {
 
   // Get app info
   ipcMain.handle('app:info', () => {
-    // Use app's userData folder (~/Library/Application Support/AppName on macOS)
-    const projectsPath = path.join(app.getPath('userData'), 'projects');
+    const login = authManager.getActiveLogin();
+    const accountProjectsPath = login
+      ? projectPaths.projectsRootForAccount(login)
+      : projectPaths.projectsRoot;
 
     return {
       isPackaged: app.isPackaged,
       resourcesPath: process.resourcesPath,
       appPath: app.getAppPath(),
       version: app.getVersion(),
-      projectsPath, // Writable path for CoLRev projects
+      projectsPath: accountProjectsPath,
     };
   });
+
+  // Test-only: switch account without network validation
+  if (process.env.COLREV_FAKE_GITHUB_REGISTRY) {
+    ipcMain.handle('__test/switchAccount', async (_, login: string) => {
+      const session = authManager.switchAccountLocal(login);
+      if (!session) {
+        return { success: false, error: `Account "${login}" not found` };
+      }
+      return { success: true, login: session.user.login };
+    });
+  }
 }
 
 app.whenReady().then(() => {
@@ -762,17 +782,20 @@ app.whenReady().then(() => {
 
     const projectId = decodeURIComponent(parts[0]);
     const relativePath = parts.slice(1).map(decodeURIComponent).join('/');
-    const projectsPath = path.join(app.getPath('userData'), 'projects');
-    const filePath = path.resolve(projectsPath, projectId, relativePath);
+    const login = authManager.getActiveLogin();
+    if (!login) {
+      return new Response('No active account', { status: 403 });
+    }
+    const accountRoot = projectPaths.projectsRootForAccount(login);
+    const filePath = path.resolve(accountRoot, projectId, relativePath);
 
-    // Security: verify resolved path stays within projects directory
-    if (!filePath.startsWith(path.resolve(projectsPath))) {
+    if (!filePath.startsWith(path.resolve(accountRoot))) {
       return new Response('Access denied', { status: 403 });
     }
 
     if (!fs.existsSync(filePath)) {
       console.warn(
-        `[pdf-debug] 404 for ${request.url} -> resolved=${filePath} (projectId=${projectId}, relativePath=${relativePath}, projectsPath=${projectsPath})`,
+        `[pdf-debug] 404 for ${request.url} -> resolved=${filePath} (projectId=${projectId}, relativePath=${relativePath}, accountRoot=${accountRoot})`,
       );
       return new Response('PDF not found', { status: 404 });
     }

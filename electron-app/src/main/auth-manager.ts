@@ -161,6 +161,13 @@ export class AuthManager {
 
   // --- Multi-account ---
 
+  getActiveLogin(): string | null {
+    const store = this.readStore();
+    if (!store.activeLogin || store.accounts.length === 0) return null;
+    const account = store.accounts.find((a) => a.user.login === store.activeLogin);
+    return account ? account.user.login : null;
+  }
+
   listAccounts(): AccountInfo[] {
     const store = this.readStore();
     return store.accounts.map((a) => ({
@@ -198,6 +205,19 @@ export class AuthManager {
       this.removeAccount(login);
       return null;
     }
+  }
+
+  switchAccountLocal(login: string): AuthSession | null {
+    const store = this.readStore();
+    const account = store.accounts.find((a) => a.user.login === login);
+    if (!account) return null;
+
+    store.activeLogin = login;
+    this.writeStore(store);
+
+    const session: AuthSession = { user: account.user, authenticatedAt: account.authenticatedAt };
+    this.emitAuthUpdate(session);
+    return session;
   }
 
   removeAccount(login: string): void {

@@ -184,3 +184,9 @@ contextBridge.exposeInMainWorld('git', {
 contextBridge.exposeInMainWorld('appInfo', {
   get: () => ipcRenderer.invoke('app:info'),
 });
+
+if (process.env.COLREV_FAKE_GITHUB_REGISTRY) {
+  contextBridge.exposeInMainWorld('__test', {
+    switchAccount: (login: string) => ipcRenderer.invoke('__test/switchAccount', login),
+  });
+}
