@@ -3,8 +3,7 @@
  *
  * Seeds Alice and Bob in the fake registry and auth store. Verifies that
  * each account sees only their own repos when switching via the test-only
- * __test/switchAccount IPC. Also verifies the __test/switchAccount IPC
- * is only available when COLREV_FAKE_GITHUB_REGISTRY is set.
+ * __test/switchAccount IPC.
  */
 import { test, expect, seedAuthMulti, switchAccount } from '../fixtures/test-workspace.fixture';
 

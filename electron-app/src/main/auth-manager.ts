@@ -164,8 +164,8 @@ export class AuthManager {
   getActiveLogin(): string | null {
     const store = this.readStore();
     if (!store.activeLogin || store.accounts.length === 0) return null;
-    const account = store.accounts.find((a) => a.user.login === store.activeLogin);
-    return account ? account.user.login : null;
+    const exists = store.accounts.some((a) => a.user.login === store.activeLogin);
+    return exists ? store.activeLogin : null;
   }
 
   listAccounts(): AccountInfo[] {

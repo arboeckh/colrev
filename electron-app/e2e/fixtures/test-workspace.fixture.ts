@@ -100,19 +100,25 @@ export function seedAuthMulti(
   fs.writeFileSync(authPath, JSON.stringify(data, null, 2));
 }
 
+interface TestWindow {
+  __test?: {
+    switchAccount: (login: string) => Promise<{ success: boolean; error?: string }>;
+  };
+}
+
 export async function switchAccount(
   electronApp: ElectronApplication,
   login: string,
 ): Promise<void> {
   const page = await electronApp.firstWindow();
-  const result = await page.evaluate(async (login) => {
-    const testApi = (window as unknown as { __test?: { switchAccount: (login: string) => Promise<{ success: boolean; error?: string }> } }).__test;
+  const result = await page.evaluate(async (l) => {
+    const testApi = (window as unknown as TestWindow).__test;
     if (!testApi) {
       throw new Error('window.__test not available (is COLREV_FAKE_GITHUB_REGISTRY set?)');
     }
-    return testApi.switchAccount(login);
+    return testApi.switchAccount(l);
   }, login);
-  if (result && typeof result === 'object' && 'success' in result && !result.success) {
+  if (!result.success) {
     throw new Error(`switchAccount failed: ${result.error}`);
   }
 }
