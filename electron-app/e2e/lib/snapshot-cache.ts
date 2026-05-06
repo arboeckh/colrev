@@ -72,6 +72,75 @@ export class SnapshotCache {
 
     fs.mkdirSync(targetRoot, { recursive: true });
     execFileSync('tar', ['xzf', tarballPath, '-C', targetRoot], { stdio: 'pipe' });
+
+    this.rewriteAbsolutePaths(targetRoot);
+  }
+
+  // Snapshots tar absolute paths into registry.json (cloneUrl) and into each
+  // cloned project's .git/config origin url. After untar at a new targetRoot
+  // those paths point at the original workspace and break clone lookup +
+  // push/fetch — rewrite any *.git path under bare-remote/ to live under the
+  // new root.
+  private rewriteAbsolutePaths(targetRoot: string): void {
+    const newBareRoot = path.join(targetRoot, 'bare-remote');
+    const bareSuffixRe = /[/\\]bare-remote[/\\](.+\.git)$/;
+
+    const remap = (oldUrl: string): string | null => {
+      const m = oldUrl.match(bareSuffixRe);
+      if (!m) return null;
+      const rel = m[1];
+      return path.join(newBareRoot, rel);
+    };
+
+    const registryPath = path.join(targetRoot, 'registry.json');
+    if (fs.existsSync(registryPath)) {
+      const registry = JSON.parse(fs.readFileSync(registryPath, 'utf-8')) as {
+        repos?: { cloneUrl?: string }[];
+      };
+      let changed = false;
+      for (const repo of registry.repos ?? []) {
+        if (typeof repo.cloneUrl !== 'string') continue;
+        const next = remap(repo.cloneUrl);
+        if (next && next !== repo.cloneUrl) {
+          repo.cloneUrl = next;
+          changed = true;
+        }
+      }
+      if (changed) {
+        fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2));
+      }
+    }
+
+    const projectsDir = path.join(targetRoot, 'userData', 'projects');
+    if (!fs.existsSync(projectsDir)) return;
+
+    for (const login of fs.readdirSync(projectsDir)) {
+      const loginDir = path.join(projectsDir, login);
+      if (!fs.statSync(loginDir).isDirectory()) continue;
+      for (const projectId of fs.readdirSync(loginDir)) {
+        const projectDir = path.join(loginDir, projectId);
+        const gitDir = path.join(projectDir, '.git');
+        if (!fs.existsSync(gitDir)) continue;
+
+        let currentUrl: string;
+        try {
+          currentUrl = execFileSync(
+            'git',
+            ['remote', 'get-url', 'origin'],
+            { cwd: projectDir, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] },
+          ).trim();
+        } catch {
+          continue; // no origin remote
+        }
+        const next = remap(currentUrl);
+        if (next && next !== currentUrl) {
+          execFileSync('git', ['remote', 'set-url', 'origin', next], {
+            cwd: projectDir,
+            stdio: 'pipe',
+          });
+        }
+      }
+    }
   }
 
   isStale(name: string): boolean {
@@ -90,6 +159,12 @@ export class SnapshotCache {
 
     for (const root of this.sourceRoots) {
       if (!fs.existsSync(root)) continue;
+      const stat = fs.statSync(root);
+      if (stat.isFile()) {
+        hash.update(path.basename(root));
+        hash.update(fs.readFileSync(root));
+        continue;
+      }
       const files = this.collectFiles(root);
       for (const file of files) {
         const relativePath = path.relative(root, file);

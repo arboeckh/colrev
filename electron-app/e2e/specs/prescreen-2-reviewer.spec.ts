@@ -7,6 +7,7 @@ import {
   expect,
   switchAccount,
   SnapshotCache,
+  SNAPSHOT_SOURCE_ROOTS,
   ALICE,
   BOB,
   DEFAULT_PROJECT_ID,
@@ -16,39 +17,11 @@ import { clickWhenEnabled } from '../helpers/test-utils';
 import type { Page } from '@playwright/test';
 
 const CACHE_DIR = path.join(os.homedir(), '.cache', 'colrev-test-fixtures');
-const SOURCE_ROOTS = [
-  path.join(__dirname, '../lib'),
-  path.join(__dirname, '../fixtures/data'),
-];
 
 const BACKEND_TIMEOUT = 45_000;
 
 function createCache(): SnapshotCache {
-  return new SnapshotCache({ cacheDir: CACHE_DIR, sourceRoots: SOURCE_ROOTS });
-}
-
-function fixupSnapshotPaths(workspace: TestWorkspace): void {
-  const barePath = workspace.bareRemotePath('alice', DEFAULT_PROJECT_ID);
-
-  const registry = JSON.parse(fs.readFileSync(workspace.registryPath, 'utf-8'));
-  for (const repo of registry.repos) {
-    if (repo.fullName === `alice/${DEFAULT_PROJECT_ID}`) {
-      repo.cloneUrl = barePath;
-    }
-  }
-  fs.writeFileSync(workspace.registryPath, JSON.stringify(registry, null, 2));
-
-  for (const account of [ALICE.login, BOB.login]) {
-    const clonePath = path.join(
-      workspace.userDataDir, 'projects', account, DEFAULT_PROJECT_ID,
-    );
-    if (fs.existsSync(path.join(clonePath, '.git'))) {
-      execFileSync('git', ['remote', 'set-url', 'origin', barePath], {
-        cwd: clonePath,
-        stdio: 'pipe',
-      });
-    }
-  }
+  return new SnapshotCache({ cacheDir: CACHE_DIR, sourceRoots: SNAPSHOT_SOURCE_ROOTS });
 }
 
 function createDevBranches(workspace: TestWorkspace): void {
@@ -94,7 +67,6 @@ const test = baseTest.extend({
 
     const cache = createCache();
     cache.load('L4', ws.root);
-    fixupSnapshotPaths(ws);
     createDevBranches(ws);
 
     await use(ws);
@@ -149,6 +121,8 @@ test.describe('prescreen-2-reviewer', () => {
       { timeout: 30_000 },
     );
 
+    await workspace.markPhase(electronApp, 'alice-project-open');
+
     // ---------------------------------------------------------------
     // Phase 2: Navigate to prescreen and create managed review task
     // ---------------------------------------------------------------
@@ -190,6 +164,8 @@ test.describe('prescreen-2-reviewer', () => {
       '[data-testid="workflow-phase-review"]:not([disabled])',
       { timeout: 60_000 },
     );
+
+    await workspace.markPhase(electronApp, 'task-launched');
 
     // ---------------------------------------------------------------
     // Phase 3: Alice prescreens all 3 records
@@ -246,6 +222,8 @@ test.describe('prescreen-2-reviewer', () => {
       { timeout: 30_000 },
     );
 
+    await workspace.markPhase(electronApp, 'alice-saved');
+
     // ---------------------------------------------------------------
     // Phase 4: Prepare Bob's clone then switch account
     // ---------------------------------------------------------------
@@ -262,6 +240,8 @@ test.describe('prescreen-2-reviewer', () => {
 
     // Wait for landing page after account switch
     await window.waitForSelector('h2:has-text("Reviews")', { timeout: 15_000 });
+
+    await workspace.markPhase(electronApp, 'bob-active');
 
     // ---------------------------------------------------------------
     // Phase 5: Bob navigates to project and prescreens
@@ -343,6 +323,8 @@ test.describe('prescreen-2-reviewer', () => {
       { timeout: 30_000 },
     );
 
+    await workspace.markPhase(electronApp, 'bob-saved');
+
     // ---------------------------------------------------------------
     // Assertions: git history on the bare remote
     // ---------------------------------------------------------------
@@ -406,16 +388,6 @@ test.describe('prescreen-2-reviewer', () => {
     expect(bobRecords).not.toContain('colrev_status = {md_processed}');
     expect(bobRecords).toContain('rev_prescreen_included');
     expect(bobRecords).toContain('rev_prescreen_excluded');
-
-    // ---------------------------------------------------------------
-    // Write last-state.json
-    // ---------------------------------------------------------------
-    workspace.writeLastState({
-      activeAccount: BOB.login,
-      registryPath: workspace.registryPath,
-      bareRemotePath: workspace.bareRemoteDir,
-      lastRpc: { method: 'prescreen-2-reviewer-complete' },
-    });
 
     console.log('[prescreen-2r] proof-of-life complete');
   });

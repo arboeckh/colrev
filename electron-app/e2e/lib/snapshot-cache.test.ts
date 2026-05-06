@@ -264,6 +264,119 @@ describe('SnapshotCache', () => {
 
       fs.rmSync(extraRoot, { recursive: true, force: true });
     });
+
+    it('accepts a file path as a source root and hashes its bytes', () => {
+      const extraFile = path.join(TEST_ROOT, `${uniqueName()}.ts`);
+      fs.writeFileSync(extraFile, 'export const x = 1;');
+
+      const fileCache = new SnapshotCache({
+        cacheDir: CACHE_DIR,
+        sourceRoots: [ws.root, extraFile],
+      });
+
+      fs.writeFileSync(path.join(ws.root, 'test.txt'), 'hello');
+      fileCache.checkpoint('L1', ws.root);
+
+      expect(fileCache.isStale('L1')).toBe(false);
+
+      fs.writeFileSync(extraFile, 'export const x = 2;');
+      expect(fileCache.isStale('L1')).toBe(true);
+
+      fs.unlinkSync(extraFile);
+    });
+  });
+
+  describe('load rewrites stale absolute paths', () => {
+    function gitEnv(): NodeJS.ProcessEnv {
+      return {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'Test',
+        GIT_AUTHOR_EMAIL: 'test@test.local',
+        GIT_COMMITTER_NAME: 'Test',
+        GIT_COMMITTER_EMAIL: 'test@test.local',
+      };
+    }
+
+    it('rewrites registry cloneUrl and project origin to the new workspace root', () => {
+      const env = gitEnv();
+      const owner = 'alice';
+      const repoName = 'lit-review';
+
+      const barePath = ws.createBareRemote(owner, repoName);
+      execFileSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], {
+        cwd: barePath,
+        stdio: 'pipe',
+      });
+
+      const projectDir = path.join(ws.userDataDir, 'projects', owner, repoName);
+      fs.mkdirSync(projectDir, { recursive: true });
+      execFileSync('git', ['init'], { cwd: projectDir, stdio: 'pipe' });
+      execFileSync('git', ['checkout', '-b', 'main'], { cwd: projectDir, stdio: 'pipe', env });
+      fs.writeFileSync(path.join(projectDir, 'README.md'), 'hi');
+      execFileSync('git', ['add', '-A'], { cwd: projectDir, stdio: 'pipe', env });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: projectDir, stdio: 'pipe', env });
+      execFileSync('git', ['remote', 'add', 'origin', barePath], {
+        cwd: projectDir,
+        stdio: 'pipe',
+      });
+      execFileSync('git', ['push', '-u', 'origin', 'main'], {
+        cwd: projectDir,
+        stdio: 'pipe',
+        env,
+      });
+
+      fs.writeFileSync(
+        ws.registryPath,
+        JSON.stringify({
+          accounts: [],
+          repos: [
+            {
+              name: repoName,
+              fullName: `${owner}/${repoName}`,
+              owner,
+              htmlUrl: '',
+              description: null,
+              isPrivate: false,
+              updatedAt: '2025-01-01T00:00:00+00:00',
+              cloneUrl: barePath,
+              isColrev: true,
+            },
+          ],
+          collaborators: [],
+          invitations: [],
+          releases: [],
+        }),
+      );
+
+      cache.checkpoint('L1', ws.root);
+
+      const loadName = uniqueName();
+      const loadRoot = path.join(TEST_ROOT, loadName);
+      fs.mkdirSync(loadRoot, { recursive: true });
+
+      cache.load('L1', loadRoot);
+
+      const newBarePath = path.join(loadRoot, 'bare-remote', owner, `${repoName}.git`);
+      const registry = JSON.parse(
+        fs.readFileSync(path.join(loadRoot, 'registry.json'), 'utf-8'),
+      ) as { repos: { cloneUrl: string }[] };
+      expect(registry.repos[0].cloneUrl).toBe(newBarePath);
+
+      const newProjectDir = path.join(loadRoot, 'userData', 'projects', owner, repoName);
+      const remoteUrl = execFileSync('git', ['remote', 'get-url', 'origin'], {
+        cwd: newProjectDir,
+        encoding: 'utf-8',
+      }).trim();
+      expect(remoteUrl).toBe(newBarePath);
+
+      // The rewritten remote must be functional from the new location.
+      execFileSync('git', ['fetch', 'origin'], {
+        cwd: newProjectDir,
+        stdio: 'pipe',
+      });
+
+      fs.rmSync(loadRoot, { recursive: true, force: true });
+    });
   });
 
   describe('byte-identical tarballs', () => {

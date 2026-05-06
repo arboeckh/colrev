@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import type { ElectronApplication } from '@playwright/test';
 
 const E2E_ROOT = '/tmp/colrev-e2e';
 
@@ -77,6 +78,39 @@ export class TestWorkspace {
 
   appendRpcJsonl(entry: unknown): void {
     fs.appendFileSync(this.rpcJsonlPath, JSON.stringify(entry) + '\n');
+  }
+
+  /**
+   * Snapshot every Pinia store's $state to <root>/state-after-<name>.json and
+   * append a phase marker to rpc.jsonl. Failures are swallowed so a flaky
+   * page evaluate (e.g. Electron already exited) doesn't fail the test.
+   */
+  async markPhase(electronApp: ElectronApplication, name: string): Promise<void> {
+    try {
+      const page = await electronApp.firstWindow();
+      const state = await page.evaluate(() => {
+        // @ts-expect-error pinia exposed on window in dev
+        const pinia = window.__pinia__;
+        if (!pinia) return {};
+        const out: Record<string, unknown> = {};
+        for (const [storeName, store] of pinia._s.entries()) {
+          try {
+            out[storeName] = JSON.parse(JSON.stringify(store.$state));
+          } catch {
+            out[storeName] = '<unserializable>';
+          }
+        }
+        return out;
+      });
+      const safe = name.replace(/[^a-zA-Z0-9._-]/g, '-');
+      fs.writeFileSync(
+        path.join(this.root, `state-after-${safe}.json`),
+        JSON.stringify(state, null, 2),
+      );
+      this.appendRpcJsonl({ ts: new Date().toISOString(), type: 'phase', name });
+    } catch {
+      // phase markers must not fail tests
+    }
   }
 
   bareRemotePath(owner: string, repoName: string): string {

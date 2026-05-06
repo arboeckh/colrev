@@ -13,17 +13,13 @@ import {
   BOB,
   DEFAULT_PROJECT_ID,
   SnapshotCache,
+  SNAPSHOT_SOURCE_ROOTS,
 } from '../fixtures/test-workspace.fixture';
 
 const CACHE_DIR = path.join(os.homedir(), '.cache', 'colrev-test-fixtures');
 
-const SOURCE_ROOTS = [
-  path.join(__dirname, '../lib'),
-  path.join(__dirname, '../fixtures/data'),
-];
-
 function createCache(): SnapshotCache {
-  return new SnapshotCache({ cacheDir: CACHE_DIR, sourceRoots: SOURCE_ROOTS });
+  return new SnapshotCache({ cacheDir: CACHE_DIR, sourceRoots: SNAPSHOT_SOURCE_ROOTS });
 }
 
 test.describe('build-fixtures', () => {
@@ -90,12 +86,5 @@ test.describe('build-fixtures', () => {
       expect(fs.existsSync(path.join(CACHE_DIR, `${level}.tar.gz`))).toBe(true);
       expect(fs.existsSync(path.join(CACHE_DIR, `${level}.meta.json`))).toBe(true);
     }
-
-    workspace.writeLastState({
-      activeAccount: 'alice',
-      registryPath: workspace.registryPath,
-      bareRemotePath: workspace.bareRemoteDir,
-      lastRpc: { method: 'build-fixtures-complete' },
-    });
   });
 });

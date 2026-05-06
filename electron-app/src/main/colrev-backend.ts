@@ -1,12 +1,19 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as readline from 'readline';
+import * as fs from 'fs';
+import * as path from 'path';
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timeout: NodeJS.Timeout;
+  method: string;
+  startedAt: number;
 }
+
+const BACKEND_LOG_CAP_BYTES = 10 * 1024 * 1024;
+const BACKEND_LOG_TRUNCATE_TO_BYTES = 5 * 1024 * 1024;
 
 /**
  * CoLRev JSON-RPC backend manager.
@@ -17,6 +24,8 @@ export class ColrevBackend extends EventEmitter {
   private requestId = 0;
   private pending = new Map<number, PendingRequest>();
   private rl: readline.Interface | null = null;
+  private readonly tracePath: string | null;
+  private readonly backendLogPath: string | null;
 
   constructor(
     private executablePath: string,
@@ -24,6 +33,42 @@ export class ColrevBackend extends EventEmitter {
     private env: Record<string, string> = {}
   ) {
     super();
+
+    const registryPath = process.env.COLREV_FAKE_GITHUB_REGISTRY;
+    if (registryPath) {
+      const traceDir = path.dirname(registryPath);
+      this.tracePath = path.join(traceDir, 'rpc.jsonl');
+      this.backendLogPath = path.join(traceDir, 'backend.log');
+    } else {
+      this.tracePath = null;
+      this.backendLogPath = null;
+    }
+  }
+
+  private appendTrace(entry: Record<string, unknown>): void {
+    if (!this.tracePath) return;
+    try {
+      fs.appendFileSync(this.tracePath, JSON.stringify(entry) + '\n');
+    } catch {
+      // tracing must not break the bridge
+    }
+  }
+
+  private appendBackendLog(chunk: string): void {
+    if (!this.backendLogPath) return;
+    try {
+      fs.appendFileSync(this.backendLogPath, chunk);
+      const size = fs.statSync(this.backendLogPath).size;
+      if (size > BACKEND_LOG_CAP_BYTES) {
+        const fd = fs.openSync(this.backendLogPath, 'r');
+        const buf = Buffer.alloc(BACKEND_LOG_TRUNCATE_TO_BYTES);
+        fs.readSync(fd, buf, 0, BACKEND_LOG_TRUNCATE_TO_BYTES, size - BACKEND_LOG_TRUNCATE_TO_BYTES);
+        fs.closeSync(fd);
+        fs.writeFileSync(this.backendLogPath, buf);
+      }
+    } catch {
+      // tracing must not break the bridge
+    }
   }
 
   /**
@@ -60,7 +105,9 @@ export class ColrevBackend extends EventEmitter {
 
       // Forward stderr as logs
       this.process.stderr?.on('data', (data) => {
-        const msg = data.toString().trim();
+        const raw = data.toString();
+        this.appendBackendLog(raw);
+        const msg = raw.trim();
         this.emit('log', msg);
       });
 
@@ -148,9 +195,12 @@ export class ColrevBackend extends EventEmitter {
         resolve: resolve as (value: unknown) => void,
         reject,
         timeout,
+        method,
+        startedAt: Date.now(),
       });
 
       const request = { jsonrpc: '2.0', method, params, id };
+      this.appendTrace({ ts: new Date().toISOString(), type: 'request', id, method, params });
       this.process.stdin.write(JSON.stringify(request) + '\n');
     });
   }
@@ -178,6 +228,8 @@ export class ColrevBackend extends EventEmitter {
         resolve: resolve as (value: unknown) => void,
         reject,
         timeout,
+        method,
+        startedAt: Date.now(),
       });
 
       const request = {
@@ -187,6 +239,7 @@ export class ColrevBackend extends EventEmitter {
         id,
       };
 
+      this.appendTrace({ ts: new Date().toISOString(), type: 'request', id, method, params });
       this.process.stdin.write(JSON.stringify(request) + '\n');
     });
   }
@@ -232,11 +285,28 @@ export class ColrevBackend extends EventEmitter {
         clearTimeout(pending.timeout);
         this.pending.delete(message.id);
 
+        const durationMs = Date.now() - pending.startedAt;
         if (message.error) {
+          this.appendTrace({
+            ts: new Date().toISOString(),
+            type: 'response',
+            id: message.id,
+            method: pending.method,
+            durationMs,
+            error: message.error,
+          });
           pending.reject(
             new Error(`${message.error.code}: ${message.error.message}`)
           );
         } else {
+          this.appendTrace({
+            ts: new Date().toISOString(),
+            type: 'response',
+            id: message.id,
+            method: pending.method,
+            durationMs,
+            result: message.result,
+          });
           pending.resolve(message.result);
         }
       }

@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { TestWorkspace } from './test-workspace';
+import type { ElectronApplication } from '@playwright/test';
 
 const TEST_ROOT = '/tmp/colrev-e2e';
 
@@ -65,6 +66,45 @@ describe('TestWorkspace', () => {
       expect(state.activeAccount).toBe('alice');
       expect(state.registryPath).toBe(ws.registryPath);
       expect(state.lastRpc.method).toBe('list_projects');
+    });
+  });
+
+  describe('markPhase', () => {
+    function fakeApp(state: Record<string, unknown>): ElectronApplication {
+      const page = {
+        evaluate: async (_fn: unknown) => state,
+      };
+      return {
+        firstWindow: async () => page,
+      } as unknown as ElectronApplication;
+    }
+
+    it('writes state-after-<name>.json and a phase line to rpc.jsonl', async () => {
+      ws = new TestWorkspace(testName);
+      const app = fakeApp({ debug: { logs: [] }, backend: { status: 'running' } });
+
+      await ws.markPhase(app, 'phase-one');
+
+      const statePath = path.join(ws.root, 'state-after-phase-one.json');
+      expect(fs.existsSync(statePath)).toBe(true);
+      const state = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+      expect(state.backend.status).toBe('running');
+
+      const rpc = fs.readFileSync(ws.rpcJsonlPath, 'utf-8').trim();
+      const last = JSON.parse(rpc.split('\n').pop()!);
+      expect(last.type).toBe('phase');
+      expect(last.name).toBe('phase-one');
+    });
+
+    it('swallows errors when firstWindow rejects', async () => {
+      ws = new TestWorkspace(testName);
+      const app = {
+        firstWindow: async () => {
+          throw new Error('process gone');
+        },
+      } as unknown as ElectronApplication;
+
+      await expect(ws.markPhase(app, 'after-crash')).resolves.toBeUndefined();
     });
   });
 

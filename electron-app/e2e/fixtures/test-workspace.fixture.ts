@@ -3,6 +3,20 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { TestWorkspace } from '../lib/test-workspace';
 
+const REPO_ROOT = path.join(__dirname, '../..');
+
+/**
+ * Canonical inputs to the snapshot hash. Any file or directory listed here
+ * invalidates cached fixtures when its bytes change. Keep in sync between
+ * build-fixtures.spec.ts and any spec that calls SnapshotCache.load.
+ */
+export const SNAPSHOT_SOURCE_ROOTS = [
+  path.join(REPO_ROOT, 'e2e/lib'),
+  path.join(REPO_ROOT, 'e2e/fixtures/data'),
+  path.join(REPO_ROOT, 'src/main/auth-manager.ts'),
+  path.join(REPO_ROOT, 'src/main/fake-github-registry.ts'),
+];
+
 export interface TestWorkspaceFixtures {
   workspace: TestWorkspace;
   electronApp: ElectronApplication;
@@ -14,6 +28,42 @@ export const test = base.extend<TestWorkspaceFixtures>({
     const safeName = testInfo.title.replace(/[^a-zA-Z0-9-]/g, '-').substring(0, 80);
     const ws = new TestWorkspace(safeName);
     await use(ws);
+
+    // Always emit last-state.json from disk after the test, regardless of
+    // outcome. Don't touch the Electron page — the process may have exited.
+    try {
+      let activeAccount: string | null = null;
+      const authPath = path.join(ws.userDataDir, 'auth.json');
+      if (fs.existsSync(authPath)) {
+        const auth = JSON.parse(fs.readFileSync(authPath, 'utf-8')) as {
+          activeLogin?: string | null;
+        };
+        activeAccount = auth.activeLogin ?? null;
+      }
+
+      let lastRpc: unknown = null;
+      if (fs.existsSync(ws.rpcJsonlPath)) {
+        const raw = fs.readFileSync(ws.rpcJsonlPath, 'utf-8').trimEnd();
+        if (raw.length > 0) {
+          const lines = raw.split('\n');
+          const lastLine = lines[lines.length - 1];
+          try {
+            lastRpc = JSON.parse(lastLine);
+          } catch {
+            lastRpc = lastLine;
+          }
+        }
+      }
+
+      ws.writeLastState({
+        activeAccount,
+        registryPath: ws.registryPath,
+        bareRemotePath: ws.bareRemoteDir,
+        lastRpc,
+      });
+    } catch {
+      // last-state.json must not fail tests
+    }
   },
 
   electronApp: async ({ workspace }, use) => {
@@ -44,9 +94,16 @@ export const test = base.extend<TestWorkspaceFixtures>({
     }
   },
 
-  window: async ({ electronApp }, use) => {
+  window: async ({ workspace, electronApp }, use) => {
     const window = await electronApp.firstWindow();
     await window.waitForLoadState('domcontentloaded');
+
+    const stamp = (type: string, message: string): void => {
+      workspace.appendRendererLog(`[${new Date().toISOString()}] [${type}] ${message}`);
+    };
+    window.on('console', (msg) => stamp(msg.type(), msg.text()));
+    window.on('pageerror', (err) => stamp('error', err.stack ?? err.message));
+
     await use(window);
   },
 });
