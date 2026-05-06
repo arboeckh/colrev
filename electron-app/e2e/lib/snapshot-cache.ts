@@ -1,7 +1,19 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
+
+// Prefer GNU tar (gtar on macOS via homebrew) for reproducible flag support;
+// fall back to whatever `tar` is on PATH. Determinism flags are skipped on BSD
+// tar because cache validity is keyed off computeHash() over source files,
+// not tarball bytes.
+function resolveTar(): { bin: string; gnu: boolean } {
+  const gtar = spawnSync('gtar', ['--version'], { stdio: 'ignore' });
+  if (gtar.status === 0) return { bin: 'gtar', gnu: true };
+  const tarVersion = spawnSync('tar', ['--version'], { encoding: 'utf-8' });
+  const isGnu = tarVersion.status === 0 && /GNU tar/.test(tarVersion.stdout);
+  return { bin: 'tar', gnu: isGnu };
+}
 
 export interface SnapshotCacheOptions {
   cacheDir: string;
@@ -28,22 +40,19 @@ export class SnapshotCache {
     const tarballPath = path.join(this.cacheDir, `${name}.tar.gz`);
     const metaPath = path.join(this.cacheDir, `${name}.meta.json`);
 
-    execFileSync(
-      'tar',
-      [
-        'czf',
-        tarballPath,
+    const { bin, gnu } = resolveTar();
+    const args = ['czf', tarballPath];
+    if (gnu) {
+      args.push(
         '--sort=name',
         '--mtime=2025-01-01 00:00:00',
         '--owner=0',
         '--group=0',
         '--numeric-owner',
-        '-C',
-        workspaceRoot,
-        '.',
-      ],
-      { stdio: 'pipe' },
-    );
+      );
+    }
+    args.push('-C', workspaceRoot, '.');
+    execFileSync(bin, args, { stdio: 'pipe' });
 
     const meta: SnapshotMeta = {
       hash: this.computeHash(),
@@ -71,7 +80,8 @@ export class SnapshotCache {
     }
 
     fs.mkdirSync(targetRoot, { recursive: true });
-    execFileSync('tar', ['xzf', tarballPath, '-C', targetRoot], { stdio: 'pipe' });
+    const { bin } = resolveTar();
+    execFileSync(bin, ['xzf', tarballPath, '-C', targetRoot], { stdio: 'pipe' });
 
     this.rewriteAbsolutePaths(targetRoot);
   }

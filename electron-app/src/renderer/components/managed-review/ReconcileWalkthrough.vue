@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-vue-next';
+import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/auth';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
@@ -239,9 +240,32 @@ function goTo(index: number) {
   }
 }
 
-async function applyReconciliation() {
+const NON_TASK_METADATA_PREFIX = 'Non-task metadata changed';
+
+const overridableBlockedItems = computed<ReconciliationPreviewItem[]>(() =>
+  blockedItems.value.filter((item) =>
+    item.blocked_reasons.length > 0
+    && item.blocked_reasons.every((r) => r.startsWith(NON_TASK_METADATA_PREFIX)),
+  ),
+);
+
+const hardBlockedItems = computed<ReconciliationPreviewItem[]>(() =>
+  blockedItems.value.filter((item) =>
+    item.blocked_reasons.some((r) => !r.startsWith(NON_TASK_METADATA_PREFIX)),
+  ),
+);
+
+const canOverrideBlocks = computed(
+  () =>
+    overridableBlockedItems.value.length > 0
+    && hardBlockedItems.value.length === 0,
+);
+
+async function applyReconciliation(opts: { overrideBlocks?: boolean } = {}) {
   if (!projects.currentProjectId || !preview.value) return;
-  if (blockedItems.value.length > 0 || pendingItems.value.length > 0) return;
+  const overrideBlocks = !!opts.overrideBlocks;
+  if (!overrideBlocks && blockedItems.value.length > 0) return;
+  if (pendingItems.value.length > 0) return;
   if (conflictItems.value.length > 0 && !allDecided.value) return;
 
   isApplying.value = true;
@@ -259,6 +283,7 @@ async function applyReconciliation() {
         task_id: props.taskId,
         resolutions,
         resolved_by: auth.user?.login ?? 'local-user',
+        override_blocks: overrideBlocks,
       },
     );
     notifications.success(
@@ -274,6 +299,16 @@ async function applyReconciliation() {
   } finally {
     isApplying.value = false;
   }
+}
+
+function confirmOverrideAndApply() {
+  const count = overridableBlockedItems.value.length;
+  const ok = window.confirm(
+    `Override ${count} blocked record${count === 1 ? '' : 's'} and apply reconciliation?\n\n`
+      + 'Reviewer decisions will be applied; the record metadata on dev will be kept as-is. '
+      + 'This is recorded in the audit trail.',
+  );
+  if (ok) void applyReconciliation({ overrideBlocks: true });
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -328,7 +363,7 @@ onUnmounted(() => {
     <!-- Blocked guard -->
     <div
       v-else-if="blockedItems.length > 0"
-      class="flex-1 flex flex-col items-center justify-center max-w-xl mx-auto text-center gap-4"
+      class="flex-1 flex flex-col items-center max-w-xl mx-auto text-center gap-4 py-6 min-h-0"
       data-testid="reconcile-blocked"
     >
       <div class="rounded-full bg-amber-500/15 p-3">
@@ -337,10 +372,16 @@ onUnmounted(() => {
       <div class="space-y-1">
         <h3 class="text-lg font-medium">Blocked records prevent reconciliation</h3>
         <p class="text-sm text-muted-foreground">
-          Resolve the issues below before reconciling this task.
+          A record's non-decision metadata (title, abstract, journal, etc.)
+          changed after this task was launched. The reviewer decisions are
+          still valid — overriding applies them while keeping the latest
+          metadata. The action is recorded in the audit trail.
         </p>
       </div>
-      <ul class="w-full space-y-2 text-left">
+      <ul
+        class="w-full space-y-2 text-left overflow-y-auto pr-1"
+        style="max-height: 50vh"
+      >
         <li
           v-for="item in blockedItems"
           :key="item.id"
@@ -358,6 +399,24 @@ onUnmounted(() => {
           </ul>
         </li>
       </ul>
+      <div v-if="hardBlockedItems.length > 0" class="text-xs text-muted-foreground">
+        Some records are missing on dev or a reviewer branch and can't be
+        overridden. Restore them via git before reconciling.
+      </div>
+      <div v-else class="flex items-center gap-2">
+        <Button
+          variant="destructive"
+          size="sm"
+          :disabled="!canOverrideBlocks || isApplying"
+          data-testid="reconcile-override-blocks-btn"
+          @click="confirmOverrideAndApply"
+        >
+          {{ isApplying ? 'Applying…' : `Override ${overridableBlockedItems.length} block${overridableBlockedItems.length === 1 ? '' : 's'} and apply` }}
+        </Button>
+        <Button variant="ghost" size="sm" @click="emit('close')">
+          Cancel
+        </Button>
+      </div>
     </div>
 
     <!-- Pending guard -->

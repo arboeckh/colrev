@@ -98,6 +98,19 @@ export const test = base.extend<TestWorkspaceFixtures>({
     const window = await electronApp.firstWindow();
     await window.waitForLoadState('domcontentloaded');
 
+    // Suppress the macOS-only keychain explainer dialog. In a fresh userData/
+    // its localStorage gate is unset, so validateSessionInBackground() opens
+    // the dialog over the landing page on first boot. Set the gate early to
+    // prevent it; also click continue if it slipped through before we got
+    // here.
+    await window.evaluate(() => {
+      localStorage.setItem('colrev:keychain-explained', '1');
+    });
+    await window
+      .locator('[data-testid="keychain-explainer-continue"]')
+      .click({ timeout: 1000 })
+      .catch(() => {});
+
     const stamp = (type: string, message: string): void => {
       workspace.appendRendererLog(`[${new Date().toISOString()}] [${type}] ${message}`);
     };
@@ -178,6 +191,14 @@ export async function switchAccount(
   if (!result.success) {
     throw new Error(`switchAccount failed: ${result.error}`);
   }
+  // Mirror the UserMenu flow: route to landing, then reload so stores rebind
+  // to the new account. Without this, callers stay on whatever page the
+  // previous account was on.
+  await page.evaluate(() => {
+    location.hash = '#/';
+    location.reload();
+  });
+  await page.waitForLoadState('domcontentloaded');
 }
 
 export { expect } from '@playwright/test';

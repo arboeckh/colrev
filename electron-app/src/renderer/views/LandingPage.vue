@@ -426,7 +426,7 @@ loadInvitations();
         <ProjectsTable v-else :projects="projects.projects" />
 
         <!-- Pending invitations -->
-        <div v-if="invitations.length > 0" class="mt-6 mb-2" data-testid="pending-invitations">
+        <div v-if="invitations.length > 0" class="mt-6 mb-2 max-w-2xl" data-testid="pending-invitations">
           <div class="flex items-center gap-2 mb-3">
             <Mail class="h-4 w-4 text-muted-foreground" />
             <h3 class="text-sm font-medium">Pending Invitations</h3>

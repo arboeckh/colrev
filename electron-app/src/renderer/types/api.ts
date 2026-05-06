@@ -594,6 +594,9 @@ export interface GetCurrentManagedReviewTaskResponse extends SuccessResponse {
 export interface CreateManagedReviewTaskResponse extends SuccessResponse {
   task: ManagedReviewTask;
   launch_ref: string;
+  enriched_count?: number;
+  enrichment_failed_count?: number;
+  enrichment_skipped_count?: number;
 }
 
 export interface ManagedReviewTaskQueueResponse extends SuccessResponse {

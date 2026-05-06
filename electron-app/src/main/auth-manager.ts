@@ -1,12 +1,17 @@
 import { app, safeStorage } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
+import { FakeGitHubRegistry } from './fake-github-registry';
 
 const GITHUB_CLIENT_ID = 'Ov23li8l88sQbgmXSvgc';
 const DEVICE_CODE_URL = 'https://github.com/login/device/code';
 const TOKEN_URL = 'https://github.com/login/oauth/access_token';
 const USER_URL = 'https://api.github.com/user';
 const SCOPES = 'read:user repo workflow';
+
+function fakeRegistryPath(): string | undefined {
+  return process.env.COLREV_FAKE_GITHUB_REGISTRY;
+}
 
 interface StoredAccount {
   encryptedToken: string;
@@ -409,6 +414,21 @@ export class AuthManager {
   // --- Helpers ---
 
   private async fetchUserProfile(token: string): Promise<GitHubUser> {
+    const fakePath = fakeRegistryPath();
+    if (fakePath) {
+      const registry = new FakeGitHubRegistry(fakePath);
+      const account = registry.getAccountByToken(token);
+      if (!account) {
+        throw new AuthError('Fake GitHub registry rejected token');
+      }
+      return {
+        login: account.login,
+        name: account.name,
+        avatarUrl: account.avatarUrl,
+        email: `${account.login}@test.local`,
+      };
+    }
+
     let res: Response;
     try {
       res = await fetch(USER_URL, {
@@ -457,6 +477,12 @@ export class AuthManager {
   }
 
   private encryptToken(token: string): string {
+    // E2E fake GitHub mode: tests pre-seed auth.json with plain-base64 tokens
+    // from outside Electron, so they can't safeStorage-encrypt. Round-trip in
+    // the same encoding here to avoid evicting seeded accounts on first decrypt.
+    if (fakeRegistryPath()) {
+      return Buffer.from(token).toString('base64');
+    }
     if (safeStorage.isEncryptionAvailable()) {
       return safeStorage.encryptString(token).toString('base64');
     }
@@ -464,6 +490,9 @@ export class AuthManager {
   }
 
   private decryptToken(encrypted: string): string {
+    if (fakeRegistryPath()) {
+      return Buffer.from(encrypted, 'base64').toString('utf-8');
+    }
     if (safeStorage.isEncryptionAvailable()) {
       return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
     }

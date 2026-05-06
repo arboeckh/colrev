@@ -200,6 +200,10 @@ export class FakeGitHubRegistry {
     return this.data.accounts.find((a) => a.token === token);
   }
 
+  getAccountByLogin(login: string): RegistryAccount | undefined {
+    return this.data.accounts.find((a) => a.login === login);
+  }
+
   createRepo(
     owner: string,
     repoName: string,

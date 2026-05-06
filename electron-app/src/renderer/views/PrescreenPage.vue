@@ -178,6 +178,12 @@ const excludedCount = computed(() => queue.value.filter((r) => r._decision === '
 
 const isCurrentDecided = computed(() => currentRecord.value?._decision !== 'undecided');
 
+// In managed-review mode, abstracts were pre-fetched on dev before the task
+// was launched, so the reviewer branch should never re-fetch. Re-fetching
+// would write non-task metadata (abstract/journal/etc.) to the reviewer
+// branch and block reconciliation.
+const skipEnrichment = computed(() => props.embedded);
+
 const nextUndecidedIndex = computed(() => {
   for (let i = currentIndex.value + 1; i < queue.value.length; i++) {
     if (queue.value[i]._decision === 'undecided') return i;
@@ -236,9 +242,11 @@ async function loadQueue() {
         ...record,
         _enrichmentStatus: record.abstract
           ? 'complete'
-          : record.can_enrich
-            ? 'pending'
-            : ('complete' as EnrichmentStatus),
+          : skipEnrichment.value
+            ? ('failed' as EnrichmentStatus)
+            : record.can_enrich
+              ? 'pending'
+              : ('complete' as EnrichmentStatus),
         _decision: 'undecided' as DecisionState,
       }));
 
@@ -259,6 +267,7 @@ async function loadQueue() {
 }
 
 async function startBackgroundEnrichment() {
+  if (skipEnrichment.value) return;
   // Cancel any previous enrichment loop
   if (enrichmentAbortController) {
     enrichmentAbortController.abort();
@@ -316,6 +325,10 @@ async function startBackgroundEnrichment() {
 async function enrichSingleRecord(recordId: string) {
   const record = queue.value.find((r) => r.id === recordId);
   if (!record || record._enrichmentStatus !== 'pending') return;
+  if (skipEnrichment.value) {
+    record._enrichmentStatus = 'failed';
+    return;
+  }
 
   record._enrichmentStatus = 'loading';
 
@@ -340,6 +353,10 @@ async function enrichSingleRecord(recordId: string) {
 
 // Watch for index changes to prefetch next record
 watch(currentIndex, async (newIndex) => {
+  // The makeDecision debounce only guards same-record double-fires
+  // (simultaneous click + keypress); reset when the active record changes.
+  lastDecisionTime.value = 0;
+
   const nextRecord = queue.value[newIndex + 1];
   if (nextRecord && nextRecord._enrichmentStatus === 'pending') {
     await enrichSingleRecord(nextRecord.id);

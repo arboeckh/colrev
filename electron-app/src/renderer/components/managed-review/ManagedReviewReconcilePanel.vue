@@ -156,7 +156,7 @@ defineExpose({ refreshData });
       <div v-if="!showWalkthrough" class="space-y-4 max-w-md shrink-0">
         <div class="flex items-center justify-between">
           <div>
-            <h3 class="text-sm font-medium">{{ displayTask.id }}</h3>
+            <h3 class="text-sm font-medium">Reconcile {{ kindLabel.toLowerCase() }}</h3>
             <p class="text-xs text-muted-foreground">
               Created by {{ displayTask.created_by }} ·
               {{ prettyDate(displayTask.created_at) }}
@@ -178,10 +178,6 @@ defineExpose({ refreshData });
             :class="index > 0 ? 'border-t border-border' : ''"
           >
             <div class="flex items-center gap-2">
-              <span
-                class="h-2 w-2 rounded-full shrink-0"
-                :class="reviewer.available ? 'bg-green-500' : 'bg-muted-foreground/30'"
-              />
               <span class="text-sm font-medium">{{ reviewer.github_login }}</span>
             </div>
             <span class="text-xs text-muted-foreground tabular-nums">

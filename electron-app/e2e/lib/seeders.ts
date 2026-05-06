@@ -154,6 +154,27 @@ export function seedBareRemote(workspace: TestWorkspace, repoName: string): stri
   return barePath;
 }
 
+// Mirror the .gitignore colrev writes on first project load. Including it in
+// the seed avoids a dirty working tree (which blocks managed-review launch)
+// the first time the app boots against a freshly seeded project.
+const COLREV_GITIGNORE = `.history
+.colrev
+__pycache__
+*.bib.sav
+venv
+.corrections
+.report.log
+output
+data/pdfs
+data/dedupe
+data/prep
+data/pdf_get_man/missing_pdf_files.csv
+data/.tei/
+data/prep_man/records_prep_man.bib
+data/data/sample_references.bib
+.DS_Store
+`;
+
 const MINIMAL_SETTINGS = {
   project: {
     title: 'Literature Review',
@@ -232,6 +253,7 @@ export function seedAliceProject(workspace: TestWorkspace): string {
   fs.mkdirSync(projectPath, { recursive: true });
 
   writeJson(path.join(projectPath, 'settings.json'), MINIMAL_SETTINGS);
+  fs.writeFileSync(path.join(projectPath, '.gitignore'), COLREV_GITIGNORE);
 
   fs.mkdirSync(path.join(projectPath, 'data'), { recursive: true });
   fs.writeFileSync(path.join(projectPath, 'data', 'records.bib'), '');

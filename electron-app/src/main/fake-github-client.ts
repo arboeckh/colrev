@@ -48,11 +48,24 @@ export class FakeGitHubClient implements GitHubClient {
     owner: string,
     repo: string,
   ): Promise<GitHubCollaborator[]> {
-    return this.registry.getCollaborators(owner, repo).map((c) => ({
+    // GitHub's /repos/{owner}/{repo}/collaborators includes the owner;
+    // mirror that here so reviewer pickers can select them.
+    const explicit = this.registry.getCollaborators(owner, repo).map((c) => ({
       login: c.login,
       name: c.name,
       avatarUrl: c.avatarUrl,
     }));
+    if (explicit.some((c) => c.login === owner)) return explicit;
+    const ownerAccount = this.registry.getAccountByLogin(owner);
+    if (!ownerAccount) return explicit;
+    return [
+      {
+        login: ownerAccount.login,
+        name: ownerAccount.name,
+        avatarUrl: ownerAccount.avatarUrl,
+      },
+      ...explicit,
+    ];
   }
 
   async addRepoCollaborator(

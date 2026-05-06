@@ -32,7 +32,9 @@ function handleAddAccount() {
 async function handleSwitchAccount(login: string) {
   const result = await auth.switchAccount(login);
   if (result) {
-    // Full reload — token changed, all project data / collaborators / git state is stale
+    // Land on home before the full reload — the previous route may reference
+    // a project that doesn't exist (or has stale state) under the new account.
+    await router.push('/');
     window.location.reload();
   }
 }

@@ -10,12 +10,19 @@
  * the test run.
  */
 import * as fs from 'fs';
-import { test, expect, seedAuth } from '../fixtures/test-workspace.fixture';
+import { test as baseTest, expect, seedAuth } from '../fixtures/test-workspace.fixture';
+import { TestWorkspace } from '../lib/test-workspace';
 
-test.describe('fake GitHub backend', () => {
-  test('shows seeded repos on the landing page', async ({ workspace, electronApp, window }) => {
-    // 1. Seed the registry with a CoLRev repo owned by alice
-    workspace.seedRegistry({
+// Override `workspace` to seed registry + auth.json BEFORE Electron launches.
+// `electronApp` depends on `workspace`, so any work done before `use(ws)` is
+// visible to the app at startup. Seeding inside the test body would race the
+// renderer, which mounts on the login screen and never re-queries auth.
+const test = baseTest.extend({
+  workspace: async ({}, use, testInfo) => {
+    const safeName = testInfo.title.replace(/[^a-zA-Z0-9-]/g, '-').substring(0, 80);
+    const ws = new TestWorkspace(safeName);
+
+    ws.seedRegistry({
       accounts: [
         { login: 'alice', name: 'Alice Smith', avatarUrl: '', token: 'tok-alice' },
       ],
@@ -59,16 +66,17 @@ test.describe('fake GitHub backend', () => {
       releases: [],
     });
 
-    // 2. Pre-seed auth so the app thinks alice is logged in
-    seedAuth(workspace.userDataDir, 'alice', 'tok-alice');
+    seedAuth(ws.userDataDir, 'alice', 'tok-alice');
 
-    // 3. Wait for app to mount
+    await use(ws);
+  },
+});
+
+test.describe('fake GitHub backend', () => {
+  test('shows seeded repos on the landing page', async ({ workspace, electronApp, window }) => {
     await window.waitForSelector('#app', { timeout: 15_000 });
-
-    // 4. Wait for the landing page (authenticated users go straight there)
     await window.waitForSelector('h2:has-text("Reviews")', { timeout: 15_000 });
 
-    // 5. Wait for backend to start (poll pinia store)
     const backendReady = await window.waitForFunction(
       () => {
         // @ts-expect-error pinia on window
@@ -81,24 +89,18 @@ test.describe('fake GitHub backend', () => {
     );
     expect(backendReady).toBeTruthy();
 
-    // 6. Wait for the GitHub repos section to appear and load
-    //    The store fetches repos automatically when authenticated + backend running
     const ghSection = window.locator('[data-testid="github-projects-section"]');
     await ghSection.waitFor({ state: 'visible', timeout: 30_000 });
 
-    // 7. Wait for the seeded repos to appear (the store needs time to fetch + render)
     const repo1 = window.locator('[data-testid="github-repo-systematic-review"]');
     await repo1.waitFor({ state: 'visible', timeout: 30_000 });
 
     const repo2 = window.locator('[data-testid="github-repo-scoping-review"]');
     await repo2.waitFor({ state: 'visible', timeout: 30_000 });
 
-    // 8. Verify the non-colrev repo (dotfiles) does NOT appear
-    //    listColrevRepos filters out non-colrev repos
     const nonColrev = window.locator('[data-testid="github-repo-dotfiles"]');
     await expect(nonColrev).toHaveCount(0);
 
-    // 9. Write last-state.json for debugging
     workspace.writeLastState({
       activeAccount: 'alice',
       registryPath: workspace.registryPath,
@@ -106,10 +108,6 @@ test.describe('fake GitHub backend', () => {
       lastRpc: { method: 'fake-github-e2e-complete' },
     });
 
-    // 10. Verify log files exist and are populated
-    //     backend.log and renderer.log may be empty if the app didn't emit
-    //     backend stderr or renderer console in this test. At minimum they
-    //     exist (created by TestWorkspace).
     expect(fs.existsSync(workspace.backendLogPath)).toBe(true);
     expect(fs.existsSync(workspace.rendererLogPath)).toBe(true);
     expect(fs.existsSync(workspace.rpcJsonlPath)).toBe(true);

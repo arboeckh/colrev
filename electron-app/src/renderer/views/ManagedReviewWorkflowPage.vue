@@ -180,7 +180,7 @@ onMounted(async () => {
               phaseStatus(phase.id) === 'complete'
                 ? 'border-emerald-500 bg-emerald-500 text-white'
                 : phaseStatus(phase.id) === 'active'
-                  ? 'border-foreground bg-background'
+                  ? 'border-foreground bg-background ring-2 ring-foreground/20'
                   : 'border-muted-foreground/30 bg-background',
             ]"
           >
@@ -200,6 +200,7 @@ onMounted(async () => {
         v-if="currentPhase === 'launch'"
         :kind="kind"
         @task-created="onTaskCreated"
+        @navigate-review="selectPhase('review')"
       />
       <template v-else-if="currentPhase === 'review'">
         <PrescreenPage v-if="kind === 'prescreen'" embedded />

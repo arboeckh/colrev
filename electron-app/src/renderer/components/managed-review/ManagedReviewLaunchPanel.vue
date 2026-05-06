@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch, type Ref } from 'vue';
-import { AlertTriangle, CheckCircle2, Loader2, UserPlus } from 'lucide-vue-next';
+import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, UserPlus } from 'lucide-vue-next';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +30,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   taskCreated: [];
+  navigateReview: [];
 }>();
 
 const backend = useBackendStore();
@@ -59,6 +60,12 @@ const inviteUsername = ref('');
 const isInviting = ref(false);
 
 const kindLabel = computed(() => (props.kind === 'screen' ? 'Screen' : 'Prescreen'));
+const launchButtonLabel = computed(() => {
+  if (!isCreating.value) return `Launch ${kindLabel.value} Task`;
+  const pct = backend.operationProgress;
+  if (pct !== null && pct < 100) return `Fetching abstracts… ${pct}%`;
+  return 'Launching…';
+});
 const activeTask = computed(() => tasks.value.find((task) => ['active', 'reconciling'].includes(task.state)) ?? null);
 const displayTask = computed(() => activeTask.value ?? tasks.value[0] ?? null);
 const remoteUrl = computed(() => projects.currentGitStatus?.remote_url ?? null);
@@ -261,9 +268,13 @@ async function createTask() {
       await git.push();
     }
 
+    const enriched = response.enriched_count ?? 0;
+    const enrichSuffix = enriched > 0
+      ? ` · fetched abstracts for ${enriched} record${enriched === 1 ? '' : 's'}`
+      : '';
     notifications.success(
       `${kindLabel.value} task created`,
-      `Launched reviewer branches for ${response.task.id}`,
+      `Reviewer branches ready${enrichSuffix}`,
     );
     reviewerA.value = '';
     reviewerB.value = '';
@@ -385,6 +396,16 @@ defineExpose({ refreshData, activeTask, tasks });
     </div>
 
     <template v-else>
+      <!-- How it works -->
+      <div class="rounded-md border border-border bg-muted/30 px-4 py-3 max-w-md space-y-2">
+        <h3 class="text-sm font-medium">How {{ kindLabel.toLowerCase() }} works</h3>
+        <ol class="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+          <li>Pick two reviewers — they each get their own branch.</li>
+          <li>Both reviewers screen the same records in parallel.</li>
+          <li>You reconcile their decisions on dev when they're done.</li>
+        </ol>
+      </div>
+
       <!-- Readiness status -->
       <div class="space-y-3">
         <div class="flex items-center gap-3">
@@ -542,7 +563,8 @@ defineExpose({ refreshData, activeTask, tasks });
             data-testid="launch-managed-task-btn"
             @click="createTask"
           >
-            {{ isCreating ? 'Launching...' : `Launch ${kindLabel} Task` }}
+            <Loader2 v-if="isCreating" class="h-3 w-3 mr-1 animate-spin" />
+            {{ launchButtonLabel }}
           </Button>
           <span v-if="reviewerA && reviewerB && reviewerA === reviewerB" class="text-xs text-destructive">
             Reviewers must be different
@@ -557,7 +579,7 @@ defineExpose({ refreshData, activeTask, tasks });
       <div v-if="displayTask" class="space-y-4 max-w-md">
         <div class="flex items-center justify-between">
           <div>
-            <h3 class="text-sm font-medium">{{ displayTask.id }}</h3>
+            <h3 class="text-sm font-medium">Active {{ kindLabel.toLowerCase() }} task</h3>
             <p class="text-xs text-muted-foreground">Created by {{ displayTask.created_by }} · {{ prettyDate(displayTask.created_at) }}</p>
           </div>
           <Badge :variant="displayTask.state === 'completed' ? 'default' : 'secondary'" class="text-xs">
@@ -579,7 +601,6 @@ defineExpose({ refreshData, activeTask, tasks });
                 <AvatarFallback class="text-[9px] bg-muted">{{ reviewer.github_login.slice(0, 2).toUpperCase() }}</AvatarFallback>
               </Avatar>
               <span class="text-sm font-medium">{{ reviewer.github_login }}</span>
-              <span class="h-2 w-2 rounded-full shrink-0" :class="reviewer.available ? 'bg-green-500' : 'bg-muted-foreground/30'" />
             </div>
             <span class="text-xs text-muted-foreground tabular-nums">{{ reviewer.completed_count }} / {{ displayTask.record_count }}</span>
           </div>
@@ -591,17 +612,28 @@ defineExpose({ refreshData, activeTask, tasks });
           <span>Reconciled by {{ displayTask.reconciliation_summary.resolved_by }} — {{ displayTask.reconciliation_summary.auto_resolved_count }} auto, {{ displayTask.reconciliation_summary.manual_conflict_count }} manual</span>
         </div>
 
-        <!-- Cancel button -->
-        <Button
-          v-if="displayTask.state !== 'completed' && displayTask.state !== 'aborted'"
-          variant="ghost"
-          size="sm"
-          class="text-destructive hover:text-destructive"
-          :disabled="isReadOnly"
-          @click="cancelTask"
-        >
-          Cancel Task
-        </Button>
+        <!-- Continue to Review CTA + cancel -->
+        <div class="flex items-center gap-2">
+          <Button
+            v-if="displayTask.state === 'active'"
+            size="sm"
+            data-testid="continue-to-review-btn"
+            @click="emit('navigateReview')"
+          >
+            Continue to Review
+            <ArrowRight class="h-3.5 w-3.5 ml-1" />
+          </Button>
+          <Button
+            v-if="displayTask.state !== 'completed' && displayTask.state !== 'aborted'"
+            variant="ghost"
+            size="sm"
+            class="text-destructive hover:text-destructive"
+            :disabled="isReadOnly"
+            @click="cancelTask"
+          >
+            Cancel Task
+          </Button>
+        </div>
       </div>
     </template>
   </div>
