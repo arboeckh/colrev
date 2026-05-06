@@ -47,8 +47,6 @@ _ALL_DEFECT_CODES = [
     DefectCodes.LANGUAGE_UNKNOWN,
     DefectCodes.MOSTLY_ALL_CAPS,
     DefectCodes.NAME_ABBREVIATED,
-    DefectCodes.NAME_FORMAT_SEPARTORS,
-    DefectCodes.NAME_FORMAT_TITLES,
     DefectCodes.NAME_PARTICLES,
     DefectCodes.PAGE_RANGE,
     DefectCodes.PUBMED_ID_NOT_MATCHING_PATTERN,

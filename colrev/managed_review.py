@@ -459,6 +459,16 @@ class ManagedReviewService:
                     f"Branch {reviewer['branch_name']} already exists. Try launching again."
                 )
 
+        # Pre-fetch abstracts on dev before bifurcating reviewer branches.
+        # Doing this here (instead of lazily during review on each reviewer
+        # branch) means the launch commit captures the enriched state, so:
+        # (1) reviewers see abstracts immediately without a fetch delay, and
+        # (2) reviewer branches don't accumulate non-task metadata diffs that
+        # would otherwise block reconciliation.
+        enrichment_summary = self._enrich_eligible_records(
+            kind=kind, record_ids=readiness["eligible_record_ids"]
+        )
+
         task = {
             "id": task_id,
             "kind": kind,
@@ -485,6 +495,58 @@ class ManagedReviewService:
             "success": True,
             "task": self._serialize_task(task=task),
             "launch_ref": git_repo.head.commit.hexsha,
+            "enriched_count": enrichment_summary["enriched_count"],
+            "enrichment_failed_count": enrichment_summary["failed_count"],
+            "enrichment_skipped_count": enrichment_summary["skipped_count"],
+        }
+
+    def _enrich_eligible_records(
+        self, *, kind: str, record_ids: list[str]
+    ) -> Dict[str, int]:
+        """Enrich abstracts for eligible records on dev and commit the result.
+
+        Skips no-op enrichments (already-present abstracts). When at least one
+        record was enriched, creates a commit so the launch base is reproducible
+        across reviewer branches. Errors do not abort the launch — failed
+        records simply stay without abstracts and the launch proceeds.
+        """
+        if not record_ids:
+            return {"enriched_count": 0, "failed_count": 0, "skipped_count": 0}
+
+        # Lazy import: keep the service-layer module free of ui_jsonrpc deps
+        # at load time. The progress channel is best-effort — if it can't be
+        # emitted (e.g., outside an RPC context), enrichment still runs.
+        from colrev.ui_jsonrpc._record_enrichment import enrich_records
+        from colrev.ui_jsonrpc.framework import ProgressEvent
+        from colrev.ui_jsonrpc.framework import ProgressEventKind
+        from colrev.ui_jsonrpc.framework import emit_progress
+
+        def on_progress(current: int, total: int, message: str) -> None:
+            emit_progress(
+                ProgressEvent(
+                    kind=ProgressEventKind.prep_progress,
+                    message=message,
+                    current=current,
+                    total=total,
+                    source=f"managed_{kind}_launch_enrich",
+                )
+            )
+
+        result = enrich_records(
+            self.review_manager,
+            list(record_ids),
+            on_progress=on_progress,
+        )
+
+        if result["enriched_count"] > 0:
+            self.review_manager.create_commit(
+                msg=f"Enrich abstracts before managed {kind} launch",
+            )
+
+        return {
+            "enriched_count": result["enriched_count"],
+            "failed_count": result["failed_count"],
+            "skipped_count": result["skipped_count"],
         }
 
     def cancel_task(self, *, task_id: str, canceled_by: str) -> Dict[str, Any]:
@@ -669,18 +731,70 @@ class ManagedReviewService:
             "items": items,
         }
 
+    _NON_TASK_METADATA_BLOCK_PREFIX = "Non-task metadata changed"
+
+    def _reclassify_overridable_blocks(
+        self, *, preview: Dict[str, Any], task: Dict[str, Any]
+    ) -> None:
+        """Reclassify blocked items whose only block is non-task-metadata drift.
+
+        Mutates ``preview`` in place. Items blocked solely by
+        ``Non-task metadata changed`` reasons are re-resolved against their
+        reviewer decisions (auto / conflict / pending) and tagged with
+        ``_was_overridden=True`` so the audit trail can record it. Items with
+        any other reason (e.g., record missing) are left blocked.
+        """
+        eligible_state = task["eligible_state"]
+        summary = preview["summary"]
+        for item in preview["items"]:
+            if item["status"] != "blocked":
+                continue
+            if not item["blocked_reasons"] or not all(
+                reason.startswith(self._NON_TASK_METADATA_BLOCK_PREFIX)
+                for reason in item["blocked_reasons"]
+            ):
+                continue
+
+            reviewer_entries = item["reviewers"]
+            summary["blocked_count"] -= 1
+            item["_was_overridden"] = True
+
+            if any(r["status"] == eligible_state for r in reviewer_entries):
+                item["status"] = "pending"
+                summary["pending_count"] += 1
+                continue
+
+            first, second = reviewer_entries[0], reviewer_entries[1]
+            if (
+                first["status"] == second["status"]
+                and first["criteria_string"] == second["criteria_string"]
+            ):
+                item["status"] = "auto"
+                item["auto_resolution"] = {
+                    "selected_reviewer": first["role"],
+                    "status": first["status"],
+                    "criteria_string": first["criteria_string"],
+                }
+                summary["auto_resolved_count"] += 1
+            else:
+                item["status"] = "conflict"
+                summary["manual_conflict_count"] += 1
+
     def apply_reconciliation(
         self,
         *,
         task_id: str,
         resolutions: list[Dict[str, Any]],
         resolved_by: str,
+        override_blocks: bool = False,
     ) -> Dict[str, Any]:
         """Apply a reconciliation to dev and store an audit trail."""
 
         self._require_dev_branch(action="Applying managed review reconciliation")
         preview = self.get_reconciliation_preview(task_id=task_id)
         task = preview["task"]
+        if override_blocks:
+            self._reclassify_overridable_blocks(preview=preview, task=task)
         if preview["summary"]["blocked_count"] > 0:
             raise ValueError(
                 "Resolve blocked records before applying reconciliation."
@@ -771,6 +885,9 @@ class ManagedReviewService:
                     else:
                         record.data.pop(Fields.SCREENING_CRITERIA, None)
                     record.set_status(FINAL_STATES_BY_KIND["screen"][resolved_status])
+
+            if item.get("_was_overridden"):
+                resolution_type = f"override_{resolution_type}"
 
             records_to_save[item["id"]] = record.get_data()
             audit_rows.append(

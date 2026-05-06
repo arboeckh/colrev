@@ -73,6 +73,7 @@ class ApplyReconciliationRequest(ProjectScopedRequest):
     task_id: str
     resolutions: List[Any] = []
     resolved_by: str = "unknown"
+    override_blocks: bool = False
 
 
 class ExportReconciliationAuditRequest(ProjectScopedRequest):
@@ -239,6 +240,7 @@ class ManagedReviewHandler(BaseHandler):
                 task_id=req.task_id,
                 resolutions=req.resolutions,
                 resolved_by=req.resolved_by,
+                override_blocks=req.override_blocks,
             ),
         )
 
