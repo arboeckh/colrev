@@ -3,7 +3,6 @@ import { computed, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import { LayoutDashboard } from 'lucide-vue-next';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 import SidebarItem from './SidebarItem.vue';
 import { UserMenu } from '@/components/common';
 import { useProjectsStore } from '@/stores/projects';
@@ -165,30 +164,32 @@ const priorStepHasPending = computed(() => {
 </script>
 
 <template>
-  <aside class="w-56 border-r border-border bg-muted/30 flex flex-col">
+  <aside class="w-60 border-r border-sidebar-border bg-sidebar flex flex-col">
     <ScrollArea class="flex-1 p-3">
       <!-- Overview link -->
       <RouterLink :to="`/project/${projectId}`" data-testid="sidebar-overview"
-        class="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors mb-1" :class="[
+        class="flex items-center gap-3 px-3 py-2 rounded-md text-[13px] transition-colors mb-2" :class="[
           isOverviewActive
-            ? 'bg-accent text-accent-foreground font-medium'
-            : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+            ? 'bg-card border border-sidebar-border text-ink-900 font-medium'
+            : 'text-ink-600 hover:bg-card/60 hover:text-ink-900',
         ]">
-        <LayoutDashboard class="h-4 w-4" />
+        <LayoutDashboard class="h-3.5 w-3.5" />
         <span>Overview</span>
       </RouterLink>
 
-      <Separator class="my-3" />
+      <div class="px-3 pt-2 pb-1.5">
+        <div class="smallcaps">Review pipeline</div>
+      </div>
 
       <!-- Badge legend -->
-      <div v-if="showBadgeLegend" class="flex flex-col gap-1 mb-2 px-1">
+      <div v-if="showBadgeLegend" class="flex flex-col gap-1 mb-2 px-3">
         <div class="flex items-center gap-1.5">
-          <span class="flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500/15 px-1 text-[10px] tabular-nums text-emerald-500 font-medium">+n</span>
-          <span class="text-[10px] text-muted-foreground/60">new unpublished records</span>
+          <span class="flex h-4 min-w-4 items-center justify-center rounded-full border border-eucalyptus-300/50 bg-eucalyptus-50 px-1 text-[10px] tabular-nums text-eucalyptus-700 font-medium">+n</span>
+          <span class="text-[10px] text-ink-400">new unpublished records</span>
         </div>
         <div class="flex items-center gap-1.5">
-          <span class="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/10 px-1 text-[10px] tabular-nums text-primary font-medium">n</span>
-          <span class="text-[10px] text-muted-foreground/60">waiting to be processed</span>
+          <span class="flex h-4 min-w-4 items-center justify-center rounded-full bg-cream-200 px-1 text-[10px] tabular-nums text-ink-700 font-medium">n</span>
+          <span class="text-[10px] text-ink-400">waiting to be processed</span>
         </div>
       </div>
 
@@ -207,7 +208,7 @@ const priorStepHasPending = computed(() => {
     </ScrollArea>
 
     <!-- User menu at the bottom -->
-    <div class="border-t border-border p-2">
+    <div class="border-t border-sidebar-border p-2">
       <UserMenu />
     </div>
   </aside>

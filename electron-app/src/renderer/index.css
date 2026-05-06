@@ -1,76 +1,107 @@
 @import "tailwindcss";
 
-@custom-variant dark (&:is(.dark *));
+/* Japandi-inspired design system for ColRev.
+   Cream backgrounds, eucalyptus green accents, terracotta destructive,
+   Fraunces serif for display + Inter Tight body + DM Mono for IDs/code.
+   Google Fonts loaded via <link> in index.html — keeping it as a CSS @import
+   breaks Tailwind v4 ordering (all @import must precede other statements). */
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.25rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
+  /* Cream surface scale (warm off-white through paper) */
+  --cream-50: #FBFAF6;
+  --cream-100: #F8F6F0;
+  --cream-200: #F3F0E7;
+  --cream-300: #EBE7DA;
+  --cream-400: #D9D3C0;
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
+  /* Ink (warm-tinted neutrals for text) */
+  --ink-900: #1F1D17;
+  --ink-800: #2A2820;
+  --ink-700: #403C30;
+  --ink-600: #56513F;
+  --ink-500: #6E6852;
+  --ink-400: #8F8870;
+  --ink-300: #B5AE96;
+  --ink-200: #D5CFB8;
+
+  /* Eucalyptus green — used sparingly for primary action and inclusion */
+  --green-50:  #EEF1EA;
+  --green-100: #DCE2D4;
+  --green-300: #A8B5A0;
+  --green-500: #8FA08C;
+  --green-600: #768A75;
+  --green-700: #5E6F5D;
+  --green-900: #3A4639;
+
+  /* Restrained warm accents */
+  --rose:  #B85C4A;  /* destructive — terracotta, not red */
+  --amber: #C19A4B;  /* warning */
+
+  /* Hairline dividers */
+  --hairline:        rgba(31, 29, 23, 0.08);
+  --hairline-strong: rgba(31, 29, 23, 0.14);
+
+  /* Paper-like shadows (soft, low) */
+  --shadow-sm: 0 1px 0 rgba(31, 29, 23, 0.04), 0 1px 2px rgba(31, 29, 23, 0.04);
+  --shadow-md: 0 1px 0 rgba(31, 29, 23, 0.04), 0 4px 12px rgba(31, 29, 23, 0.06);
+  --shadow-lg: 0 1px 0 rgba(31, 29, 23, 0.04), 0 12px 40px rgba(31, 29, 23, 0.10);
+
+  /* Type stacks */
+  --font-body:    'Inter Tight', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: 'Fraunces', Georgia, ui-serif, serif;
+  --font-mono:    'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* shadcn token mapping — these names are referenced by components/ui/* */
+  --background: var(--cream-100);
+  --foreground: var(--ink-800);
+
+  --card: var(--cream-50);
+  --card-foreground: var(--ink-800);
+
+  --popover: var(--cream-50);
+  --popover-foreground: var(--ink-800);
+
+  /* Primary = eucalyptus green */
+  --primary: var(--green-600);
+  --primary-foreground: var(--cream-50);
+
+  /* Secondary = subtle paper button */
+  --secondary: var(--cream-200);
+  --secondary-foreground: var(--ink-800);
+
+  --muted: var(--cream-200);
+  --muted-foreground: var(--ink-500);
+
+  --accent: var(--cream-200);
+  --accent-foreground: var(--ink-900);
+
+  /* Destructive = terracotta */
+  --destructive: var(--rose);
+  --destructive-foreground: var(--cream-50);
+
+  --border: var(--hairline-strong);
+  --input:  var(--hairline-strong);
+  --ring:   var(--green-500);
+
+  /* Charts: green-led palette with restrained warm accents */
+  --chart-1: var(--green-600);
+  --chart-2: var(--green-300);
+  --chart-3: var(--amber);
+  --chart-4: var(--rose);
+  --chart-5: var(--ink-500);
+
+  /* Radii — refined, not pill, not sharp */
+  --radius: 4px;
+
+  /* Sidebar = same cream as background, separated by a hairline */
+  --sidebar: var(--cream-100);
+  --sidebar-foreground: var(--ink-700);
+  --sidebar-primary: var(--green-700);
+  --sidebar-primary-foreground: var(--cream-50);
+  --sidebar-accent: var(--cream-50);
+  --sidebar-accent-foreground: var(--ink-900);
+  --sidebar-border: var(--hairline);
+  --sidebar-ring: var(--green-500);
 }
 
 @theme inline {
@@ -98,10 +129,38 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+
+  /* Tailwind utility access to the palette */
+  --color-cream-50:  var(--cream-50);
+  --color-cream-100: var(--cream-100);
+  --color-cream-200: var(--cream-200);
+  --color-cream-300: var(--cream-300);
+  --color-cream-400: var(--cream-400);
+  --color-ink-900: var(--ink-900);
+  --color-ink-800: var(--ink-800);
+  --color-ink-700: var(--ink-700);
+  --color-ink-600: var(--ink-600);
+  --color-ink-500: var(--ink-500);
+  --color-ink-400: var(--ink-400);
+  --color-ink-300: var(--ink-300);
+  --color-ink-200: var(--ink-200);
+  --color-eucalyptus-50:  var(--green-50);
+  --color-eucalyptus-100: var(--green-100);
+  --color-eucalyptus-300: var(--green-300);
+  --color-eucalyptus-500: var(--green-500);
+  --color-eucalyptus-600: var(--green-600);
+  --color-eucalyptus-700: var(--green-700);
+  --color-eucalyptus-900: var(--green-900);
+  --color-rose-accent:    var(--rose);
+  --color-amber-accent:   var(--amber);
+
+  --radius-xs: 2px;
   --radius-sm: 2px;
   --radius-md: 4px;
   --radius-lg: 4px;
   --radius-xl: 6px;
+  --radius-2xl: 8px;
+
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -111,25 +170,20 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
+  --font-sans: var(--font-body);
+  --font-serif: var(--font-display);
+  --font-mono: var(--font-mono);
+
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
 
   @keyframes accordion-down {
-    from {
-      height: 0;
-    }
-    to {
-      height: var(--reka-accordion-content-height);
-    }
+    from { height: 0; }
+    to   { height: var(--reka-accordion-content-height); }
   }
-
   @keyframes accordion-up {
-    from {
-      height: var(--reka-accordion-content-height);
-    }
-    to {
-      height: 0;
-    }
+    from { height: var(--reka-accordion-content-height); }
+    to   { height: 0; }
   }
 }
 
@@ -137,18 +191,45 @@
   * {
     @apply border-border outline-ring/50;
   }
+
+  html, body { margin: 0; padding: 0; }
+
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "ss01", "cv11";
   }
+
+  /* Subtle paper grain — pinned behind content, multiplies into the cream */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.5;
+    mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.12 0 0 0 0 0.11 0 0 0 0 0.09 0 0 0 0 0.045 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  /* Keep app content above the grain layer */
+  #app { position: relative; z-index: 1; }
+
+  ::selection { background: var(--green-100); color: var(--ink-900); }
 
   h1, h2, h3, h4 {
-    letter-spacing: -0.015em;
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: -0.018em;
+    color: var(--ink-900);
   }
 
-  .tracking-tight-heading {
-    letter-spacing: -0.02em;
-  }
+  .tracking-tight-heading { letter-spacing: -0.02em; }
 
+  /* Override default Tailwind shadows — paper grain doesn't want hard drop shadows */
   .shadow-xs, .shadow-sm, .shadow, .shadow-md, .shadow-lg {
     box-shadow: none !important;
   }
@@ -157,8 +238,72 @@
   [data-slot="popover-content"],
   [data-slot="dropdown-menu-content"],
   [data-slot="sheet-content"] {
-    box-shadow:
-      0 1px 2px rgb(0 0 0 / 0.04),
-      0 8px 24px rgb(0 0 0 / 0.08) !important;
+    box-shadow: var(--shadow-lg) !important;
+  }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(31, 29, 23, 0.12);
+    border-radius: 6px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(31, 29, 23, 0.22);
+    background-clip: content-box;
+  }
+
+  /* Density modes (data-density on <body>) */
+  body[data-density="compact"]  { --row-h: 36px; --pad-row: 8px; }
+  body[data-density="regular"]  { --row-h: 48px; --pad-row: 12px; }
+  body[data-density="generous"] { --row-h: 60px; --pad-row: 16px; }
+}
+
+@layer utilities {
+  /* Letterspaced small caps for section labels */
+  .smallcaps {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-weight: 500;
+    color: var(--ink-500);
+  }
+  .smallcaps-strong {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-weight: 600;
+    color: var(--ink-700);
+  }
+
+  .hairline { background: var(--hairline); height: 1px; width: 100%; }
+
+  .font-display { font-family: var(--font-display); }
+  .font-body    { font-family: var(--font-body); }
+  .font-mono    { font-family: var(--font-mono); }
+
+  .display-1 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    text-wrap: balance;
+  }
+
+  /* Editorial body — Fraunces light, used for long-form passages like abstracts */
+  .editorial {
+    font-family: var(--font-display);
+    font-weight: 300;
+    line-height: 1.7;
+    text-wrap: pretty;
+  }
+
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  .paper {
+    background: var(--cream-50);
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius-md);
   }
 }

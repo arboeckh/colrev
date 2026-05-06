@@ -8,6 +8,7 @@ import DebugPanel from '@/components/common/DebugPanel.vue';
 import ConflictResolutionDialog from '@/components/common/ConflictResolutionDialog.vue';
 import PullBlockedDialog from '@/components/common/PullBlockedDialog.vue';
 import ResetToRemoteDialog from '@/components/common/ResetToRemoteDialog.vue';
+import KeychainExplainerDialog from '@/components/common/KeychainExplainerDialog.vue';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
@@ -96,6 +97,10 @@ watch(
 
     <!-- Last-resort reset-to-remote dialog -->
     <ResetToRemoteDialog />
+
+    <!-- One-time keychain explainer (macOS) — must be mounted, otherwise
+         auth.initialize() will hang on stored accounts waiting for ack. -->
+    <KeychainExplainerDialog />
 
     <!-- Main content with conditional layout -->
     <AppLayout v-if="useProjectLayout">

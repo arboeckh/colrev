@@ -21,7 +21,7 @@ export function setupGitEnvironment(): Record<string, string> {
     // In development, use node_modules directly
     dugiteGitPath = path.join(
       __dirname,
-      '../../..',
+      '../..',
       'node_modules',
       'dugite',
       'git'

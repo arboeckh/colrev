@@ -155,11 +155,11 @@ const stepStatus = computed((): StepStatus => {
     :to="routePath"
     :data-testid="`sidebar-${step.id}`"
     :data-step-status="stepStatus"
-    class="group relative flex items-center gap-3 py-2 px-2 rounded-lg text-sm transition-all"
+    class="group relative flex items-center gap-3 py-2 px-2 rounded-md text-[13px] transition-all"
     :class="[
       isActive
-        ? 'text-foreground font-semibold bg-primary/10'
-        : 'text-muted-foreground hover:text-foreground hover:bg-accent/30',
+        ? 'text-ink-900 font-medium bg-card border border-sidebar-border'
+        : 'text-ink-600 hover:text-ink-900 hover:bg-card/60 border border-transparent',
     ]"
   >
     <!-- Vertical line (behind the dot) -->
@@ -168,13 +168,13 @@ const stepStatus = computed((): StepStatus => {
       <div
         v-if="!isFirst"
         class="absolute bottom-1/2 w-px h-4 -translate-y-0.5"
-        :class="stepStatus === 'complete' ? 'bg-emerald-500' : 'bg-border'"
+        :class="stepStatus === 'complete' ? 'bg-eucalyptus-600' : 'bg-sidebar-border'"
       />
       <!-- Line segment below -->
       <div
         v-if="!isLast"
         class="absolute top-1/2 w-px h-4 translate-y-0.5"
-        :class="stepStatus === 'complete' ? 'bg-emerald-500' : 'bg-border'"
+        :class="stepStatus === 'complete' ? 'bg-eucalyptus-600' : 'bg-sidebar-border'"
       />
 
       <!-- Definition step: plain icon, no circle -->
@@ -191,14 +191,14 @@ const stepStatus = computed((): StepStatus => {
         class="relative z-10 flex h-5 w-5 items-center justify-center rounded-full border-2 transition-all"
         :class="[
           stepStatus === 'complete'
-            ? 'border-emerald-500 bg-emerald-500 text-white'
+            ? 'border-eucalyptus-600 bg-eucalyptus-600 text-cream-50'
             : stepStatus === 'active'
-              ? 'border-foreground bg-background text-foreground'
+              ? 'border-eucalyptus-700 bg-card text-eucalyptus-700'
               : stepStatus === 'warning'
-                ? 'border-amber-500 bg-amber-500 text-white'
+                ? 'border-amber-accent bg-amber-accent text-cream-50'
                 : isActive
-                  ? 'border-foreground/50 bg-foreground/10'
-                  : 'border-muted-foreground/30 bg-background',
+                  ? 'border-ink-300 bg-cream-200'
+                  : 'border-ink-200 bg-card',
         ]"
       >
         <Check
@@ -224,7 +224,7 @@ const stepStatus = computed((): StepStatus => {
           <Tooltip v-if="deltaPendingRecords > 0">
             <TooltipTrigger as-child>
               <span
-                class="flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500/15 px-1.5 text-xs tabular-nums text-emerald-500 font-medium"
+                class="flex h-5 min-w-5 items-center justify-center rounded-full border border-eucalyptus-300/50 bg-eucalyptus-50 px-1.5 text-[11px] tabular-nums text-eucalyptus-700 font-medium"
               >
                 +{{ deltaPendingRecords }}
               </span>
@@ -236,7 +236,7 @@ const stepStatus = computed((): StepStatus => {
           <Tooltip v-if="forwardedRecords > 0 && !deltaPendingRecords">
             <TooltipTrigger as-child>
               <span
-                class="flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500/15 px-1.5 text-xs tabular-nums text-emerald-500 font-medium"
+                class="flex h-5 min-w-5 items-center justify-center rounded-full border border-eucalyptus-300/50 bg-eucalyptus-50 px-1.5 text-[11px] tabular-nums text-eucalyptus-700 font-medium"
               >
                 +{{ forwardedRecords }}
               </span>
@@ -248,7 +248,7 @@ const stepStatus = computed((): StepStatus => {
           <Tooltip v-if="pendingRecords > 0">
             <TooltipTrigger as-child>
               <span
-                class="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary/10 px-1.5 text-xs tabular-nums text-primary font-medium"
+                class="flex h-5 min-w-5 items-center justify-center rounded-full bg-cream-200 px-1.5 text-[11px] tabular-nums text-ink-700 font-medium"
               >
                 {{ pendingRecords }}
               </span>

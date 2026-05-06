@@ -128,10 +128,10 @@ onUnmounted(() => {
          banner appears even when the user is on dev. -->
     <div
       v-if="git.mainBehind > 0 && !git.hasMergeConflict"
-      class="bg-blue-500/10 border-b border-blue-500/30 px-4 py-2 flex items-center gap-2"
+      class="bg-eucalyptus-50 border-b border-eucalyptus-300/50 px-4 py-2 flex items-center gap-2"
     >
-      <ArrowDown class="h-4 w-4 text-blue-500 shrink-0" />
-      <span class="text-sm text-blue-500">
+      <ArrowDown class="h-4 w-4 text-eucalyptus-700 shrink-0" />
+      <span class="text-sm text-eucalyptus-700">
         Collaborators pushed {{ git.mainBehind }} new commit{{ git.mainBehind === 1 ? '' : 's' }}.
       </span>
       <Button
