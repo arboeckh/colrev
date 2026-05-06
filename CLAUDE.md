@@ -2,6 +2,8 @@
 
 - Do not compliment me on my ideas. Don't say it is a sharp observation or "genuinely novel" and so on. Just say if it works or not and keep to the facts. I don't want compliments I want a system that works.
 
+Don't edit colrev package code, only the jsoon rpc layer or electron code. colrev core code should be treated like a package.
+
 ## Agent skills
 
 ### Issue tracker

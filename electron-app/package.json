@@ -109,6 +109,9 @@
     "vue": "^3.5.27"
   },
   "dependencies": {
+    "@fontsource-variable/fraunces": "^5.2.9",
+    "@fontsource-variable/inter-tight": "^5.2.7",
+    "@fontsource/dm-mono": "^5.2.7",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/vue-table": "^8.21.3",
     "@tiptap/extension-placeholder": "^3.22.3",

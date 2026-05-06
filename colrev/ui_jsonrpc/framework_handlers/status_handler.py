@@ -165,7 +165,6 @@ class StatusHandler(BaseHandler):
         name="get_status",
         request=GetStatusRequest,
         response=GetStatusResponse,
-        writes=False,
     )
     def get_status(self, req: GetStatusRequest) -> GetStatusResponse:
         assert self.review_manager is not None
@@ -196,7 +195,6 @@ class StatusHandler(BaseHandler):
         name="status",
         request=GetStatusRequest,
         response=GetStatusResponse,
-        writes=False,
     )
     def status(self, req: GetStatusRequest) -> GetStatusResponse:
         return self.get_status(req)
@@ -207,7 +205,6 @@ class StatusHandler(BaseHandler):
         name="validate",
         request=ValidateRequest,
         response=ValidateResponse,
-        writes=False,
     )
     def validate(self, req: ValidateRequest) -> ValidateResponse:
         assert self.review_manager is not None
@@ -231,7 +228,6 @@ class StatusHandler(BaseHandler):
         name="get_operation_info",
         request=GetOperationInfoRequest,
         response=GetOperationInfoResponse,
-        writes=False,
     )
     def get_operation_info(
         self, req: GetOperationInfoRequest
@@ -279,7 +275,6 @@ class StatusHandler(BaseHandler):
         name="get_preprocessing_summary",
         request=GetPreprocessingSummaryRequest,
         response=GetPreprocessingSummaryResponse,
-        writes=False,
     )
     def get_preprocessing_summary(
         self, req: GetPreprocessingSummaryRequest
@@ -360,7 +355,6 @@ class StatusHandler(BaseHandler):
         name="get_branch_delta",
         request=GetBranchDeltaRequest,
         response=GetBranchDeltaResponse,
-        writes=False,
     )
     def get_branch_delta(
         self, req: GetBranchDeltaRequest

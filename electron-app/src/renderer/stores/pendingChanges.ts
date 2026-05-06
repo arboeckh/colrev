@@ -9,6 +9,7 @@ import type {
   DiscardChangesResponse,
   StagedRecordChange,
 } from '@/types/generated/rpc';
+import { stripUrlUserinfo } from '@/lib/utils';
 
 type GitStatusPayload = GetGitStatusResponse['git'];
 
@@ -54,7 +55,9 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
         const response = await backend.call<GetGitStatusResponse>('get_git_status', {
           project_id: projects.currentProjectId!,
         });
-        gitStatus.value = response.git;
+        gitStatus.value = response.git
+          ? { ...response.git, remote_url: response.git.remote_url ? stripUrlUserinfo(response.git.remote_url) : response.git.remote_url }
+          : response.git;
         lastRefreshError.value = null;
       } catch (err) {
         lastRefreshError.value = err instanceof Error ? err.message : 'unknown error';

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import git as gitmodule
 
+import colrev.review_manager
 from colrev.constants import FileSets
 
 
@@ -49,31 +50,21 @@ class LazyWriteGitRepo:
             return False
         return True
 
-    def add_changes(self, path, *, remove=False, ignore_missing=False):
-        return self._ensure_full().add_changes(
-            path, remove=remove, ignore_missing=ignore_missing
-        )
-
-    def add_setting_changes(self):
-        return self._ensure_full().add_setting_changes()
-
-    def create_commit(self, **kwargs):
-        return self._ensure_full().create_commit(**kwargs)
-
-    def records_changed(self):
-        return self._ensure_full().records_changed()
-
-    def has_changes(self, relative_path, *, change_type="all"):
-        return self._ensure_full().has_changes(relative_path, change_type=change_type)
-
-    def has_record_changes(self, *, change_type="all"):
-        return self._ensure_full().has_record_changes(change_type=change_type)
-
-    def stash_unstaged_changes(self):
-        return self._ensure_full().stash_unstaged_changes()
-
-    def update_gitignore(self, **kwargs):
-        return self._ensure_full().update_gitignore(**kwargs)
-
     def __getattr__(self, name):
         return getattr(self._ensure_full(), name)
+
+
+def install_lazy_git_repo(
+    review_manager: colrev.review_manager.ReviewManager,
+    project_path: Path,
+) -> None:
+    """Replace ``review_manager.dataset.git_repo`` with a LazyWriteGitRepo.
+
+    ``Dataset.git_repo`` is a ``cached_property`` in core colrev, so we
+    overwrite the instance __dict__ entry directly to short-circuit it.
+    This is white-box knowledge of core colrev internals; the proper fix
+    lives in core (a public ``Dataset.set_git_repo()`` seam) and is tracked
+    out-of-scope for this layer's refactor. Keeping the mutation here means
+    there is exactly one place to change once that seam exists.
+    """
+    review_manager.dataset.__dict__["git_repo"] = LazyWriteGitRepo(project_path)

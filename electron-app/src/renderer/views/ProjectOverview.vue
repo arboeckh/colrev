@@ -39,6 +39,7 @@ import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
 import { useGitStore } from '@/stores/git';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useConnectionStore } from '@/stores/connection';
 import { WORKFLOW_STEPS } from '@/types/project';
 
 const router = useRouter();
@@ -46,6 +47,9 @@ const projects = useProjectsStore();
 const auth = useAuthStore();
 const git = useGitStore();
 const notifications = useNotificationsStore();
+const connection = useConnectionStore();
+
+const offlineTooltip = 'Requires internet';
 
 // Publish (merge dev into main)
 const isPublishing = ref(false);
@@ -326,6 +330,8 @@ const newRecordFunnel = computed(() => {
                 size="sm"
                 class="h-7 text-xs"
                 data-testid="push-to-github-button"
+                :disabled="!connection.isOnline"
+                :title="connection.isOnline ? undefined : offlineTooltip"
                 @click="openPushDialog"
               >
                 <Github class="h-3.5 w-3.5 mr-1" />
@@ -403,7 +409,8 @@ const newRecordFunnel = computed(() => {
                   variant="outline"
                   size="sm"
                   class="w-full gap-1.5"
-                  :disabled="isPublishing"
+                  :disabled="isPublishing || !connection.isOnline"
+                  :title="connection.isOnline ? undefined : offlineTooltip"
                   data-testid="publish-version"
                   @click="publishVersion"
                 >
@@ -444,6 +451,8 @@ const newRecordFunnel = computed(() => {
                 variant="ghost"
                 size="sm"
                 class="gap-1.5 text-xs h-7"
+                :disabled="!connection.isOnline"
+                :title="connection.isOnline ? undefined : offlineTooltip"
                 @click="showInviteForm = true"
               >
                 <UserPlus class="h-3.5 w-3.5" />
@@ -463,7 +472,8 @@ const newRecordFunnel = computed(() => {
               <Button
                 size="sm"
                 class="h-6 text-xs px-2"
-                :disabled="!inviteUsername || isInviting"
+                :disabled="!inviteUsername || isInviting || !connection.isOnline"
+                :title="connection.isOnline ? undefined : offlineTooltip"
                 @click="inviteCollaborator"
               >
                 {{ isInviting ? 'Sending...' : 'Send' }}
@@ -549,6 +559,8 @@ const newRecordFunnel = computed(() => {
                 size="sm"
                 class="h-7 text-xs gap-1"
                 data-testid="new-release-button"
+                :disabled="!connection.isOnline"
+                :title="connection.isOnline ? undefined : offlineTooltip"
                 @click="openReleaseDialog"
               >
                 <Tag class="h-3.5 w-3.5" />

@@ -25,4 +25,3 @@ class HandlerContext:
     project_id: Optional[str]
     project_path: Optional[Path]
     review_manager: Optional[colrev.review_manager.ReviewManager]
-    writes: bool

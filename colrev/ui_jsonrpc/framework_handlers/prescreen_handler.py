@@ -25,7 +25,7 @@ from colrev.constants import Fields
 from colrev.constants import OperationsType
 from colrev.constants import RecordState
 from colrev.constants import SearchType
-from colrev.managed_review import ManagedReviewService
+from colrev.ui_jsonrpc.framework_handlers import _managed_review_utils as managed_review_utils
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProgressEvent
 from colrev.ui_jsonrpc.framework import ProgressEventKind
@@ -174,8 +174,6 @@ class PrescreenHandler(BaseHandler):
         request=PrescreenRecordRequest,
         response=PrescreenRecordResponse,
         operation_type=OperationsType.prescreen,
-        notify=True,
-        writes=True,
     )
     def prescreen_record(self, req: PrescreenRecordRequest) -> PrescreenRecordResponse:
         assert self.review_manager is not None
@@ -184,7 +182,11 @@ class PrescreenHandler(BaseHandler):
             req.record_id, req.decision, req.project_id,
         )
 
-        task_record_ids = self._task_record_ids(req.task_id)
+        task_record_ids = managed_review_utils.task_record_ids(
+            review_manager=self.review_manager,
+            task_id=req.task_id,
+            stage="prescreen",
+        )
         prescreen_op = self.op(OperationsType.prescreen, notify=True)
 
         records_dict = self.review_manager.dataset.load_records_dict() or {}
@@ -248,8 +250,6 @@ class PrescreenHandler(BaseHandler):
         request=PrescreenBatchRequest,
         response=PrescreenBatchResponse,
         operation_type=OperationsType.prescreen,
-        notify=True,
-        writes=True,
     )
     def prescreen(self, req: PrescreenBatchRequest) -> PrescreenBatchResponse:
         assert self.review_manager is not None
@@ -270,14 +270,16 @@ class PrescreenHandler(BaseHandler):
         request=GetPrescreenQueueRequest,
         response=GetPrescreenQueueResponse,
         operation_type=OperationsType.prescreen,
-        notify=False,
-        writes=False,
     )
     def get_prescreen_queue(
         self, req: GetPrescreenQueueRequest
     ) -> GetPrescreenQueueResponse:
         assert self.review_manager is not None
-        task_record_ids = self._task_record_ids(req.task_id)
+        task_record_ids = managed_review_utils.task_record_ids(
+            review_manager=self.review_manager,
+            task_id=req.task_id,
+            stage="prescreen",
+        )
         self.op(OperationsType.prescreen, notify=False)
         records_dict = self.review_manager.dataset.load_records_dict() or {}
         prescreen_records = [
@@ -304,8 +306,6 @@ class PrescreenHandler(BaseHandler):
         request=UpdatePrescreenDecisionsRequest,
         response=UpdatePrescreenDecisionsResponse,
         operation_type=OperationsType.prescreen,
-        notify=True,
-        writes=True,
     )
     def update_prescreen_decisions(
         self, req: UpdatePrescreenDecisionsRequest
@@ -371,7 +371,6 @@ class PrescreenHandler(BaseHandler):
         name="enrich_record_metadata",
         request=EnrichRecordMetadataRequest,
         response=EnrichRecordMetadataResponse,
-        writes=True,
     )
     def enrich_record_metadata(
         self, req: EnrichRecordMetadataRequest
@@ -421,7 +420,6 @@ class PrescreenHandler(BaseHandler):
         name="batch_enrich_records",
         request=BatchEnrichRecordsRequest,
         response=BatchEnrichRecordsResponse,
-        writes=True,
     )
     def batch_enrich_records(
         self, req: BatchEnrichRecordsRequest
@@ -499,24 +497,6 @@ class PrescreenHandler(BaseHandler):
         )
 
     # -- helpers --------------------------------------------------------------
-
-    def _task_record_ids(self, task_id: Optional[str]):
-        """Managed-review gate: if a task_id is given, constrain allowed records
-        to that task's assigned set and require we're on a reviewer branch."""
-        if not task_id:
-            return None
-        assert self.review_manager is not None
-        service = ManagedReviewService(review_manager=self.review_manager)
-        manifest = service.load_manifest()
-        task = service._find_task(manifest=manifest, task_id=task_id)
-        current_branch = service._get_current_branch()
-        allowed_branches = {r["branch_name"] for r in task["reviewers"]}
-        if current_branch not in allowed_branches:
-            raise ValueError(
-                "Managed prescreen tasks can only be reviewed from an assigned "
-                "reviewer branch."
-            )
-        return set(task["record_ids"])
 
     def _get_crossref_source(self):
         try:

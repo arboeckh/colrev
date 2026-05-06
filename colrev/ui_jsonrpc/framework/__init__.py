@@ -23,7 +23,6 @@ Two classes of methods are first-class:
 from colrev.ui_jsonrpc.framework.base_handler import BaseHandler
 from colrev.ui_jsonrpc.framework.context import HandlerContext
 from colrev.ui_jsonrpc.framework.decorator import rpc_method
-from colrev.ui_jsonrpc.framework.dispatcher import Dispatcher
 from colrev.ui_jsonrpc.framework.domain import ProgressEvent
 from colrev.ui_jsonrpc.framework.domain import ProgressEventKind
 from colrev.ui_jsonrpc.framework.domain import RecordPayload
@@ -36,20 +35,19 @@ from colrev.ui_jsonrpc.framework.events import make_progress_callback
 from colrev.ui_jsonrpc.framework.events import set_emitter
 from colrev.ui_jsonrpc.framework.lazy_git import LazyWriteGitRepo
 from colrev.ui_jsonrpc.framework.models import NoProjectRequest
+from colrev.ui_jsonrpc.framework.models import PingResponse
 from colrev.ui_jsonrpc.framework.models import ProjectResponse
 from colrev.ui_jsonrpc.framework.models import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework.models import SuccessResponse
-from colrev.ui_jsonrpc.framework.registry import MethodSpec
 from colrev.ui_jsonrpc.framework.registry import registry
 
 __all__ = [
     "BaseHandler",
     "CapturingEmitter",
-    "Dispatcher",
     "HandlerContext",
     "LazyWriteGitRepo",
-    "MethodSpec",
     "NoProjectRequest",
+    "PingResponse",
     "ProgressEvent",
     "ProgressEventKind",
     "ProjectResponse",

@@ -57,3 +57,11 @@ class ProjectResponse(SuccessResponse):
     """Response that echoes the project_id for client-side correlation."""
 
     project_id: str
+
+
+class PingResponse(SuccessResponse):
+    """Readiness probe response. Lives here (not in system_handler) so the
+    fast path in ``handler.py`` can construct it without importing
+    ``framework_handlers`` (which would defeat the lazy-load design)."""
+
+    status: Literal["pong"] = "pong"

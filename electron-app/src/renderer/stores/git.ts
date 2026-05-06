@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed, toRaw } from 'vue';
 import { useProjectsStore } from './projects';
 import { useNotificationsStore } from './notifications';
+import { useConnectionStore } from './connection';
 import type { GitBranchInfo, GitLogEntry, GitHubRelease, MergeAnalysis, MergeConflictResolution } from '@/types/window';
 import type { BranchDelta } from '@/types/project';
 import type { GetBranchDeltaResponse } from '@/types/api';
@@ -15,6 +16,7 @@ import { useBackendStore } from './backend';
 export const useGitStore = defineStore('git', () => {
   const projects = useProjectsStore();
   const notifications = useNotificationsStore();
+  const connection = useConnectionStore();
 
   // State
   const currentBranch = ref('main');
@@ -36,7 +38,9 @@ export const useGitStore = defineStore('git', () => {
   const lastFetchTime = ref<number | null>(null);
   const recentCommits = ref<GitLogEntry[]>([]);
   const hasMergeConflict = ref(false);
-  const isOffline = ref(false);
+  // Mirror of connection store's offline state, exposed under the existing
+  // public name so consumers (GitSyncStatus.vue etc.) don't have to change.
+  const isOffline = computed(() => !connection.isOnline);
 
   // Conflict resolution state
   const isResolving = ref(false);
@@ -130,18 +134,17 @@ export const useGitStore = defineStore('git', () => {
       const result = await window.git.fetch(path);
       if (result.success) {
         lastFetchTime.value = Date.now();
-        isOffline.value = false;
+        connection.markOnline();
         await refreshStatus();
         return true;
       } else {
-        // Network error -> offline
         if (result.error?.includes('Could not resolve') || result.error?.includes('unable to access')) {
-          isOffline.value = true;
+          connection.markOffline();
         }
         return false;
       }
     } catch {
-      isOffline.value = true;
+      connection.markOffline();
       return false;
     } finally {
       isFetching.value = false;
@@ -714,6 +717,16 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
+  // When the renderer transitions offline -> online, re-sync remote-aware
+  // state so the user sees fresh counts without having to click Refresh.
+  // The handler is store-global; it no-ops when there's no current project.
+  connection.onReconnect(() => {
+    if (!getProjectPath()) return;
+    void fetch().then(() => {
+      if (isGitHubRemote.value) loadReleases();
+    });
+  });
+
   function cleanup(): void {
     branches.value = [];
     recentCommits.value = [];
@@ -725,7 +738,6 @@ export const useGitStore = defineStore('git', () => {
     mainBehind.value = 0;
     isClean.value = true;
     hasMergeConflict.value = false;
-    isOffline.value = false;
     isResolving.value = false;
     mergeAnalysis.value = null;
     showConflictDialog.value = false;

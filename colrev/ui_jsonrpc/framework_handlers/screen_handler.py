@@ -19,11 +19,11 @@ import colrev.record.record
 from colrev.constants import Fields
 from colrev.constants import OperationsType
 from colrev.constants import RecordState
-from colrev.managed_review import ManagedReviewService
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import rpc_method
+from colrev.ui_jsonrpc.framework_handlers import _managed_review_utils as managed_review_utils
 
 logger = logging.getLogger(__name__)
 
@@ -144,8 +144,6 @@ class ScreenHandler(BaseHandler):
         request=ScreenBatchRequest,
         response=ScreenBatchResponse,
         operation_type=OperationsType.screen,
-        notify=True,
-        writes=True,
     )
     def screen(self, req: ScreenBatchRequest) -> ScreenBatchResponse:
         assert self.review_manager is not None
@@ -165,12 +163,14 @@ class ScreenHandler(BaseHandler):
         request=GetScreenQueueRequest,
         response=GetScreenQueueResponse,
         operation_type=OperationsType.screen,
-        notify=False,
-        writes=False,
     )
     def get_screen_queue(self, req: GetScreenQueueRequest) -> GetScreenQueueResponse:
         assert self.review_manager is not None
-        task_record_ids = self._task_record_ids(req.task_id)
+        task_record_ids = managed_review_utils.task_record_ids(
+            review_manager=self.review_manager,
+            task_id=req.task_id,
+            stage="screen",
+        )
 
         screen_settings = self.review_manager.settings.screen
         criteria: Dict[str, ScreenCriterionInfo] = {}
@@ -227,8 +227,6 @@ class ScreenHandler(BaseHandler):
         request=ScreenRecordRequest,
         response=ScreenRecordResponse,
         operation_type=OperationsType.screen,
-        notify=True,
-        writes=True,
     )
     def screen_record(self, req: ScreenRecordRequest) -> ScreenRecordResponse:
         assert self.review_manager is not None
@@ -237,7 +235,11 @@ class ScreenHandler(BaseHandler):
             req.record_id, req.decision, req.project_id,
         )
 
-        task_record_ids = self._task_record_ids(req.task_id)
+        task_record_ids = managed_review_utils.task_record_ids(
+            review_manager=self.review_manager,
+            task_id=req.task_id,
+            stage="screen",
+        )
         screen_op = self.op(OperationsType.screen, notify=True)
 
         records_dict = self.review_manager.dataset.load_records_dict() or {}
@@ -312,8 +314,6 @@ class ScreenHandler(BaseHandler):
         request=UpdateScreenDecisionsRequest,
         response=UpdateScreenDecisionsResponse,
         operation_type=OperationsType.screen,
-        notify=True,
-        writes=True,
     )
     def update_screen_decisions(
         self, req: UpdateScreenDecisionsRequest
@@ -385,8 +385,6 @@ class ScreenHandler(BaseHandler):
         request=IncludeAllScreenRequest,
         response=IncludeAllScreenResponse,
         operation_type=OperationsType.screen,
-        notify=False,  # legacy used False; operation.include_all_in_screen doesn't need model checks
-        writes=True,
     )
     def include_all_screen(
         self, req: IncludeAllScreenRequest
@@ -400,24 +398,6 @@ class ScreenHandler(BaseHandler):
             operation="include_all_screen",
             message="All records included in screen",
         )
-
-    # -- helpers -------------------------------------------------------------
-
-    def _task_record_ids(self, task_id: Optional[str]):
-        if not task_id:
-            return None
-        assert self.review_manager is not None
-        service = ManagedReviewService(review_manager=self.review_manager)
-        manifest = service.load_manifest()
-        task = service._find_task(manifest=manifest, task_id=task_id)
-        current_branch = service._get_current_branch()
-        allowed_branches = {r["branch_name"] for r in task["reviewers"]}
-        if current_branch not in allowed_branches:
-            raise ValueError(
-                "Managed screen tasks can only be reviewed from an assigned reviewer branch."
-            )
-        return set(task["record_ids"])
-
 
 def _parse_criteria_string(criteria_str: str) -> Dict[str, str]:
     """Parse "criterion1=in;criterion2=out" into a dict."""

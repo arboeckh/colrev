@@ -78,18 +78,3 @@ def validate_existing_project(params: Dict[str, Any]) -> Path:
         )
 
     return target_path
-
-
-def get_optional_param(params: Dict[str, Any], key: str, default: Any) -> Any:
-    """
-    Get optional parameter with default value.
-
-    Args:
-        params: Request parameters
-        key: Parameter key
-        default: Default value if not present
-
-    Returns:
-        Parameter value or default
-    """
-    return params.get(key, default)

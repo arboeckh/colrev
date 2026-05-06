@@ -1,8 +1,8 @@
-"""@rpc_method decorator: attaches a MethodSpec to a handler method.
+"""@rpc_method decorator: attaches a MethodSpecDraft to a handler method.
 
-Registration into the global registry happens lazily — the first time a
-BaseHandler subclass is imported and its methods are inspected. This avoids
-the decorator firing before all models are importable.
+Registration into the global registry happens when the surrounding
+:class:`BaseHandler` subclass is processed by ``__init_subclass__``;
+the draft is finalised there by attaching ``handler`` and ``handler_cls``.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from typing import Type
 from pydantic import BaseModel
 
 from colrev.constants import OperationsType
+from colrev.ui_jsonrpc.framework.registry import MethodSpecDraft
 
 
 def rpc_method(
@@ -22,15 +23,9 @@ def rpc_method(
     request: Type[BaseModel],
     response: Type[BaseModel],
     operation_type: Optional[OperationsType] = None,
-    notify: bool = False,
-    writes: bool = False,
     requires_project: bool = True,
 ) -> Callable:
     """Mark a handler method as an RPC endpoint.
-
-    The actual registration into the global registry happens when the handler
-    class is processed by ``BaseHandler.__init_subclass__``. This decorator
-    only attaches metadata to the function.
 
     Args:
         name: JSON-RPC method string.
@@ -38,22 +33,19 @@ def rpc_method(
         response: Pydantic response model class.
         operation_type: If this wraps a CoLRev operation, the OperationsType.
             None for UI-native methods.
-        notify: Forwarded to ``get_*_operation(notify_state_transition_operation=...)``.
-        writes: Hint that this method mutates state (records.bib, settings, git).
-            Does NOT cause auto-commit.
         requires_project: False for project-list / ping / init endpoints.
     """
 
+    draft = MethodSpecDraft(
+        name=name,
+        request_model=request,
+        response_model=response,
+        operation_type=operation_type,
+        requires_project=requires_project,
+    )
+
     def decorator(fn: Callable) -> Callable:
-        fn.__rpc_meta__ = {  # type: ignore[attr-defined]
-            "name": name,
-            "request": request,
-            "response": response,
-            "operation_type": operation_type,
-            "notify": notify,
-            "writes": writes,
-            "requires_project": requires_project,
-        }
+        fn.__rpc_draft__ = draft  # type: ignore[attr-defined]
         return fn
 
     return decorator

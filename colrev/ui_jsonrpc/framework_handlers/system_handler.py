@@ -8,20 +8,16 @@ from __future__ import annotations
 from typing import Any
 from typing import Dict
 from typing import List
-from typing import Literal
 
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import NoProjectRequest
+from colrev.ui_jsonrpc.framework import PingResponse
 from colrev.ui_jsonrpc.framework import SuccessResponse
 from colrev.ui_jsonrpc.framework import rpc_method
 
 
 class PingRequest(NoProjectRequest):
     pass
-
-
-class PingResponse(SuccessResponse):
-    status: Literal["pong"] = "pong"
 
 
 class GetCSVSourceTemplatesRequest(NoProjectRequest):

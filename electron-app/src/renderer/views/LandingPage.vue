@@ -24,6 +24,7 @@ import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useAuthStore } from '@/stores/auth';
 import { useGithubReposStore } from '@/stores/github-repos';
+import { useConnectionStore } from '@/stores/connection';
 import type { InitProjectResponse, ListProjectsResponse } from '@/types/api';
 
 const router = useRouter();
@@ -33,6 +34,9 @@ const projects = useProjectsStore();
 const notifications = useNotificationsStore();
 const auth = useAuthStore();
 const githubRepos = useGithubReposStore();
+const connection = useConnectionStore();
+
+const offlineTooltip = 'Requires internet';
 
 // New project dialog state
 const showNewProjectDialog = ref(false);
@@ -342,7 +346,8 @@ loadInvitations();
                         variant="outline"
                         size="sm"
                         :class="{ 'ring-2 ring-primary': createOnGitHub }"
-                        :disabled="isCreatingProject"
+                        :disabled="isCreatingProject || !connection.isOnline"
+                        :title="connection.isOnline ? undefined : offlineTooltip"
                         data-testid="toggle-create-on-github"
                         @click="createOnGitHub = true"
                       >
@@ -377,7 +382,8 @@ loadInvitations();
                     Cancel
                   </Button>
                   <Button
-                    :disabled="isCreatingProject || !generatedSlug"
+                    :disabled="isCreatingProject || !generatedSlug || (createOnGitHub && !connection.isOnline)"
+                    :title="(createOnGitHub && !connection.isOnline) ? offlineTooltip : undefined"
                     data-testid="submit-create-project"
                     @click="createProject"
                   >
@@ -447,7 +453,8 @@ loadInvitations();
                 size="sm"
                 variant="outline"
                 class="shrink-0 gap-1.5 h-7 text-xs"
-                :disabled="acceptingInvitationId === inv.id"
+                :disabled="acceptingInvitationId === inv.id || !connection.isOnline"
+                :title="connection.isOnline ? undefined : offlineTooltip"
                 @click="acceptInvitation(inv)"
               >
                 <Check v-if="acceptingInvitationId !== inv.id" class="h-3 w-3" />
@@ -471,7 +478,8 @@ loadInvitations();
             <Button
               variant="ghost"
               size="icon"
-              :disabled="githubRepos.isLoading"
+              :disabled="githubRepos.isLoading || !connection.isOnline"
+              :title="connection.isOnline ? undefined : offlineTooltip"
               data-testid="refresh-github-repos"
               @click="githubRepos.fetchRepos(true)"
             >
@@ -531,7 +539,8 @@ loadInvitations();
                     <Button
                       size="sm"
                       variant="outline"
-                      :disabled="githubRepos.isCloning(repo.fullName)"
+                      :disabled="githubRepos.isCloning(repo.fullName) || !connection.isOnline"
+                      :title="connection.isOnline ? undefined : offlineTooltip"
                       :data-testid="`clone-repo-${repo.name}`"
                       @click="githubRepos.cloneRepo(repo)"
                     >

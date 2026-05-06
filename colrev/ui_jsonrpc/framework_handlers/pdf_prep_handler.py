@@ -31,8 +31,6 @@ class PDFPrepHandler(BaseHandler):
         request=PDFPrepRequest,
         response=PDFPrepResponse,
         operation_type=OperationsType.pdf_prep,
-        notify=True,
-        writes=True,
     )
     def pdf_prep(self, req: PDFPrepRequest) -> PDFPrepResponse:
         assert self.review_manager is not None

@@ -2,11 +2,15 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { useProjectsStore } from './projects';
 import { useNotificationsStore } from './notifications';
+import { useConnectionStore } from './connection';
+import { useAuthStore } from './auth';
 import type { GitHubRepo } from '@/types/window';
 
 export const useGithubReposStore = defineStore('github-repos', () => {
   const projects = useProjectsStore();
   const notifications = useNotificationsStore();
+  const connection = useConnectionStore();
+  const auth = useAuthStore();
 
   const remoteRepos = ref<GitHubRepo[]>([]);
   const isLoading = ref(false);
@@ -74,6 +78,14 @@ export const useGithubReposStore = defineStore('github-repos', () => {
   function isCloning(fullName: string) {
     return cloningRepos.value.includes(fullName);
   }
+
+  // Re-fetch the repo list when the renderer comes back online, so the user
+  // doesn't have to manually navigate away and back to the clone screen.
+  connection.onReconnect(() => {
+    if (auth.isAuthenticated) {
+      void fetchRepos(true);
+    }
+  });
 
   return {
     remoteRepos,

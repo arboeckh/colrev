@@ -501,9 +501,10 @@ export async function createRepoAndPush(
     const repoData = await createRes.json();
     const htmlUrl: string = repoData.html_url;
     const cleanUrl = `https://github.com/${login}/${repoName}.git`;
-    const tokenUrl = `https://x-access-token:${token}@github.com/${login}/${repoName}.git`;
+    const auth = Buffer.from(`x-access-token:${token}`).toString('base64');
+    const authArgs = ['-c', `http.extraheader=Authorization: Basic ${auth}`];
 
-    // 3. Check existing remotes
+    // 3. Set origin to the clean URL — token never lands in .git/config.
     const remoteResult = await exec(['remote'], projectPath);
     const remotes = remoteResult.stdout
       .trim()
@@ -511,17 +512,15 @@ export async function createRepoAndPush(
       .filter((r) => r.length > 0);
     const hasOrigin = remotes.includes('origin');
 
-    // 4. Set origin to token-embedded URL
     if (hasOrigin) {
-      await exec(['remote', 'set-url', 'origin', tokenUrl], projectPath);
+      await exec(['remote', 'set-url', 'origin', cleanUrl], projectPath);
     } else {
-      await exec(['remote', 'add', 'origin', tokenUrl], projectPath);
+      await exec(['remote', 'add', 'origin', cleanUrl], projectPath);
     }
 
-    // 5. Push the current branch — whatever it's named locally.
+    // 4. Push the current branch — whatever it's named locally.
     const branchRes = await exec(['symbolic-ref', '--short', 'HEAD'], projectPath);
     if (branchRes.exitCode !== 0) {
-      await exec(['remote', 'set-url', 'origin', cleanUrl], projectPath);
       return {
         success: false,
         error:
@@ -551,7 +550,6 @@ export async function createRepoAndPush(
       const recoverTo =
         localBranches.find((b) => b === 'main') ?? localBranches[0];
       if (!recoverTo) {
-        await exec(['remote', 'set-url', 'origin', cleanUrl], projectPath);
         return {
           success: false,
           error:
@@ -568,19 +566,15 @@ export async function createRepoAndPush(
     // crashes with "unrecognized arguments: -mpre_commit ...". The UI publish
     // flow isn't a developer workflow gate; skip the hook entirely.
     const pushResult = await exec(
-      ['push', '--no-verify', '-u', 'origin', branch],
+      [...authArgs, 'push', '--no-verify', '-u', 'origin', branch],
       projectPath,
     );
     if (pushResult.exitCode !== 0) {
-      await exec(['remote', 'set-url', 'origin', cleanUrl], projectPath);
       return {
         success: false,
         error: `Git push failed (branch ${branch}): ${pushResult.stderr || pushResult.stdout}`,
       };
     }
-
-    // 6. Reset remote URL to clean (no token)
-    await exec(['remote', 'set-url', 'origin', cleanUrl], projectPath);
 
     return { success: true, repoUrl: cleanUrl, htmlUrl };
   } catch (err) {

@@ -125,7 +125,6 @@ class ManagedReviewHandler(BaseHandler):
         name="get_managed_review_task_readiness",
         request=GetManagedReviewTaskReadinessRequest,
         response=ManagedReviewResponse,
-        writes=False,
     )
     def get_managed_review_task_readiness(
         self, req: GetManagedReviewTaskReadinessRequest
@@ -138,7 +137,6 @@ class ManagedReviewHandler(BaseHandler):
         name="list_managed_review_tasks",
         request=ListManagedReviewTasksRequest,
         response=ManagedReviewResponse,
-        writes=False,
     )
     def list_managed_review_tasks(
         self, req: ListManagedReviewTasksRequest
@@ -151,7 +149,6 @@ class ManagedReviewHandler(BaseHandler):
         name="get_current_managed_review_task",
         request=GetCurrentManagedReviewTaskRequest,
         response=ManagedReviewResponse,
-        writes=False,
     )
     def get_current_managed_review_task(
         self, req: GetCurrentManagedReviewTaskRequest
@@ -166,7 +163,6 @@ class ManagedReviewHandler(BaseHandler):
         name="create_managed_review_task",
         request=CreateManagedReviewTaskRequest,
         response=ManagedReviewResponse,
-        writes=True,
     )
     def create_managed_review_task(
         self, req: CreateManagedReviewTaskRequest
@@ -186,7 +182,6 @@ class ManagedReviewHandler(BaseHandler):
         name="cancel_managed_review_task",
         request=CancelManagedReviewTaskRequest,
         response=ManagedReviewResponse,
-        writes=True,
     )
     def cancel_managed_review_task(
         self, req: CancelManagedReviewTaskRequest
@@ -205,7 +200,6 @@ class ManagedReviewHandler(BaseHandler):
         name="get_managed_review_task_queue",
         request=GetManagedReviewTaskQueueRequest,
         response=ManagedReviewResponse,
-        writes=False,
     )
     def get_managed_review_task_queue(
         self, req: GetManagedReviewTaskQueueRequest
@@ -220,7 +214,6 @@ class ManagedReviewHandler(BaseHandler):
         name="get_reconciliation_preview",
         request=GetReconciliationPreviewRequest,
         response=ManagedReviewResponse,
-        writes=False,
     )
     def get_reconciliation_preview(
         self, req: GetReconciliationPreviewRequest
@@ -236,7 +229,6 @@ class ManagedReviewHandler(BaseHandler):
         name="apply_reconciliation",
         request=ApplyReconciliationRequest,
         response=ManagedReviewResponse,
-        writes=True,
     )
     def apply_reconciliation(
         self, req: ApplyReconciliationRequest
@@ -256,7 +248,6 @@ class ManagedReviewHandler(BaseHandler):
         name="export_reconciliation_audit",
         request=ExportReconciliationAuditRequest,
         response=ManagedReviewResponse,
-        writes=False,
     )
     def export_reconciliation_audit(
         self, req: ExportReconciliationAuditRequest

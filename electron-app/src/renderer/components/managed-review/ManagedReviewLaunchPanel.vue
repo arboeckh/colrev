@@ -13,6 +13,7 @@ import { useNotificationsStore } from '@/stores/notifications';
 import { useAuthStore } from '@/stores/auth';
 import { useGitStore } from '@/stores/git';
 import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
+import { useConnectionStore } from '@/stores/connection';
 import { useReadOnly } from '@/composables/useReadOnly';
 import type {
   CreateManagedReviewTaskResponse,
@@ -37,7 +38,10 @@ const notifications = useNotificationsStore();
 const auth = useAuthStore();
 const git = useGitStore();
 const reviewDefStore = useReviewDefinitionStore();
+const connection = useConnectionStore();
 const { isReadOnly } = useReadOnly();
+
+const offlineTooltip = 'Requires internet';
 
 const isLoading = ref(false);
 const isCreating = ref(false);
@@ -469,6 +473,8 @@ defineExpose({ refreshData, activeTask, tasks });
             variant="ghost"
             size="sm"
             class="gap-1.5 text-xs h-7"
+            :disabled="!connection.isOnline"
+            :title="connection.isOnline ? undefined : offlineTooltip"
             @click="showInviteForm = true"
           >
             <UserPlus class="h-3.5 w-3.5" />
@@ -488,7 +494,8 @@ defineExpose({ refreshData, activeTask, tasks });
           <Button
             size="sm"
             class="h-6 text-xs px-2"
-            :disabled="!inviteUsername || isInviting"
+            :disabled="!inviteUsername || isInviting || !connection.isOnline"
+            :title="connection.isOnline ? undefined : offlineTooltip"
             @click="inviteCollaborator"
           >
             {{ isInviting ? 'Sending...' : 'Send Invite' }}
@@ -530,7 +537,8 @@ defineExpose({ refreshData, activeTask, tasks });
         <div class="flex items-center gap-3">
           <Button
             size="sm"
-            :disabled="isReadOnly || isCreating || !readiness?.ready || !reviewerA || !reviewerB || reviewerA === reviewerB || (showCriteria && criteriaCount === 0)"
+            :disabled="isReadOnly || isCreating || !readiness?.ready || !reviewerA || !reviewerB || reviewerA === reviewerB || (showCriteria && criteriaCount === 0) || !connection.isOnline"
+            :title="connection.isOnline ? undefined : offlineTooltip"
             data-testid="launch-managed-task-btn"
             @click="createTask"
           >

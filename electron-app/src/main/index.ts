@@ -340,6 +340,7 @@ function setupIPC() {
   });
 
   ipcMain.handle('auth:get-session', () => authManager.getSession());
+  ipcMain.handle('auth:get-cached-session', () => authManager.getCachedSession());
   ipcMain.handle('auth:login', () => authManager.startDeviceFlow());
   ipcMain.handle('auth:logout', () => authManager.logout());
   ipcMain.handle('auth:get-token', () => authManager.getToken());

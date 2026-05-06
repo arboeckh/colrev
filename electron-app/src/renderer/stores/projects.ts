@@ -15,6 +15,14 @@ import type {
   GetSettingsResponse,
   GetOperationInfoResponse,
 } from '@/types/api';
+import { stripUrlUserinfo } from '@/lib/utils';
+
+function sanitizeGitStatus(git: GitStatus): GitStatus {
+  if (git.remote_url) {
+    return { ...git, remote_url: stripUrlUserinfo(git.remote_url) };
+  }
+  return git;
+}
 
 export interface ProjectListItem {
   id: string;
@@ -136,11 +144,12 @@ export const useProjectsStore = defineStore('projects', () => {
       });
 
       if (response.success && response.git) {
+        const git = sanitizeGitStatus(response.git);
         const project = projects.value.find((p) => p.id === id);
         if (project) {
-          project.gitStatus = response.git;
+          project.gitStatus = git;
         }
-        return response.git;
+        return git;
       }
       return null;
     } catch {

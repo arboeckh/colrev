@@ -121,7 +121,6 @@ class InitHandler(BaseHandler):
         request=InitProjectRequest,
         response=InitProjectResponse,
         requires_project=False,
-        writes=True,
     )
     def init_project(self, req: InitProjectRequest) -> InitProjectResponse:
         # Reuse validation/sanitization helpers for path traversal protection.
@@ -188,7 +187,6 @@ class InitHandler(BaseHandler):
         request=ListProjectsRequest,
         response=ListProjectsResponse,
         requires_project=False,
-        writes=False,
     )
     def list_projects(self, req: ListProjectsRequest) -> ListProjectsResponse:
         base_path = Path(req.base_path)
@@ -234,7 +232,6 @@ class InitHandler(BaseHandler):
         request=DeleteProjectRequest,
         response=DeleteProjectResponse,
         requires_project=False,
-        writes=True,
     )
     def delete_project(self, req: DeleteProjectRequest) -> DeleteProjectResponse:
         project_id = req.project_id

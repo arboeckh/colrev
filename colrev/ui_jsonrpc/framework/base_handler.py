@@ -43,22 +43,20 @@ class BaseHandler:
             if attr_name.startswith("_"):
                 continue
             attr = getattr(cls, attr_name, None)
-            meta = getattr(attr, "__rpc_meta__", None)
-            if meta is None:
+            draft = getattr(attr, "__rpc_draft__", None)
+            if draft is None:
                 continue
             # Avoid double-registering if a subclass re-exposes a parent method
-            if registry.has(meta["name"]):
+            if registry.has(draft.name):
                 continue
             spec = MethodSpec(
-                name=meta["name"],
-                request_model=meta["request"],
-                response_model=meta["response"],
+                name=draft.name,
+                request_model=draft.request_model,
+                response_model=draft.response_model,
                 handler=attr,
                 handler_cls=cls,
-                operation_type=meta["operation_type"],
-                notify_state_transition=meta["notify"],
-                writes=meta["writes"],
-                requires_project=meta["requires_project"],
+                operation_type=draft.operation_type,
+                requires_project=draft.requires_project,
             )
             registry.register(spec)
 
@@ -66,25 +64,19 @@ class BaseHandler:
         self,
         op_type: OperationsType,
         *,
-        notify: Optional[bool] = None,
+        notify: bool,
     ):
         """Get a CoLRev operation via review_manager's factory.
 
         Args:
             op_type: The CoLRev OperationsType.
-            notify: Override for notify_state_transition_operation. If None,
-                uses the MethodSpec's ``notify_state_transition`` setting.
+            notify: Forwarded to ``get_*_operation(notify_state_transition_operation=...)``.
         """
         if self.review_manager is None:
             raise RuntimeError(
                 "op() called on a handler context without a ReviewManager — "
                 "this method was declared with requires_project=False."
             )
-        effective_notify = (
-            notify
-            if notify is not None
-            else self._spec().notify_state_transition
-        )
         factory_name = f"get_{op_type.name}_operation"
         factory = getattr(self.review_manager, factory_name, None)
         if factory is None:
@@ -92,7 +84,7 @@ class BaseHandler:
                 f"ReviewManager has no factory {factory_name!r} for "
                 f"operation_type {op_type!r}."
             )
-        return factory(notify_state_transition_operation=effective_notify)
+        return factory(notify_state_transition_operation=notify)
 
     def _spec(self) -> MethodSpec:
         return registry.get(self.ctx.method_name)

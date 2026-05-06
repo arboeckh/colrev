@@ -13,11 +13,9 @@ method flows through one code path:
 
 from __future__ import annotations
 
-import io
 import logging
 import os
 import re
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -32,7 +30,7 @@ import colrev.exceptions as colrev_exceptions
 import colrev.review_manager
 from colrev.ui_jsonrpc import validation
 from colrev.ui_jsonrpc.framework.context import HandlerContext
-from colrev.ui_jsonrpc.framework.lazy_git import LazyWriteGitRepo
+from colrev.ui_jsonrpc.framework.lazy_git import install_lazy_git_repo
 from colrev.ui_jsonrpc.framework.registry import MethodSpec
 from colrev.ui_jsonrpc.framework.registry import registry
 
@@ -115,7 +113,6 @@ class Dispatcher:
             project_id=None,
             project_path=None,
             review_manager=None,
-            writes=spec.writes,
         )
         handler = spec.handler_cls(ctx)
         response_obj = spec.handler(handler, request_obj)
@@ -133,16 +130,13 @@ class Dispatcher:
 
         original_cwd = os.getcwd()
 
-        # OS-level fd 1 redirect so multiprocessing children can't pollute stdout
-        # (stdout is the JSON-RPC transport — nothing else may write to it).
+        # OS-level fd 1 redirect so child processes (and Python-level prints)
+        # can't pollute stdout — stdout is the JSON-RPC transport, nothing
+        # else may write to it.
         saved_stdout_fd = os.dup(1)
         devnull_fd = os.open(os.devnull, os.O_WRONLY)
         os.dup2(devnull_fd, 1)
         os.close(devnull_fd)
-
-        original_stdout = sys.stdout
-        stdout_buffer = io.StringIO()
-        sys.stdout = stdout_buffer
 
         try:
             os.chdir(project_path)
@@ -152,30 +146,20 @@ class Dispatcher:
                 verbose_mode=getattr(request_obj, "verbose", False),
                 high_level_operation=True,
             )
-            review_manager.dataset.__dict__["git_repo"] = LazyWriteGitRepo(
-                Path(project_path)
-            )
+            install_lazy_git_repo(review_manager, Path(project_path))
 
             ctx = HandlerContext(
                 method_name=spec.name,
                 project_id=getattr(request_obj, "project_id", None),
                 project_path=project_path,
                 review_manager=review_manager,
-                writes=spec.writes,
             )
             handler = spec.handler_cls(ctx)
             response_obj = spec.handler(handler, request_obj)
 
-            captured = stdout_buffer.getvalue()
-            if captured:
-                logger.debug(
-                    "Captured stdout from %s: %s", spec.name, captured[:500]
-                )
-
             return _serialize(spec, response_obj)
 
         finally:
-            sys.stdout = original_stdout
             os.dup2(saved_stdout_fd, 1)
             os.close(saved_stdout_fd)
             os.chdir(original_cwd)

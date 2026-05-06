@@ -21,6 +21,7 @@ from typing import Optional
 from typing import TYPE_CHECKING
 
 from colrev.ui_jsonrpc import error_handler
+from colrev.ui_jsonrpc.framework.models import PingResponse
 
 if TYPE_CHECKING:
     from colrev.ui_jsonrpc.framework.dispatcher import Dispatcher
@@ -85,11 +86,11 @@ class JSONRPCHandler:
             )
 
         # Fast path: the readiness probe must not block on dispatcher
-        # construction. Matches the SystemHandler.ping response shape.
+        # construction. Uses the same PingResponse model as SystemHandler.ping.
         if method == "ping":
             return {
                 "jsonrpc": "2.0",
-                "result": {"success": True, "status": "pong"},
+                "result": PingResponse().model_dump(mode="json", exclude_none=True),
                 "id": request_id,
             }
 

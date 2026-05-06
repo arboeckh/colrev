@@ -4,13 +4,8 @@ Each submodule defines a handler class that inherits from
 ``colrev.ui_jsonrpc.framework.BaseHandler`` and decorates methods with
 ``@rpc_method``. Importing this package is sufficient to register every
 contained method in the global dispatcher registry.
-
-Phase B ships the framework with no migrated methods yet. Phase C pilot
-adds ``ping`` and ``prescreen_record``; Phase C sweep adds the rest.
 """
 
-# Phase B/C pilot: system (ping) + prescreen_record.
-# Phase C sweep appends the remaining handler modules here.
 from colrev.ui_jsonrpc.framework_handlers import data_handler  # noqa: F401
 from colrev.ui_jsonrpc.framework_handlers import dedupe_handler  # noqa: F401
 from colrev.ui_jsonrpc.framework_handlers import git_handler  # noqa: F401

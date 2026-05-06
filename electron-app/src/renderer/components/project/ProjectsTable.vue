@@ -24,6 +24,7 @@ import {
 import { useProjectsStore, type ProjectListItem } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useConnectionStore } from '@/stores/connection';
 import type { DeleteProjectResponse } from '@/types/api';
 
 defineProps<{
@@ -34,6 +35,7 @@ const router = useRouter();
 const projectsStore = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
+const connection = useConnectionStore();
 
 const showDeleteDialog = ref(false);
 const projectToDelete = ref<ProjectListItem | null>(null);
@@ -240,14 +242,20 @@ function getUncommittedCount(project: ProjectListItem): number {
         v-if="projectToDelete && hasGitHubRemote(projectToDelete)"
         class="flex items-start gap-3 rounded-md border p-3"
         :class="deleteGithubToo ? 'border-destructive bg-destructive/5' : 'border-border'"
+        :title="connection.isOnline ? undefined : 'Requires internet'"
       >
         <Checkbox
           :checked="deleteGithubToo"
+          :disabled="!connection.isOnline"
           data-testid="delete-github-checkbox"
           @update:checked="deleteGithubToo = $event"
         />
         <div class="space-y-1">
-          <label class="text-sm font-medium flex items-center gap-1.5 cursor-pointer" @click="deleteGithubToo = !deleteGithubToo">
+          <label
+            class="text-sm font-medium flex items-center gap-1.5"
+            :class="connection.isOnline ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
+            @click="connection.isOnline && (deleteGithubToo = !deleteGithubToo)"
+          >
             <Github class="h-4 w-4" />
             Also delete GitHub repository
           </label>

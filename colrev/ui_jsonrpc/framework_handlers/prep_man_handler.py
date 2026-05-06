@@ -37,8 +37,6 @@ class PrepManHandler(BaseHandler):
         request=PrepManUpdateRecordRequest,
         response=PrepManUpdateRecordResponse,
         operation_type=OperationsType.prep_man,
-        notify=False,
-        writes=True,
     )
     def prep_man_update_record(
         self, req: PrepManUpdateRecordRequest

@@ -45,37 +45,16 @@ export interface GitDirtyState extends GitResult {
 }
 
 /**
- * Temporarily set remote URL with token, run fn, then reset to clean URL.
+ * Returns `git -c` args that authenticate HTTPS requests via an
+ * `Authorization: Basic` header. The header lives only on the command line
+ * for that single git invocation — it is never written to `.git/config`,
+ * so a force-kill can't leak the token to disk, and concurrent reads of
+ * `git remote get-url origin` always see a clean URL.
  */
-async function withTokenAuth<T>(
-  projectPath: string,
-  token: string | null,
-  fn: () => Promise<T>,
-): Promise<T> {
-  if (!token) return fn();
-
-  const { exec } = await import('dugite');
-
-  // Get current remote URL
-  const urlResult = await exec(['remote', 'get-url', 'origin'], projectPath);
-  if (urlResult.exitCode !== 0) {
-    // No remote — just run without auth
-    return fn();
-  }
-  const cleanUrl = urlResult.stdout.trim();
-
-  // Build token URL
-  const tokenUrl = cleanUrl.replace(
-    /^https:\/\//,
-    `https://x-access-token:${token}@`,
-  );
-
-  await exec(['remote', 'set-url', 'origin', tokenUrl], projectPath);
-  try {
-    return await fn();
-  } finally {
-    await exec(['remote', 'set-url', 'origin', cleanUrl], projectPath);
-  }
+function gitAuthArgs(token: string | null): string[] {
+  if (!token) return [];
+  const auth = Buffer.from(`x-access-token:${token}`).toString('base64');
+  return ['-c', `http.extraheader=Authorization: Basic ${auth}`];
 }
 
 export async function gitFetch(
@@ -84,13 +63,14 @@ export async function gitFetch(
 ): Promise<GitResult> {
   const { exec } = await import('dugite');
 
-  return withTokenAuth(projectPath, token, async () => {
-    const result = await exec(['fetch', '--prune', 'origin'], projectPath);
-    if (result.exitCode !== 0) {
-      return { success: false, error: result.stderr || 'Fetch failed' };
-    }
-    return { success: true };
-  });
+  const result = await exec(
+    [...gitAuthArgs(token), 'fetch', '--prune', 'origin'],
+    projectPath,
+  );
+  if (result.exitCode !== 0) {
+    return { success: false, error: result.stderr || 'Fetch failed' };
+  }
+  return { success: true };
 }
 
 export async function gitPull(
@@ -100,25 +80,23 @@ export async function gitPull(
 ): Promise<GitResult> {
   const { exec } = await import('dugite');
 
-  return withTokenAuth(projectPath, token, async () => {
-    const args = ['pull', 'origin'];
-    if (ffOnly) args.push('--ff-only');
-    const result = await exec(args, projectPath);
-    if (result.exitCode !== 0) {
-      const stderr = result.stderr || '';
-      if (stderr.includes('Not possible to fast-forward') || stderr.includes('fatal: Not possible')) {
-        return { success: false, error: 'DIVERGED' };
-      }
-      if (
-        stderr.includes('would be overwritten by merge') ||
-        stderr.includes('Please commit your changes or stash them')
-      ) {
-        return { success: false, error: 'DIRTY_WORKTREE' };
-      }
-      return { success: false, error: stderr || 'Pull failed' };
+  const args = [...gitAuthArgs(token), 'pull', 'origin'];
+  if (ffOnly) args.push('--ff-only');
+  const result = await exec(args, projectPath);
+  if (result.exitCode !== 0) {
+    const stderr = result.stderr || '';
+    if (stderr.includes('Not possible to fast-forward') || stderr.includes('fatal: Not possible')) {
+      return { success: false, error: 'DIVERGED' };
     }
-    return { success: true };
-  });
+    if (
+      stderr.includes('would be overwritten by merge') ||
+      stderr.includes('Please commit your changes or stash them')
+    ) {
+      return { success: false, error: 'DIRTY_WORKTREE' };
+    }
+    return { success: false, error: stderr || 'Pull failed' };
+  }
+  return { success: true };
 }
 
 export async function gitPush(
@@ -127,19 +105,17 @@ export async function gitPush(
 ): Promise<GitResult> {
   const { exec } = await import('dugite');
 
-  return withTokenAuth(projectPath, token, async () => {
-    // --no-verify: skip pre-commit pre-push hook. In the packaged app the
-    // hook's INSTALL_PYTHON is the PyInstaller bundle, not a real Python,
-    // and crashes when invoked with `-mpre_commit hook-impl …`.
-    const result = await exec(
-      ['push', '--no-verify', '-u', 'origin', 'HEAD'],
-      projectPath,
-    );
-    if (result.exitCode !== 0) {
-      return { success: false, error: result.stderr || 'Push failed' };
-    }
-    return { success: true };
-  });
+  // --no-verify: skip pre-commit pre-push hook. In the packaged app the
+  // hook's INSTALL_PYTHON is the PyInstaller bundle, not a real Python,
+  // and crashes when invoked with `-mpre_commit hook-impl …`.
+  const result = await exec(
+    [...gitAuthArgs(token), 'push', '--no-verify', '-u', 'origin', 'HEAD'],
+    projectPath,
+  );
+  if (result.exitCode !== 0) {
+    return { success: false, error: result.stderr || 'Push failed' };
+  }
+  return { success: true };
 }
 
 export async function gitPushBranch(
@@ -149,16 +125,14 @@ export async function gitPushBranch(
 ): Promise<GitResult> {
   const { exec } = await import('dugite');
 
-  return withTokenAuth(projectPath, token, async () => {
-    const result = await exec(
-      ['push', '--no-verify', '-u', 'origin', `${branchName}:${branchName}`],
-      projectPath,
-    );
-    if (result.exitCode !== 0) {
-      return { success: false, error: result.stderr || `Failed to push ${branchName}` };
-    }
-    return { success: true };
-  });
+  const result = await exec(
+    [...gitAuthArgs(token), 'push', '--no-verify', '-u', 'origin', `${branchName}:${branchName}`],
+    projectPath,
+  );
+  if (result.exitCode !== 0) {
+    return { success: false, error: result.stderr || `Failed to push ${branchName}` };
+  }
+  return { success: true };
 }
 
 export async function gitListBranches(
@@ -466,13 +440,14 @@ export async function gitPushTags(
 ): Promise<GitResult> {
   const { exec } = await import('dugite');
 
-  return withTokenAuth(projectPath, token, async () => {
-    const result = await exec(['push', '--no-verify', 'origin', '--tags'], projectPath);
-    if (result.exitCode !== 0) {
-      return { success: false, error: result.stderr || 'Failed to push tags' };
-    }
-    return { success: true };
-  });
+  const result = await exec(
+    [...gitAuthArgs(token), 'push', '--no-verify', 'origin', '--tags'],
+    projectPath,
+  );
+  if (result.exitCode !== 0) {
+    return { success: false, error: result.stderr || 'Failed to push tags' };
+  }
+  return { success: true };
 }
 
 export async function gitRevListCount(
@@ -603,54 +578,56 @@ export async function gitFastForwardMain(
 ): Promise<GitResult> {
   const { exec } = await import('dugite');
 
-  return withTokenAuth(projectPath, token, async () => {
-    const fetchRes = await exec(['fetch', '--prune', 'origin'], projectPath);
-    if (fetchRes.exitCode !== 0) {
-      return { success: false, error: fetchRes.stderr || 'Fetch failed' };
-    }
+  const fetchRes = await exec(
+    [...gitAuthArgs(token), 'fetch', '--prune', 'origin'],
+    projectPath,
+  );
+  if (fetchRes.exitCode !== 0) {
+    return { success: false, error: fetchRes.stderr || 'Fetch failed' };
+  }
 
-    const ancestorRes = await exec(
-      ['merge-base', '--is-ancestor', 'main', 'origin/main'],
+  const ancestorRes = await exec(
+    ['merge-base', '--is-ancestor', 'main', 'origin/main'],
+    projectPath,
+  );
+  if (ancestorRes.exitCode !== 0) {
+    // Exit code 1 means "not an ancestor" → local main has diverged.
+    return { success: false, error: 'DIVERGED' };
+  }
+
+  // Check current branch — if on main, use a plain pull-equivalent so
+  // the working tree updates too.
+  const headRes = await exec(
+    ['rev-parse', '--abbrev-ref', 'HEAD'],
+    projectPath,
+  );
+  const currentBranch = headRes.stdout.trim();
+
+  if (currentBranch === 'main') {
+    const pullRes = await exec(
+      ['merge', '--ff-only', 'origin/main'],
       projectPath,
     );
-    if (ancestorRes.exitCode !== 0) {
-      // Exit code 1 means "not an ancestor" → local main has diverged.
-      return { success: false, error: 'DIVERGED' };
-    }
-
-    // Check current branch — if on main, use a plain pull-equivalent so
-    // the working tree updates too.
-    const headRes = await exec(
-      ['rev-parse', '--abbrev-ref', 'HEAD'],
-      projectPath,
-    );
-    const currentBranch = headRes.stdout.trim();
-
-    if (currentBranch === 'main') {
-      const pullRes = await exec(
-        ['merge', '--ff-only', 'origin/main'],
-        projectPath,
-      );
-      if (pullRes.exitCode !== 0) {
-        return { success: false, error: pullRes.stderr || 'Fast-forward failed' };
-      }
-      return { success: true };
-    }
-
-    // Off-main: move the ref without touching the working tree.
-    const updateRes = await exec(
-      ['update-ref', 'refs/heads/main', 'refs/remotes/origin/main'],
-      projectPath,
-    );
-    if (updateRes.exitCode !== 0) {
-      return { success: false, error: updateRes.stderr || 'update-ref failed' };
+    if (pullRes.exitCode !== 0) {
+      return { success: false, error: pullRes.stderr || 'Fast-forward failed' };
     }
     return { success: true };
-  });
+  }
+
+  // Off-main: move the ref without touching the working tree.
+  const updateRes = await exec(
+    ['update-ref', 'refs/heads/main', 'refs/remotes/origin/main'],
+    projectPath,
+  );
+  if (updateRes.exitCode !== 0) {
+    return { success: false, error: updateRes.stderr || 'update-ref failed' };
+  }
+  return { success: true };
 }
 
 /**
- * Clone a repository. Embeds token in URL during clone, then resets to clean URL.
+ * Clone a repository. Auth via http.extraheader so the token never lands
+ * in `.git/config`; the cloned repo's origin is the clean URL automatically.
  */
 export async function gitClone(
   cloneUrl: string,
@@ -662,19 +639,12 @@ export async function gitClone(
 
   const parentDir = path.dirname(targetPath);
 
-  // Build URL with token if available
-  const url = token
-    ? cloneUrl.replace(/^https:\/\//, `https://x-access-token:${token}@`)
-    : cloneUrl;
-
-  const result = await exec(['clone', url, targetPath], parentDir);
+  const result = await exec(
+    [...gitAuthArgs(token), 'clone', cloneUrl, targetPath],
+    parentDir,
+  );
   if (result.exitCode !== 0) {
     return { success: false, error: result.stderr || 'Clone failed' };
-  }
-
-  // Reset remote URL to clean (no token)
-  if (token) {
-    await exec(['remote', 'set-url', 'origin', cloneUrl], targetPath);
   }
 
   return { success: true };

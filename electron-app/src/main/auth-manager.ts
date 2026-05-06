@@ -54,6 +54,19 @@ export interface DeviceFlowStatus {
   error?: string;
 }
 
+/** Thrown when a request to GitHub fails because the network is unreachable
+ * or the server returned an unexpected non-auth status. Callers should treat
+ * this as transient and avoid mutating the auth store. */
+export class NetworkError extends Error {
+  override name = 'NetworkError';
+}
+
+/** Thrown when GitHub explicitly rejected the credentials (401 / 403).
+ * Callers should remove the offending account. */
+export class AuthError extends Error {
+  override name = 'AuthError';
+}
+
 type AuthEventCallback = (session: AuthSession | null) => void;
 type DeviceFlowCallback = (status: DeviceFlowStatus) => void;
 
@@ -134,19 +147,34 @@ export class AuthManager {
     const account = this.getActiveAccount();
     if (!account) return null;
 
+    let token: string;
     try {
-      const token = this.decryptToken(account.encryptedToken);
-      const user = await this.fetchUserProfile(token);
-      if (!user) {
-        // Token invalid — remove this account
-        this.removeAccount(account.user.login);
-        return null;
-      }
-      return { user, authenticatedAt: account.authenticatedAt };
+      token = this.decryptToken(account.encryptedToken);
     } catch {
+      // Decryption failure is unrecoverable — the keychain rejected the token.
       this.removeAccount(account.user.login);
       return null;
     }
+
+    try {
+      const user = await this.fetchUserProfile(token);
+      return { user, authenticatedAt: account.authenticatedAt };
+    } catch (e) {
+      if (e instanceof AuthError) {
+        this.removeAccount(account.user.login);
+        return null;
+      }
+      // NetworkError or anything else unexpected: keep the account, return cached profile.
+      return { user: account.user, authenticatedAt: account.authenticatedAt };
+    }
+  }
+
+  /** Returns the active session from on-disk state without hitting the network.
+   * Used at boot so the UI can render immediately even when offline. */
+  getCachedSession(): AuthSession | null {
+    const account = this.getActiveAccount();
+    if (!account) return null;
+    return { user: account.user, authenticatedAt: account.authenticatedAt };
   }
 
   getToken(): string | null {
@@ -183,27 +211,34 @@ export class AuthManager {
     const account = store.accounts.find((a) => a.user.login === login);
     if (!account) return null;
 
-    // Validate the token is still good
+    let token: string;
     try {
-      const token = this.decryptToken(account.encryptedToken);
-      const user = await this.fetchUserProfile(token);
-      if (!user) {
-        this.removeAccount(login);
-        return null;
-      }
-
-      // Update active login
-      store.activeLogin = login;
-      // Refresh user profile data
-      account.user = user;
-      this.writeStore(store);
-
-      const session: AuthSession = { user, authenticatedAt: account.authenticatedAt };
-      this.emitAuthUpdate(session);
-      return session;
+      token = this.decryptToken(account.encryptedToken);
     } catch {
       this.removeAccount(login);
       return null;
+    }
+
+    // Always switch active login locally, regardless of network.
+    store.activeLogin = login;
+
+    try {
+      const user = await this.fetchUserProfile(token);
+      account.user = user;
+      this.writeStore(store);
+      const session: AuthSession = { user, authenticatedAt: account.authenticatedAt };
+      this.emitAuthUpdate(session);
+      return session;
+    } catch (e) {
+      if (e instanceof AuthError) {
+        this.removeAccount(login);
+        return null;
+      }
+      // Offline: persist the switch but use cached profile.
+      this.writeStore(store);
+      const session: AuthSession = { user: account.user, authenticatedAt: account.authenticatedAt };
+      this.emitAuthUpdate(session);
+      return session;
     }
   }
 
@@ -311,9 +346,14 @@ export class AuthManager {
         const data = await res.json();
 
         if (data.access_token) {
-          const user = await this.fetchUserProfile(data.access_token);
-          if (!user) {
-            this.emitDeviceFlowStatus({ status: 'error', error: 'Failed to fetch user profile' });
+          let user: GitHubUser;
+          try {
+            user = await this.fetchUserProfile(data.access_token);
+          } catch (err) {
+            this.emitDeviceFlowStatus({
+              status: 'error',
+              error: err instanceof Error ? `Failed to fetch user profile: ${err.message}` : 'Failed to fetch user profile',
+            });
             return;
           }
 
@@ -368,27 +408,35 @@ export class AuthManager {
 
   // --- Helpers ---
 
-  private async fetchUserProfile(token: string): Promise<GitHubUser | null> {
+  private async fetchUserProfile(token: string): Promise<GitHubUser> {
+    let res: Response;
     try {
-      const res = await fetch(USER_URL, {
+      res = await fetch(USER_URL, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
         },
       });
-
-      if (!res.ok) return null;
-
-      const data = await res.json();
-      return {
-        login: data.login,
-        name: data.name,
-        avatarUrl: data.avatar_url,
-        email: data.email,
-      };
-    } catch {
-      return null;
+    } catch (e) {
+      throw new NetworkError(
+        `Network error contacting GitHub: ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
+
+    if (res.status === 401 || res.status === 403) {
+      throw new AuthError(`GitHub rejected token (${res.status})`);
+    }
+    if (!res.ok) {
+      throw new NetworkError(`GitHub returned ${res.status}`);
+    }
+
+    const data = await res.json();
+    return {
+      login: data.login,
+      name: data.name,
+      avatarUrl: data.avatar_url,
+      email: data.email,
+    };
   }
 
   async logout(): Promise<void> {

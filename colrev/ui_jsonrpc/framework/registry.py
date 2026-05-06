@@ -14,6 +14,23 @@ from colrev.constants import OperationsType
 
 
 @dataclass(frozen=True)
+class MethodSpecDraft:
+    """Decorator-time slice of a MethodSpec.
+
+    The decorator can fill these fields, but ``handler_cls`` is only known
+    once the surrounding class body has finished executing — so
+    ``BaseHandler.__init_subclass__`` finalises a draft into a full
+    :class:`MethodSpec` by attaching the handler function and class.
+    """
+
+    name: str
+    request_model: Type[BaseModel]
+    response_model: Type[BaseModel]
+    operation_type: Optional[OperationsType] = None
+    requires_project: bool = True
+
+
+@dataclass(frozen=True)
 class MethodSpec:
     """Complete description of a JSON-RPC method.
 
@@ -26,11 +43,6 @@ class MethodSpec:
         operation_type: If set, framework knows this wraps a CoLRev operation. If None,
             this is a UI-native / custom method — framework provides ReviewManager + repo
             but does not trigger any operation lifecycle.
-        notify_state_transition: Forwarded to ``get_*_operation(notify_state_transition_operation=...)``
-            when the handler calls the ``op()`` helper. Only meaningful if operation_type is set.
-        writes: Hint that the handler mutates on-disk state (records.bib, settings.json, etc.).
-            Does NOT trigger auto-commit — there is no auto-commit in this framework.
-            Commits are produced only by the dedicated ``commit_changes`` method.
         requires_project: If True, the request must be a ProjectScopedRequest and the
             dispatcher will construct a ReviewManager. If False (``ping``, ``list_projects``,
             ``init_project``), no ReviewManager is built.
@@ -42,8 +54,6 @@ class MethodSpec:
     handler: Callable
     handler_cls: Type
     operation_type: Optional[OperationsType] = None
-    notify_state_transition: bool = False
-    writes: bool = False
     requires_project: bool = True
 
 

@@ -129,7 +129,6 @@ class RecordsHandler(BaseHandler):
         name="get_records",
         request=GetRecordsRequest,
         response=GetRecordsResponse,
-        writes=False,
     )
     def get_records(self, req: GetRecordsRequest) -> GetRecordsResponse:
         assert self.review_manager is not None
@@ -182,7 +181,6 @@ class RecordsHandler(BaseHandler):
         name="get_record",
         request=GetRecordRequest,
         response=GetRecordResponse,
-        writes=False,
     )
     def get_record(self, req: GetRecordRequest) -> GetRecordResponse:
         assert self.review_manager is not None
@@ -211,7 +209,6 @@ class RecordsHandler(BaseHandler):
         name="update_record",
         request=UpdateRecordRequest,
         response=UpdateRecordResponse,
-        writes=True,
     )
     def update_record(self, req: UpdateRecordRequest) -> UpdateRecordResponse:
         assert self.review_manager is not None

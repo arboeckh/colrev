@@ -21,53 +21,18 @@ from pydantic import ConfigDict
 from colrev.constants import RecordState as _RecordStateEnum
 
 
-class RecordStateName(str, Enum):
-    """RecordState as a string-valued enum for JSON Schema export.
-
-    Mirrors :class:`colrev.constants.RecordState` but uses string values
-    so JSON Schema sees it as an ``enum`` of strings rather than integers.
-    Frontend (via codegen) gets a proper string-literal union.
-    """
-
-    md_retrieved = "md_retrieved"
-    md_imported = "md_imported"
-    md_needs_manual_preparation = "md_needs_manual_preparation"
-    md_prepared = "md_prepared"
-    md_processed = "md_processed"
-    rev_prescreen_excluded = "rev_prescreen_excluded"
-    rev_prescreen_included = "rev_prescreen_included"
-    pdf_needs_manual_retrieval = "pdf_needs_manual_retrieval"
-    pdf_imported = "pdf_imported"
-    pdf_not_available = "pdf_not_available"
-    pdf_needs_manual_preparation = "pdf_needs_manual_preparation"
-    pdf_prepared = "pdf_prepared"
-    rev_excluded = "rev_excluded"
-    rev_included = "rev_included"
-    rev_synthesized = "rev_synthesized"
-
-    @classmethod
-    def from_internal(cls, state: _RecordStateEnum) -> "RecordStateName":
-        return cls(state.name)
-
-
-def _assert_states_in_sync() -> None:
-    """Defence against drift: internal RecordState enum names must match ours.
-
-    Runs at import time. Fails loudly if someone adds a state to the internal
-    enum without updating this mirror.
-    """
-    internal = {s.name for s in _RecordStateEnum}
-    exported = {s.value for s in RecordStateName}
-    missing = internal - exported
-    extra = exported - internal
-    if missing or extra:
-        raise RuntimeError(
-            "RecordStateName drift detected — update "
-            f"colrev/ui_jsonrpc/framework/domain.py. Missing: {missing}. Extra: {extra}."
-        )
-
-
-_assert_states_in_sync()
+# RecordState as a string-valued enum for JSON Schema export.
+#
+# Built dynamically from :class:`colrev.constants.RecordState` so the
+# names always match — adding a state in core colrev is reflected here
+# at the next import without a manual mirror update. JSON Schema sees
+# this as an ``enum`` of strings (frontend codegen gets a string-literal
+# union).
+RecordStateName = Enum(  # type: ignore[misc]
+    "RecordStateName",
+    {s.name: s.name for s in _RecordStateEnum},
+    type=str,
+)
 
 
 class RecordPayload(BaseModel):

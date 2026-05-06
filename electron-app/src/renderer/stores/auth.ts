@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { useConnectionStore } from './connection';
 import type { AuthSession, DeviceFlowStatus, AccountInfo } from '@/types/window';
 
 const KEYCHAIN_EXPLAINED_KEY = 'colrev:keychain-explained';
@@ -9,6 +10,7 @@ function isMacPlatform(): boolean {
 }
 
 export const useAuthStore = defineStore('auth', () => {
+  const connection = useConnectionStore();
   const session = ref<AuthSession | null>(null);
   const isLocalMode = ref(false);
   const deviceFlowStatus = ref<DeviceFlowStatus | null>(null);
@@ -64,16 +66,49 @@ export const useAuthStore = defineStore('auth', () => {
       await refreshAccounts();
 
       if (accounts.value.length > 0) {
-        await ensureKeychainExplained();
-        const existing = await window.auth.getSession();
-        if (existing) {
-          session.value = existing;
+        // Render immediately from the on-disk cached profile. No keychain access
+        // and no network: works offline, doesn't block boot.
+        const cached = await window.auth.getCachedSession();
+        if (cached) {
+          session.value = cached;
         }
       }
     } catch (err) {
       console.error('Failed to initialize auth:', err);
     } finally {
+      // UI / router unblocked here — everything below runs in the background.
       isLoading.value = false;
+    }
+
+    // Background validation: refreshes the cached profile and removes the
+    // account if GitHub explicitly rejects the token. Only runs when we have
+    // a stored account and after the user has acknowledged the macOS keychain
+    // explainer (since it triggers a safeStorage decrypt).
+    if (accounts.value.length > 0) {
+      void validateSessionInBackground();
+    }
+  }
+
+  // Revalidate the session whenever the renderer comes back online, so a
+  // token that was revoked while the user was offline gets cleared promptly.
+  connection.onReconnect(() => {
+    if (accounts.value.length > 0) {
+      void validateSessionInBackground();
+    }
+  });
+
+  async function validateSessionInBackground() {
+    try {
+      await ensureKeychainExplained();
+      const validated = await window.auth.getSession();
+      // null means the active account was removed (auth error); the
+      // onAuthUpdate subscriber already nulled out session.value.
+      if (validated) {
+        session.value = validated;
+      }
+    } catch (err) {
+      // Network failure or other transient error — keep the cached session.
+      console.warn('Background session validation failed:', err);
     }
   }
 

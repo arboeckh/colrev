@@ -65,8 +65,6 @@ class PrepHandler(BaseHandler):
         request=PrepRequest,
         response=PrepResponse,
         operation_type=OperationsType.prep,
-        notify=True,
-        writes=True,
     )
     def prep(self, req: PrepRequest) -> PrepResponse:
         assert self.review_manager is not None

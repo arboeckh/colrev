@@ -88,6 +88,7 @@ contextBridge.exposeInMainWorld('pdfFiles', {
  */
 contextBridge.exposeInMainWorld('auth', {
   getSession: () => ipcRenderer.invoke('auth:get-session'),
+  getCachedSession: () => ipcRenderer.invoke('auth:get-cached-session'),
   login: () => ipcRenderer.invoke('auth:login'),
   logout: () => ipcRenderer.invoke('auth:logout'),
   getToken: () => ipcRenderer.invoke('auth:get-token'),

@@ -131,8 +131,6 @@ class DataHandler(BaseHandler):
         request=DataRequest,
         response=DataResponse,
         operation_type=OperationsType.data,
-        notify=True,
-        writes=True,
     )
     def data(self, req: DataRequest) -> DataResponse:
         assert self.review_manager is not None
@@ -152,8 +150,6 @@ class DataHandler(BaseHandler):
         request=GetDataExtractionQueueRequest,
         response=GetDataExtractionQueueResponse,
         operation_type=OperationsType.data,
-        notify=True,
-        writes=False,
     )
     def get_data_extraction_queue(
         self, req: GetDataExtractionQueueRequest
@@ -306,8 +302,6 @@ class DataHandler(BaseHandler):
         request=SaveDataExtractionRequest,
         response=SaveDataExtractionResponse,
         operation_type=OperationsType.data,
-        notify=True,
-        writes=True,
     )
     def save_data_extraction(
         self, req: SaveDataExtractionRequest
@@ -394,7 +388,6 @@ class DataHandler(BaseHandler):
         name="export_data_csv",
         request=ExportDataCsvRequest,
         response=ExportDataCsvResponse,
-        writes=False,
     )
     def export_data_csv(self, req: ExportDataCsvRequest) -> ExportDataCsvResponse:
         assert self.review_manager is not None
@@ -421,7 +414,6 @@ class DataHandler(BaseHandler):
         name="configure_structured_endpoint",
         request=ConfigureStructuredEndpointRequest,
         response=ConfigureStructuredEndpointResponse,
-        writes=True,
     )
     def configure_structured_endpoint(
         self, req: ConfigureStructuredEndpointRequest

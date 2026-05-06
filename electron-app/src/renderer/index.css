@@ -1,10 +1,11 @@
+@import "./fonts.css";
 @import "tailwindcss";
 
 /* Japandi-inspired design system for ColRev.
    Cream backgrounds, eucalyptus green accents, terracotta destructive,
    Fraunces serif for display + Inter Tight body + DM Mono for IDs/code.
-   Google Fonts loaded via <link> in index.html — keeping it as a CSS @import
-   breaks Tailwind v4 ordering (all @import must precede other statements). */
+   Fonts are vendored locally under src/renderer/assets/fonts so the app
+   works offline; system fallbacks below cover any missing font file. */
 
 :root {
   /* Cream surface scale (warm off-white through paper) */

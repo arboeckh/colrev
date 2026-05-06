@@ -1,0 +1,10 @@
+/* Fonts vendored via @fontsource so the app works offline.
+   Vite resolves these npm imports and bundles the woff2 files at build time;
+   no network access at runtime. System stacks declared in index.css cover
+   any font that fails to load. */
+
+@import "@fontsource-variable/inter-tight/index.css";
+@import "@fontsource-variable/fraunces/index.css";
+@import "@fontsource/dm-mono/300.css";
+@import "@fontsource/dm-mono/400.css";
+@import "@fontsource/dm-mono/500.css";
