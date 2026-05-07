@@ -1,0 +1,18 @@
+{
+  "search_topic": "sotatercept for pulmonary arterial hypertension",
+  "pubmed_query": "sotatercept[Title/Abstract] AND (\"pulmonary arterial hypertension\"[Title/Abstract] OR PAH[Title/Abstract]) AND 2023:2024[PDAT] AND \"clinical trial\"[Publication Type]",
+  "pmids": ["39645016", "38572639", "38012534", "36877098", "36041750"],
+  "doi_to_pmid": {
+    "10.1016/j.healun.2024.11.037": "39645016",
+    "10.1161/CIRCHEARTFAILURE.123.011227": "38572639",
+    "10.1002/cpt.3116": "38012534",
+    "10.1056/NEJMoa2213558": "36877098",
+    "10.1183/13993003.01347-2022": "36041750"
+  },
+  "raw_responses": {
+    "esearch.json": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=<query>&retmode=json",
+    "esummary.json": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=<pmids>&retmode=json",
+    "efetch-5pmids.xml": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=<pmids>&retmode=xml"
+  },
+  "note": "These are raw responses captured live for use as the basis of pubmed.fixture.json (built in slice 2). The eventual fixture format keys requests by URL path + sorted query string."
+}

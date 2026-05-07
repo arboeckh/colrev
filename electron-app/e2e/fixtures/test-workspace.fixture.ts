@@ -73,6 +73,10 @@ export const test = base.extend<TestWorkspaceFixtures>({
     const condaEnvPath = `${homeDir}/miniforge3/envs/colrev`;
     const condaBinPath = `${condaEnvPath}/bin`;
 
+    const pubmedFixturePath = path.join(
+      __dirname, 'data', 'pubmed.fixture.json',
+    );
+
     const electronApp = await electron.launch({
       args: [appPath, `--user-data-dir=${workspace.userDataDir}`],
       env: {
@@ -82,6 +86,9 @@ export const test = base.extend<TestWorkspaceFixtures>({
         CONDA_PREFIX: condaEnvPath,
         PYTHONHOME: condaEnvPath,
         COLREV_FAKE_GITHUB_REGISTRY: workspace.registryPath,
+        ...(fs.existsSync(pubmedFixturePath)
+          ? { COLREV_FAKE_PUBMED_REGISTRY: pubmedFixturePath }
+          : {}),
       },
     });
 
@@ -208,12 +215,13 @@ export {
   seedAliceProject,
   seedRecords,
   seedCollaborator,
+  seedLocalIndex,
   ALICE,
   BOB,
   DEFAULT_PROJECT_ID,
   PINNED_DATE,
   pinnedNow,
 } from '../lib/seeders';
-export type { SeedAccount } from '../lib/seeders';
+export type { SeedAccount, LocalIndexSeed } from '../lib/seeders';
 export { SnapshotCache } from '../lib/snapshot-cache';
 export type { SnapshotCacheOptions } from '../lib/snapshot-cache';

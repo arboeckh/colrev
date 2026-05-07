@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/auth';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
+import { useWalkthroughNavigation } from '@/composables/useWalkthroughNavigation';
 import ProgressTrack from '@/components/prescreen/ProgressTrack.vue';
 import PdfViewerPanel from '@/components/screen/PdfViewerPanel.vue';
 import ScreenSplitPanel from '@/components/screen/ScreenSplitPanel.vue';
 import ScreenReconcileCriteriaPanel from './ScreenReconcileCriteriaPanel.vue';
+import BlockedRecordsBanner from './BlockedRecordsBanner.vue';
 import { deriveScreenDecision, formatCriteriaString, type CriterionDecision } from '@/lib/screen-decision';
 import type {
   ApplyReconciliationResponse,
@@ -45,23 +47,55 @@ const preview = ref<ReconciliationPreviewResponse | null>(null);
 const criteriaDefs = ref<Record<string, ScreenCriterionDefinition>>({});
 const pdfPaths = ref<Record<string, string>>({});
 const stagedRecords = ref<Record<string, StagedRecord>>({});
-const currentIndex = ref(0);
-
-const conflictItems = computed<ReconciliationPreviewItem[]>(() =>
-  preview.value ? preview.value.items.filter((item) => item.status === 'conflict') : [],
-);
 
 const blockedItems = computed<ReconciliationPreviewItem[]>(() =>
   preview.value ? preview.value.items.filter((item) => item.status === 'blocked') : [],
+);
+
+const NON_TASK_METADATA_PREFIX = 'Non-task metadata changed';
+
+const overridableBlockedItems = computed<ReconciliationPreviewItem[]>(() =>
+  blockedItems.value.filter((item) =>
+    item.blocked_reasons.length > 0
+    && item.blocked_reasons.every((r) => r.startsWith(NON_TASK_METADATA_PREFIX)),
+  ),
+);
+
+const hardBlockedItems = computed<ReconciliationPreviewItem[]>(() =>
+  blockedItems.value.filter((item) =>
+    item.blocked_reasons.some((r) => !r.startsWith(NON_TASK_METADATA_PREFIX)),
+  ),
 );
 
 const pendingItems = computed<ReconciliationPreviewItem[]>(() =>
   preview.value ? preview.value.items.filter((item) => item.status === 'pending') : [],
 );
 
-const currentItem = computed<ReconciliationPreviewItem | null>(
-  () => conflictItems.value[currentIndex.value] ?? null,
+function reviewersDisagree(item: ReconciliationPreviewItem): boolean {
+  if (item.reviewers.length < 2) return false;
+  const [a, b] = item.reviewers;
+  return a.status !== b.status || a.criteria_string !== b.criteria_string;
+}
+
+const overridableConflictItems = computed<ReconciliationPreviewItem[]>(() =>
+  overridableBlockedItems.value.filter((item) => reviewersDisagree(item)),
 );
+
+const realConflictItems = computed<ReconciliationPreviewItem[]>(() =>
+  preview.value ? preview.value.items.filter((item) => item.status === 'conflict') : [],
+);
+
+const conflictItems = computed<ReconciliationPreviewItem[]>(() => [
+  ...realConflictItems.value,
+  ...overridableConflictItems.value,
+]);
+
+const { currentIndex, currentItem, nextUndecidedIndex, goTo } =
+  useWalkthroughNavigation<ReconciliationPreviewItem>({
+    items: conflictItems,
+    isUndecided: (item) => confirmedDecisionFor(item) === null,
+    wrapAround: true,
+  });
 
 const currentStaged = computed<StagedRecord | null>(() => {
   if (!currentItem.value) return null;
@@ -102,16 +136,6 @@ const progressItems = computed(() =>
     };
   }),
 );
-
-const nextUndecidedIndex = computed(() => {
-  for (let i = currentIndex.value + 1; i < conflictItems.value.length; i++) {
-    if (confirmedDecisionFor(conflictItems.value[i]) === null) return i;
-  }
-  for (let i = 0; i < currentIndex.value; i++) {
-    if (confirmedDecisionFor(conflictItems.value[i]) === null) return i;
-  }
-  return -1;
-});
 
 const currentPdfPath = computed(() =>
   currentItem.value ? pdfPaths.value[currentItem.value.id] : undefined,
@@ -238,17 +262,31 @@ function onConfirmDecision(decision: 'include' | 'exclude') {
   if (next !== -1) currentIndex.value = next;
 }
 
-function goTo(index: number) {
-  if (index >= 0 && index < conflictItems.value.length) {
-    currentIndex.value = index;
-  }
-}
-
 async function applyReconciliation() {
   if (!projects.currentProjectId || !preview.value) return;
-  if (blockedItems.value.length > 0 || pendingItems.value.length > 0) return;
-  if (conflictItems.value.length > 0 && !allDecided.value) return;
+  if (hardBlockedItems.value.length > 0) {
+    notifications.error(
+      'Cannot apply',
+      'Some records are missing on dev or a reviewer branch. Restore them via git first.',
+    );
+    return;
+  }
+  if (pendingItems.value.length > 0) {
+    notifications.error(
+      'Cannot apply',
+      `${pendingItems.value.length} record(s) still pending reviewer decisions.`,
+    );
+    return;
+  }
+  if (conflictItems.value.length > 0 && !allDecided.value) {
+    notifications.error(
+      'Cannot apply',
+      `Resolve all ${conflictItems.value.length} conflict(s) before applying. ${decidedCount.value} resolved.`,
+    );
+    return;
+  }
 
+  const overrideBlocks = overridableBlockedItems.value.length > 0;
   isApplying.value = true;
   try {
     const resolutions = conflictItems.value.map((item) => {
@@ -264,6 +302,7 @@ async function applyReconciliation() {
       task_id: props.taskId,
       resolutions,
       resolved_by: auth.user?.login ?? 'local-user',
+      override_blocks: overrideBlocks,
     });
     notifications.success(
       'Reconciliation applied',
@@ -280,34 +319,11 @@ async function applyReconciliation() {
   }
 }
 
-function onKeydown(e: KeyboardEvent) {
-  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-  if (!currentItem.value) return;
-  switch (e.key) {
-    case 'ArrowUp':
-      e.preventDefault();
-      goTo(currentIndex.value - 1);
-      break;
-    case 'ArrowDown':
-      e.preventDefault();
-      goTo(currentIndex.value + 1);
-      break;
-  }
-}
-
 watch(
   () => props.taskId,
   () => loadPreview(),
+  { immediate: true },
 );
-
-onMounted(() => {
-  loadPreview();
-  window.addEventListener('keydown', onKeydown);
-});
-
-onUnmounted(() => {
-  window.removeEventListener('keydown', onKeydown);
-});
 </script>
 
 <template>
@@ -321,22 +337,23 @@ onUnmounted(() => {
     </div>
 
     <div
-      v-else-if="blockedItems.length > 0"
+      v-else-if="hardBlockedItems.length > 0"
       class="flex-1 flex flex-col items-center justify-center max-w-xl mx-auto text-center gap-4"
-      data-testid="reconcile-blocked"
+      data-testid="reconcile-hard-blocked"
     >
       <div class="rounded-full bg-amber-500/15 p-3">
         <AlertTriangle class="h-6 w-6 text-amber-600 dark:text-amber-400" />
       </div>
       <div class="space-y-1">
-        <h3 class="text-lg font-medium">Blocked records prevent reconciliation</h3>
+        <h3 class="text-lg font-medium">Records missing on a branch</h3>
         <p class="text-sm text-muted-foreground">
-          Resolve the issues below before reconciling this task.
+          Some records are missing on dev or a reviewer branch and can't be
+          overridden. Restore them via git before reconciling.
         </p>
       </div>
       <ul class="w-full space-y-2 text-left">
         <li
-          v-for="item in blockedItems"
+          v-for="item in hardBlockedItems"
           :key="item.id"
           class="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2"
         >
@@ -386,17 +403,32 @@ onUnmounted(() => {
           {{ preview.summary.auto_resolved_count }} auto-resolved decision{{ preview.summary.auto_resolved_count === 1 ? '' : 's' }}.
         </p>
       </div>
+      <BlockedRecordsBanner
+        v-if="overridableBlockedItems.length > 0"
+        :items="overridableBlockedItems"
+        class="w-full"
+      />
       <Button
         :disabled="isApplying"
+        :variant="overridableBlockedItems.length > 0 ? 'destructive' : 'default'"
         data-testid="reconcile-apply-btn"
         @click="applyReconciliation"
       >
         <Loader2 v-if="isApplying" class="h-4 w-4 animate-spin" />
-        {{ isApplying ? 'Applying...' : 'Apply Reconciliation' }}
+        <template v-if="isApplying">Applying...</template>
+        <template v-else-if="overridableBlockedItems.length > 0">
+          Override {{ overridableBlockedItems.length }} block{{ overridableBlockedItems.length === 1 ? '' : 's' }} & apply
+        </template>
+        <template v-else>Apply Reconciliation</template>
       </Button>
     </div>
 
     <template v-else-if="currentItem">
+      <BlockedRecordsBanner
+        v-if="overridableBlockedItems.length > 0"
+        :items="overridableBlockedItems"
+        class="shrink-0 mb-2"
+      />
       <div class="flex items-center gap-3 shrink-0 mb-2">
         <Button
           variant="ghost"
@@ -422,11 +454,16 @@ onUnmounted(() => {
         <Button
           v-if="allDecided"
           :disabled="isApplying"
+          :variant="overridableBlockedItems.length > 0 ? 'destructive' : 'default'"
           data-testid="reconcile-apply-btn"
           @click="applyReconciliation"
         >
           <Loader2 v-if="isApplying" class="h-4 w-4 animate-spin" />
-          {{ isApplying ? 'Applying...' : 'Apply Reconciliation' }}
+          <template v-if="isApplying">Applying...</template>
+          <template v-else-if="overridableBlockedItems.length > 0">
+            Override {{ overridableBlockedItems.length }} & apply
+          </template>
+          <template v-else>Apply Reconciliation</template>
         </Button>
       </div>
 

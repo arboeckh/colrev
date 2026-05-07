@@ -34,6 +34,7 @@ import { useManagedReviewStore } from '@/stores/managedReview';
 import { useNotificationsStore } from '@/stores/notifications';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
 import { useReadOnly } from '@/composables/useReadOnly';
+import { useWalkthroughNavigation } from '@/composables/useWalkthroughNavigation';
 import type {
   GetCurrentManagedReviewTaskResponse,
   GetPrescreenQueueResponse,
@@ -95,7 +96,6 @@ const queue = ref<EnrichedRecord[]>([]);
 const decisionHistory = ref<EnrichedRecord[]>([]);
 const totalCount = ref(0);
 const isLoading = ref(false);
-const currentIndex = ref(0);
 const isDeciding = ref(false);
 const managedTask = ref<GetCurrentManagedReviewTaskResponse['task']>(null);
 const accessState = ref<'loading' | 'switching' | 'ready' | 'blocked'>('loading');
@@ -143,7 +143,29 @@ const editChangesCount = computed(
   () => editRecords.value.filter((r) => r.newDecision !== r.originalDecision).length,
 );
 
-const currentRecord = computed(() => queue.value[currentIndex.value] || null);
+const {
+  currentIndex,
+  currentItem: currentRecord,
+  nextUndecidedIndex,
+  goTo: goToRecord,
+  next: nextRecord,
+  prev: prevRecord,
+  skipToNextUndecided,
+} = useWalkthroughNavigation<EnrichedRecord>({
+  items: queue,
+  isUndecided: (r) => r._decision === 'undecided',
+  shouldHandleKey: () => !isEditMode.value,
+  onArrowLeft: () => {
+    if (!isCurrentDecided.value && currentRecord.value && isCurrentRecordReady.value) {
+      makeDecision('exclude');
+    }
+  },
+  onArrowRight: () => {
+    if (!isCurrentDecided.value && currentRecord.value && isCurrentRecordReady.value) {
+      makeDecision('include');
+    }
+  },
+});
 const assignedReviewer = computed(() => {
   if (!activeManagedTask.value || !auth.user?.login) return null;
   const login = auth.user.login.toLowerCase();
@@ -176,20 +198,13 @@ const includedCount = computed(() => queue.value.filter((r) => r._decision === '
 
 const excludedCount = computed(() => queue.value.filter((r) => r._decision === 'excluded').length);
 
-const isCurrentDecided = computed(() => currentRecord.value?._decision !== 'undecided');
+const isCurrentDecided = computed(() => currentRecord.value !== null && currentRecord.value._decision !== 'undecided');
 
 // In managed-review mode, abstracts were pre-fetched on dev before the task
 // was launched, so the reviewer branch should never re-fetch. Re-fetching
 // would write non-task metadata (abstract/journal/etc.) to the reviewer
 // branch and block reconciliation.
 const skipEnrichment = computed(() => props.embedded);
-
-const nextUndecidedIndex = computed(() => {
-  for (let i = currentIndex.value + 1; i < queue.value.length; i++) {
-    if (queue.value[i]._decision === 'undecided') return i;
-  }
-  return -1;
-});
 
 // Completion detection from project status (for when user navigates back after finishing)
 const statusCounts = computed(() => projects.currentStatus?.currently ?? null);
@@ -410,30 +425,6 @@ async function makeDecision(decision: 'include' | 'exclude') {
   }
 }
 
-function nextRecord() {
-  if (currentIndex.value < queue.value.length - 1) {
-    currentIndex.value++;
-  }
-}
-
-function prevRecord() {
-  if (currentIndex.value > 0) {
-    currentIndex.value--;
-  }
-}
-
-function goToRecord(index: number) {
-  if (index >= 0 && index < queue.value.length) {
-    currentIndex.value = index;
-  }
-}
-
-function skipToNextUndecided() {
-  if (nextUndecidedIndex.value !== -1) {
-    currentIndex.value = nextUndecidedIndex.value;
-  }
-}
-
 // --- Edit mode functions ---
 
 async function enterEditMode() {
@@ -525,34 +516,6 @@ function cancelEdits() {
   editSearchText.value = '';
 }
 
-function handleKeydown(e: KeyboardEvent) {
-  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-  if (isEditMode.value) return;
-
-  switch (e.key) {
-    case 'ArrowLeft':
-      e.preventDefault();
-      if (!isCurrentDecided.value && currentRecord.value && isCurrentRecordReady.value) {
-        makeDecision('exclude');
-      }
-      break;
-    case 'ArrowRight':
-      e.preventDefault();
-      if (!isCurrentDecided.value && currentRecord.value && isCurrentRecordReady.value) {
-        makeDecision('include');
-      }
-      break;
-    case 'ArrowUp':
-      e.preventDefault();
-      prevRecord();
-      break;
-    case 'ArrowDown':
-      e.preventDefault();
-      nextRecord();
-      break;
-  }
-}
-
 async function loadManagedTask() {
   if (!projects.currentProjectId || !backend.isRunning) return;
 
@@ -642,11 +605,9 @@ onMounted(async () => {
     queue.value = [];
     totalCount.value = 0;
   }
-  window.addEventListener('keydown', handleKeydown);
 });
 
 onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeydown);
   if (enrichmentAbortController) {
     enrichmentAbortController.abort();
   }

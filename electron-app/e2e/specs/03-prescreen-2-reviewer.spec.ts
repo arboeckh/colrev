@@ -14,6 +14,11 @@ import {
 } from '../fixtures/test-workspace.fixture';
 import { TestWorkspace } from '../lib/test-workspace';
 import { clickWhenEnabled } from '../helpers/test-utils';
+import {
+  createDevBranches,
+  decideAllRecords,
+  prescreenDecide,
+} from '../helpers/multi-reviewer';
 import type { Page } from '@playwright/test';
 
 const CACHE_DIR = path.join(os.homedir(), '.cache', 'colrev-test-fixtures');
@@ -22,29 +27,6 @@ const BACKEND_TIMEOUT = 45_000;
 
 function createCache(): SnapshotCache {
   return new SnapshotCache({ cacheDir: CACHE_DIR, sourceRoots: SNAPSHOT_SOURCE_ROOTS });
-}
-
-function createDevBranches(workspace: TestWorkspace): void {
-  const aliceProject = path.join(
-    workspace.userDataDir, 'projects', ALICE.login, DEFAULT_PROJECT_ID,
-  );
-  const bobProject = path.join(
-    workspace.userDataDir, 'projects', BOB.login, DEFAULT_PROJECT_ID,
-  );
-
-  execFileSync('git', ['checkout', '-b', 'dev'], {
-    cwd: aliceProject, stdio: 'pipe',
-  });
-  execFileSync('git', ['push', '-u', 'origin', 'dev'], {
-    cwd: aliceProject, stdio: 'pipe',
-  });
-
-  execFileSync('git', ['fetch', 'origin'], {
-    cwd: bobProject, stdio: 'pipe',
-  });
-  execFileSync('git', ['checkout', '-b', 'dev', '--track', 'origin/dev'], {
-    cwd: bobProject, stdio: 'pipe',
-  });
 }
 
 async function waitForBackendReady(window: Page, timeout = BACKEND_TIMEOUT): Promise<void> {
@@ -59,22 +41,35 @@ async function waitForBackendReady(window: Page, timeout = BACKEND_TIMEOUT): Pro
   expect(ready).toBeTruthy();
 }
 
-// Extend the base test to load L4 before Electron launches
+// Extend the base test to load post-preprocessing before Electron launches
 const test = baseTest.extend({
   workspace: async ({}, use, testInfo) => {
     const safeName = testInfo.title.replace(/[^a-zA-Z0-9-]/g, '-').substring(0, 80);
     const ws = new TestWorkspace(safeName);
 
     const cache = createCache();
-    cache.load('L4', ws.root);
+    cache.load('post-preprocessing', ws.root);
     createDevBranches(ws);
 
     await use(ws);
   },
 });
 
+async function prescreenAllRecords(
+  window: Page,
+  pattern: ('include' | 'exclude')[],
+): Promise<{ included: number; excluded: number }> {
+  return decideAllRecords(window, {
+    cardTestid: 'prescreen-record-card',
+    completeTestid: 'prescreen-complete',
+    recordIdTestid: 'prescreen-record-id',
+    decide: prescreenDecide(60_000),
+    pattern,
+  });
+}
+
 test.describe('prescreen-2-reviewer', () => {
-  test('both reviewers complete prescreen from L4', async ({
+  test('both reviewers complete prescreen from post-preprocessing', async ({
     workspace,
     electronApp,
     window,
@@ -181,36 +176,21 @@ test.describe('prescreen-2-reviewer', () => {
       timeout: 30_000,
     });
 
-    // Record 1: Include
-    console.log('[prescreen-2r] Alice: deciding record 1 (include)');
-    await clickWhenEnabled(window, '[data-testid="prescreen-btn-include"]', 10_000);
-
-    // Record 2: Exclude
-    console.log('[prescreen-2r] Alice: deciding record 2 (exclude)');
-    await clickWhenEnabled(window, '[data-testid="prescreen-btn-exclude"]', 10_000);
-
-    // Record 3: Include
-    console.log('[prescreen-2r] Alice: deciding record 3 (include)');
-    await clickWhenEnabled(window, '[data-testid="prescreen-btn-include"]', 10_000);
+    // Alice prescreens every record presented. Pattern: include, exclude,
+    // include, … so reviewers' decisions disagree on roughly half (Bob uses
+    // the inverse pattern below).
+    console.log('[prescreen-2r] Alice: deciding all records (include/exclude alternating)');
+    const aliceCounts = await prescreenAllRecords(window, ['include', 'exclude']);
 
     // Wait for completion screen
-    console.log('[prescreen-2r] Alice: waiting for completion');
     const aliceComplete = window.locator('[data-testid="prescreen-complete"]');
     await aliceComplete.waitFor({ state: 'visible', timeout: 30_000 });
 
-    // Assert Alice's completion counts
-    const aliceIncluded = await window.textContent(
-      '[data-testid="prescreen-complete-included"]',
-    );
-    const aliceExcluded = await window.textContent(
-      '[data-testid="prescreen-complete-excluded"]',
-    );
-    const aliceTotal = await window.textContent(
-      '[data-testid="prescreen-complete-total"]',
-    );
-    expect(aliceIncluded?.trim()).toBe('2');
-    expect(aliceExcluded?.trim()).toBe('1');
-    expect(aliceTotal?.trim()).toBe('3');
+    const aliceTotal = await window.textContent('[data-testid="prescreen-complete-total"]');
+    expect(Number(aliceTotal?.trim())).toBe(aliceCounts.included + aliceCounts.excluded);
+    expect(aliceCounts.included).toBeGreaterThan(0);
+    expect(aliceCounts.excluded).toBeGreaterThan(0);
+    expect(aliceCounts.included + aliceCounts.excluded).toBeGreaterThanOrEqual(6);
 
     // Save to remote
     console.log('[prescreen-2r] Alice: saving to remote');
@@ -284,36 +264,21 @@ test.describe('prescreen-2-reviewer', () => {
       timeout: 30_000,
     });
 
-    // Record 1: Exclude (different from Alice)
-    console.log('[prescreen-2r] Bob: deciding record 1 (exclude)');
-    await clickWhenEnabled(window, '[data-testid="prescreen-btn-exclude"]', 10_000);
+    // Bob uses the inverse pattern so reviewers disagree on roughly half.
+    console.log('[prescreen-2r] Bob: deciding all records (exclude/include alternating)');
+    const bobCounts = await prescreenAllRecords(window, ['exclude', 'include']);
 
-    // Record 2: Include (different from Alice)
-    console.log('[prescreen-2r] Bob: deciding record 2 (include)');
-    await clickWhenEnabled(window, '[data-testid="prescreen-btn-include"]', 10_000);
-
-    // Record 3: Exclude (different from Alice)
-    console.log('[prescreen-2r] Bob: deciding record 3 (exclude)');
-    await clickWhenEnabled(window, '[data-testid="prescreen-btn-exclude"]', 10_000);
-
-    // Wait for completion screen
-    console.log('[prescreen-2r] Bob: waiting for completion');
     const bobComplete = window.locator('[data-testid="prescreen-complete"]');
     await bobComplete.waitFor({ state: 'visible', timeout: 30_000 });
 
-    // Assert Bob's completion counts
-    const bobIncluded = await window.textContent(
-      '[data-testid="prescreen-complete-included"]',
+    const bobTotal = await window.textContent('[data-testid="prescreen-complete-total"]');
+    expect(Number(bobTotal?.trim())).toBe(bobCounts.included + bobCounts.excluded);
+    expect(bobCounts.included).toBeGreaterThan(0);
+    expect(bobCounts.excluded).toBeGreaterThan(0);
+    // Same record set as Alice
+    expect(bobCounts.included + bobCounts.excluded).toBe(
+      aliceCounts.included + aliceCounts.excluded,
     );
-    const bobExcluded = await window.textContent(
-      '[data-testid="prescreen-complete-excluded"]',
-    );
-    const bobTotal = await window.textContent(
-      '[data-testid="prescreen-complete-total"]',
-    );
-    expect(bobIncluded?.trim()).toBe('1');
-    expect(bobExcluded?.trim()).toBe('2');
-    expect(bobTotal?.trim()).toBe('3');
 
     // Save to remote
     console.log('[prescreen-2r] Bob: saving to remote');
@@ -390,5 +355,10 @@ test.describe('prescreen-2-reviewer', () => {
     expect(bobRecords).toContain('rev_prescreen_excluded');
 
     console.log('[prescreen-2r] proof-of-life complete');
+
+    if (process.env.BUILD_FIXTURES === '1') {
+      const cache2 = createCache();
+      cache2.checkpoint('post-prescreen', workspace.root);
+    }
   });
 });

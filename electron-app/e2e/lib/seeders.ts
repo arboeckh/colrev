@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { execFileSync } from 'child_process';
 import type { TestWorkspace } from './test-workspace';
 
@@ -321,6 +322,95 @@ export function seedRecords(workspace: TestWorkspace, recordsBibFixturePath: str
     cwd: projectPath,
     stdio: 'pipe',
     env,
+  });
+}
+
+export interface LocalIndexSeed {
+  doi: string;
+  pdfPath: string;
+}
+
+/**
+ * Seed colrev's LocalIndex (sqlite) inside the test workspace so pdf_get's
+ * `colrev.local_index` package can find PDFs by DOI without hitting the
+ * developer's real ~/.colrev.
+ *
+ * Requires COLREV_FAKE_GITHUB_REGISTRY to be set on the Electron main
+ * process so HOME is redirected to userDataDir (see colrev-backend.ts).
+ *
+ * Schema mirrors colrev/env/local_index_sqlite.py SQLiteIndexRecord. We only
+ * populate the columns the retrieve flow actually reads:
+ *   - doi (WHERE clause when input record carries a DOI)
+ *   - bibtex (parsed back into a record dict and used to locate the file)
+ *   - file (cross-checked by prepare_record_for_return for is_file())
+ */
+export function seedLocalIndex(
+  workspace: TestWorkspace,
+  entries: LocalIndexSeed[],
+): void {
+  const colrevDir = path.join(workspace.userDataDir, '.colrev');
+  fs.mkdirSync(colrevDir, { recursive: true });
+  const dbPath = path.join(colrevDir, 'sqlite_index.db');
+
+  const escape = (v: string | null): string => {
+    if (v === null) return 'NULL';
+    return `'${v.replace(/'/g, "''")}'`;
+  };
+
+  const lines: string[] = [];
+  lines.push(
+    `CREATE TABLE IF NOT EXISTS record_index (
+      id TEXT PRIMARY KEY,
+      colrev_id TEXT,
+      citation_key TEXT,
+      title TEXT,
+      abstract TEXT,
+      file TEXT,
+      tei TEXT,
+      fulltext TEXT,
+      url TEXT,
+      doi TEXT,
+      dblp_key TEXT,
+      colrev_pdf_id TEXT,
+      bibtex TEXT
+    );`,
+  );
+
+  for (const entry of entries) {
+    const absPdf = path.resolve(entry.pdfPath);
+    if (!fs.existsSync(absPdf)) {
+      throw new Error(`seedLocalIndex: PDF not found at ${absPdf}`);
+    }
+    const id = crypto.createHash('sha256').update(`seed:${entry.doi}`).digest('hex');
+    const citationKey = `Seed${entry.doi.replace(/[^a-zA-Z0-9]/g, '')}`;
+    // BibTeX is parsed by colrev's loader to recreate the record dict; the
+    // file field on disk is what pdf_get's import_pdf symlinks to.
+    const bibtex = `@article{${citationKey},\n  title = {Seeded record for ${entry.doi}},\n  author = {Seed Author},\n  year = {2024},\n  journal = {Seed Journal},\n  doi = {${entry.doi}},\n  file = {${absPdf}},\n  ID = {${citationKey}},\n  ENTRYTYPE = {article}\n}\n`;
+
+    lines.push(
+      `INSERT INTO record_index VALUES (` +
+        [
+          escape(id),
+          escape(`seed-cid-${entry.doi}`),
+          escape(citationKey),
+          escape(`Seeded record for ${entry.doi}`),
+          'NULL',
+          escape(absPdf),
+          'NULL',
+          'NULL',
+          'NULL',
+          escape(entry.doi),
+          'NULL',
+          'NULL',
+          escape(bibtex),
+        ].join(', ') +
+        `);`,
+    );
+  }
+
+  execFileSync('sqlite3', [dbPath], {
+    input: lines.join('\n'),
+    stdio: ['pipe', 'pipe', 'pipe'],
   });
 }
 

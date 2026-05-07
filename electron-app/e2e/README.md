@@ -13,7 +13,7 @@ e2e/
 │   └── test-utils.ts             # clickWhenEnabled
 ├── lib/
 │   ├── seeders.ts                # seedAccounts / seedAliceProject / seedRecords / ...
-│   ├── snapshot-cache.ts         # tarball-backed L1–L4 snapshot cache
+│   ├── snapshot-cache.ts         # tarball-backed snapshot cache (post-search, post-preprocessing, …)
 │   └── test-workspace.ts         # /tmp/colrev-e2e/<test>/ harness
 ├── specs/                        # *.spec.ts files
 ├── tsconfig.json
@@ -38,7 +38,7 @@ e2e/
 
 ### Snapshot loading
 
-Most specs start from a pre-built `Lₙ` snapshot rather than walking the UI from scratch:
+Most specs start from a pre-built named snapshot rather than walking the UI from scratch. Snapshots are produced by per-stage specs and named after the stage they capture (`post-search`, `post-preprocessing`, `post-prescreen`, `post-pdf-get`):
 
 ```ts
 import { SnapshotCache, SNAPSHOT_SOURCE_ROOTS } from '../fixtures/test-workspace.fixture';
@@ -47,15 +47,18 @@ const cache = new SnapshotCache({
   cacheDir: path.join(os.homedir(), '.cache', 'colrev-test-fixtures'),
   sourceRoots: SNAPSHOT_SOURCE_ROOTS,
 });
-cache.load('L4', workspace.root);
+cache.load('post-preprocessing', workspace.root);
 ```
 
 `SnapshotCache.load` rewrites stale absolute paths (registry `cloneUrl` and each cloned project's `origin` remote) to point at the new workspace, so specs don't need a per-test fixup helper.
 
-If `SnapshotCache.load` errors with "stale", regenerate snapshots:
+If `SnapshotCache.load` errors with "stale", rebuild the chain with `BUILD_FIXTURES=1`:
 
 ```bash
-npx playwright test build-fixtures.spec.ts
+BUILD_FIXTURES=1 npx playwright test e2e/specs/01-search.spec.ts \
+                                     e2e/specs/02-preprocessing.spec.ts \
+                                     e2e/specs/03-prescreen-2-reviewer.spec.ts \
+                                     e2e/specs/04-pdf-get.spec.ts
 ```
 
 The hash inputs are listed in `SNAPSHOT_SOURCE_ROOTS` and currently include `e2e/lib/`, `e2e/fixtures/data/`, `src/main/auth-manager.ts`, and `src/main/fake-github-registry.ts` — touching any of those invalidates the cache.
@@ -94,7 +97,7 @@ npm run build
 npm run test:e2e
 
 # Or run a single spec
-npx playwright test e2e/specs/prescreen-2-reviewer.spec.ts
+npx playwright test e2e/specs/03-prescreen-2-reviewer.spec.ts
 ```
 
 The fixture prepends `~/miniforge3/envs/colrev/bin` to `PATH` so the JSON-RPC backend resolves `python` / `colrev-jsonrpc` against the project's conda env without manual activation.
@@ -141,7 +144,7 @@ Common patterns:
 |---------|-------------|-----|
 | `clickWhenEnabled` timeout | Button never becomes enabled; form validation blocking | Check that prerequisite fields are filled and valid |
 | RPC error code `-32000` | CoLRev project not initialized or path wrong | Verify `project_id` and `base_path` in the RPC params |
-| Snapshot hash mismatch | A file in `SNAPSHOT_SOURCE_ROOTS` changed | Regenerate: `npx playwright test build-fixtures.spec.ts` |
+| Snapshot hash mismatch | A file in `SNAPSHOT_SOURCE_ROOTS` changed | Regenerate the chain with `BUILD_FIXTURES=1` (see "Snapshot loading" above) |
 | `state-after-*.json` empty `{}` | Renderer not yet mounted when `markPhase` ran | Wait for a stable selector before calling `markPhase` |
 
 To re-run a single test:

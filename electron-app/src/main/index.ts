@@ -202,6 +202,14 @@ function setupIPC() {
         spawnEnv.COLREV_E2E_PINNED_DATES = '1';
       }
 
+      // E2E mode: redirect HOME to the userData dir so colrev's
+      // ~/.colrev/sqlite_index.db (LocalIndex) resolves inside the per-test
+      // workspace instead of the developer's real home. Gated on the fake
+      // GitHub registry env var so production is unaffected.
+      if (process.env.COLREV_FAKE_GITHUB_REGISTRY) {
+        spawnEnv.HOME = app.getPath('userData');
+      }
+
       backend = new ColrevBackend(colrevPath, colrevArgs, spawnEnv);
 
       // Forward events to renderer

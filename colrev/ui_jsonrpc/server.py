@@ -127,6 +127,11 @@ def main() -> None:
     # Set log level
     logging.getLogger().setLevel(getattr(logging, args.log_level))
 
+    # E2E hook: install requests-level PubMed mock if env var is set.
+    # No-op in production (env var unset).
+    from colrev.ui_jsonrpc import _pubmed_mock
+    _pubmed_mock.install_if_enabled()
+
     # Run stdio server
     run_stdio_server()
 

@@ -75,6 +75,7 @@ const phase = ref<Phase>('SELECT_FILES');
 const assignments = ref<FileAssignment[]>([]);
 const analyzeIndex = ref(0);
 const cancelAnalysis = ref(false);
+const batchFileInput = ref<HTMLInputElement | null>(null);
 
 const matchedCount = computed(
   () => assignments.value.filter((a) => a.recordId !== null).length,
@@ -141,12 +142,15 @@ watch(
 // --- Phase 1: SELECT_FILES ---
 
 function selectFiles() {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.pdf';
-  input.multiple = true;
-  input.onchange = () => handleFileSelection(input.files);
-  input.click();
+  if (batchFileInput.value) {
+    batchFileInput.value.value = '';
+    batchFileInput.value.click();
+  }
+}
+
+function onBatchFileInputChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  handleFileSelection(input.files);
 }
 
 function selectFolder() {
@@ -397,6 +401,15 @@ async function uploadAll() {
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
     <DialogContent class="max-w-4xl max-h-[85vh] flex flex-col">
+      <input
+        ref="batchFileInput"
+        type="file"
+        accept=".pdf"
+        multiple
+        class="sr-only"
+        data-testid="pdfs-batch-upload-input"
+        @change="onBatchFileInputChange"
+      />
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           <FileUp class="h-5 w-5" />

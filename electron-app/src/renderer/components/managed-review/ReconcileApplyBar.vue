@@ -2,12 +2,22 @@
 import { Loader2, ArrowLeft } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 
-defineProps<{
+const props = defineProps<{
   decidedCount: number;
   totalConflicts: number;
   canApply: boolean;
   isApplying: boolean;
+  overrideBlockCount?: number;
 }>();
+
+const applyLabel = () => {
+  if (props.isApplying) return 'Applying...';
+  const blocks = props.overrideBlockCount ?? 0;
+  if (blocks > 0) {
+    return `Override ${blocks} block${blocks === 1 ? '' : 's'} & apply`;
+  }
+  return 'Apply Reconciliation';
+};
 
 const emit = defineEmits<{
   (e: 'apply'): void;
@@ -37,11 +47,12 @@ const emit = defineEmits<{
 
     <Button
       :disabled="!canApply || isApplying"
+      :variant="(overrideBlockCount ?? 0) > 0 ? 'destructive' : 'default'"
       data-testid="reconcile-apply-btn"
       @click="emit('apply')"
     >
       <Loader2 v-if="isApplying" class="h-4 w-4 animate-spin" />
-      {{ isApplying ? 'Applying...' : 'Apply Reconciliation' }}
+      {{ applyLabel() }}
     </Button>
   </div>
 </template>

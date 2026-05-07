@@ -4,6 +4,8 @@
 
 Don't edit colrev package code, only the jsoon rpc layer or electron code. colrev core code should be treated like a package.
 
+Use the playwright cli tool skill for ad hoc exploration if you need to get visibility
+
 ## Agent skills
 
 ### Issue tracker

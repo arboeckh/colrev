@@ -42,6 +42,21 @@ export class TestWorkspace {
     fs.writeFileSync(this.backendLogPath, '');
     fs.writeFileSync(this.rendererLogPath, '');
     fs.writeFileSync(this.rpcJsonlPath, '');
+
+    // The E2E main process redirects HOME to userDataDir so colrev's
+    // ~/.colrev/sqlite_index.db lives inside the workspace. That redirect
+    // also makes git's global config invisible — colrev reads user.name/
+    // user.email from `git config --global` for sources like PubMed (which
+    // demand a contact email). Seed a minimal global gitconfig.
+    fs.writeFileSync(
+      path.join(this.userDataDir, '.gitconfig'),
+      '[user]\n\tname = Test User\n\temail = test@test.local\n',
+    );
+
+    // Pre-create ~/.colrev/ — requests_cache opens a sqlite DB at
+    // ~/.colrev/prep_requests_cache and crashes if the parent dir is
+    // missing. EnvironmentManager.register() also expects this to exist.
+    fs.mkdirSync(path.join(this.userDataDir, '.colrev'), { recursive: true });
   }
 
   writeLastState(state: LastState): void {

@@ -1,19 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/auth';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
+import { useWalkthroughNavigation } from '@/composables/useWalkthroughNavigation';
 import ProgressTrack from '@/components/prescreen/ProgressTrack.vue';
 import RecordCard, { type DisplayRecord } from '@/components/prescreen/RecordCard.vue';
 import ReconcileDecisionButtons from './ReconcileDecisionButtons.vue';
 import ReconcileApplyBar from './ReconcileApplyBar.vue';
+import BlockedRecordsBanner from './BlockedRecordsBanner.vue';
 import { selectedReviewerFor, type ReconcileKind, type ReviewerRole } from './reconcile-utils';
 import type {
   ApplyReconciliationResponse,
-  BatchEnrichRecordsResponse,
   GetRecordsResponse,
   ReconciliationPreviewItem,
   ReconciliationPreviewResponse,
@@ -44,11 +45,6 @@ const isApplying = ref(false);
 const preview = ref<ReconciliationPreviewResponse | null>(null);
 const recordDetails = ref<Record<string, DisplayRecord>>({});
 const stagedDecisions = ref<Record<string, StagedDecision>>({});
-const currentIndex = ref(0);
-
-const conflictItems = computed<ReconciliationPreviewItem[]>(() =>
-  preview.value ? preview.value.items.filter((item) => item.status === 'conflict') : [],
-);
 
 const blockedItems = computed<ReconciliationPreviewItem[]>(() =>
   preview.value ? preview.value.items.filter((item) => item.status === 'blocked') : [],
@@ -58,20 +54,67 @@ const pendingItems = computed<ReconciliationPreviewItem[]>(() =>
   preview.value ? preview.value.items.filter((item) => item.status === 'pending') : [],
 );
 
-const currentItem = computed<ReconciliationPreviewItem | null>(() =>
-  conflictItems.value[currentIndex.value] ?? null,
+function reviewersDisagree(item: ReconciliationPreviewItem): boolean {
+  if (item.reviewers.length < 2) return false;
+  const [a, b] = item.reviewers;
+  return a.status !== b.status || a.criteria_string !== b.criteria_string;
+}
+
+const NON_TASK_METADATA_PREFIX = 'Non-task metadata changed';
+
+const overridableBlockedItems = computed<ReconciliationPreviewItem[]>(() =>
+  blockedItems.value.filter((item) =>
+    item.blocked_reasons.length > 0
+    && item.blocked_reasons.every((r) => r.startsWith(NON_TASK_METADATA_PREFIX)),
+  ),
 );
+
+const hardBlockedItems = computed<ReconciliationPreviewItem[]>(() =>
+  blockedItems.value.filter((item) =>
+    item.blocked_reasons.some((r) => !r.startsWith(NON_TASK_METADATA_PREFIX)),
+  ),
+);
+
+// Blocked records where reviewers disagreed: after override they become
+// conflicts and need a resolution choice from the user.
+const overridableConflictItems = computed<ReconciliationPreviewItem[]>(() =>
+  overridableBlockedItems.value.filter((item) => reviewersDisagree(item)),
+);
+
+const realConflictItems = computed<ReconciliationPreviewItem[]>(() =>
+  preview.value ? preview.value.items.filter((item) => item.status === 'conflict') : [],
+);
+
+const conflictItems = computed<ReconciliationPreviewItem[]>(() => [
+  ...realConflictItems.value,
+  ...overridableConflictItems.value,
+]);
+
+const { currentIndex, currentItem, nextUndecidedIndex, goTo, skipToNextUndecided } =
+  useWalkthroughNavigation<ReconciliationPreviewItem>({
+    items: conflictItems,
+    isUndecided: (item) => !stagedDecisions.value[item.id],
+    wrapAround: true,
+    onArrowLeft: () => {
+      if (currentStagedDecision.value === 'undecided') onDecide('exclude');
+    },
+    onArrowRight: () => {
+      if (currentStagedDecision.value === 'undecided') onDecide('include');
+    },
+  });
 
 const currentRecord = computed<DisplayRecord | null>(() => {
   if (!currentItem.value) return null;
   const detail = recordDetails.value[currentItem.value.id];
   if (detail) return detail;
+  // Mirrors the review UI: abstracts are prefetched at launch; reconcile
+  // never re-fetches. If the prefetch missed a record, just show what we have.
   return {
     id: currentItem.value.id,
     title: currentItem.value.title,
     author: currentItem.value.author,
     year: currentItem.value.year,
-    _enrichmentStatus: 'pending',
+    _enrichmentStatus: 'failed',
   };
 });
 
@@ -100,16 +143,6 @@ const progressItems = computed(() =>
     };
   }),
 );
-
-const nextUndecidedIndex = computed(() => {
-  for (let i = currentIndex.value + 1; i < conflictItems.value.length; i++) {
-    if (!stagedDecisions.value[conflictItems.value[i].id]) return i;
-  }
-  for (let i = 0; i < currentIndex.value; i++) {
-    if (!stagedDecisions.value[conflictItems.value[i].id]) return i;
-  }
-  return -1;
-});
 
 async function loadPreview() {
   if (!projects.currentProjectId) return;
@@ -160,51 +193,15 @@ async function loadRecordDetails(ids: string[]) {
         journal: (record as any).journal,
         booktitle: (record as any).booktitle,
         abstract: (record as any).abstract,
-        _enrichmentStatus: (record as any).abstract ? 'complete' : 'pending',
+        _enrichmentStatus: (record as any).abstract ? 'complete' : 'failed',
       };
     }
     recordDetails.value = details;
-
-    const missingAbstracts = ids.filter((id) => !details[id]?.abstract);
-    if (missingAbstracts.length > 0) {
-      enrichMissingAbstracts(missingAbstracts);
-    }
   } catch (err) {
     notifications.error(
       'Failed to load records',
       err instanceof Error ? err.message : 'Unknown error',
     );
-  }
-}
-
-async function enrichMissingAbstracts(ids: string[]) {
-  if (!projects.currentProjectId) return;
-  for (const id of ids) {
-    const detail = recordDetails.value[id];
-    if (detail) detail._enrichmentStatus = 'loading';
-  }
-  try {
-    const response = await backend.call<BatchEnrichRecordsResponse>('batch_enrich_records', {
-      project_id: projects.currentProjectId,
-      record_ids: ids,
-    });
-    for (const result of response.records) {
-      const detail = recordDetails.value[result.id];
-      if (!detail) continue;
-      if (result.success && result.record) {
-        detail.abstract = (result.record as any).abstract ?? detail.abstract;
-        detail._enrichmentStatus = 'complete';
-      } else {
-        detail._enrichmentStatus = 'failed';
-      }
-    }
-  } catch {
-    for (const id of ids) {
-      const detail = recordDetails.value[id];
-      if (detail && detail._enrichmentStatus === 'loading') {
-        detail._enrichmentStatus = 'failed';
-      }
-    }
   }
 }
 
@@ -229,44 +226,30 @@ function onDecide(decision: 'include' | 'exclude') {
   }
 }
 
-function skipToNextUndecided() {
-  const next = nextUndecidedIndex.value;
-  if (next !== -1) currentIndex.value = next;
-}
-
-function goTo(index: number) {
-  if (index >= 0 && index < conflictItems.value.length) {
-    currentIndex.value = index;
-  }
-}
-
-const NON_TASK_METADATA_PREFIX = 'Non-task metadata changed';
-
-const overridableBlockedItems = computed<ReconciliationPreviewItem[]>(() =>
-  blockedItems.value.filter((item) =>
-    item.blocked_reasons.length > 0
-    && item.blocked_reasons.every((r) => r.startsWith(NON_TASK_METADATA_PREFIX)),
-  ),
-);
-
-const hardBlockedItems = computed<ReconciliationPreviewItem[]>(() =>
-  blockedItems.value.filter((item) =>
-    item.blocked_reasons.some((r) => !r.startsWith(NON_TASK_METADATA_PREFIX)),
-  ),
-);
-
-const canOverrideBlocks = computed(
-  () =>
-    overridableBlockedItems.value.length > 0
-    && hardBlockedItems.value.length === 0,
-);
-
 async function applyReconciliation(opts: { overrideBlocks?: boolean } = {}) {
   if (!projects.currentProjectId || !preview.value) return;
   const overrideBlocks = !!opts.overrideBlocks;
-  if (!overrideBlocks && blockedItems.value.length > 0) return;
-  if (pendingItems.value.length > 0) return;
-  if (conflictItems.value.length > 0 && !allDecided.value) return;
+  if (!overrideBlocks && blockedItems.value.length > 0) {
+    notifications.error(
+      'Cannot apply',
+      'Blocked records must be overridden first.',
+    );
+    return;
+  }
+  if (pendingItems.value.length > 0) {
+    notifications.error(
+      'Cannot apply',
+      `${pendingItems.value.length} record(s) still pending reviewer decisions.`,
+    );
+    return;
+  }
+  if (conflictItems.value.length > 0 && !allDecided.value) {
+    notifications.error(
+      'Cannot apply',
+      `Resolve all ${conflictItems.value.length} conflict(s) before applying. ${stagedCount.value} resolved.`,
+    );
+    return;
+  }
 
   isApplying.value = true;
   try {
@@ -301,52 +284,15 @@ async function applyReconciliation(opts: { overrideBlocks?: boolean } = {}) {
   }
 }
 
-function confirmOverrideAndApply() {
-  const count = overridableBlockedItems.value.length;
-  const ok = window.confirm(
-    `Override ${count} blocked record${count === 1 ? '' : 's'} and apply reconciliation?\n\n`
-      + 'Reviewer decisions will be applied; the record metadata on dev will be kept as-is. '
-      + 'This is recorded in the audit trail.',
-  );
-  if (ok) void applyReconciliation({ overrideBlocks: true });
-}
-
-function onKeydown(e: KeyboardEvent) {
-  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-  if (!currentItem.value) return;
-  switch (e.key) {
-    case 'ArrowLeft':
-      e.preventDefault();
-      if (currentStagedDecision.value === 'undecided') onDecide('exclude');
-      break;
-    case 'ArrowRight':
-      e.preventDefault();
-      if (currentStagedDecision.value === 'undecided') onDecide('include');
-      break;
-    case 'ArrowUp':
-      e.preventDefault();
-      goTo(currentIndex.value - 1);
-      break;
-    case 'ArrowDown':
-      e.preventDefault();
-      goTo(currentIndex.value + 1);
-      break;
-  }
+function onApplyClicked() {
+  void applyReconciliation({ overrideBlocks: overridableBlockedItems.value.length > 0 });
 }
 
 watch(
   () => props.taskId,
   () => loadPreview(),
+  { immediate: true },
 );
-
-onMounted(() => {
-  loadPreview();
-  window.addEventListener('keydown', onKeydown);
-});
-
-onUnmounted(() => {
-  window.removeEventListener('keydown', onKeydown);
-});
 </script>
 
 <template>
@@ -360,22 +306,20 @@ onUnmounted(() => {
       Loading reconciliation preview...
     </div>
 
-    <!-- Blocked guard -->
+    <!-- Hard-blocked guard: records missing on a branch, can't be overridden -->
     <div
-      v-else-if="blockedItems.length > 0"
+      v-else-if="hardBlockedItems.length > 0"
       class="flex-1 flex flex-col items-center max-w-xl mx-auto text-center gap-4 py-6 min-h-0"
-      data-testid="reconcile-blocked"
+      data-testid="reconcile-hard-blocked"
     >
       <div class="rounded-full bg-amber-500/15 p-3">
         <AlertTriangle class="h-6 w-6 text-amber-600 dark:text-amber-400" />
       </div>
       <div class="space-y-1">
-        <h3 class="text-lg font-medium">Blocked records prevent reconciliation</h3>
+        <h3 class="text-lg font-medium">Records missing on a branch</h3>
         <p class="text-sm text-muted-foreground">
-          A record's non-decision metadata (title, abstract, journal, etc.)
-          changed after this task was launched. The reviewer decisions are
-          still valid — overriding applies them while keeping the latest
-          metadata. The action is recorded in the audit trail.
+          Some records are missing on dev or a reviewer branch and can't be
+          overridden. Restore them via git before reconciling.
         </p>
       </div>
       <ul
@@ -383,7 +327,7 @@ onUnmounted(() => {
         style="max-height: 50vh"
       >
         <li
-          v-for="item in blockedItems"
+          v-for="item in hardBlockedItems"
           :key="item.id"
           class="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2"
         >
@@ -399,24 +343,9 @@ onUnmounted(() => {
           </ul>
         </li>
       </ul>
-      <div v-if="hardBlockedItems.length > 0" class="text-xs text-muted-foreground">
-        Some records are missing on dev or a reviewer branch and can't be
-        overridden. Restore them via git before reconciling.
-      </div>
-      <div v-else class="flex items-center gap-2">
-        <Button
-          variant="destructive"
-          size="sm"
-          :disabled="!canOverrideBlocks || isApplying"
-          data-testid="reconcile-override-blocks-btn"
-          @click="confirmOverrideAndApply"
-        >
-          {{ isApplying ? 'Applying…' : `Override ${overridableBlockedItems.length} block${overridableBlockedItems.length === 1 ? '' : 's'} and apply` }}
-        </Button>
-        <Button variant="ghost" size="sm" @click="emit('close')">
-          Cancel
-        </Button>
-      </div>
+      <Button variant="ghost" size="sm" @click="emit('close')">
+        Cancel
+      </Button>
     </div>
 
     <!-- Pending guard -->
@@ -453,13 +382,19 @@ onUnmounted(() => {
           {{ preview.summary.auto_resolved_count }} auto-resolved decision{{ preview.summary.auto_resolved_count === 1 ? '' : 's' }}.
         </p>
       </div>
+      <BlockedRecordsBanner
+        v-if="overridableBlockedItems.length > 0"
+        :items="overridableBlockedItems"
+        class="w-full"
+      />
       <ReconcileApplyBar
         :decided-count="0"
         :total-conflicts="0"
         :can-apply="true"
         :is-applying="isApplying"
+        :override-block-count="overridableBlockedItems.length"
         class="w-full"
-        @apply="applyReconciliation"
+        @apply="onApplyClicked"
         @cancel="emit('close')"
       />
     </div>
@@ -467,6 +402,11 @@ onUnmounted(() => {
     <!-- Walkthrough -->
     <template v-else-if="currentItem">
       <div class="flex-1 flex flex-col min-h-0 gap-3">
+        <BlockedRecordsBanner
+          v-if="overridableBlockedItems.length > 0"
+          :items="overridableBlockedItems"
+        />
+
         <ProgressTrack
           :items="progressItems"
           :current-index="currentIndex"
@@ -507,7 +447,8 @@ onUnmounted(() => {
         :total-conflicts="conflictItems.length"
         :can-apply="allDecided"
         :is-applying="isApplying"
-        @apply="applyReconciliation"
+        :override-block-count="overridableBlockedItems.length"
+        @apply="onApplyClicked"
         @cancel="emit('close')"
       />
     </template>
