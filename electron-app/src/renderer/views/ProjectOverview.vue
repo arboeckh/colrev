@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { useRouter } from 'vue-router';
 import {
-  ArrowRight,
   Github,
   Globe,
   ExternalLink,
@@ -14,6 +12,8 @@ import {
   HelpCircle,
   UserPlus,
   User,
+  Lock,
+  ArrowRight,
 } from 'lucide-vue-next';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -35,6 +35,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import StepPageShell from '@/components/layout/StepPageShell.vue';
+import OverviewPageHelp from './OverviewPageHelp.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
 import { useGitStore } from '@/stores/git';
@@ -42,7 +44,6 @@ import { useNotificationsStore } from '@/stores/notifications';
 import { useConnectionStore } from '@/stores/connection';
 import { WORKFLOW_STEPS } from '@/types/project';
 
-const router = useRouter();
 const projects = useProjectsStore();
 const auth = useAuthStore();
 const git = useGitStore();
@@ -50,6 +51,24 @@ const notifications = useNotificationsStore();
 const connection = useConnectionStore();
 
 const offlineTooltip = 'Requires internet';
+
+// Next step routing for the shell's Continue button
+const nextStep = computed(() => {
+  let next = projects.nextOperation;
+  if (!next) return null;
+  if (['load', 'prep', 'dedupe'].includes(next)) next = 'preprocessing';
+  return WORKFLOW_STEPS.find((s) => s.id === next) || null;
+});
+
+const nextStepRoute = computed(() => {
+  if (!nextStep.value || !projects.currentProjectId) return undefined;
+  return `/project/${projects.currentProjectId}/${nextStep.value.route}`;
+});
+
+const nextStepLabel = computed(() => {
+  if (!nextStep.value) return undefined;
+  return `Continue to ${nextStep.value.label}`;
+});
 
 // Publish (merge dev into main)
 const isPublishing = ref(false);
@@ -208,22 +227,6 @@ async function inviteCollaborator() {
 // Load collaborators on mount (fire-and-forget)
 loadCollaborators();
 
-const totalRecords = computed(() => projects.currentStatus?.total_records ?? 0);
-
-// Next recommended step
-const nextStep = computed(() => {
-  let next = projects.nextOperation;
-  if (!next) return null;
-  if (['load', 'prep', 'dedupe'].includes(next)) next = 'preprocessing';
-  return WORKFLOW_STEPS.find((s) => s.id === next) || null;
-});
-
-function navigateToStep(stepRoute: string) {
-  if (projects.currentProjectId) {
-    router.push(`/project/${projects.currentProjectId}/${stepRoute}`);
-  }
-}
-
 // Unpublished changes description
 const unpublishedChangesText = computed(() => {
   if (!git.hasDevBranch) return null;
@@ -248,7 +251,6 @@ const mainSynthesizedCount = computed(() => {
 });
 
 // New record funnel: cumulative counts that passed each gate
-// States that indicate a record has passed each stage (included):
 const PRESCREEN_PASSED = [
   'rev_prescreen_included', 'pdf_needs_manual_retrieval', 'pdf_imported',
   'pdf_not_available', 'pdf_needs_manual_preparation', 'pdf_prepared',
@@ -276,87 +278,17 @@ const newRecordFunnel = computed(() => {
 
 <template>
   <TooltipProvider :delay-duration="300">
-    <div class="p-6 max-w-4xl">
-      <!-- Header area -->
-      <div class="pb-4">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <h2 class="text-xl font-semibold">
-              {{ projects.currentSettings?.project?.title || 'Literature Review' }}
-            </h2>
-            <p class="text-muted-foreground text-sm mt-1">
-              <span v-if="totalRecords > 0">{{ totalRecords }} records</span>
-              <span v-if="totalRecords > 0 && nextStep"> · </span>
-              <span v-if="nextStep">Next: <span class="font-medium text-foreground">{{ nextStep.label }}</span></span>
-              <span v-if="!nextStep && totalRecords === 0">No records yet — start by adding a search source.</span>
-            </p>
-          </div>
+    <StepPageShell
+      :step="null"
+      subtitle="Your literature review at a glance"
+      :page-help="OverviewPageHelp"
+      :next-override="nextStepRoute"
+      :next-label="nextStepLabel"
+    >
+      <div class="p-6 max-w-4xl space-y-6">
 
-          <!-- Remote status -->
-          <div class="flex items-center gap-2 text-sm shrink-0">
-            <template v-if="isGitHubRemote && gitHubUrl">
-              <a
-                :href="gitHubUrl"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
-                data-testid="github-repo-link"
-              >
-                <Github class="h-4 w-4" />
-                {{ gitHubUrl.replace('https://github.com/', '') }}
-                <ExternalLink class="h-3 w-3" />
-              </a>
-            </template>
-            <template v-else-if="remoteUrl">
-              <Globe class="h-4 w-4 text-muted-foreground" />
-              <span class="text-muted-foreground">{{ remoteUrl }}</span>
-            </template>
-            <template v-else>
-              <span class="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
-                <HardDrive class="h-3.5 w-3.5" />
-                Local only
-              </span>
-              <Tooltip>
-                <TooltipTrigger as-child>
-                  <HelpCircle class="h-3.5 w-3.5 text-muted-foreground/50 cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent side="bottom" class="max-w-[240px]">
-                  <p class="text-xs">This review only exists on your computer. Push to GitHub to back it up and collaborate with others.</p>
-                </TooltipContent>
-              </Tooltip>
-              <Button
-                v-if="auth.isAuthenticated"
-                variant="outline"
-                size="sm"
-                class="h-7 text-xs"
-                data-testid="push-to-github-button"
-                :disabled="!connection.isOnline"
-                :title="connection.isOnline ? undefined : offlineTooltip"
-                @click="openPushDialog"
-              >
-                <Github class="h-3.5 w-3.5 mr-1" />
-                Push to GitHub
-              </Button>
-            </template>
-          </div>
-        </div>
-
-        <!-- Next step CTA -->
-        <div v-if="nextStep" class="mt-3">
-          <Button size="sm" @click="navigateToStep(nextStep.route)" class="gap-2">
-            Continue to {{ nextStep.label }}
-            <ArrowRight class="h-3.5 w-3.5" />
-          </Button>
-        </div>
-
-      </div>
-
-      <Separator />
-
-      <!-- Versions & Publishing -->
-      <div class="pt-4">
+        <!-- Publishing section -->
         <div>
-          <!-- Publish section -->
           <div class="flex items-center gap-2 mb-3">
             <h3 class="text-sm font-medium text-muted-foreground">Publishing</h3>
           </div>
@@ -436,12 +368,67 @@ const newRecordFunnel = computed(() => {
               Work on your review by searching, screening, and extracting data. When you're ready to mark a milestone, publish a version.
             </p>
           </div>
+        </div>
 
-          <!-- Collaborators section (GitHub only) -->
-          <div v-if="isGitHubRemote" class="mt-5 space-y-3">
+        <Separator />
+
+        <!-- Repository / Sharing section -->
+        <div class="space-y-4">
+          <h3 class="text-sm font-medium text-muted-foreground">Repository / Sharing</h3>
+
+          <!-- Remote status -->
+          <div class="flex items-center gap-2 text-sm flex-wrap">
+            <template v-if="isGitHubRemote && gitHubUrl">
+              <a
+                :href="gitHubUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                data-testid="github-repo-link"
+              >
+                <Github class="h-4 w-4" />
+                {{ gitHubUrl.replace('https://github.com/', '') }}
+                <ExternalLink class="h-3 w-3" />
+              </a>
+            </template>
+            <template v-else-if="remoteUrl">
+              <Globe class="h-4 w-4 text-muted-foreground" />
+              <span class="text-muted-foreground">{{ remoteUrl }}</span>
+            </template>
+            <template v-else>
+              <span class="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
+                <HardDrive class="h-3.5 w-3.5" />
+                Local only
+              </span>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <HelpCircle class="h-3.5 w-3.5 text-muted-foreground/50 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="bottom" class="max-w-[240px]">
+                  <p class="text-xs">This review only exists on your computer. Push to GitHub to back it up and collaborate with others.</p>
+                </TooltipContent>
+              </Tooltip>
+              <Button
+                v-if="auth.isAuthenticated"
+                variant="outline"
+                size="sm"
+                class="h-7 text-xs"
+                data-testid="push-to-github-button"
+                :disabled="!connection.isOnline"
+                :title="connection.isOnline ? undefined : offlineTooltip"
+                @click="openPushDialog"
+              >
+                <Github class="h-3.5 w-3.5 mr-1" />
+                Push to GitHub
+              </Button>
+            </template>
+          </div>
+
+          <!-- Collaborators (GitHub only) -->
+          <div v-if="isGitHubRemote" class="space-y-3">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
-                <h3 class="text-sm font-medium text-muted-foreground">Collaborators</h3>
+                <h4 class="text-sm font-medium text-muted-foreground">Collaborators</h4>
                 <Badge v-if="collaborators.length > 0" variant="secondary" class="text-xs">
                   {{ collaborators.length }}
                 </Badge>
@@ -540,201 +527,201 @@ const newRecordFunnel = computed(() => {
             </div>
           </div>
 
-          <!-- Releases section (GitHub only) -->
-          <div v-if="isGitHubRemote" class="mt-5 space-y-3">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <h3 class="text-sm font-medium text-muted-foreground">Releases</h3>
-                <Tooltip>
-                  <TooltipTrigger as-child>
-                    <HelpCircle class="h-3 w-3 text-muted-foreground/40 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent side="top" class="max-w-[220px]">
-                    <p class="text-xs">Published versions of your review (e.g. v1.0). Each release is a permanent, citable record on GitHub.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                class="h-7 text-xs gap-1"
-                data-testid="new-release-button"
-                :disabled="!connection.isOnline"
-                :title="connection.isOnline ? undefined : offlineTooltip"
-                @click="openReleaseDialog"
-              >
-                <Tag class="h-3.5 w-3.5" />
-                New Release
-              </Button>
-            </div>
-
-            <!-- Releases list -->
-            <div v-if="git.isLoadingReleases || !git.releasesLoaded" class="flex items-center justify-center py-4">
-              <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
-            </div>
-
-            <div v-else-if="git.releases.length === 0" class="flex flex-col items-center justify-center py-6 text-center">
-              <Tag class="h-7 w-7 text-muted-foreground/30 mb-2" />
-              <p class="text-sm text-muted-foreground">No releases yet</p>
-              <p class="text-xs text-muted-foreground/60 mt-0.5">Publish a version and create a release to get a citable record</p>
-            </div>
-
-            <div v-else class="border border-border rounded-md overflow-hidden">
-              <a
-                v-for="(release, index) in git.releases"
-                :key="release.id"
-                :href="release.htmlUrl"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="flex items-center justify-between py-2 px-3 hover:bg-muted/40 transition-colors cursor-pointer no-underline text-inherit"
-                :class="index > 0 ? 'border-t border-border' : ''"
-                :data-testid="`release-${release.tagName}`"
-              >
-                <div class="flex items-center gap-2 min-w-0">
-                  <Tag class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <span class="font-mono text-sm font-medium">{{ release.tagName }}</span>
-                  <span v-if="release.name !== release.tagName" class="text-xs text-muted-foreground truncate">
-                    {{ release.name }}
-                  </span>
-                </div>
-                <div class="flex items-center gap-2 shrink-0">
-                  <span class="text-xs text-muted-foreground">{{ formatDate(release.createdAt) }}</span>
-                  <ExternalLink class="h-3 w-3 text-muted-foreground" />
-                </div>
-              </a>
-            </div>
-          </div>
-
           <!-- No GitHub remote -->
-          <div v-else-if="!remoteUrl" class="flex items-center gap-2 text-xs text-muted-foreground py-2 mt-4">
+          <div v-if="!remoteUrl" class="flex items-center gap-2 text-xs text-muted-foreground">
             <Info class="h-3.5 w-3.5" />
-            Connect to GitHub to manage releases and collaborate
+            Connect to GitHub to collaborate with others and create citable releases.
           </div>
         </div>
 
-      </div>
+        <!-- Releases section (GitHub only) -->
+        <div v-if="isGitHubRemote" class="space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <h3 class="text-sm font-medium text-muted-foreground">Releases</h3>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <HelpCircle class="h-3 w-3 text-muted-foreground/40 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="top" class="max-w-[220px]">
+                  <p class="text-xs">Published versions of your review (e.g. v1.0). Each release is a permanent, citable record on GitHub.</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-7 text-xs gap-1"
+              data-testid="new-release-button"
+              :disabled="!connection.isOnline"
+              :title="connection.isOnline ? undefined : offlineTooltip"
+              @click="openReleaseDialog"
+            >
+              <Tag class="h-3.5 w-3.5" />
+              New Release
+            </Button>
+          </div>
 
-      <!-- New Release Dialog -->
-      <Dialog v-model:open="showReleaseDialog">
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create Release</DialogTitle>
-            <DialogDescription>
-              Publish a new version of your review. This creates a permanent, citable record on GitHub.
-            </DialogDescription>
-          </DialogHeader>
-          <div class="space-y-4 py-4">
-            <!-- Version bump toggle -->
-            <div class="space-y-2">
-              <label class="text-sm font-medium">Version</label>
+          <!-- Releases list -->
+          <div v-if="git.isLoadingReleases || !git.releasesLoaded" class="flex items-center justify-center py-4">
+            <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+
+          <div v-else-if="git.releases.length === 0" class="flex flex-col items-center justify-center py-6 text-center">
+            <Tag class="h-7 w-7 text-muted-foreground/30 mb-2" />
+            <p class="text-sm text-muted-foreground">No releases yet</p>
+            <p class="text-xs text-muted-foreground/60 mt-0.5">Publish a version and create a release to get a citable record</p>
+          </div>
+
+          <div v-else class="border border-border rounded-md overflow-hidden">
+            <a
+              v-for="(release, index) in git.releases"
+              :key="release.id"
+              :href="release.htmlUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="flex items-center justify-between py-2 px-3 hover:bg-muted/40 transition-colors cursor-pointer no-underline text-inherit"
+              :class="index > 0 ? 'border-t border-border' : ''"
+              :data-testid="`release-${release.tagName}`"
+            >
+              <div class="flex items-center gap-2 min-w-0">
+                <Tag class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <span class="font-mono text-sm font-medium">{{ release.tagName }}</span>
+                <span v-if="release.name !== release.tagName" class="text-xs text-muted-foreground truncate">
+                  {{ release.name }}
+                </span>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <span class="text-xs text-muted-foreground">{{ formatDate(release.createdAt) }}</span>
+                <ExternalLink class="h-3 w-3 text-muted-foreground" />
+              </div>
+            </a>
+          </div>
+        </div>
+
+        <!-- New Release Dialog -->
+        <Dialog v-model:open="showReleaseDialog">
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Create Release</DialogTitle>
+              <DialogDescription>
+                Publish a new version of your review. This creates a permanent, citable record on GitHub.
+              </DialogDescription>
+            </DialogHeader>
+            <div class="space-y-4 py-4">
+              <!-- Version bump toggle -->
+              <div class="space-y-2">
+                <label class="text-sm font-medium">Version</label>
+                <div class="flex items-center gap-2">
+                  <Button
+                    :variant="releaseBump === 'minor' ? 'default' : 'outline'"
+                    size="sm"
+                    class="text-xs h-7"
+                    @click="releaseBump = 'minor'"
+                  >
+                    Minor ({{ git.nextReleaseVersion('minor') }})
+                  </Button>
+                  <Button
+                    :variant="releaseBump === 'major' ? 'default' : 'outline'"
+                    size="sm"
+                    class="text-xs h-7"
+                    @click="releaseBump = 'major'"
+                  >
+                    Major ({{ git.nextReleaseVersion('major') }})
+                  </Button>
+                </div>
+                <p class="text-xs text-muted-foreground">
+                  <span class="font-mono">{{ releaseTag }}</span>
+                  — use minor for updates (e.g. added sources), major for significant new versions.
+                </p>
+              </div>
+
+              <!-- Title -->
+              <div class="space-y-2">
+                <label class="text-sm font-medium">Title</label>
+                <Input
+                  v-model="releaseTitle"
+                  :placeholder="releaseTag"
+                  :disabled="isCreatingRelease"
+                  data-testid="release-title-input"
+                />
+              </div>
+
+              <!-- Notes -->
+              <div class="space-y-2">
+                <label class="text-sm font-medium">Release Notes <span class="text-muted-foreground font-normal">(optional)</span></label>
+                <Textarea
+                  v-model="releaseNotes"
+                  placeholder="Describe what's changed..."
+                  :disabled="isCreatingRelease"
+                  rows="4"
+                  data-testid="release-notes-input"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" :disabled="isCreatingRelease" @click="showReleaseDialog = false">
+                Cancel
+              </Button>
+              <Button
+                :disabled="isCreatingRelease"
+                data-testid="submit-create-release"
+                @click="submitRelease"
+              >
+                <Loader2 v-if="isCreatingRelease" class="h-4 w-4 mr-2 animate-spin" />
+                {{ isCreatingRelease ? 'Creating...' : `Create ${releaseTag}` }}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <!-- Push to GitHub Dialog -->
+        <Dialog v-model:open="showPushDialog">
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Push to GitHub</DialogTitle>
+              <DialogDescription>
+                Create a GitHub repository and push this review. This enables collaboration and backup.
+              </DialogDescription>
+            </DialogHeader>
+            <div class="space-y-4 py-4">
+              <div class="space-y-2">
+                <label class="text-sm font-medium">Repository Name</label>
+                <Input
+                  v-model="pushRepoName"
+                  placeholder="my-literature-review"
+                  :disabled="isPushing"
+                  data-testid="push-repo-name-input"
+                />
+              </div>
               <div class="flex items-center gap-2">
                 <Button
-                  :variant="releaseBump === 'minor' ? 'default' : 'outline'"
+                  variant="ghost"
                   size="sm"
-                  class="text-xs h-7"
-                  @click="releaseBump = 'minor'"
+                  class="text-xs h-7 px-2"
+                  :disabled="isPushing"
+                  data-testid="push-toggle-visibility"
+                  @click="isPushPrivate = !isPushPrivate"
                 >
-                  Minor ({{ git.nextReleaseVersion('minor') }})
-                </Button>
-                <Button
-                  :variant="releaseBump === 'major' ? 'default' : 'outline'"
-                  size="sm"
-                  class="text-xs h-7"
-                  @click="releaseBump = 'major'"
-                >
-                  Major ({{ git.nextReleaseVersion('major') }})
+                  <Lock v-if="isPushPrivate" class="h-3.5 w-3.5 mr-1" />
+                  <Globe v-else class="h-3.5 w-3.5 mr-1" />
+                  {{ isPushPrivate ? 'Private' : 'Public' }}
                 </Button>
               </div>
-              <p class="text-xs text-muted-foreground">
-                <span class="font-mono">{{ releaseTag }}</span>
-                — use minor for updates (e.g. added sources), major for significant new versions.
-              </p>
             </div>
-
-            <!-- Title -->
-            <div class="space-y-2">
-              <label class="text-sm font-medium">Title</label>
-              <Input
-                v-model="releaseTitle"
-                :placeholder="releaseTag"
-                :disabled="isCreatingRelease"
-                data-testid="release-title-input"
-              />
-            </div>
-
-            <!-- Notes -->
-            <div class="space-y-2">
-              <label class="text-sm font-medium">Release Notes <span class="text-muted-foreground font-normal">(optional)</span></label>
-              <Textarea
-                v-model="releaseNotes"
-                placeholder="Describe what's changed..."
-                :disabled="isCreatingRelease"
-                rows="4"
-                data-testid="release-notes-input"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" :disabled="isCreatingRelease" @click="showReleaseDialog = false">
-              Cancel
-            </Button>
-            <Button
-              :disabled="isCreatingRelease"
-              data-testid="submit-create-release"
-              @click="submitRelease"
-            >
-              <Loader2 v-if="isCreatingRelease" class="h-4 w-4 mr-2 animate-spin" />
-              {{ isCreatingRelease ? 'Creating...' : `Create ${releaseTag}` }}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <!-- Push to GitHub Dialog -->
-      <Dialog v-model:open="showPushDialog">
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Push to GitHub</DialogTitle>
-            <DialogDescription>
-              Create a GitHub repository and push this review. This enables collaboration and backup.
-            </DialogDescription>
-          </DialogHeader>
-          <div class="space-y-4 py-4">
-            <div class="space-y-2">
-              <label class="text-sm font-medium">Repository Name</label>
-              <Input
-                v-model="pushRepoName"
-                placeholder="my-literature-review"
-                :disabled="isPushing"
-                data-testid="push-repo-name-input"
-              />
-            </div>
-            <div class="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                class="text-xs h-7 px-2"
-                :disabled="isPushing"
-                data-testid="push-toggle-visibility"
-                @click="isPushPrivate = !isPushPrivate"
-              >
-                <Lock v-if="isPushPrivate" class="h-3.5 w-3.5 mr-1" />
-                <Globe v-else class="h-3.5 w-3.5 mr-1" />
-                {{ isPushPrivate ? 'Private' : 'Public' }}
+            <DialogFooter>
+              <Button variant="outline" :disabled="isPushing" @click="showPushDialog = false">
+                Cancel
               </Button>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" :disabled="isPushing" @click="showPushDialog = false">
-              Cancel
-            </Button>
-            <Button :disabled="isPushing || !pushRepoName" data-testid="submit-push-to-github" @click="pushToGitHub">
-              <Loader2 v-if="isPushing" class="h-4 w-4 mr-2 animate-spin" />
-              {{ isPushing ? 'Pushing...' : 'Push to GitHub' }}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+              <Button :disabled="isPushing || !pushRepoName" data-testid="submit-push-to-github" @click="pushToGitHub">
+                <Loader2 v-if="isPushing" class="h-4 w-4 mr-2 animate-spin" />
+                {{ isPushing ? 'Pushing...' : 'Push to GitHub' }}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+      </div>
+    </StepPageShell>
   </TooltipProvider>
 </template>
