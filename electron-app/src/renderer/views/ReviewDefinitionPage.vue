@@ -138,104 +138,104 @@ async function handleDeleteCriterion(name: string) {
     :page-help="DefinitionPageHelp"
     next-override="search"
   >
-  <div class="h-full overflow-auto" data-testid="review-definition-page">
-    <!-- Sticky header with always-visible Save -->
-    <header
-      class="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75"
-    >
-      <div class="max-w-6xl mx-auto px-8 py-4 flex items-center gap-6">
-        <div class="min-w-0 flex-1">
-          <h1 class="text-2xl font-semibold tracking-tight-heading leading-tight truncate">
-            {{ store.definition?.title || 'Untitled Review' }}
-          </h1>
-        </div>
-        <div v-if="!isReadOnly" class="shrink-0 flex items-center gap-3">
-          <span v-if="isDirty" class="text-xs text-muted-foreground hidden sm:inline">
-            Unsaved changes
-          </span>
-          <Button
-            size="sm"
-            data-testid="save-definition-btn"
-            :disabled="!isDirty || store.isSaving"
-            class="gap-1.5"
-            @click="saveAll"
-          >
-            <Save class="h-3.5 w-3.5" />
-            {{ store.isSaving ? 'Saving...' : 'Save changes' }}
-          </Button>
-        </div>
-      </div>
-    </header>
-
-    <div class="max-w-6xl mx-auto px-8 pt-10 pb-20">
-      <!-- Metadata row -->
-      <section class="pb-8 border-b border-border">
-        <div class="flex items-center gap-2 mb-2">
-          <label class="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            Protocol URL
-          </label>
-          <a
-            v-if="isValidProtocolUrl"
-            :href="protocolUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="inline-flex items-center justify-center h-5 w-5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            :title="`Open ${protocolUrl}`"
-            data-testid="protocol-url-open"
-          >
-            <ExternalLink class="h-3.5 w-3.5" />
-          </a>
-        </div>
-        <Input
-          v-model="protocolUrl"
-          placeholder="https://... (e.g., PROSPERO registration)"
-          data-testid="protocol-url-input"
-          :disabled="isReadOnly"
-          class="max-w-xl"
-        />
-      </section>
-
-      <!-- Two-column body: RQ centerpiece + screening criteria sidebar -->
-      <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_22rem] gap-10 pt-10">
-        <!-- Research Question & Objectives (centerpiece) -->
-        <section class="min-w-0">
-          <div class="mb-5">
-            <h2 class="text-xl font-semibold tracking-tight-heading">
-              Research question &amp; objectives
-            </h2>
+    <div class="h-full overflow-auto" data-testid="review-definition-page">
+      <!-- Sticky header with always-visible Save -->
+      <header
+        class="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75"
+      >
+        <div class="max-w-6xl mx-auto px-8 py-4 flex items-center gap-6">
+          <div class="min-w-0 flex-1">
+            <h1 class="text-2xl font-semibold tracking-tight-heading leading-tight truncate">
+              {{ store.definition?.title || 'Untitled Review' }}
+            </h1>
           </div>
+          <div v-if="!isReadOnly" class="shrink-0 flex items-center gap-3">
+            <span v-if="isDirty" class="text-xs text-muted-foreground hidden sm:inline">
+              Unsaved changes
+            </span>
+            <Button
+              size="sm"
+              data-testid="save-definition-btn"
+              :disabled="!isDirty || store.isSaving"
+              class="gap-1.5"
+              @click="saveAll"
+            >
+              <Save class="h-3.5 w-3.5" />
+              {{ store.isSaving ? 'Saving...' : 'Save changes' }}
+            </Button>
+          </div>
+        </div>
+      </header>
 
-          <RichTextEditor
-            v-model="objectives"
-            placeholder="Describe the research question or objectives of this review..."
-            data-testid="objectives-textarea"
-            min-height="26rem"
+      <div class="max-w-6xl mx-auto px-8 pt-10 pb-20">
+        <!-- Metadata row -->
+        <section class="pb-8 border-b border-border">
+          <div class="flex items-center gap-2 mb-2">
+            <label class="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              Protocol URL
+            </label>
+            <a
+              v-if="isValidProtocolUrl"
+              :href="protocolUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center justify-center h-5 w-5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              :title="`Open ${protocolUrl}`"
+              data-testid="protocol-url-open"
+            >
+              <ExternalLink class="h-3.5 w-3.5" />
+            </a>
+          </div>
+          <Input
+            v-model="protocolUrl"
+            placeholder="https://... (e.g., PROSPERO registration)"
+            data-testid="protocol-url-input"
             :disabled="isReadOnly"
+            class="max-w-xl"
           />
         </section>
 
-        <!-- Screening Criteria -->
-        <section class="min-w-0">
-          <div class="mb-5">
-            <h2 class="text-xl font-semibold tracking-tight-heading">
-              Inclusion &amp; exclusion criteria
-            </h2>
-            <p class="text-sm text-muted-foreground mt-1.5">
-              Criteria applied during prescreen and screen decisions.
-            </p>
-          </div>
+        <!-- Two-column body: RQ centerpiece + screening criteria sidebar -->
+        <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_22rem] gap-10 pt-10">
+          <!-- Research Question & Objectives (centerpiece) -->
+          <section class="min-w-0">
+            <div class="mb-5">
+              <h2 class="text-xl font-semibold tracking-tight-heading">
+                Research question &amp; objectives
+              </h2>
+            </div>
 
-          <CriteriaList
-            :criteria="store.definition?.criteria || {}"
-            :is-saving="store.isSaving"
-            :read-only="isReadOnly"
-            @add-criterion="handleAddCriterion"
-            @update-criterion="handleUpdateCriterion"
-            @delete-criterion="handleDeleteCriterion"
-          />
-        </section>
+            <RichTextEditor
+              v-model="objectives"
+              placeholder="Describe the research question or objectives of this review..."
+              data-testid="objectives-textarea"
+              min-height="26rem"
+              :disabled="isReadOnly"
+            />
+          </section>
+
+          <!-- Screening Criteria -->
+          <section class="min-w-0">
+            <div class="mb-5">
+              <h2 class="text-xl font-semibold tracking-tight-heading">
+                Inclusion &amp; exclusion criteria
+              </h2>
+              <p class="text-sm text-muted-foreground mt-1.5">
+                Criteria applied during prescreen and screen decisions.
+              </p>
+            </div>
+
+            <CriteriaList
+              :criteria="store.definition?.criteria || {}"
+              :is-saving="store.isSaving"
+              :read-only="isReadOnly"
+              @add-criterion="handleAddCriterion"
+              @update-criterion="handleUpdateCriterion"
+              @delete-criterion="handleDeleteCriterion"
+            />
+          </section>
+        </div>
       </div>
     </div>
-  </div>
   </StepPageShell>
 </template>
