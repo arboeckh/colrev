@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
-import { Check, AlertCircle, BookOpen } from 'lucide-vue-next';
+import { Check, AlertCircle } from 'lucide-vue-next';
 import {
   Tooltip,
   TooltipContent,
@@ -97,17 +97,8 @@ const isGateStep = computed(() => props.step.stepKind === 'gate');
         :class="stepStatus === 'complete' ? 'bg-eucalyptus-600' : 'bg-sidebar-border'"
       />
 
-      <!-- Definition step: plain icon, no circle -->
+      <!-- Step indicator dot -->
       <div
-        v-if="step.id === 'review_definition'"
-        class="relative z-10 flex h-5 w-5 items-center justify-center bg-background text-foreground"
-      >
-        <BookOpen class="h-3.5 w-3.5" />
-      </div>
-
-      <!-- Step indicator dot (all other steps) -->
-      <div
-        v-else
         class="relative z-10 flex h-5 w-5 items-center justify-center rounded-full border-2 transition-all"
         :class="[
           stepStatus === 'complete'

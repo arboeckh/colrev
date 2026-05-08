@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
-import { LayoutDashboard } from 'lucide-vue-next';
+import { LayoutDashboard, BookOpen } from 'lucide-vue-next';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import SidebarItem from './SidebarItem.vue';
 import { UserMenu } from '@/components/common';
 import { useProjectsStore } from '@/stores/projects';
 import { useGitStore } from '@/stores/git';
 import { useManagedReviewStore } from '@/stores/managedReview';
-import { WORKFLOW_STEPS, type WorkflowStep, type RecordCounts } from '@/types/project';
+import { type WorkflowStep, type RecordCounts } from '@/types/project';
+import { PIPELINE_STEPS } from '@/lib/sidebar';
 
 const props = defineProps<{
   projectId: string;
@@ -19,9 +20,8 @@ const projects = useProjectsStore();
 const git = useGitStore();
 const managedReview = useManagedReviewStore();
 
-const isOverviewActive = computed(() => {
-  return route.name === 'project-overview';
-});
+const isOverviewActive = computed(() => route.name === 'project-overview');
+const isDefinitionActive = computed(() => route.meta.step === 'review_definition');
 
 function getOperationInfo(stepId: WorkflowStep) {
   return projects.operationInfo[stepId];
@@ -74,23 +74,23 @@ const suppressCountsForStep = computed(() => {
   if (!managedReview.isOnReviewerBranch) return new Set<string>();
   const activeKind = managedReview.activePrescreenTask ? 'prescreen' : managedReview.activeScreenTask ? 'screen' : null;
   if (!activeKind) return new Set<string>();
-  const reviewStepIdx = WORKFLOW_STEPS.findIndex((s) => s.id === activeKind);
+  const reviewStepIdx = PIPELINE_STEPS.findIndex((s) => s.id === activeKind);
   if (reviewStepIdx === -1) return new Set<string>();
   const suppressed = new Set<string>();
-  for (let i = reviewStepIdx + 1; i < WORKFLOW_STEPS.length; i++) {
-    suppressed.add(WORKFLOW_STEPS[i].id);
+  for (let i = reviewStepIdx + 1; i < PIPELINE_STEPS.length; i++) {
+    suppressed.add(PIPELINE_STEPS[i].id);
   }
   return suppressed;
 });
 
-// For each step, compute states that indicate records have passed through this step
+// For each pipeline step, compute states that indicate records have passed through this step
 // (needed for delta badge counting in SidebarItem)
 const downstreamStatesPerStep = computed(() => {
-  return WORKFLOW_STEPS.map((_, index) => {
+  return PIPELINE_STEPS.map((_, index) => {
     const passed = new Set<string>();
-    for (let i = index + 1; i < WORKFLOW_STEPS.length; i++) {
-      WORKFLOW_STEPS[i].inputStates.forEach((s) => passed.add(s));
-      WORKFLOW_STEPS[i].outputStates.forEach((s) => passed.add(s));
+    for (let i = index + 1; i < PIPELINE_STEPS.length; i++) {
+      PIPELINE_STEPS[i].inputStates.forEach((s) => passed.add(s));
+      PIPELINE_STEPS[i].outputStates.forEach((s) => passed.add(s));
     }
     return [...passed];
   });
@@ -102,13 +102,24 @@ const downstreamStatesPerStep = computed(() => {
     <ScrollArea class="flex-1 p-3">
       <!-- Overview link -->
       <RouterLink :to="`/project/${projectId}`" data-testid="sidebar-overview"
-        class="flex items-center gap-3 px-3 py-2 rounded-md text-[13px] transition-colors mb-2" :class="[
+        class="flex items-center gap-3 px-3 py-2 rounded-md text-[13px] transition-colors mb-1" :class="[
           isOverviewActive
             ? 'bg-card border border-sidebar-border text-ink-900 font-medium'
             : 'text-ink-600 hover:bg-card/60 hover:text-ink-900',
         ]">
         <LayoutDashboard class="h-3.5 w-3.5" />
         <span>Overview</span>
+      </RouterLink>
+
+      <!-- Definition link (setup / reference, not part of pipeline) -->
+      <RouterLink :to="`/project/${projectId}/review-definition`" data-testid="sidebar-review-definition"
+        class="flex items-center gap-3 px-3 py-2 rounded-md text-[13px] transition-colors mb-2" :class="[
+          isDefinitionActive
+            ? 'bg-card border border-sidebar-border text-ink-900 font-medium'
+            : 'text-ink-600 hover:bg-card/60 hover:text-ink-900',
+        ]">
+        <BookOpen class="h-3.5 w-3.5" />
+        <span>Definition</span>
       </RouterLink>
 
       <div class="px-3 pt-2 pb-1.5">
@@ -127,14 +138,14 @@ const downstreamStatesPerStep = computed(() => {
         </div>
       </div>
 
-      <!-- Workflow steps with connecting lines -->
+      <!-- Pipeline steps with connecting lines -->
       <nav class="flex flex-col pl-2">
-        <SidebarItem v-for="(step, index) in WORKFLOW_STEPS" :key="step.id" :step="step" :project-id="projectId"
+        <SidebarItem v-for="(step, index) in PIPELINE_STEPS" :key="step.id" :step="step" :project-id="projectId"
           :operation-info="getOperationInfo(step.id)" :record-counts="stableRecordCounts"
           :delta-by-state="git.branchDelta?.delta_by_state ?? null" :show-delta="showDelta"
           :downstream-states="downstreamStatesPerStep[index]"
           :suppress-counts="suppressCountsForStep.has(step.id)"
-          :is-first="index === 0" :is-last="index === WORKFLOW_STEPS.length - 1" />
+          :is-first="index === 0" :is-last="index === PIPELINE_STEPS.length - 1" />
       </nav>
 
     </ScrollArea>

@@ -10,6 +10,8 @@ import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
 import { useGitStore } from '@/stores/git';
+import { StepPageShell } from '@/components/layout';
+import DefinitionPageHelp from './DefinitionPageHelp.vue';
 
 const store = useReviewDefinitionStore();
 const notifications = useNotificationsStore();
@@ -130,6 +132,12 @@ async function handleDeleteCriterion(name: string) {
 </script>
 
 <template>
+  <StepPageShell
+    :step="null"
+    subtitle="Define review scope and criteria"
+    :page-help="DefinitionPageHelp"
+    next-override="search"
+  >
   <div class="h-full overflow-auto" data-testid="review-definition-page">
     <!-- Sticky header with always-visible Save -->
     <header
@@ -229,4 +237,5 @@ async function handleDeleteCriterion(name: string) {
       </div>
     </div>
   </div>
+  </StepPageShell>
 </template>
