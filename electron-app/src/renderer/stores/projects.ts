@@ -21,8 +21,7 @@ import type {
 } from '@/types/api';
 import { stripUrlUserinfo } from '@/lib/utils';
 import { computeStepStatus, type StepStatus } from '@/lib/stepStatus';
-// These are imported for lazy use inside getStepStatus only — NOT called at store init time.
-// Circular module deps are resolved by Vite ESM live bindings; this pattern is safe.
+// Lazy use only — not called at store init time (circular dep safe via Vite ESM live bindings).
 import { useGitStore } from './git';
 import { useManagedReviewStore } from './managedReview';
 
@@ -407,30 +406,29 @@ export const useProjectsStore = defineStore('projects', () => {
     hasStaleSearchSources.value = value;
   }
 
-  /**
-   * Snapshot current sidebar data before a branch switch so the sidebar
-   * remains stable while loadProject reloads from the new branch.
-   * Called by the git store's switchBranch after isSwitchingBranch is set.
-   */
-  function snapshotSidebarState(): void {
-    // Compute effective record counts (dev counts on reviewer branch, else current)
+  // Resolve effective record counts: on a reviewer branch use dev's counts, else current.
+  function resolveEffectiveCounts(): (RecordCounts & { total: number }) | null {
     const git = useGitStore();
     const managedReview = useManagedReviewStore();
-
     const rawCounts = currentStatus.value?.currently ?? null;
     if (managedReview.isOnReviewerBranch && git.devRecordCounts) {
       const devCounts = git.devRecordCounts as globalThis.Record<string, number>;
       const total = Object.values(devCounts).reduce((sum, n) => sum + n, 0);
-      frozenRecordCounts.value = { ...(devCounts as unknown as RecordCounts), total };
-    } else if (rawCounts) {
-      frozenRecordCounts.value = { ...rawCounts, total: currentStatus.value?.total_records ?? 0 };
-    } else {
-      frozenRecordCounts.value = null;
+      return { ...(devCounts as unknown as RecordCounts), total };
     }
+    if (rawCounts) {
+      return { ...rawCounts, total: currentStatus.value?.total_records ?? 0 };
+    }
+    return null;
+  }
 
+  // Snapshot sidebar data before a branch switch so it remains stable during reload.
+  function snapshotSidebarState(): void {
+    const managedReview = useManagedReviewStore();
+
+    frozenRecordCounts.value = resolveEffectiveCounts();
     frozenOverallCounts.value = currentStatus.value?.overall ?? null;
 
-    // Snapshot managed step statuses for all managed-review steps
     const statuses: Partial<Record<WorkflowStep, StepStatus | null>> = {};
     for (const step of WORKFLOW_STEPS) {
       if (step.managedReviewKind) {
@@ -445,16 +443,11 @@ export const useProjectsStore = defineStore('projects', () => {
     isBranchSwitching.value = false;
   }
 
-  /**
-   * Derive the sidebar status for a single pipeline step.
-   * Reads from frozen state during a branch switch (isBranchSwitching = true)
-   * and from live store state otherwise. Calls git/managedReview stores lazily
-   * so they are resolved after all stores are initialized.
-   */
   function getStepStatus(stepId: WorkflowStep): StepStatus {
     const stepIndex = WORKFLOW_STEPS.findIndex((s: WorkflowStepInfo) => s.id === stepId);
     if (stepIndex === -1) return 'pending';
     const step = WORKFLOW_STEPS[stepIndex];
+    const managedReview = useManagedReviewStore();
 
     let counts: (RecordCounts & { total: number }) | null;
     let overall: OverallRecordCounts | null;
@@ -465,46 +458,21 @@ export const useProjectsStore = defineStore('projects', () => {
       overall = frozenOverallCounts.value;
       managedStatus = frozenManagedStatuses.value[stepId] ?? null;
     } else {
-      // useGitStore/useManagedReviewStore are imported at the top of the file but
-      // only CALLED here — after all stores are initialised — so the circular
-      // module dependency is safe (Vite resolves live bindings before first call).
-      const git = useGitStore();
-      const managedReview = useManagedReviewStore();
-
-      const rawCounts = currentStatus.value?.currently ?? null;
-      if (managedReview.isOnReviewerBranch && git.devRecordCounts) {
-        const devCounts = git.devRecordCounts as globalThis.Record<string, number>;
-        const total = Object.values(devCounts).reduce((sum, n) => sum + n, 0);
-        counts = { ...(devCounts as unknown as RecordCounts), total };
-      } else if (rawCounts) {
-        counts = { ...rawCounts, total: currentStatus.value?.total_records ?? 0 };
-      } else {
-        counts = null;
-      }
-
+      counts = resolveEffectiveCounts();
       overall = currentStatus.value?.overall ?? null;
-
-      if (step.managedReviewKind) {
-        managedStatus = managedReview.getStepStatus(stepId);
-      } else {
-        managedStatus = null;
-      }
+      managedStatus = step.managedReviewKind ? managedReview.getStepStatus(stepId) : null;
     }
 
-    // suppressCounts: on a reviewer branch, hide counts for steps after the active review step
     let suppressCounts = false;
-    {
-      const managedReview = useManagedReviewStore();
-      if (managedReview.isOnReviewerBranch) {
-        const activeKind = managedReview.activePrescreenTask
-          ? 'prescreen'
-          : managedReview.activeScreenTask
-            ? 'screen'
-            : null;
-        if (activeKind) {
-          const reviewStepIdx = WORKFLOW_STEPS.findIndex((s: WorkflowStepInfo) => s.id === activeKind);
-          suppressCounts = reviewStepIdx !== -1 && stepIndex > reviewStepIdx;
-        }
+    if (managedReview.isOnReviewerBranch) {
+      const activeKind = managedReview.activePrescreenTask
+        ? 'prescreen'
+        : managedReview.activeScreenTask
+          ? 'screen'
+          : null;
+      if (activeKind) {
+        const reviewStepIdx = WORKFLOW_STEPS.findIndex((s: WorkflowStepInfo) => s.id === activeKind);
+        suppressCounts = reviewStepIdx !== -1 && stepIndex > reviewStepIdx;
       }
     }
 
@@ -545,14 +513,11 @@ export const useProjectsStore = defineStore('projects', () => {
     refreshGitStatus,
     clearCurrentProject,
     setHasStaleSearchSources,
-    // Freeze state (branch-switch stability)
+    // Branch-switch stability
     frozenRecordCounts,
-    frozenOverallCounts,
-    frozenManagedStatuses,
     isBranchSwitching,
     snapshotSidebarState,
     endBranchSwitch,
-    // Step status getter
     getStepStatus,
   };
 });

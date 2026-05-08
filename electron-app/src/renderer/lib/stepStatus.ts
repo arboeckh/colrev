@@ -10,10 +10,7 @@ export interface StepStatusContext {
   suppressCounts: boolean;
 }
 
-/**
- * Pure function: derive sidebar step status from record counts and step metadata.
- * No Vue reactivity or store access — call with pre-resolved stable/frozen data.
- */
+// Pure function: no Vue reactivity or store access.
 export function computeStepStatus(
   step: WorkflowStepInfo,
   stepIndex: number,
@@ -77,11 +74,7 @@ export function computeStepStatus(
     return 'active';
   }
 
-  if (processedRecords > 0) {
-    return hasPriorPending ? 'pending' : 'complete';
-  }
-
-  if (everProcessedRecords > 0) {
+  if (processedRecords > 0 || everProcessedRecords > 0) {
     return hasPriorPending ? 'pending' : 'complete';
   }
 

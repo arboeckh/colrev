@@ -138,8 +138,6 @@ describe('computeStepStatus', () => {
     });
 
     it('returns complete when records moved past search (everProcessed > 0)', () => {
-      // Records moved from md_retrieved into md_imported — search's "processed" states
-      // now show in overall but not in counts
       const counts = { ...emptyCounts(), md_imported: 10, total: 10 };
       const overall = { ...emptyOverall(), md_retrieved: 10, md_imported: 10 };
       const result = computeStepStatus(SEARCH, 1, ALL_STEPS, {
@@ -205,8 +203,6 @@ describe('computeStepStatus', () => {
     });
 
     it('returns complete when records moved downstream (everProcessed > 0)', () => {
-      // Preprocessing completed (md_processed), records moved to prescreen
-      // Currently in rev_prescreen_included — preprocessing shows complete via overall
       const counts = {
         ...emptyCounts(),
         rev_prescreen_included: 8,
@@ -254,19 +250,14 @@ describe('computeStepStatus', () => {
         managedStepStatus: null,
         suppressCounts: false,
       });
-      // preprocessing has no pending records itself, but search (prior step) has pending
-      // md_retrieved is NOT an inputState for preprocessing (preprocessing input is md_retrieved too)
-      // Wait — PREPROCESSING.inputStates includes 'md_retrieved', so those 3 records ARE pending for preprocessing
-      // So this test would show active, not test hasPriorPending
-      // Let me reconsider: to test hasPriorPending, need a later step whose prior has pending
-      expect(result).toBe('active'); // md_retrieved is in preprocessing's inputStates
+      // md_retrieved is in preprocessing's inputStates, so those 3 records ARE pending for it
+      expect(result).toBe('active');
     });
 
     it('shows pending for later step when earlier step has pending records', () => {
-      // prescreen is complete (has everProcessed) but preprocessing still has records waiting
       const counts = {
         ...emptyCounts(),
-        md_retrieved: 3, // still in search output / preprocessing input
+        md_retrieved: 3,
         rev_prescreen_included: 5,
         total: 8,
       };
@@ -275,9 +266,6 @@ describe('computeStepStatus', () => {
         md_processed: 5,
         rev_prescreen_included: 5,
       };
-      // PRESCREEN: inputStates = ['md_processed'], no pending md_processed in counts
-      // PRESCREEN: everProcessed via rev_prescreen_included overall = 5
-      // Prior step PREPROCESSING: inputStates include 'md_retrieved' → 3 pending → hasPriorPending = true
       const result = computeStepStatus(PRESCREEN, 3, ALL_STEPS, {
         counts,
         overall,
@@ -350,7 +338,6 @@ describe('computeStepStatus', () => {
 
   describe('suppressCounts', () => {
     it('returns pending when counts are suppressed and no managed status', () => {
-      // Screen has pdf_prepared records but counts are suppressed (reviewer branch)
       const counts = { ...emptyCounts(), pdf_prepared: 5, total: 10 };
       const result = computeStepStatus(SCREEN, 4, ALL_STEPS, {
         counts,
@@ -365,7 +352,6 @@ describe('computeStepStatus', () => {
 
   describe('freeze-on-branch-switch', () => {
     it('returns snapshot status rather than live when frozen counts are provided', () => {
-      // Simulate: before switch, step was complete
       const frozenCounts = { ...emptyCounts(), md_processed: 10, total: 10 };
       const frozenOverall = { ...emptyOverall(), md_processed: 10 };
 
@@ -378,7 +364,6 @@ describe('computeStepStatus', () => {
       });
       expect(resultWithFrozen).toBe('complete');
 
-      // After switch, if live counts are null (reload in progress), would show pending
       const resultWithEmpty = computeStepStatus(PREPROCESSING, 2, ALL_STEPS, {
         counts: { ...emptyCounts(), total: 0 },
         overall: emptyOverall(),
@@ -387,31 +372,26 @@ describe('computeStepStatus', () => {
         suppressCounts: false,
       });
       expect(resultWithEmpty).toBe('pending');
-      // The store uses frozen counts during isBranchSwitching, preventing the pending flicker
     });
 
     it('returns frozen managed status during branch switch', () => {
-      // Before switch: prescreen was active (managed review task running)
-      // During switch: live managedStepStatus might be null (tasks reloaded)
-      // But we pass frozenManagedStatuses[stepId] → still shows active
       const resultFrozen = computeStepStatus(PRESCREEN, 3, ALL_STEPS, {
         counts: { ...emptyCounts(), total: 10 },
         overall: emptyOverall(),
         hasStaleSearchSources: false,
-        managedStepStatus: 'active', // frozen value
+        managedStepStatus: 'active',
         suppressCounts: false,
       });
       expect(resultFrozen).toBe('active');
 
-      // Without freeze (live data reloaded, task gone temporarily)
       const resultLive = computeStepStatus(PRESCREEN, 3, ALL_STEPS, {
         counts: { ...emptyCounts(), total: 10 },
         overall: emptyOverall(),
         hasStaleSearchSources: false,
-        managedStepStatus: null, // live — no task yet
+        managedStepStatus: null,
         suppressCounts: false,
       });
-      expect(resultLive).toBe('pending'); // would flicker without freeze
+      expect(resultLive).toBe('pending');
     });
   });
 });
