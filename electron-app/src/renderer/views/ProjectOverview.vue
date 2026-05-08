@@ -52,7 +52,6 @@ const connection = useConnectionStore();
 
 const offlineTooltip = 'Requires internet';
 
-// Next step routing for the shell's Continue button
 const nextStep = computed(() => {
   let next = projects.nextOperation;
   if (!next) return null;
