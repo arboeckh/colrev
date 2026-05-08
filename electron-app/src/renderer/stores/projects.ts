@@ -8,7 +8,11 @@ import type {
   GitStatus,
   ProjectSettings,
   WorkflowStep,
+  RecordCounts,
+  OverallRecordCounts,
+  WorkflowStepInfo,
 } from '@/types/project';
+import { WORKFLOW_STEPS } from '@/types/project';
 import type {
   GetStatusResponse,
   GetGitStatusResponse,
@@ -16,6 +20,11 @@ import type {
   GetOperationInfoResponse,
 } from '@/types/api';
 import { stripUrlUserinfo } from '@/lib/utils';
+import { computeStepStatus, type StepStatus } from '@/lib/stepStatus';
+// These are imported for lazy use inside getStepStatus only — NOT called at store init time.
+// Circular module deps are resolved by Vite ESM live bindings; this pattern is safe.
+import { useGitStore } from './git';
+import { useManagedReviewStore } from './managedReview';
 
 function sanitizeGitStatus(git: GitStatus): GitStatus {
   if (git.remote_url) {
@@ -60,6 +69,13 @@ export const useProjectsStore = defineStore('projects', () => {
   const projectError = ref<string | null>(null);
   // Bumped after pull/merge to force view remount and data re-fetch
   const dataVersion = ref(0);
+
+  // Freeze state: held during branch switches to prevent sidebar flicker.
+  // Snapshotted before checkout; cleared after loadProject completes.
+  const frozenRecordCounts = ref<(RecordCounts & { total: number }) | null>(null);
+  const frozenOverallCounts = ref<OverallRecordCounts | null>(null);
+  const frozenManagedStatuses = ref<Partial<Record<WorkflowStep, StepStatus | null>>>({});
+  const isBranchSwitching = ref(false);
 
   // Computed
   const hasProjects = computed(() => projects.value.length > 0);
@@ -391,6 +407,116 @@ export const useProjectsStore = defineStore('projects', () => {
     hasStaleSearchSources.value = value;
   }
 
+  /**
+   * Snapshot current sidebar data before a branch switch so the sidebar
+   * remains stable while loadProject reloads from the new branch.
+   * Called by the git store's switchBranch after isSwitchingBranch is set.
+   */
+  function snapshotSidebarState(): void {
+    // Compute effective record counts (dev counts on reviewer branch, else current)
+    const git = useGitStore();
+    const managedReview = useManagedReviewStore();
+
+    const rawCounts = currentStatus.value?.currently ?? null;
+    if (managedReview.isOnReviewerBranch && git.devRecordCounts) {
+      const devCounts = git.devRecordCounts as globalThis.Record<string, number>;
+      const total = Object.values(devCounts).reduce((sum, n) => sum + n, 0);
+      frozenRecordCounts.value = { ...(devCounts as unknown as RecordCounts), total };
+    } else if (rawCounts) {
+      frozenRecordCounts.value = { ...rawCounts, total: currentStatus.value?.total_records ?? 0 };
+    } else {
+      frozenRecordCounts.value = null;
+    }
+
+    frozenOverallCounts.value = currentStatus.value?.overall ?? null;
+
+    // Snapshot managed step statuses for all managed-review steps
+    const statuses: Partial<Record<WorkflowStep, StepStatus | null>> = {};
+    for (const step of WORKFLOW_STEPS) {
+      if (step.managedReviewKind) {
+        statuses[step.id] = managedReview.getStepStatus(step.id);
+      }
+    }
+    frozenManagedStatuses.value = statuses;
+    isBranchSwitching.value = true;
+  }
+
+  function endBranchSwitch(): void {
+    isBranchSwitching.value = false;
+  }
+
+  /**
+   * Derive the sidebar status for a single pipeline step.
+   * Reads from frozen state during a branch switch (isBranchSwitching = true)
+   * and from live store state otherwise. Calls git/managedReview stores lazily
+   * so they are resolved after all stores are initialized.
+   */
+  function getStepStatus(stepId: WorkflowStep): StepStatus {
+    const stepIndex = WORKFLOW_STEPS.findIndex((s: WorkflowStepInfo) => s.id === stepId);
+    if (stepIndex === -1) return 'pending';
+    const step = WORKFLOW_STEPS[stepIndex];
+
+    let counts: (RecordCounts & { total: number }) | null;
+    let overall: OverallRecordCounts | null;
+    let managedStatus: StepStatus | null;
+
+    if (isBranchSwitching.value) {
+      counts = frozenRecordCounts.value;
+      overall = frozenOverallCounts.value;
+      managedStatus = frozenManagedStatuses.value[stepId] ?? null;
+    } else {
+      // useGitStore/useManagedReviewStore are imported at the top of the file but
+      // only CALLED here — after all stores are initialised — so the circular
+      // module dependency is safe (Vite resolves live bindings before first call).
+      const git = useGitStore();
+      const managedReview = useManagedReviewStore();
+
+      const rawCounts = currentStatus.value?.currently ?? null;
+      if (managedReview.isOnReviewerBranch && git.devRecordCounts) {
+        const devCounts = git.devRecordCounts as globalThis.Record<string, number>;
+        const total = Object.values(devCounts).reduce((sum, n) => sum + n, 0);
+        counts = { ...(devCounts as unknown as RecordCounts), total };
+      } else if (rawCounts) {
+        counts = { ...rawCounts, total: currentStatus.value?.total_records ?? 0 };
+      } else {
+        counts = null;
+      }
+
+      overall = currentStatus.value?.overall ?? null;
+
+      if (step.managedReviewKind) {
+        managedStatus = managedReview.getStepStatus(stepId);
+      } else {
+        managedStatus = null;
+      }
+    }
+
+    // suppressCounts: on a reviewer branch, hide counts for steps after the active review step
+    let suppressCounts = false;
+    {
+      const managedReview = useManagedReviewStore();
+      if (managedReview.isOnReviewerBranch) {
+        const activeKind = managedReview.activePrescreenTask
+          ? 'prescreen'
+          : managedReview.activeScreenTask
+            ? 'screen'
+            : null;
+        if (activeKind) {
+          const reviewStepIdx = WORKFLOW_STEPS.findIndex((s: WorkflowStepInfo) => s.id === activeKind);
+          suppressCounts = reviewStepIdx !== -1 && stepIndex > reviewStepIdx;
+        }
+      }
+    }
+
+    return computeStepStatus(step, stepIndex, WORKFLOW_STEPS, {
+      counts,
+      overall,
+      hasStaleSearchSources: hasStaleSearchSources.value,
+      managedStepStatus: managedStatus,
+      suppressCounts,
+    });
+  }
+
   return {
     // State
     projects,
@@ -419,5 +545,14 @@ export const useProjectsStore = defineStore('projects', () => {
     refreshGitStatus,
     clearCurrentProject,
     setHasStaleSearchSources,
+    // Freeze state (branch-switch stability)
+    frozenRecordCounts,
+    frozenOverallCounts,
+    frozenManagedStatuses,
+    isBranchSwitching,
+    snapshotSidebarState,
+    endBranchSwitch,
+    // Step status getter
+    getStepStatus,
   };
 });

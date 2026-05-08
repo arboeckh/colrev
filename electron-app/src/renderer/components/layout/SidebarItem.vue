@@ -8,7 +8,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import type { WorkflowStepInfo, RecordCounts, OverallRecordCounts } from '@/types/project';
+import type { WorkflowStepInfo, RecordCounts } from '@/types/project';
 import type { GetOperationInfoResponse } from '@/types/api';
 import { useProjectsStore } from '@/stores/projects';
 
@@ -17,12 +17,9 @@ const props = defineProps<{
   projectId: string;
   operationInfo?: GetOperationInfoResponse | null;
   recordCounts?: RecordCounts | null;
-  overallCounts?: OverallRecordCounts | null;
   deltaByState?: globalThis.Record<string, number> | null;
   showDelta?: boolean;
-  hasPriorPending?: boolean;
   downstreamStates?: string[];
-  managedStepStatus?: 'pending' | 'active' | 'complete' | null;
   suppressCounts?: boolean;
   isFirst?: boolean;
   isLast?: boolean;
@@ -39,8 +36,10 @@ const routePath = computed(() => {
   return `/project/${props.projectId}/${props.step.route}`;
 });
 
+// Status is derived by the projects store getter (single source of truth)
+const stepStatus = computed(() => projects.getStepStatus(props.step.id));
+
 // Count of records in input states (waiting for this step)
-// Suppressed on reviewer branches for steps after the managed review step
 const pendingRecords = computed(() => {
   if (props.suppressCounts || !props.recordCounts) return 0;
   return props.step.inputStates.reduce((sum, state) => {
@@ -48,16 +47,7 @@ const pendingRecords = computed(() => {
   }, 0);
 });
 
-// Count of records in output states (processed by this step)
-const processedRecords = computed(() => {
-  if (props.suppressCounts || !props.recordCounts) return 0;
-  return props.step.outputStates.reduce((sum, state) => {
-    return sum + (props.recordCounts?.[state] ?? 0);
-  }, 0);
-});
-
-// Count of records in non-terminal output states — i.e. records this step
-// successfully moved forward to later steps. Drives the green "+n" badge.
+// Count of records in non-terminal output states (successfully forwarded to later steps)
 const forwardedRecords = computed(() => {
   if (props.suppressCounts || !props.recordCounts) return 0;
   const terminal = new Set(props.step.terminalOutputStates ?? []);
@@ -66,18 +56,7 @@ const forwardedRecords = computed(() => {
     .reduce((sum, state) => sum + (props.recordCounts?.[state] ?? 0), 0);
 });
 
-// Records that have *ever been* in output states (survives downstream processing)
-// e.g. preprocessing produced md_processed records even if prescreen moved them on
-const everProcessedRecords = computed(() => {
-  if (props.suppressCounts || !props.overallCounts) return 0;
-  return props.step.outputStates.reduce((sum, state) => {
-    const key = state as keyof OverallRecordCounts;
-    return sum + (props.overallCounts?.[key] ?? 0);
-  }, 0);
-});
-
 // Count of new records (from delta) that have reached this step or beyond
-// Only show for steps that actually process records (have inputStates)
 const deltaPendingRecords = computed(() => {
   if (!props.showDelta || !props.deltaByState) return 0;
   if (props.step.inputStates.length === 0 && props.step.outputStates.length === 0) return 0;
@@ -87,67 +66,8 @@ const deltaPendingRecords = computed(() => {
   }, 0);
 });
 
-// Determine step status based on CoLRev record states
-type StepStatus = 'complete' | 'active' | 'warning' | 'pending';
-
 // Gate steps (launch, reconcile) don't process records — suppress badges
 const isGateStep = computed(() => props.step.stepKind === 'gate');
-
-// Check if search step is complete (for gating subsequent steps)
-const isSearchComplete = computed(() => {
-  const totalRecords = props.recordCounts?.total ?? 0;
-  if (totalRecords === 0) return false;
-  if (projects.hasStaleSearchSources) return false;
-  return true;
-});
-
-const stepStatus = computed((): StepStatus => {
-  // Managed review steps: use task-derived status when available
-  if (props.managedStepStatus != null) {
-    return props.managedStepStatus;
-  }
-
-  if (props.step.id === 'review_definition') {
-    // Review definition is always accessible and doesn't have a completion state
-    return 'active';
-  }
-
-  if (props.step.id === 'search') {
-    // Search is complete when sources are not stale and records exist
-    if (isSearchComplete.value && (processedRecords.value > 0 || everProcessedRecords.value > 0)) {
-      return 'complete';
-    }
-    return 'active';
-  }
-
-  // For all other steps: if search isn't complete, show as pending (greyed out)
-  if (!isSearchComplete.value) {
-    return 'pending';
-  }
-
-  // Step has records waiting to be processed - it's active
-  if (pendingRecords.value > 0) {
-    return 'active';
-  }
-
-  // Step has processed records (and none pending) - it's complete
-  if (processedRecords.value > 0) {
-    // If any prior step has pending work, don't show as complete (but not active either —
-    // only show in-progress dot when this step itself has pending records)
-    if (props.hasPriorPending) return 'pending';
-    return 'complete';
-  }
-
-  // Step was completed in the past but records have moved to later steps
-  // (e.g. preprocessing produced md_processed, but prescreen moved them on)
-  if (everProcessedRecords.value > 0) {
-    if (props.hasPriorPending) return 'pending';
-    return 'complete';
-  }
-
-  // No records in input or output states - step is pending (disabled/waiting)
-  return 'pending';
-});
 </script>
 
 <template>

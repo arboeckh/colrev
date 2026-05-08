@@ -325,6 +325,8 @@ export const useGitStore = defineStore('git', () => {
     if (currentBranch.value === branchName) return true;
 
     isSwitchingBranch.value = true;
+    // Freeze sidebar before reload so steps don't flicker during branch switch
+    projects.snapshotSidebarState();
     try {
       await refreshStatus();
 
@@ -353,6 +355,7 @@ export const useGitStore = defineStore('git', () => {
       return true;
     } finally {
       isSwitchingBranch.value = false;
+      projects.endBranchSwitch();
     }
   }
 
