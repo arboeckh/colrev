@@ -31,6 +31,8 @@ MANIFEST
 # Manifest files
 *.manifest
 
+
+
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
@@ -100,3 +102,5 @@ electron-app/resources/python-win-x64/
 
 # E2E snapshot cache (derived artifacts, not committed)
 .cache/colrev-test-fixtures/
+
+**/logs/
