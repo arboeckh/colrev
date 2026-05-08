@@ -8,9 +8,6 @@ const LoginPage = () => import('@/views/LoginPage.vue');
 const ProjectOverview = () => import('@/views/ProjectOverview.vue');
 const ReviewDefinitionPage = () => import('@/views/ReviewDefinitionPage.vue');
 const SearchPage = () => import('@/views/SearchPage.vue');
-const LoadPage = () => import('@/views/LoadPage.vue');
-const PrepPage = () => import('@/views/PrepPage.vue');
-const DedupePage = () => import('@/views/DedupePage.vue');
 const ManagedReviewWorkflowPage = () => import('@/views/ManagedReviewWorkflowPage.vue');
 const PdfsPage = () => import('@/views/PdfsPage.vue');
 const PreprocessingPage = () => import('@/views/PreprocessingPage.vue');
@@ -79,33 +76,6 @@ const routes: RouteRecordRaw[] = [
         meta: {
           title: 'Preprocessing',
           step: 'preprocessing',
-        },
-      },
-      {
-        path: 'load',
-        name: 'project-load',
-        component: LoadPage,
-        meta: {
-          title: 'Load',
-          step: 'load',
-        },
-      },
-      {
-        path: 'prep',
-        name: 'project-prep',
-        component: PrepPage,
-        meta: {
-          title: 'Prep',
-          step: 'prep',
-        },
-      },
-      {
-        path: 'dedupe',
-        name: 'project-dedupe',
-        component: DedupePage,
-        meta: {
-          title: 'Dedupe',
-          step: 'dedupe',
         },
       },
       {
