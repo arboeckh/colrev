@@ -13,6 +13,8 @@ import {
   DataFieldsConfigDialog,
   DataTableDialog,
 } from '@/components/data';
+import StepPageShell from '@/components/layout/StepPageShell.vue';
+import DataPageHelp from './DataPageHelp.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useReadOnly } from '@/composables/useReadOnly';
@@ -34,6 +36,10 @@ interface EnrichedRecord extends DataExtractionRecord {
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const { isReadOnly } = useReadOnly();
+
+const overviewRoute = computed(() =>
+  projects.currentProjectId ? `/project/${projects.currentProjectId}` : undefined,
+);
 
 // --- State ---
 const isConfigured = ref(false);
@@ -261,6 +267,13 @@ onMounted(async () => {
 </script>
 
 <template>
+  <StepPageShell
+    step="data"
+    subtitle="Extract structured data from included full-text records"
+    :page-help="DataPageHelp"
+    :next-override="overviewRoute"
+    next-label="Back to Overview"
+  >
   <div class="h-full flex flex-col" data-testid="data-page">
     <!-- Not configured state -->
     <EmptyState
@@ -363,4 +376,5 @@ onMounted(async () => {
       :records="queue"
     />
   </div>
+  </StepPageShell>
 </template>

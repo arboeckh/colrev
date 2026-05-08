@@ -17,6 +17,7 @@ const props = defineProps<{
   subtitle: string;
   pageHelp: Component;
   nextOverride?: string;
+  nextLabel?: string;
 }>();
 
 const projects = useProjectsStore();
@@ -106,7 +107,7 @@ function goNext() {
         data-testid="next-button"
         @click="goNext"
       >
-        Next
+        {{ nextLabel ?? 'Next' }}
         <ChevronRight class="h-4 w-4 ml-1" />
       </Button>
     </div>

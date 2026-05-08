@@ -9,12 +9,13 @@ import {
   ChevronRight,
   ArrowRight,
 } from 'lucide-vue-next';
-import { useRouter } from 'vue-router';
 import { Button } from '@/components/ui/button';
 import { OperationButton, EmptyState } from '@/components/common';
 import PdfRecordTable from '@/components/pdf-get/PdfRecordTable.vue';
 import BatchUploadDialog from '@/components/pdf-get/BatchUploadDialog.vue';
 import PdfShareActions from '@/components/shared/PdfShareActions.vue';
+import StepPageShell from '@/components/layout/StepPageShell.vue';
+import PdfsPageHelp from './PdfsPageHelp.vue';
 import type { PdfRecord, UploadResult } from '@/components/pdf-get/pdf-record-utils';
 import {
   UPLOAD_STAGE_PILLS,
@@ -39,7 +40,6 @@ const projects = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
 const { isReadOnly } = useReadOnly();
-const router = useRouter();
 
 type StageId = 'retrieve' | 'upload' | 'prepare' | 'fix' | 'summary';
 type StageState = 'locked' | 'active' | 'complete';
@@ -411,11 +411,6 @@ function selectStage(id: StageId) {
   userSelectedStage.value = id;
 }
 
-function continueToScreen() {
-  if (!projects.currentProjectId) return;
-  router.push(`/project/${projects.currentProjectId}/screen`);
-}
-
 onMounted(async () => {
   await projects.refreshCurrentProject();
   await loadRecords();
@@ -423,15 +418,13 @@ onMounted(async () => {
 </script>
 
 <template>
+  <StepPageShell
+    step="pdfs"
+    subtitle="Retrieve and prepare full-text PDFs for included records"
+    :page-help="PdfsPageHelp"
+  >
   <div class="h-full flex flex-col" data-testid="pdfs-page">
-    <!-- Header -->
-    <div class="px-8 pt-8 pb-6 flex items-start justify-between gap-4">
-      <div>
-        <h1 class="text-2xl font-semibold tracking-tight">PDFs</h1>
-        <p class="text-sm text-muted-foreground mt-1">
-          Retrieve and prepare the full-text PDFs for included records.
-        </p>
-      </div>
+    <div class="px-8 pt-4 flex justify-end">
       <PdfShareActions variant="default" />
     </div>
 
@@ -734,17 +727,9 @@ onMounted(async () => {
             <span class="tabular-nums">{{ preparedCount }}</span>
             {{ preparedCount === 1 ? 'PDF is' : 'PDFs are' }} ready.
           </h2>
-          <p class="text-sm text-muted-foreground leading-relaxed mb-8">
+          <p class="text-sm text-muted-foreground leading-relaxed">
             You can move on to the Screen step whenever you're ready.
           </p>
-          <Button
-            variant="default"
-            data-testid="pdfs-continue-screen"
-            @click="continueToScreen"
-          >
-            Continue to Screen
-            <ArrowRight class="h-4 w-4 ml-2" />
-          </Button>
         </div>
 
         <section
@@ -831,4 +816,5 @@ onMounted(async () => {
       @complete="handleBatchUploadComplete"
     />
   </div>
+  </StepPageShell>
 </template>

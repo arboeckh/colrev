@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { Check, Filter, CheckSquare } from 'lucide-vue-next';
+import { Check } from 'lucide-vue-next';
 import { ManagedReviewLaunchPanel, ManagedReviewReconcilePanel } from '@/components/managed-review';
 import PrescreenPage from '@/views/PrescreenPage.vue';
 import ScreenPage from '@/views/ScreenPage.vue';
+import StepPageShell from '@/components/layout/StepPageShell.vue';
+import PrescreenPageHelp from '@/views/PrescreenPageHelp.vue';
+import ScreenPageHelp from '@/views/ScreenPageHelp.vue';
 import { useManagedReviewStore } from '@/stores/managedReview';
 import { useGitStore } from '@/stores/git';
 import { useAuthStore } from '@/stores/auth';
@@ -23,8 +26,12 @@ const backend = useBackendStore();
 const kind = computed<'prescreen' | 'screen'>(() =>
   route.meta.managedReviewKind === 'screen' ? 'screen' : 'prescreen',
 );
-const kindLabel = computed(() => kind.value === 'screen' ? 'Screen' : 'Prescreen');
-const kindIcon = computed(() => kind.value === 'screen' ? CheckSquare : Filter);
+const pageHelp = computed(() => kind.value === 'screen' ? ScreenPageHelp : PrescreenPageHelp);
+const subtitle = computed(() =>
+  kind.value === 'screen'
+    ? 'Screen full-text records against inclusion criteria'
+    : 'Screen records based on title and abstract',
+);
 
 // Phase state machine
 const userOverridePhase = ref<Phase | null>(null);
@@ -142,13 +149,12 @@ onMounted(async () => {
 </script>
 
 <template>
+  <StepPageShell
+    :step="kind"
+    :subtitle="subtitle"
+    :page-help="pageHelp"
+  >
   <div class="p-6 h-full flex flex-col" :data-testid="`managed-review-${kind}`">
-    <!-- Page header -->
-    <div class="flex items-center gap-2 mb-4">
-      <component :is="kindIcon" class="h-5 w-5 text-muted-foreground" />
-      <h2 class="text-xl font-semibold">{{ kindLabel }}</h2>
-    </div>
-
     <!-- Stepper -->
     <div class="flex items-center gap-1 mb-6">
       <template v-for="(phase, index) in phases" :key="phase.id">
@@ -212,4 +218,5 @@ onMounted(async () => {
       />
     </div>
   </div>
+  </StepPageShell>
 </template>

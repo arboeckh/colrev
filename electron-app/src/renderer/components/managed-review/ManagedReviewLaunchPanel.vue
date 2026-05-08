@@ -396,16 +396,6 @@ defineExpose({ refreshData, activeTask, tasks });
     </div>
 
     <template v-else>
-      <!-- How it works -->
-      <div class="rounded-md border border-border bg-muted/30 px-4 py-3 max-w-md space-y-2">
-        <h3 class="text-sm font-medium">How {{ kindLabel.toLowerCase() }} works</h3>
-        <ol class="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-          <li>Pick two reviewers — they each get their own branch.</li>
-          <li>Both reviewers screen the same records in parallel.</li>
-          <li>You reconcile their decisions on dev when they're done.</li>
-        </ol>
-      </div>
-
       <!-- Readiness status -->
       <div class="space-y-3">
         <div class="flex items-center gap-3">

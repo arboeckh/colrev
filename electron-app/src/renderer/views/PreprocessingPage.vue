@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
-import { useRouter } from 'vue-router';
 import {
   Play,
   Loader2,
-  Layers,
   Check,
   ArrowRight,
   Eye,
@@ -13,7 +11,6 @@ import {
   FileDown,
   Sparkles,
   GitMerge,
-  Filter,
 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -23,9 +20,9 @@ import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
 import PreprocessingResultsModal from '@/components/preprocessing/PreprocessingResultsModal.vue';
+import StepPageShell from '@/components/layout/StepPageShell.vue';
+import PreprocessingPageHelp from './PreprocessingPageHelp.vue';
 import type { GetSourcesResponse, SearchSource } from '@/types';
-
-const router = useRouter();
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
@@ -280,11 +277,6 @@ function getStageVisualStatus(stageId: StageId): 'pending' | 'running' | 'comple
   return stageVisualStatuses.value[stageId];
 }
 
-function goToPrescreen() {
-  if (!projects.currentProjectId) return;
-  router.push({ name: 'project-prescreen', params: { id: projects.currentProjectId } });
-}
-
 onMounted(() => {
   loadSources();
 });
@@ -310,19 +302,14 @@ watch(
 </script>
 
 <template>
+  <StepPageShell
+    step="preprocessing"
+    subtitle="Turn raw search results into a clean, deduplicated dataset"
+    :page-help="PreprocessingPageHelp"
+  >
   <div class="p-6 max-w-6xl mx-auto space-y-6" data-testid="preprocessing-page">
-    <!-- Page header -->
-    <div class="flex items-start justify-between gap-6">
-      <div class="min-w-0">
-        <h2 class="text-2xl font-bold flex items-center gap-2">
-          <Layers class="h-6 w-6" />
-          Preprocessing
-        </h2>
-        <p class="text-muted-foreground mt-1 max-w-2xl">
-          Turn raw search results into a clean, deduplicated dataset ready for prescreening.
-          Three stages run automatically, in order.
-        </p>
-      </div>
+    <div class="flex items-center justify-between">
+      <div />
       <Button
         v-if="visibleSources.length > 0"
         :disabled="!canRunPreprocessing || isRunning || isReadOnly"
@@ -501,9 +488,8 @@ watch(
         </div>
       </div>
 
-      <!-- Post-run summary: attention + next step -->
-      <div v-if="isPreprocessingComplete" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <!-- Records needing attention -->
+      <!-- Post-run summary: attention -->
+      <div v-if="isPreprocessingComplete">
         <div
           class="flex items-start gap-3 p-4 rounded-lg border"
           :class="needsAttentionCount > 0
@@ -547,27 +533,6 @@ watch(
             View
           </Button>
         </div>
-
-        <!-- Next step -->
-        <div class="flex items-start gap-3 p-4 rounded-lg border border-primary/30 bg-primary/5">
-          <div class="h-9 w-9 rounded-md bg-primary/15 text-primary flex items-center justify-center shrink-0">
-            <Filter class="h-4 w-4" />
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="text-sm font-medium">Ready for prescreening</div>
-            <p class="text-xs text-muted-foreground mt-0.5">
-              Decide which records to include based on title and abstract.
-            </p>
-          </div>
-          <Button
-            size="sm"
-            data-testid="go-to-prescreen-button"
-            @click="goToPrescreen"
-          >
-            Prescreen
-            <ArrowRight class="h-4 w-4 ml-1.5" />
-          </Button>
-        </div>
       </div>
     </template>
 
@@ -577,4 +542,5 @@ watch(
       :project-id="projects.currentProjectId || ''"
     />
   </div>
+  </StepPageShell>
 </template>
