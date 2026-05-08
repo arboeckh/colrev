@@ -43,4 +43,12 @@ describe('resolveNextStepRoute', () => {
   it('uses nextOverride even for last step', () => {
     expect(resolveNextStepRoute('data', 'proj-1', '/somewhere')).toBe('/somewhere');
   });
+
+  it('resolves a step-ID nextOverride to its full route', () => {
+    expect(resolveNextStepRoute(null, 'proj-1', 'search')).toBe('/project/proj-1/search');
+  });
+
+  it('resolves step-ID nextOverride for null step without projectId', () => {
+    expect(resolveNextStepRoute(null, null, 'search')).toBeNull();
+  });
 });

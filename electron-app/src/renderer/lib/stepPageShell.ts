@@ -6,7 +6,11 @@ export function resolveNextStepRoute(
   projectId: string | null,
   nextOverride?: string,
 ): string | null {
-  if (nextOverride) return nextOverride;
+  if (nextOverride) {
+    const overrideStep = WORKFLOW_STEPS.find((s) => s.id === nextOverride);
+    if (overrideStep) return projectId ? `/project/${projectId}/${overrideStep.route}` : null;
+    return nextOverride;
+  }
   if (!step || !projectId) return null;
   const idx = WORKFLOW_STEPS.findIndex((s) => s.id === step);
   if (idx === -1 || idx === WORKFLOW_STEPS.length - 1) return null;
