@@ -308,8 +308,7 @@ watch(
     :page-help="PreprocessingPageHelp"
   >
   <div class="p-6 max-w-6xl mx-auto space-y-6" data-testid="preprocessing-page">
-    <div class="flex items-center justify-between">
-      <div />
+    <div class="flex items-center justify-end">
       <Button
         v-if="visibleSources.length > 0"
         :disabled="!canRunPreprocessing || isRunning || isReadOnly"
