@@ -1,16 +1,6 @@
 import { useGitStore } from '@/stores/git';
 import { useNotificationsStore } from '@/stores/notifications';
 
-/**
- * Wraps colrev operations with pre/post guards.
- *
- * Flow:
- * 1. Block on main (read-only) and on known divergence
- * 2. Set isOperationRunning = true
- * 3. Run the colrev operation
- * 4. Refresh git status (local read)
- * 5. Set isOperationRunning = false
- */
 export function useOperationGuard() {
   const git = useGitStore();
   const notifications = useNotificationsStore();

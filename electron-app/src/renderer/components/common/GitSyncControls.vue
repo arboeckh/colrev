@@ -50,14 +50,11 @@ async function handlePull() {
   }
 }
 
-const pushDisabled = computed(() => {
-  const s = syncState.value.push.status;
-  return s === 'hidden' || s === 'idle' || s === 'loading' || s === 'divergedBlocked' || s === 'offline';
-});
+const pushDisabled = computed(() => syncState.value.push.status !== 'active');
 
 const pullDisabled = computed(() => {
   const s = syncState.value.pull.status;
-  return s === 'hidden' || s === 'idle' || s === 'loading' || s === 'offline';
+  return s !== 'active' && s !== 'divergedWarning';
 });
 
 const pushButtonClass = computed(() => {
@@ -76,7 +73,6 @@ const pullButtonClass = computed(() => {
 
 <template>
   <div v-if="syncState.push.status !== 'hidden'" class="flex items-center gap-1.5">
-    <!-- Push button -->
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger as-child>
@@ -101,7 +97,6 @@ const pullButtonClass = computed(() => {
       </Tooltip>
     </TooltipProvider>
 
-    <!-- Pull button -->
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger as-child>
