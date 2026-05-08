@@ -680,9 +680,15 @@ class PDFGet(colrev.process.operation.Operation):
             # emits a progress event. pool.map uses threads, so guard with a lock.
             counter_lock = threading.Lock()
             done_count = [0]
+            # Collect results as workers complete so we can persist partial
+            # progress if one worker raises (e.g. corrupt PDF in pymupdf).
+            completed_results: list = []
+            results_lock = threading.Lock()
 
             def _get_pdf_with_progress(item: dict) -> dict:
                 result = self.get_pdf(item)
+                with results_lock:
+                    completed_results.append(result)
                 if progress_callback is not None:
                     with counter_lock:
                         done_count[0] += 1
@@ -691,11 +697,24 @@ class PDFGet(colrev.process.operation.Operation):
                 return result
 
             pool = Pool(4)
-            retrieved_record_list = pool.map(
-                _get_pdf_with_progress, pdf_get_data["items"]
-            )
-            pool.close()
-            pool.join()
+            try:
+                retrieved_record_list = pool.map(
+                    _get_pdf_with_progress, pdf_get_data["items"]
+                )
+                pool.close()
+                pool.join()
+            except BaseException:
+                pool.terminate()
+                pool.join()
+                # Persist any status transitions that completed before the
+                # failure so callers (and retries) see consistent state.
+                with results_lock:
+                    if completed_results:
+                        self.review_manager.dataset.save_records_dict(
+                            {r[Fields.ID]: r for r in completed_results},
+                            partial=True,
+                        )
+                raise
 
             self.review_manager.dataset.save_records_dict(
                 {r[Fields.ID]: r for r in retrieved_record_list}, partial=True
