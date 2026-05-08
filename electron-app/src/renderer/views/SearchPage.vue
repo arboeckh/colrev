@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { Search, Plus, Loader2, AlertTriangle, Play } from 'lucide-vue-next';
+import { Plus, Loader2, Play } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
 import { AddSourceDialog, SourceCard } from '@/components/search';
+import StepPageShell from '@/components/layout/StepPageShell.vue';
+import SearchPageHelp from './SearchPageHelp.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
@@ -82,10 +84,6 @@ const isSearchComplete = computed(() => {
   // Search is complete only when there are actual records in the system
   const totalRecords = status.total_records || 0;
   return totalRecords > 0;
-});
-
-const canGoToNextStep = computed(() => {
-  return isSearchComplete.value;
 });
 
 // Dialog state — single unified Add Source dialog
@@ -262,45 +260,12 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-6 space-y-6">
-    <!-- Page header -->
-    <div class="flex items-center justify-between">
-      <div>
-        <h2 class="text-2xl font-bold flex items-center gap-2">
-          <Search class="h-6 w-6" />
-          Search
-        </h2>
-        <p class="text-muted-foreground">Configure and execute searches for literature</p>
-      </div>
-
-      <!-- Status indicator (top right) -->
-      <div class="flex items-center gap-3">
-        <!-- Stale state -->
-        <template v-if="hasStaleSource">
-          <div class="flex items-center gap-2 text-yellow-600 dark:text-yellow-400">
-            <AlertTriangle class="h-5 w-5" />
-            <span class="text-sm font-medium">{{ staleSourceCount }} stale</span>
-          </div>
-        </template>
-
-        <!-- No sources / pending state -->
-        <template v-else-if="visibleSources.length === 0">
-          <div class="flex items-center gap-2 text-muted-foreground">
-            <Search class="h-5 w-5" />
-            <span class="text-sm">No sources configured</span>
-          </div>
-        </template>
-
-        <!-- Has sources but not run -->
-        <template v-else>
-          <div class="flex items-center gap-2 text-muted-foreground">
-            <Search class="h-5 w-5" />
-            <span class="text-sm font-medium">{{ visibleSources.length }} source{{ visibleSources.length !== 1 ? 's' : '' }}</span>
-          </div>
-        </template>
-      </div>
-    </div>
-
+  <StepPageShell
+    step="search"
+    subtitle="Configure and execute searches for literature"
+    :page-help="SearchPageHelp"
+  >
+    <div class="p-6 space-y-6">
     <!-- Search Progress Card (only for "Run All Searches") -->
     <Card v-if="isSearching && searchingSource === null" class="border-primary/20 bg-primary/5">
       <CardContent class="pt-6">
@@ -405,5 +370,6 @@ onMounted(() => {
       :existing-api-endpoints="existingApiEndpoints"
       @source-added="handleSourceAdded"
     />
-  </div>
+    </div>
+  </StepPageShell>
 </template>
