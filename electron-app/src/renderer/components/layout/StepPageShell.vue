@@ -6,8 +6,6 @@ import { Button } from '@/components/ui/button';
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
 } from '@/components/ui/sheet';
 import { useProjectsStore } from '@/stores/projects';
 import { resolveNextStepRoute } from '@/lib/stepPageShell';
@@ -30,6 +28,19 @@ const isHelpOpen = ref(false);
 const stepStatus = computed(() =>
   props.step ? projects.getStepStatus(props.step) : null,
 );
+
+const statusClasses = computed(() => {
+  switch (stepStatus.value) {
+    case 'complete':
+      return 'border-eucalyptus-600 bg-eucalyptus-600 text-cream-50';
+    case 'active':
+      return 'border-eucalyptus-700 bg-card text-eucalyptus-700';
+    case 'warning':
+      return 'border-amber-accent bg-amber-accent text-cream-50';
+    default:
+      return 'border-ink-200 bg-card';
+  }
+});
 
 const title = computed(() => (route.meta.title as string | undefined) ?? '');
 
@@ -61,15 +72,7 @@ function goNext() {
         <div
           v-if="step && stepStatus"
           class="flex h-6 w-6 items-center justify-center rounded-full border-2 shrink-0 transition-all"
-          :class="[
-            stepStatus === 'complete'
-              ? 'border-eucalyptus-600 bg-eucalyptus-600 text-cream-50'
-              : stepStatus === 'active'
-                ? 'border-eucalyptus-700 bg-card text-eucalyptus-700'
-                : stepStatus === 'warning'
-                  ? 'border-amber-accent bg-amber-accent text-cream-50'
-                  : 'border-ink-200 bg-card',
-          ]"
+          :class="statusClasses"
           data-testid="step-status-circle"
           :data-step-status="stepStatus"
         >

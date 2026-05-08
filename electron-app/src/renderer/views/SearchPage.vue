@@ -60,32 +60,6 @@ const existingApiEndpoints = computed(() => {
     .filter(Boolean);
 });
 
-// Per-source staleness tracking
-const hasStaleSource = computed(() => {
-  return visibleSources.value.some(s => s.is_stale);
-});
-
-const staleSourceCount = computed(() => {
-  return visibleSources.value.filter(s => s.is_stale).length;
-});
-
-// Determine if search step is complete (has actual records retrieved and no pending changes)
-const isSearchComplete = computed(() => {
-  const status = projects.currentStatus;
-  if (!status) return false;
-
-  // Check per-source staleness first
-  if (hasStaleSource.value) return false;
-
-  // Check if search needs to be re-run based on backend state
-  const searchOpInfo = projects.operationInfo.search;
-  if (searchOpInfo?.needs_rerun) return false;
-
-  // Search is complete only when there are actual records in the system
-  const totalRecords = status.total_records || 0;
-  return totalRecords > 0;
-});
-
 // Dialog state — single unified Add Source dialog
 const showAddSourceDialog = ref(false);
 
@@ -123,11 +97,6 @@ async function runSourceSearch(sourceFilename: string) {
     totalRecords.value = 0;
   }
 }
-
-// Get total record count across all sources
-const totalSourceRecords = computed(() => {
-  return visibleSources.value.reduce((sum, s) => sum + (s.record_count ?? 0), 0);
-});
 
 async function loadSources() {
   if (!projects.currentProjectId || !backend.isRunning) return;
