@@ -34,12 +34,9 @@ export const useGitStore = defineStore('git', () => {
   const isPushing = ref(false);
   const isOperationRunning = ref(false);
   const isSwitchingBranch = ref(false);
-  const autoSave = ref(loadAutoSave());
   const lastFetchTime = ref<number | null>(null);
   const recentCommits = ref<GitLogEntry[]>([]);
   const hasMergeConflict = ref(false);
-  // Mirror of connection store's offline state, exposed under the existing
-  // public name so consumers (GitSyncStatus.vue etc.) don't have to change.
   const isOffline = computed(() => !connection.isOnline);
 
   // Conflict resolution state
@@ -104,23 +101,6 @@ export const useGitStore = defineStore('git', () => {
   // Helpers
   function getProjectPath(): string | null {
     return projects.currentProject?.path ?? null;
-  }
-
-  function loadAutoSave(): boolean {
-    try {
-      return localStorage.getItem('colrev-auto-save') === 'true';
-    } catch {
-      return false;
-    }
-  }
-
-  function setAutoSave(value: boolean) {
-    autoSave.value = value;
-    try {
-      localStorage.setItem('colrev-auto-save', String(value));
-    } catch {
-      // Ignore storage errors
-    }
   }
 
   // Actions — serialization against concurrent git ops is handled by the
@@ -768,7 +748,6 @@ export const useGitStore = defineStore('git', () => {
     isPushing,
     isOperationRunning,
     isSwitchingBranch,
-    autoSave,
     lastFetchTime,
     recentCommits,
     hasMergeConflict,
@@ -800,7 +779,6 @@ export const useGitStore = defineStore('git', () => {
     latestRelease,
     // Actions
     nextReleaseVersion,
-    setAutoSave,
     fetch,
     pull,
     fastForwardMain,

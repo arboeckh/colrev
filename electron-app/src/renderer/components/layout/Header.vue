@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ArrowLeft, RefreshCw } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
-import GitSyncStatus from '@/components/common/GitSyncStatus.vue';
+import GitSyncControls from '@/components/common/GitSyncControls.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
@@ -82,7 +82,7 @@ async function refresh() {
 
       <!-- Right side: Git sync + Refresh -->
       <div class="flex items-center gap-3">
-        <GitSyncStatus v-if="projects.currentGitStatus" :status="projects.currentGitStatus" />
+        <GitSyncControls v-if="git.hasRemote" />
 
         <Button
           variant="ghost"

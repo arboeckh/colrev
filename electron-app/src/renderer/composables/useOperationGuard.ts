@@ -2,22 +2,14 @@ import { useGitStore } from '@/stores/git';
 import { useNotificationsStore } from '@/stores/notifications';
 
 /**
- * Wraps colrev operations with post-operation auto-save (push).
- *
- * Pre-op fetch/pull were removed: they held the shared git mutex in the main
- * process and queued every other git call behind a network round-trip, which
- * the user experienced as "the app is frozen while the sync pill spins."
- * Remote freshness is driven by window-focus fetch and the manual Refresh
- * button. If the push at the end fails due to divergence, the existing
- * divergence-resolution flow on the sync pill handles it.
+ * Wraps colrev operations with pre/post guards.
  *
  * Flow:
  * 1. Block on main (read-only) and on known divergence
  * 2. Set isOperationRunning = true
  * 3. Run the colrev operation
  * 4. Refresh git status (local read)
- * 5. If autoSave and ahead > 0 → push
- * 6. Set isOperationRunning = false
+ * 5. Set isOperationRunning = false
  */
 export function useOperationGuard() {
   const git = useGitStore();
@@ -48,10 +40,6 @@ export function useOperationGuard() {
       const result = await operation();
 
       await git.refreshStatus();
-
-      if (git.hasRemote && git.autoSave && git.ahead > 0) {
-        await git.push();
-      }
 
       return result;
     } finally {

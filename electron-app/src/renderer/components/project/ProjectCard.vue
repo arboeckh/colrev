@@ -14,7 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import GitSyncStatus from '@/components/common/GitSyncStatus.vue';
 import { useProjectsStore, type ProjectListItem } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
@@ -152,10 +151,6 @@ async function confirmDelete() {
           <Badge variant="secondary" class="font-normal">{{ currentStep }}</Badge>
         </div>
 
-        <!-- Git status -->
-        <div v-if="project.gitStatus" class="pt-2 border-t border-border">
-          <GitSyncStatus :status="project.gitStatus" :show-branch="true" />
-        </div>
       </template>
 
       <!-- Loading placeholder -->
