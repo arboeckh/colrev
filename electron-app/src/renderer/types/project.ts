@@ -243,8 +243,6 @@ export interface WorkflowStepInfo {
   managedReviewKind?: 'prescreen' | 'screen';
 }
 
-// Grouped workflow steps for sidebar display (5 decision steps)
-// Search absorbs preprocessing (load/prep/dedupe), Screen absorbs PDFs (pdf_get/pdf_prep)
 export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
   {
     id: 'review_definition',
