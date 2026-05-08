@@ -51,6 +51,7 @@ export const useProjectsStore = defineStore('projects', () => {
     prescreen: null,
     pdf_get: null,
     pdf_prep: null,
+    pdfs: null,
     screen: null,
     data: null,
   });
@@ -382,6 +383,7 @@ export const useProjectsStore = defineStore('projects', () => {
       prescreen: null,
       pdf_get: null,
       pdf_prep: null,
+      pdfs: null,
       screen: null,
       data: null,
     };

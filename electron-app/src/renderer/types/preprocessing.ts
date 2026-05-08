@@ -34,13 +34,6 @@ export interface PreprocessingPipelineCounts {
   mdProcessed: number;
 }
 
-// Stage completion status
-export interface PreprocessingStageStatus {
-  loadCompleted: boolean;
-  prepCompleted: boolean;
-  dedupeCompleted: boolean;
-}
-
 // Full preprocessing summary from backend
 export interface PreprocessingSummary {
   sources: PreprocessingSource[];
