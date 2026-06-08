@@ -76,6 +76,9 @@ export const test = base.extend<TestWorkspaceFixtures>({
     const pubmedFixturePath = path.join(
       __dirname, 'data', 'pubmed.fixture.json',
     );
+    const openalexFixturePath = path.join(
+      __dirname, 'data', 'openalex.fixture.json',
+    );
 
     const electronApp = await electron.launch({
       args: [appPath, `--user-data-dir=${workspace.userDataDir}`],
@@ -88,6 +91,9 @@ export const test = base.extend<TestWorkspaceFixtures>({
         COLREV_FAKE_GITHUB_REGISTRY: workspace.registryPath,
         ...(fs.existsSync(pubmedFixturePath)
           ? { COLREV_FAKE_PUBMED_REGISTRY: pubmedFixturePath }
+          : {}),
+        ...(fs.existsSync(openalexFixturePath)
+          ? { COLREV_FAKE_OPENALEX_REGISTRY: openalexFixturePath }
           : {}),
       },
     });

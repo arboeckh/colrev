@@ -139,6 +139,8 @@ contextBridge.exposeInMainWorld('github', {
     ipcRenderer.invoke('github:list-invitations'),
   acceptInvitation: (params: { invitationId: number }) =>
     ipcRenderer.invoke('github:accept-invitation', params),
+  declineInvitation: (params: { invitationId: number }) =>
+    ipcRenderer.invoke('github:decline-invitation', params),
 
   createRelease: (params: { remoteUrl: string; tagName: string; name: string; body: string; projectPath: string }) =>
     ipcRenderer.invoke('github:create-release', params),

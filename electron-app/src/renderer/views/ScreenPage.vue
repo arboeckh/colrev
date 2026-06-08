@@ -19,7 +19,8 @@ import { useManagedReviewStore } from '@/stores/managedReview';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
 import { useReadOnly } from '@/composables/useReadOnly';
-import { deriveScreenDecision } from '@/lib/screen-decision';
+import { usePendingChangesStore } from '@/stores/pendingChanges';
+import { canIncludeDecision, canExcludeDecision } from '@/lib/screen-decision';
 import type {
   GetCurrentManagedReviewTaskResponse,
   GetScreenQueueResponse,
@@ -44,6 +45,10 @@ const props = withDefaults(defineProps<{
   embedded: false,
 });
 
+const emit = defineEmits<{
+  navigateReconcile: [];
+}>();
+
 const auth = useAuthStore();
 const projects = useProjectsStore();
 const backend = useBackendStore();
@@ -51,7 +56,10 @@ const git = useGitStore();
 const managedReview = useManagedReviewStore();
 const notifications = useNotificationsStore();
 const reviewDefStore = useReviewDefinitionStore();
+const pending = usePendingChangesStore();
 const { isReadOnly } = useReadOnly();
+
+const isPageReady = ref(false);
 
 const queue = ref<ScreenEnrichedRecord[]>([]);
 const decisionHistory = ref<ScreenEnrichedRecord[]>([]);
@@ -69,7 +77,16 @@ const activeManagedTask = ref<ManagedReviewTask | null>(null);
 const assignedReviewerBranch = ref<string | null>(null);
 
 const statusCounts = computed(() => projects.currentStatus?.currently ?? null);
-const overallCounts = computed(() => projects.currentStatus?.overall ?? null);
+const completeIncludedCount = computed(() => statusCounts.value?.rev_included ?? 0);
+const completeExcludedCount = computed(() => statusCounts.value?.rev_excluded ?? 0);
+const screenSessionDecisions = computed((): Record<string, 'include' | 'exclude'> => {
+  const out: Record<string, 'include' | 'exclude'> = {};
+  for (const record of decisionHistory.value) {
+    if (record._decision === 'included') out[record.id] = 'include';
+    else if (record._decision === 'excluded') out[record.id] = 'exclude';
+  }
+  return out;
+});
 const pdfPreparedCount = computed(() => statusCounts.value?.pdf_prepared ?? 0);
 const currentRecord = computed(() => queue.value[currentIndex.value] || null);
 const hasCriteria = computed(() => Object.keys(criteria.value).length > 0);
@@ -83,18 +100,19 @@ const nextUndecidedIndex = computed(() => {
   }
   return -1;
 });
-const derivedDecision = computed((): 'include' | 'exclude' | null => {
-  if (!currentRecord.value) return null;
-  return deriveScreenDecision(criteria.value, currentRecord.value._criteriaDecisions);
+const canInclude = computed(() => {
+  if (!currentRecord.value) return false;
+  return canIncludeDecision(criteria.value, currentRecord.value._criteriaDecisions);
 });
-const canSubmitCriteria = computed(() => derivedDecision.value !== null);
+const canExclude = computed(() => {
+  if (!currentRecord.value) return false;
+  return canExcludeDecision(criteria.value, currentRecord.value._criteriaDecisions);
+});
 const isScreenComplete = computed(() => {
   if (allDecisionsMade.value) return true;
   if (!statusCounts.value) return false;
-  const { pdf_prepared } = statusCounts.value;
-  const included = overallCounts.value?.rev_included ?? statusCounts.value.rev_included;
-  const excluded = overallCounts.value?.rev_excluded ?? statusCounts.value.rev_excluded;
-  return pdf_prepared === 0 && (included > 0 || excluded > 0);
+  const { pdf_prepared, rev_included, rev_excluded } = statusCounts.value;
+  return pdf_prepared === 0 && (rev_included > 0 || rev_excluded > 0);
 });
 const assignedReviewer = computed(() => {
   if (!activeManagedTask.value || !auth.user?.login) return null;
@@ -274,9 +292,11 @@ async function makeDecision(decision: 'include' | 'exclude') {
   }
 }
 
-function submitCriteriaDecision() {
-  if (!canSubmitCriteria.value || !derivedDecision.value) return;
-  makeDecision(derivedDecision.value);
+function confirmCriteriaDecision(decision: 'include' | 'exclude') {
+  if (isCurrentDecided.value || isDeciding.value || isReadOnly.value) return;
+  if (decision === 'include' && !canInclude.value) return;
+  if (decision === 'exclude' && !canExclude.value) return;
+  makeDecision(decision);
 }
 
 function toggleCriterion(name: string, value: 'in' | 'out' | 'TODO') {
@@ -324,17 +344,22 @@ async function handlePdfsImported() {
 }
 
 onMounted(async () => {
-  if (!props.embedded) {
-    await projects.refreshCurrentProject();
-    await git.refreshStatus();
-  }
-  await reviewDefStore.loadDefinition();
-  const canLoadQueue = await ensureManagedTaskAccess();
-  if (canLoadQueue) {
-    await loadQueue();
-  } else {
-    queue.value = [];
-    totalCount.value = 0;
+  try {
+    if (!props.embedded) {
+      await projects.refreshCurrentProject();
+      await git.refreshStatus();
+    }
+    await reviewDefStore.loadDefinition();
+    const canLoadQueue = await ensureManagedTaskAccess();
+    if (canLoadQueue) {
+      await loadQueue();
+    } else {
+      queue.value = [];
+      totalCount.value = 0;
+    }
+  } finally {
+    await Promise.all([git.refreshStatus(), pending.refresh()]);
+    isPageReady.value = true;
   }
   window.addEventListener('keydown', handleKeydown);
 });
@@ -368,19 +393,34 @@ onUnmounted(() => {
       :title="managedAccessTitle"
       :description="managedAccessDescription"
     />
+    <div
+      v-else-if="!isPageReady"
+      class="flex-1 flex items-center justify-center"
+      data-testid="screen-loading"
+    >
+      <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+    </div>
+
     <template v-else>
 
     <div v-if="mode === 'edit'" class="px-4 py-3">
-      <ScreenEditMode @close="exitEditMode" />
+      <ScreenEditMode
+        :managed-task="managedTask"
+        :session-decisions="screenSessionDecisions"
+        @close="exitEditMode"
+      />
     </div>
 
     <ScreenComplete
       v-else-if="mode === 'complete' || (!isLoading && queue.length === 0 && isScreenComplete)"
       class="px-4 py-3"
-      :included-count="overallCounts?.rev_included ?? statusCounts?.rev_included ?? 0"
-      :excluded-count="overallCounts?.rev_excluded ?? statusCounts?.rev_excluded ?? 0"
+      :included-count="completeIncludedCount"
+      :excluded-count="completeExcludedCount"
       :read-only="isReadOnly"
+      :show-reconcile-cta="embedded"
+      :reconcile-ready="isPageReady"
       @edit-decisions="enterEditMode"
+      @navigate-reconcile="emit('navigateReconcile')"
     />
 
     <div
@@ -411,16 +451,16 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <div v-else-if="isLoading" class="flex-1 flex items-center justify-center">
+      <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+    </div>
+
     <EmptyState
-      v-else-if="!isLoading && !hasCriteria"
+      v-else-if="!hasCriteria"
       :icon="CheckSquare"
       title="No screening criteria defined"
       description="Add screening criteria on the Screen Launch page before starting. Criteria can only be defined on the dev branch and are frozen once a managed task is active."
     />
-
-    <div v-else-if="isLoading" class="flex-1 flex items-center justify-center">
-      <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-    </div>
 
     <EmptyState
       v-else-if="!isLoading && queue.length === 0"
@@ -453,16 +493,13 @@ onUnmounted(() => {
           :total-count="totalCount"
           :is-deciding="isDeciding"
           :is-current-decided="isCurrentDecided"
-          :derived-decision="derivedDecision"
-          :can-submit-criteria="canSubmitCriteria"
           :next-undecided-index="nextUndecidedIndex"
           :mode="mode"
           :queue-records="queue"
           :current-index="currentIndex"
           :read-only="isReadOnly"
           @toggle-criterion="toggleCriterion"
-          @make-decision="makeDecision"
-          @submit-criteria-decision="submitCriteriaDecision"
+          @confirm-decision="confirmCriteriaDecision"
           @skip-to-next-undecided="skipToNextUndecided"
           @enter-edit-mode="enterEditMode"
           @navigate="goToRecord"

@@ -1,6 +1,12 @@
-"""Test-only requests mock for PubMed eutils endpoints.
+"""Test-only requests mock for external HTTP APIs (PubMed, OpenAlex, ...).
 
-Activated by setting COLREV_FAKE_PUBMED_REGISTRY=<path-to-fixture.json>.
+Activated by setting one or more of:
+    COLREV_FAKE_PUBMED_REGISTRY=<path-to-fixture.json>
+    COLREV_FAKE_OPENALEX_REGISTRY=<path-to-fixture.json>
+
+Entries from every set registry are merged into one table. Matching is by
+host + path (query params ignored), so PubMed (eutils.ncbi.nlm.nih.gov) and
+OpenAlex (api.openalex.org) entries never collide.
 
 The fixture is a JSON list of entries. Each entry matches by host + path; the
 first match wins. Non-matching requests pass through to the real adapter.
@@ -87,19 +93,27 @@ def install_if_enabled() -> None:
     if _INSTALLED:
         return
 
-    registry_path = os.environ.get("COLREV_FAKE_PUBMED_REGISTRY")
-    if not registry_path:
+    registry_env_vars = (
+        "COLREV_FAKE_PUBMED_REGISTRY",
+        "COLREV_FAKE_OPENALEX_REGISTRY",
+    )
+    merged: List[Dict[str, Any]] = []
+    for env_var in registry_env_vars:
+        registry_path = os.environ.get(env_var)
+        if not registry_path:
+            continue
+        try:
+            with open(registry_path, "r", encoding="utf-8") as f:
+                merged.extend(json.load(f))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "%s=%s could not be loaded: %s", env_var, registry_path, exc
+            )
+
+    if not merged:
         return
 
-    try:
-        with open(registry_path, "r", encoding="utf-8") as f:
-            _REGISTRY = json.load(f)
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning(
-            "COLREV_FAKE_PUBMED_REGISTRY=%s could not be loaded: %s",
-            registry_path, exc,
-        )
-        return
+    _REGISTRY = merged
 
     import requests.adapters
 
@@ -109,12 +123,9 @@ def install_if_enabled() -> None:
         entry = _find_entry(request.url or "")
         if entry is None:
             return original_send(self, request, *args, **kwargs)
-        logger.info("[pubmed-mock] intercepted %s", request.url)
+        logger.info("[http-mock] intercepted %s", request.url)
         return _build_response(entry["response"], request)
 
     requests.adapters.HTTPAdapter.send = patched_send  # type: ignore[method-assign]
     _INSTALLED = True
-    logger.info(
-        "[pubmed-mock] installed with %d entries from %s",
-        len(_REGISTRY), registry_path,
-    )
+    logger.info("[http-mock] installed with %d entries", len(_REGISTRY))

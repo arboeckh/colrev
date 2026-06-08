@@ -8,6 +8,7 @@ import {
   CircleCheck,
   Pencil,
   Search,
+  ArrowRight,
 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -34,6 +35,7 @@ import { useManagedReviewStore } from '@/stores/managedReview';
 import { useNotificationsStore } from '@/stores/notifications';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
 import { useReadOnly } from '@/composables/useReadOnly';
+import { useReconcileGate } from '@/composables/useReconcileGate';
 import { useWalkthroughNavigation } from '@/composables/useWalkthroughNavigation';
 import type {
   GetCurrentManagedReviewTaskResponse,
@@ -63,6 +65,10 @@ const props = withDefaults(defineProps<{
   embedded: false,
 });
 
+const emit = defineEmits<{
+  navigateReconcile: [];
+}>();
+
 const auth = useAuthStore();
 const projects = useProjectsStore();
 const backend = useBackendStore();
@@ -73,7 +79,9 @@ const pending = usePendingChangesStore();
 const { isReadOnly } = useReadOnly();
 
 const isSavingToRemote = ref(false);
-const hasUnsavedWork = computed(() => git.ahead > 0 || pending.hasPending);
+const isPageReady = ref(false);
+const hasUnsavedWork = computed(() => isPageReady.value && (git.ahead > 0 || pending.hasPending));
+const { canNavigateToReconcile } = useReconcileGate({ ready: isPageReady });
 
 async function saveToRemote() {
   if (isSavingToRemote.value) return;
@@ -593,17 +601,22 @@ async function ensureManagedTaskAccess(): Promise<boolean> {
 }
 
 onMounted(async () => {
-  if (!props.embedded) {
-    // Refresh status first so completion state is accurate when navigating back
-    await projects.refreshCurrentProject();
-    await git.refreshStatus();
-  }
-  const canLoadQueue = await ensureManagedTaskAccess();
-  if (canLoadQueue) {
-    await loadQueue();
-  } else {
-    queue.value = [];
-    totalCount.value = 0;
+  try {
+    if (!props.embedded) {
+      // Refresh status first so completion state is accurate when navigating back
+      await projects.refreshCurrentProject();
+      await git.refreshStatus();
+    }
+    const canLoadQueue = await ensureManagedTaskAccess();
+    if (canLoadQueue) {
+      await loadQueue();
+    } else {
+      queue.value = [];
+      totalCount.value = 0;
+    }
+  } finally {
+    await Promise.all([git.refreshStatus(), pending.refresh()]);
+    isPageReady.value = true;
   }
 });
 
@@ -632,6 +645,13 @@ onUnmounted(() => {
       :title="managedAccessTitle"
       :description="managedAccessDescription"
     />
+    <div
+      v-else-if="!isPageReady"
+      class="flex-1 flex items-center justify-center"
+      data-testid="prescreen-loading"
+    >
+      <Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
     <template v-else>
     <!-- Zone 1: Header + Stats -->
     <div class="flex items-center justify-between mb-3">
@@ -817,26 +837,38 @@ onUnmounted(() => {
         collaborators can see your work.
       </p>
 
-      <div class="flex items-center gap-3 mt-6">
+      <div class="flex flex-col items-center gap-3 mt-6">
         <Button
-          v-if="git.hasRemote && hasUnsavedWork"
-          size="sm"
-          :disabled="isSavingToRemote"
-          data-testid="prescreen-save-to-remote"
-          @click="saveToRemote"
+          v-if="embedded && canNavigateToReconcile"
+          size="lg"
+          class="min-w-56"
+          data-testid="prescreen-continue-reconcile-btn"
+          @click="emit('navigateReconcile')"
         >
-          {{ isSavingToRemote ? 'Saving...' : 'Save to remote' }}
+          Continue to Reconciliation
+          <ArrowRight class="h-4 w-4 ml-1.5" />
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          data-testid="prescreen-edit-decisions-btn"
-          :disabled="isReadOnly"
-          @click="enterEditMode"
-        >
-          <Pencil class="h-4 w-4 mr-1.5" />
-          Edit Decisions
-        </Button>
+        <div class="flex items-center gap-3">
+          <Button
+            v-if="git.hasRemote && hasUnsavedWork"
+            size="sm"
+            :disabled="isSavingToRemote"
+            data-testid="prescreen-save-to-remote"
+            @click="saveToRemote"
+          >
+            {{ isSavingToRemote ? 'Saving...' : 'Save to remote' }}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid="prescreen-edit-decisions-btn"
+            :disabled="isReadOnly"
+            @click="enterEditMode"
+          >
+            <Pencil class="h-4 w-4 mr-1.5" />
+            Edit Decisions
+          </Button>
+        </div>
       </div>
     </div>
 

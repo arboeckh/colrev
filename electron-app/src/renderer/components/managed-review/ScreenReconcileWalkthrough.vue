@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-vue-next';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, Users } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/auth';
 import { useBackendStore } from '@/stores/backend';
@@ -12,7 +12,8 @@ import PdfViewerPanel from '@/components/screen/PdfViewerPanel.vue';
 import ScreenSplitPanel from '@/components/screen/ScreenSplitPanel.vue';
 import ScreenReconcileCriteriaPanel from './ScreenReconcileCriteriaPanel.vue';
 import BlockedRecordsBanner from './BlockedRecordsBanner.vue';
-import { deriveScreenDecision, formatCriteriaString, type CriterionDecision } from '@/lib/screen-decision';
+import ReconcileApplyBar from './ReconcileApplyBar.vue';
+import { deriveScreenDecision, formatCriteriaString, canIncludeDecision, canExcludeDecision, type CriterionDecision } from '@/lib/screen-decision';
 import type {
   ApplyReconciliationResponse,
   GetRecordsResponse,
@@ -102,16 +103,22 @@ const currentStaged = computed<StagedRecord | null>(() => {
   return stagedRecords.value[currentItem.value.id] ?? null;
 });
 
-const currentDerivedDecision = computed<'include' | 'exclude' | null>(() => {
-  if (!currentStaged.value) return null;
-  return deriveScreenDecision(criteriaDefs.value, currentStaged.value.criteria);
-});
-
 function confirmedDecisionFor(item: ReconciliationPreviewItem): 'include' | 'exclude' | null {
   const staged = stagedRecords.value[item.id];
-  if (!staged) return null;
-  const derived = deriveScreenDecision(criteriaDefs.value, staged.criteria);
-  return staged.confirmed && staged.confirmed === derived ? staged.confirmed : null;
+  if (!staged?.confirmed) return null;
+  if (
+    staged.confirmed === 'include'
+    && canIncludeDecision(criteriaDefs.value, staged.criteria)
+  ) {
+    return 'include';
+  }
+  if (
+    staged.confirmed === 'exclude'
+    && canExcludeDecision(criteriaDefs.value, staged.criteria)
+  ) {
+    return 'exclude';
+  }
+  return null;
 }
 
 const decidedCount = computed(
@@ -252,14 +259,30 @@ function onConfirmDecision(decision: 'include' | 'exclude') {
   if (!item) return;
   const staged = stagedRecords.value[item.id];
   if (!staged) return;
-  const derived = deriveScreenDecision(criteriaDefs.value, staged.criteria);
-  if (derived !== decision) return;
+  if (decision === 'include' && !canIncludeDecision(criteriaDefs.value, staged.criteria)) return;
+  if (decision === 'exclude' && !canExcludeDecision(criteriaDefs.value, staged.criteria)) return;
   stagedRecords.value = {
     ...stagedRecords.value,
     [item.id]: { ...staged, confirmed: decision },
   };
   const next = nextUndecidedIndex.value;
   if (next !== -1) currentIndex.value = next;
+}
+
+function handleKeydown(e: KeyboardEvent) {
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+  if (!currentItem.value || !currentStaged.value) return;
+  if (confirmedDecisionFor(currentItem.value)) return;
+
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const staged = currentStaged.value;
+    if (canIncludeDecision(criteriaDefs.value, staged.criteria)) {
+      onConfirmDecision('include');
+    } else if (canExcludeDecision(criteriaDefs.value, staged.criteria)) {
+      onConfirmDecision('exclude');
+    }
+  }
 }
 
 async function applyReconciliation() {
@@ -319,11 +342,23 @@ async function applyReconciliation() {
   }
 }
 
+function onApplyClicked() {
+  void applyReconciliation();
+}
+
 watch(
   () => props.taskId,
   () => loadPreview(),
   { immediate: true },
 );
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown);
+});
 </script>
 
 <template>
@@ -377,7 +412,7 @@ watch(
       data-testid="reconcile-pending"
     >
       <div class="rounded-full bg-muted p-3">
-        <Loader2 class="h-6 w-6 text-muted-foreground" />
+        <Users class="h-6 w-6 text-muted-foreground" />
       </div>
       <div class="space-y-1">
         <h3 class="text-lg font-medium">Waiting on reviewers</h3>
@@ -386,6 +421,10 @@ watch(
           {{ pendingItems.length }} record{{ pendingItems.length === 1 ? '' : 's' }} still pending.
         </p>
       </div>
+      <Button variant="ghost" size="sm" @click="emit('close')">
+        <ArrowLeft class="h-4 w-4" />
+        Back
+      </Button>
     </div>
 
     <div
@@ -408,19 +447,16 @@ watch(
         :items="overridableBlockedItems"
         class="w-full"
       />
-      <Button
-        :disabled="isApplying"
-        :variant="overridableBlockedItems.length > 0 ? 'destructive' : 'default'"
-        data-testid="reconcile-apply-btn"
-        @click="applyReconciliation"
-      >
-        <Loader2 v-if="isApplying" class="h-4 w-4 animate-spin" />
-        <template v-if="isApplying">Applying...</template>
-        <template v-else-if="overridableBlockedItems.length > 0">
-          Override {{ overridableBlockedItems.length }} block{{ overridableBlockedItems.length === 1 ? '' : 's' }} & apply
-        </template>
-        <template v-else>Apply Reconciliation</template>
-      </Button>
+      <ReconcileApplyBar
+        :decided-count="0"
+        :total-conflicts="0"
+        :can-apply="true"
+        :is-applying="isApplying"
+        :override-block-count="overridableBlockedItems.length"
+        class="w-full"
+        @apply="onApplyClicked"
+        @cancel="emit('close')"
+      />
     </div>
 
     <template v-else-if="currentItem">
@@ -451,20 +487,6 @@ watch(
             @seek="goTo"
           />
         </div>
-        <Button
-          v-if="allDecided"
-          :disabled="isApplying"
-          :variant="overridableBlockedItems.length > 0 ? 'destructive' : 'default'"
-          data-testid="reconcile-apply-btn"
-          @click="applyReconciliation"
-        >
-          <Loader2 v-if="isApplying" class="h-4 w-4 animate-spin" />
-          <template v-if="isApplying">Applying...</template>
-          <template v-else-if="overridableBlockedItems.length > 0">
-            Override {{ overridableBlockedItems.length }} & apply
-          </template>
-          <template v-else>Apply Reconciliation</template>
-        </Button>
       </div>
 
       <ScreenSplitPanel class="flex-1 min-h-0">
@@ -484,16 +506,26 @@ watch(
                 {{ currentItem.author }}<span v-if="currentItem.year"> · {{ currentItem.year }}</span>
               </div>
             </div>
-            <div class="flex-1 min-h-0">
+            <div class="flex-1 min-h-0 flex flex-col">
               <ScreenReconcileCriteriaPanel
                 v-if="currentStaged"
+                class="flex-1 min-h-0"
                 :criteria="criteriaDefs"
                 :decisions="currentStaged.criteria"
                 :reviewers="currentItem.reviewers"
-                :derived-decision="currentDerivedDecision"
-                :confirmed-decision="currentStaged.confirmed"
+                :confirmed-decision="confirmedDecisionFor(currentItem)"
                 @toggle="onToggleCriterion"
                 @confirm="onConfirmDecision"
+              />
+              <ReconcileApplyBar
+                variant="inline"
+                :decided-count="decidedCount"
+                :total-conflicts="conflictItems.length"
+                :can-apply="allDecided"
+                :is-applying="isApplying"
+                :override-block-count="overridableBlockedItems.length"
+                @apply="onApplyClicked"
+                @cancel="emit('close')"
               />
             </div>
           </div>

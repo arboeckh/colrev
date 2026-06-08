@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import csv
 import logging
-import re
 from io import StringIO
 from typing import Any, Callable, Dict, List
 
@@ -27,117 +26,15 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# OpenAlex value transform helpers
-# ---------------------------------------------------------------------------
-
-def _openalex_author(value: str) -> str:
-    """Convert pipe-separated authors to 'and'-separated."""
-    if not value:
-        return value
-    return " and ".join(a.strip() for a in value.split("|") if a.strip())
-
-
-def _strip_doi_prefix(value: str) -> str:
-    if not value:
-        return value
-    for prefix in ("https://doi.org/", "http://doi.org/"):
-        if value.startswith(prefix):
-            return value[len(prefix):]
-    return value
-
-
-def _strip_pubmed_prefix(value: str) -> str:
-    if not value:
-        return value
-    prefix = "https://pubmed.ncbi.nlm.nih.gov/"
-    if value.startswith(prefix):
-        return value[len(prefix):].rstrip("/")
-    return value
-
-
-def _strip_openalex_prefix(value: str) -> str:
-    if not value:
-        return value
-    prefix = "https://openalex.org/"
-    if value.startswith(prefix):
-        return value[len(prefix):]
-    return value
-
-
-OPENALEX_ENTRYTYPE_MAP = {
-    "article": "article",
-    "review": "article",
-    "book": "book",
-    "book-chapter": "inbook",
-    "proceedings-article": "inproceedings",
-    "dissertation": "phdthesis",
-    "report": "techreport",
-    "preprint": "article",
-    "editorial": "article",
-    "letter": "article",
-    "erratum": "article",
-    "paratext": "misc",
-    "peer-review": "misc",
-    "dataset": "misc",
-}
-
-
-def _openalex_entrytype(value: str) -> str:
-    if not value:
-        return "misc"
-    return OPENALEX_ENTRYTYPE_MAP.get(value.lower().strip(), "misc")
-
-
-# ---------------------------------------------------------------------------
 # Template registry
 # ---------------------------------------------------------------------------
+#
+# OpenAlex previously shipped a CSV-upload template here. It was removed once
+# the OpenAlex API connector landed (see open_alex_query_builder). The generic
+# transform machinery below is retained for future database export templates;
+# the registry is intentionally empty until one is added.
 
-CSV_SOURCE_TEMPLATES: Dict[str, Dict[str, Any]] = {
-    "openalex": {
-        "label": "OpenAlex",
-        "column_map": {
-            # Legacy flat API-style export columns
-            "display_name": "title",
-            "authorships.author.display_name": "author",
-            "primary_location.source.display_name": "journal",
-            "publication_year": "year",
-            "doi": "doi",
-            "type": "ENTRYTYPE",
-            "cited_by_count": "cited_by",
-            "ids.pmid": "colrev.pubmed.pubmedid",
-            "language": "language",
-            "id": "colrev.open_alex.id",
-            "primary_location.source.issn_l": "issn",
-            "publication_date": "date",
-            # Human-readable export columns (openalex.org column picker)
-            "Title": "title",
-            "Author": "author",
-            "Year": "year",
-            "DOI": "doi",
-            "Type": "ENTRYTYPE",
-            "Source": "journal",
-            "Citation count": "cited_by",
-            "Abstract": "abstract",
-            "Language": "language",
-            "ID": "colrev.open_alex.id",
-            "OpenAlex ID": "colrev.open_alex.id",
-            "ISSN": "issn",
-            "Publication date": "date",
-            "PubMed ID": "colrev.pubmed.pubmedid",
-        },
-        "upload_instructions": (
-            "Export a CSV from openalex.org (either the legacy flat columns or "
-            "the human-readable Title/Author/Year format), then upload it here."
-        ),
-        "value_transforms": {
-            "author": _openalex_author,
-            "doi": _strip_doi_prefix,
-            "colrev.pubmed.pubmedid": _strip_pubmed_prefix,
-            "colrev.open_alex.id": _strip_openalex_prefix,
-            "ENTRYTYPE": _openalex_entrytype,
-        },
-    },
-}
+CSV_SOURCE_TEMPLATES: Dict[str, Dict[str, Any]] = {}
 
 
 # ---------------------------------------------------------------------------

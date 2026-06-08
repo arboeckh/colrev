@@ -141,6 +141,14 @@ export class FakeGitHubRegistry {
     this.flush();
   }
 
+  declineInvitation(invitationId: number): void {
+    const idx = this.data.invitations.findIndex((i) => i.id === invitationId);
+    if (idx === -1) throw new Error(`Invitation ${invitationId} not found`);
+
+    this.data.invitations.splice(idx, 1);
+    this.flush();
+  }
+
   getCollaborators(owner: string, repo: string): RegistryCollaborator[] {
     const fullName = `${owner}/${repo}`;
     return this.data.collaborators.filter((c) => c.repoFullName === fullName);

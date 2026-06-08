@@ -231,6 +231,39 @@ describe('computeStepStatus', () => {
       });
       expect(result).toBe('pending');
     });
+
+    it('returns complete when all included records are synthesized', () => {
+      const counts = {
+        ...emptyCounts(),
+        rev_synthesized: 4,
+        total: 4,
+      };
+      const overall = { ...emptyOverall(), rev_included: 4, rev_synthesized: 4 };
+      const result = computeStepStatus(DATA, 6, ALL_STEPS, {
+        counts,
+        overall,
+        hasStaleSearchSources: false,
+        managedStepStatus: null,
+        suppressCounts: false,
+      });
+      expect(result).toBe('complete');
+    });
+
+    it('returns active while included records still need extraction', () => {
+      const counts = {
+        ...emptyCounts(),
+        rev_included: 2,
+        total: 2,
+      };
+      const result = computeStepStatus(DATA, 6, ALL_STEPS, {
+        counts,
+        overall: { ...emptyOverall(), rev_included: 2 },
+        hasStaleSearchSources: false,
+        managedStepStatus: null,
+        suppressCounts: false,
+      });
+      expect(result).toBe('active');
+    });
   });
 
   describe('prior-step-pending rule', () => {

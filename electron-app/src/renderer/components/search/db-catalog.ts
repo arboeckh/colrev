@@ -149,21 +149,6 @@ export const CONNECTORS: DbConnector[] = [
       'Boolean search across title and abstract. Use UPPERCASE operators (AND, OR, NOT) and wrap multi-word phrases in "quotes". Search queries use more of your daily OpenAlex API budget than filter-only requests.',
   },
 
-  // ─── Manual upload (enabled) ───────────────────────────────────
-  {
-    id: 'openalex',
-    style: 'upload',
-    endpoint: 'colrev.open_alex',
-    name: 'OpenAlex',
-    tagline: 'Upload an OpenAlex CSV export',
-    brandColor: '#1B4E82',
-    status: 'enabled',
-    acceptedFormats: ['.csv', '.xlsx', '.xls'],
-    csvTemplate: 'openalex',
-    uploadInstructions:
-      'Export a CSV from openalex.org (flat API columns or Title/Author/Year format), then upload it here.',
-  },
-
   // ─── Manual upload (planned) ───────────────────────────────────
   {
     id: 'web-of-science',

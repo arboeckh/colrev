@@ -522,6 +522,35 @@ export async function acceptRepoInvitation(
 }
 
 /**
+ * Decline a repository invitation.
+ */
+export async function declineRepoInvitation(
+  token: string,
+  invitationId: number,
+): Promise<{ success: boolean; error?: string }> {
+  const res = await fetch(
+    `https://api.github.com/user/repository_invitations/${invitationId}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    },
+  );
+
+  if (res.status === 204 || res.status === 200) {
+    return { success: true };
+  }
+
+  const errorData = await res.json().catch(() => ({}));
+  return {
+    success: false,
+    error: errorData.message || `Failed to decline invitation (${res.status})`,
+  };
+}
+
+/**
  * Create a GitHub release.
  */
 export async function createGitHubRelease(

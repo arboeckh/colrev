@@ -10,3 +10,4 @@ export { default as UserMenu } from './UserMenu.vue';
 export { default as ReviewerSelector } from './ReviewerSelector.vue';
 export { default as CollaboratorInviteForm } from './CollaboratorInviteForm.vue';
 export { default as GitHubUserAutocomplete } from './GitHubUserAutocomplete.vue';
+export { default as RepoVisibilityToggle } from './RepoVisibilityToggle.vue';

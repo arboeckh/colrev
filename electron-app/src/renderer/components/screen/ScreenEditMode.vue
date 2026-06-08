@@ -16,7 +16,11 @@ import {
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
-import type { GetRecordsResponse, UpdateScreenDecisionsResponse } from '@/types/api';
+import type {
+  GetCurrentManagedReviewTaskResponse,
+  GetRecordsResponse,
+  UpdateScreenDecisionsResponse,
+} from '@/types/api';
 
 interface EditRecord {
   id: string;
@@ -27,9 +31,24 @@ interface EditRecord {
   newDecision: 'include' | 'exclude';
 }
 
+const props = defineProps<{
+  managedTask?: GetCurrentManagedReviewTaskResponse['task'];
+  sessionDecisions?: Record<string, 'include' | 'exclude'>;
+}>();
+
 const emit = defineEmits<{
   close: [];
 }>();
+
+function screenDecisionFromRecord(
+  record: { ID?: string; colrev_status?: string | null },
+): 'include' | 'exclude' {
+  if (record.colrev_status === 'rev_included') return 'include';
+  if (record.colrev_status === 'rev_excluded') return 'exclude';
+  const id = record.ID;
+  if (id && props.sessionDecisions?.[id]) return props.sessionDecisions[id];
+  return 'exclude';
+}
 
 const backend = useBackendStore();
 const projects = useProjectsStore();
@@ -60,6 +79,8 @@ async function loadEditRecords() {
 
   isLoading.value = true;
   try {
+    await projects.refreshCurrentProject();
+
     const response = await backend.call<GetRecordsResponse>('get_records', {
       project_id: projects.currentProjectId,
       filters: { status: ['rev_included', 'rev_excluded'] },
@@ -68,15 +89,20 @@ async function loadEditRecords() {
     });
 
     if (response.success) {
-      editRecords.value = response.records.map((r: any) => {
-        const isIncluded = r.colrev_status === 'rev_included';
+      const taskRecordIds = props.managedTask?.record_ids;
+      const editableRecords = taskRecordIds
+        ? response.records.filter((r) => taskRecordIds.includes(r.ID))
+        : response.records;
+
+      editRecords.value = editableRecords.map((r) => {
+        const decision = screenDecisionFromRecord(r);
         return {
           id: r.ID,
           title: r.title || '',
           author: r.author || '',
           year: r.year || '',
-          originalDecision: isIncluded ? 'include' : 'exclude',
-          newDecision: isIncluded ? 'include' : 'exclude',
+          originalDecision: decision,
+          newDecision: decision,
         } as EditRecord;
       });
     }

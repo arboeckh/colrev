@@ -54,6 +54,11 @@ export interface GitHubClient {
     invitationId: number,
   ): Promise<{ success: boolean; error?: string }>;
 
+  declineRepoInvitation(
+    token: string,
+    invitationId: number,
+  ): Promise<{ success: boolean; error?: string }>;
+
   createRepoAndPush(params: {
     token: string;
     repoName: string;

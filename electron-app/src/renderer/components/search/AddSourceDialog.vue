@@ -363,7 +363,7 @@ function handleCancel() {
             </div>
           </section>
 
-          <section>
+          <section v-if="ENABLED_UPLOAD_CONNECTORS.length">
             <h3 class="mb-3 text-sm font-semibold tracking-tight text-foreground">
               Manual upload
             </h3>

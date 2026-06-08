@@ -44,9 +44,31 @@ const activeTask = computed(
 );
 const displayTask = computed(() => activeTask.value ?? tasks.value[0] ?? null);
 const isOnDev = computed(() => git.currentBranch === 'dev');
-const canStartReconciliation = computed(() => {
+const allReviewersFinished = computed(
+  () => displayTask.value?.reviewer_progress.every((r) => r.pending_count === 0) ?? false,
+);
+const showReconcileButton = computed(() => {
   if (!displayTask.value || !isOnDev.value) return false;
   return displayTask.value.state !== 'completed' && displayTask.value.state !== 'aborted';
+});
+const canStartReconciliation = computed(
+  () => showReconcileButton.value && allReviewersFinished.value,
+);
+const reconcileBlockedReason = computed(() => {
+  if (!showReconcileButton.value || allReviewersFinished.value || !displayTask.value) {
+    return null;
+  }
+  const incomplete = displayTask.value.reviewer_progress.filter((r) => r.pending_count > 0);
+  if (incomplete.length === 0) return null;
+  if (incomplete.length === 1) {
+    const reviewer = incomplete[0];
+    const pending = reviewer.pending_count;
+    return `${reviewer.github_login} has ${pending} record${pending === 1 ? '' : 's'} left to review.`;
+  }
+  const parts = incomplete.map(
+    (r) => `${r.github_login} (${r.pending_count} left)`,
+  );
+  return `Both reviewers must finish first: ${parts.join(', ')}.`;
 });
 
 function prettyDate(value?: string | null) {
@@ -88,6 +110,13 @@ async function switchToDev() {
 function startReconciliation() {
   if (!canStartReconciliation.value) return;
   showWalkthrough.value = true;
+}
+
+async function tryAutoStart() {
+  await refreshData();
+  if (canStartReconciliation.value) {
+    startReconciliation();
+  }
 }
 
 function onWalkthroughClose() {
@@ -137,7 +166,7 @@ onMounted(async () => {
   await refreshData();
 });
 
-defineExpose({ refreshData });
+defineExpose({ refreshData, tryAutoStart });
 </script>
 
 <template>
@@ -210,35 +239,45 @@ defineExpose({ refreshData });
         </Button>
       </div>
 
-      <div v-if="!showWalkthrough" class="flex items-center gap-2 shrink-0">
-        <Button
-          v-if="canStartReconciliation"
-          size="sm"
-          data-testid="reconcile-start-btn"
-          @click="startReconciliation"
+      <div v-if="!showWalkthrough" class="flex flex-col gap-1.5 shrink-0">
+        <div class="flex items-center gap-2">
+          <Button
+            v-if="showReconcileButton"
+            size="sm"
+            :disabled="!canStartReconciliation"
+            data-testid="reconcile-start-btn"
+            @click="startReconciliation"
+          >
+            Start Reconciliation
+          </Button>
+          <Button
+            v-if="displayTask.state === 'completed'"
+            variant="outline"
+            size="sm"
+            :disabled="isExporting"
+            @click="exportAudit('csv')"
+          >
+            <Download class="h-3.5 w-3.5" />
+            Export CSV
+          </Button>
+          <Button
+            v-if="displayTask.state === 'completed'"
+            variant="outline"
+            size="sm"
+            :disabled="isExporting"
+            @click="exportAudit('json')"
+          >
+            <Download class="h-3.5 w-3.5" />
+            Export JSON
+          </Button>
+        </div>
+        <p
+          v-if="reconcileBlockedReason"
+          class="text-xs text-muted-foreground"
+          data-testid="reconcile-blocked-reason"
         >
-          Start Reconciliation
-        </Button>
-        <Button
-          v-if="displayTask.state === 'completed'"
-          variant="outline"
-          size="sm"
-          :disabled="isExporting"
-          @click="exportAudit('csv')"
-        >
-          <Download class="h-3.5 w-3.5" />
-          Export CSV
-        </Button>
-        <Button
-          v-if="displayTask.state === 'completed'"
-          variant="outline"
-          size="sm"
-          :disabled="isExporting"
-          @click="exportAudit('json')"
-        >
-          <Download class="h-3.5 w-3.5" />
-          Export JSON
-        </Button>
+          {{ reconcileBlockedReason }}
+        </p>
       </div>
 
       <template v-if="showWalkthrough">

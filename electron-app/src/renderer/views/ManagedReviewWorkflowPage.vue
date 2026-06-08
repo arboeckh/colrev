@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { Check } from 'lucide-vue-next';
 import { ManagedReviewLaunchPanel, ManagedReviewReconcilePanel } from '@/components/managed-review';
@@ -8,6 +8,7 @@ import ScreenPage from '@/views/ScreenPage.vue';
 import StepPageShell from '@/components/layout/StepPageShell.vue';
 import PrescreenPageHelp from '@/views/PrescreenPageHelp.vue';
 import ScreenPageHelp from '@/views/ScreenPageHelp.vue';
+import { useReconcileGate } from '@/composables/useReconcileGate';
 import { useManagedReviewStore } from '@/stores/managedReview';
 import { useGitStore } from '@/stores/git';
 import { useAuthStore } from '@/stores/auth';
@@ -22,6 +23,7 @@ const git = useGitStore();
 const auth = useAuthStore();
 const projects = useProjectsStore();
 const backend = useBackendStore();
+const { canNavigateToReconcile } = useReconcileGate();
 
 const kind = computed<'prescreen' | 'screen'>(() =>
   route.meta.managedReviewKind === 'screen' ? 'screen' : 'prescreen',
@@ -110,11 +112,15 @@ function canNavigateToPhase(phaseId: Phase): boolean {
 
   if (phaseId === 'launch') return true;
   if (phaseId === 'review') return !!(task || completed);
-  if (phaseId === 'reconcile') return !!(task || completed);
+  if (phaseId === 'reconcile') {
+    if (completed) return true;
+    return !!task && canNavigateToReconcile.value;
+  }
   return false;
 }
 
 const isSwitchingPhase = ref(false);
+const reconcilePanelRef = ref<InstanceType<typeof ManagedReviewReconcilePanel> | null>(null);
 
 async function selectPhase(phaseId: Phase) {
   if (!canNavigateToPhase(phaseId)) return;
@@ -138,6 +144,13 @@ function onTaskCreated() {
   // After task creation, refresh managed review and auto-advance
   managedReview.refresh();
   userOverridePhase.value = null; // Let autoPhase take over
+}
+
+async function onNavigateReconcile() {
+  if (!canNavigateToReconcile.value) return;
+  await selectPhase('reconcile');
+  await nextTick();
+  await reconcilePanelRef.value?.tryAutoStart();
 }
 
 onMounted(async () => {
@@ -209,11 +222,20 @@ onMounted(async () => {
         @navigate-review="selectPhase('review')"
       />
       <template v-else-if="currentPhase === 'review'">
-        <PrescreenPage v-if="kind === 'prescreen'" embedded />
-        <ScreenPage v-else embedded />
+        <PrescreenPage
+          v-if="kind === 'prescreen'"
+          embedded
+          @navigate-reconcile="onNavigateReconcile"
+        />
+        <ScreenPage
+          v-else
+          embedded
+          @navigate-reconcile="onNavigateReconcile"
+        />
       </template>
       <ManagedReviewReconcilePanel
         v-else-if="currentPhase === 'reconcile'"
+        ref="reconcilePanelRef"
         :kind="kind"
       />
     </div>

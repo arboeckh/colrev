@@ -74,6 +74,14 @@ export function computeStepStatus(
     return 'active';
   }
 
+  if (step.id === 'data') {
+    const synthesizedNow = counts?.rev_synthesized ?? 0;
+    const synthesizedEver = overall?.rev_synthesized ?? 0;
+    if (synthesizedNow > 0 || synthesizedEver > 0) {
+      return hasPriorPending ? 'pending' : 'complete';
+    }
+  }
+
   if (processedRecords > 0 || everProcessedRecords > 0) {
     return hasPriorPending ? 'pending' : 'complete';
   }

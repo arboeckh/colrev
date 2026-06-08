@@ -17,6 +17,7 @@ import {
   listPendingRepoInvitations,
   listRepoInvitations,
   acceptRepoInvitation,
+  declineRepoInvitation,
   createRepoAndPush,
   deleteGitHubRepo,
   parseOwnerRepo,
@@ -88,6 +89,13 @@ export class RealGitHubClient implements GitHubClient {
     invitationId: number,
   ): Promise<{ success: boolean; error?: string }> {
     return acceptRepoInvitation(token, invitationId);
+  }
+
+  async declineRepoInvitation(
+    token: string,
+    invitationId: number,
+  ): Promise<{ success: boolean; error?: string }> {
+    return declineRepoInvitation(token, invitationId);
   }
 
   async createRepoAndPush(params: {

@@ -59,6 +59,28 @@ function typeLabel(dt: string): string {
     default: return dt;
   }
 }
+
+function displayValue(fieldName: string): string {
+  const val = props.localValues[fieldName];
+  return val === 'TODO' ? '' : (val ?? '');
+}
+
+function updateIntegerField(fieldName: string, raw: string) {
+  const cleaned = raw.replace(/[^\d-]/g, '');
+  const normalized = cleaned.startsWith('-')
+    ? `-${cleaned.slice(1).replace(/-/g, '')}`
+    : cleaned.replace(/-/g, '');
+  emit('update-value', fieldName, normalized);
+}
+
+function updateDecimalField(fieldName: string, raw: string) {
+  const cleaned = raw.replace(/[^\d.-]/g, '');
+  const hasLeadingMinus = cleaned.startsWith('-');
+  const unsigned = hasLeadingMinus ? cleaned.slice(1) : cleaned;
+  const parts = unsigned.split('.');
+  const normalized = `${hasLeadingMinus ? '-' : ''}${parts[0] ?? ''}${parts.length > 1 ? `.${parts.slice(1).join('')}` : ''}`;
+  emit('update-value', fieldName, normalized);
+}
 </script>
 
 <template>
@@ -131,6 +153,11 @@ function typeLabel(dt: string): string {
           <label class="text-sm font-medium">
             {{ field.name }}
             <span
+              v-if="!field.optional"
+              class="text-destructive ml-0.5"
+              aria-hidden="true"
+            >*</span>
+            <span
               v-if="field.data_type !== 'str'"
               class="text-xs text-muted-foreground ml-1"
             >
@@ -157,14 +184,29 @@ function typeLabel(dt: string): string {
             @update:model-value="emit('update-value', field.name, String($event))"
           />
 
-          <!-- Number (int / double) -->
+          <!-- Integer -->
           <Input
-            v-else-if="field.data_type === 'int' || field.data_type === 'double'"
-            type="number"
-            :model-value="localValues[field.name] === 'TODO' ? '' : localValues[field.name]"
+            v-else-if="field.data_type === 'int'"
+            type="text"
+            inputmode="numeric"
+            pattern="[0-9-]*"
+            class="w-32 max-w-full [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            :model-value="displayValue(field.name)"
             :placeholder="field.explanation || field.name"
             :data-testid="`data-field-input-${field.name}`"
-            @update:model-value="emit('update-value', field.name, String($event))"
+            @update:model-value="updateIntegerField(field.name, String($event))"
+          />
+
+          <!-- Decimal -->
+          <Input
+            v-else-if="field.data_type === 'double'"
+            type="text"
+            inputmode="decimal"
+            class="w-32 max-w-full [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            :model-value="displayValue(field.name)"
+            :placeholder="field.explanation || field.name"
+            :data-testid="`data-field-input-${field.name}`"
+            @update:model-value="updateDecimalField(field.name, String($event))"
           />
 
           <!-- Single choice (radio buttons) -->

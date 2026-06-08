@@ -166,6 +166,9 @@ export interface GitHubAPI {
   acceptInvitation: (params: {
     invitationId: number;
   }) => Promise<{ success: boolean; error?: string }>;
+  declineInvitation: (params: {
+    invitationId: number;
+  }) => Promise<{ success: boolean; error?: string }>;
   createRelease: (params: {
     remoteUrl: string;
     tagName: string;

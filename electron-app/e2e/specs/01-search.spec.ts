@@ -19,7 +19,6 @@ import type { Page } from '@playwright/test';
 
 const CACHE_DIR = path.join(os.homedir(), '.cache', 'colrev-test-fixtures');
 const BACKEND_TIMEOUT = 45_000;
-const FIXTURE_CSV = path.join(__dirname, '../fixtures/data/openalex-minimal.csv');
 
 function createCache(): SnapshotCache {
   return new SnapshotCache({ cacheDir: CACHE_DIR, sourceRoots: SNAPSHOT_SOURCE_ROOTS });
@@ -55,7 +54,7 @@ const test = baseTest.extend({
 });
 
 test.describe('search', () => {
-  test('registers OpenAlex CSV upload and PubMed API source, runs both', async ({
+  test('registers OpenAlex API and PubMed API sources, runs both', async ({
     workspace,
     electronApp,
     window,
@@ -91,17 +90,22 @@ test.describe('search', () => {
     });
     await window.waitForSelector('[data-testid="add-source-card"]', { timeout: 30_000 });
 
-    // Phase 4: open Add Source dialog and pick OpenAlex
+    // Phase 4: open Add Source dialog and pick OpenAlex (API connector)
     await window.click('[data-testid="add-source-card"]');
-    await window.waitForSelector('[data-testid="db-tile-openalex"]', { timeout: 10_000 });
-    await window.click('[data-testid="db-tile-openalex"]');
+    await window.waitForSelector('[data-testid="db-tile-openalex-api"]', { timeout: 10_000 });
+    await window.click('[data-testid="db-tile-openalex-api"]');
 
-    // Phase 5: attach CSV + fill query, submit
-    await window.waitForSelector('[data-testid="file-input"]', { timeout: 10_000 });
-    await window.setInputFiles('[data-testid="file-input"]', FIXTURE_CSV);
+    // Phase 5: enter API key (the HTTP mock ignores the value), fill the
+    // Boolean query, submit. The key input only renders when no key is
+    // configured on the backend yet.
+    await window.waitForSelector('[data-testid="search-query-input"]', { timeout: 10_000 });
+    const apiKeyInput = window.locator('[data-testid="openalex-api-key-input"]');
+    if (await apiKeyInput.count()) {
+      await apiKeyInput.fill('test-openalex-key');
+    }
     await window.fill(
       '[data-testid="search-query-input"]',
-      'sotatercept pulmonary arterial hypertension',
+      '"sotatercept" AND "pulmonary arterial hypertension"',
     );
     await clickWhenEnabled(window, '[data-testid="submit-add-source"]', 10_000);
 
@@ -136,20 +140,24 @@ test.describe('search', () => {
 
     await workspace.markPhase(electronApp, 'pubmed-added');
 
-    // Phase 8: Run PubMed search only (per-source button). Run-all also
-    // re-runs OpenAlex DB import which hangs on the doubled-prefix path bug
-    // observed during slice 2 RED — out of scope here, file an issue.
+    // Phase 8: Run both API searches (per-source buttons). Both hit the
+    // requests-level HTTP mock, so no live network is used.
+    const waitForRecords = (sourceName: string) =>
+      window.waitForFunction(
+        (name) => {
+          const card = document.querySelector(`[data-testid="source-card-${name}"]`);
+          return card !== null && /(\d+)\s*records/.test(card.textContent ?? '')
+            && Number(((card.textContent ?? '').match(/(\d+)\s*records/) ?? [])[1] ?? 0) > 0;
+        },
+        sourceName,
+        { timeout: 60_000 },
+      );
+
+    await clickWhenEnabled(window, '[data-testid="run-search-open_alex"]', 10_000);
+    await waitForRecords('open_alex');
+
     await clickWhenEnabled(window, '[data-testid="run-search-pubmed"]', 10_000);
-    // Wait for the PubMed source card to show record_count > 0 (search
-    // completed and store refreshed).
-    await window.waitForFunction(
-      () => {
-        const card = document.querySelector('[data-testid="source-card-pubmed"]');
-        return card !== null && /(\d+)\s*records/.test(card.textContent ?? '')
-          && Number(((card.textContent ?? '').match(/(\d+)\s*records/) ?? [])[1] ?? 0) > 0;
-      },
-      { timeout: 60_000 },
-    );
+    await waitForRecords('pubmed');
 
     await workspace.markPhase(electronApp, 'searches-run');
 
@@ -159,23 +167,24 @@ test.describe('search', () => {
     const searchDir = path.join(aliceProjectPath, 'data', 'search');
     expect(fs.existsSync(searchDir)).toBe(true);
 
-    const historyPath = path.join(searchDir, 'openalex_search_history.json');
+    const historyPath = path.join(searchDir, 'open_alex_search_history.json');
     expect(fs.existsSync(historyPath), `missing ${historyPath}`).toBe(true);
     const history = JSON.parse(fs.readFileSync(historyPath, 'utf-8'));
     expect(history.platform).toBe('colrev.open_alex');
-    expect(history.search_type).toBe('DB');
+    expect(history.search_type).toBe('API');
     expect(history.search_string).toContain('sotatercept');
 
-    const bibPath = path.join(searchDir, 'openalex.bib');
+    const bibPath = path.join(searchDir, 'open_alex.bib');
     expect(fs.existsSync(bibPath), `missing ${bibPath}`).toBe(true);
     const bib = fs.readFileSync(bibPath, 'utf-8');
     // All 10 records present with titles (not empty @misc entries)
     expect(bib).toContain('title = {Phase 3 Trial');
     const doiLines = bib.match(/^\s*doi\s*=/gm) ?? [];
     expect(doiLines.length).toBe(10);
-    // Cross-source overlap DOIs are preserved (OpenAlex stores DOIs lowercase)
-    expect(bib).toContain('10.1056/nejmoa2213558');
-    expect(bib).toContain('10.1183/13993003.01347-2022');
+    // Cross-source overlap DOIs are preserved (the API parser uppercases DOIs,
+    // so compare case-insensitively).
+    expect(bib.toLowerCase()).toContain('10.1056/nejmoa2213558');
+    expect(bib.toLowerCase()).toContain('10.1183/13993003.01347-2022');
 
     // PubMed assertions — fixture has 5 PMIDs
     const pubmedHistory = path.join(searchDir, 'pubmed_search_history.json');

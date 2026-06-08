@@ -330,6 +330,17 @@ export const useGitStore = defineStore('git', () => {
         await projects.loadProject(projects.currentProjectId);
       }
 
+      // Sync git store + pending-changes from the new branch. refreshStatus()
+      // before checkout still reflects the old branch and causes UI flicker
+      // (e.g. unsaved-hint on prescreen/screen) until something refreshes again.
+      await refreshStatus();
+      try {
+        const { usePendingChangesStore } = await import('./pendingChanges');
+        await usePendingChangesStore().refresh();
+      } catch {
+        // Pending refresh is best-effort; branch switch still succeeded.
+      }
+
       await refreshBranches();
       refreshBranchDelta(); // Fire and forget
       return true;

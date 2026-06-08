@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, type Ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { Users, AlertTriangle, CheckCircle2, RefreshCw, Loader2, UserPlus } from 'lucide-vue-next';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -14,6 +14,7 @@ import { useNotificationsStore } from '@/stores/notifications';
 import { useAuthStore } from '@/stores/auth';
 import { useGitStore } from '@/stores/git';
 import { useReadOnly } from '@/composables/useReadOnly';
+import { mapReadinessIssues, type MappedIssue } from '@/components/managed-review/launch-readiness';
 import type {
   CreateManagedReviewTaskResponse,
   GetCurrentManagedReviewTaskResponse,
@@ -56,65 +57,17 @@ const activeTask = computed(() => tasks.value.find((task) => ['active', 'reconci
 const displayTask = computed(() => activeTask.value ?? tasks.value[0] ?? null);
 const remoteUrl = computed(() => projects.currentGitStatus?.remote_url ?? null);
 
-// Map backend issue strings to user-friendly messages with optional actions
-interface MappedIssue {
-  message: string;
-  action?: { label: string; handler: () => Promise<void>; isRunning: Ref<boolean> };
-}
-
 const isResolvingIssue = ref(false);
-
-function mapIssue(raw: string): MappedIssue | null {
-  if (raw.includes('fully synced')) {
-    return {
-      message: 'You have unsaved changes. Sync them before starting.',
-      action: {
-        label: 'Sync now',
-        isRunning: isResolvingIssue,
-        handler: async () => {
-          isResolvingIssue.value = true;
-          try {
-            if (git.ahead > 0) await git.push();
-            if (git.behind > 0) await git.pull();
-            await refreshData();
-          } finally {
-            isResolvingIssue.value = false;
-          }
-        },
-      },
-    };
-  }
-  if (raw.includes('clean before')) {
-    return { message: 'You have uncommitted changes. Save your work first.' };
-  }
-  if (raw.includes('already covers')) {
-    return null;
-  }
-  if (raw.includes('only available from the dev')) {
-    return null;
-  }
-  if (raw.includes('No records are ready')) {
-    return { message: 'There are no records ready for review yet. Complete the earlier steps first.' };
-  }
-  if (raw.includes('track a remote branch')) {
-    return { message: "This project isn't connected to a remote yet. Push your changes first." };
-  }
-  if (raw.includes('remote repository is required')) {
-    return { message: 'A remote repository (e.g. GitHub) is required for collaborative review.' };
-  }
-  if (raw.includes('Finish PDF retrieval')) {
-    return { message: 'Complete PDF retrieval and preparation before starting the screen review.' };
-  }
-  if (raw.includes('Resolve or abort')) {
-    return { message: 'There is a merge conflict that needs to be resolved first.' };
-  }
-  // Fallback: return as-is
-  return { message: raw };
-}
 
 const mappedIssues = computed<MappedIssue[]>(() => {
   if (!readiness.value?.issues?.length) return [];
-  return readiness.value.issues.map(mapIssue).filter((issue): issue is MappedIssue => issue !== null);
+  return mapReadinessIssues(readiness.value.issues, {
+    isResolvingIssue,
+    git,
+    projects,
+    notifications,
+    refreshData,
+  });
 });
 
 function collaboratorAvatar(login: string): string | null {

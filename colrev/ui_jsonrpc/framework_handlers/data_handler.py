@@ -429,8 +429,6 @@ class DataHandler(BaseHandler):
         for i, field in enumerate(req.fields):
             if not field.name:
                 raise ValueError(f"Field {i} must have a non-empty name")
-            if not field.explanation:
-                raise ValueError(f"Field {i} must have a non-empty explanation")
             if field.data_type not in valid_types:
                 raise ValueError(
                     f"Field {i} data_type must be one of {valid_types}"

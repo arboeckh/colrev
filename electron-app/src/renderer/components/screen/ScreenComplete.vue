@@ -1,26 +1,33 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { Check, X, Pencil, CircleCheck } from 'lucide-vue-next';
+import { Check, X, Pencil, CircleCheck, ArrowRight } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { useReconcileGate } from '@/composables/useReconcileGate';
 import { useGitStore } from '@/stores/git';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
 
-defineProps<{
+const props = defineProps<{
   includedCount: number;
   excludedCount: number;
   readOnly?: boolean;
+  showReconcileCta?: boolean;
+  reconcileReady?: boolean;
 }>();
 
 const emit = defineEmits<{
   editDecisions: [];
+  navigateReconcile: [];
 }>();
 
 const git = useGitStore();
 const pending = usePendingChangesStore();
+const reconcileReady = computed(() => props.reconcileReady ?? true);
+const { canNavigateToReconcile } = useReconcileGate({ ready: reconcileReady });
 
 const isSavingToRemote = ref(false);
 const hasUnsavedWork = computed(() => git.ahead > 0 || pending.hasPending);
+const showReconcileButton = computed(() => props.showReconcileCta && canNavigateToReconcile.value);
 
 async function saveToRemote() {
   if (isSavingToRemote.value) return;
@@ -95,26 +102,38 @@ async function saveToRemote() {
       collaborators can see your work.
     </p>
 
-    <div class="flex items-center gap-3 mt-6">
+    <div class="flex flex-col items-center gap-3 mt-6">
       <Button
-        v-if="git.hasRemote && hasUnsavedWork"
-        size="sm"
-        :disabled="isSavingToRemote"
-        data-testid="screen-save-to-remote"
-        @click="saveToRemote"
+        v-if="showReconcileButton"
+        size="lg"
+        class="min-w-56"
+        data-testid="screen-continue-reconcile-btn"
+        @click="emit('navigateReconcile')"
       >
-        {{ isSavingToRemote ? 'Saving...' : 'Save to remote' }}
+        Continue to Reconciliation
+        <ArrowRight class="h-4 w-4 ml-1.5" />
       </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        data-testid="screen-edit-decisions-btn"
-        :disabled="readOnly"
-        @click="emit('editDecisions')"
-      >
-        <Pencil class="h-4 w-4 mr-1.5" />
-        Edit Decisions
-      </Button>
+      <div class="flex items-center gap-3">
+        <Button
+          v-if="git.hasRemote && hasUnsavedWork"
+          size="sm"
+          :disabled="isSavingToRemote"
+          data-testid="screen-save-to-remote"
+          @click="saveToRemote"
+        >
+          {{ isSavingToRemote ? 'Saving...' : 'Save to remote' }}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          data-testid="screen-edit-decisions-btn"
+          :disabled="readOnly"
+          @click="emit('editDecisions')"
+        >
+          <Pencil class="h-4 w-4 mr-1.5" />
+          Edit Decisions
+        </Button>
+      </div>
     </div>
   </div>
 </template>

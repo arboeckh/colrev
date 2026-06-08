@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-vue-next';
+import { AlertTriangle, CheckCircle2, Loader2, Users } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/auth';
 import { useBackendStore } from '@/stores/backend';
@@ -348,14 +348,14 @@ watch(
       </Button>
     </div>
 
-    <!-- Pending guard -->
+    <!-- Pending guard (shouldn't normally show — button is disabled upstream) -->
     <div
       v-else-if="pendingItems.length > 0"
       class="flex-1 flex flex-col items-center justify-center max-w-xl mx-auto text-center gap-4"
       data-testid="reconcile-pending"
     >
       <div class="rounded-full bg-muted p-3">
-        <Loader2 class="h-6 w-6 text-muted-foreground" />
+        <Users class="h-6 w-6 text-muted-foreground" />
       </div>
       <div class="space-y-1">
         <h3 class="text-lg font-medium">Waiting on reviewers</h3>
@@ -364,6 +364,9 @@ watch(
           {{ pendingItems.length }} record{{ pendingItems.length === 1 ? '' : 's' }} still pending.
         </p>
       </div>
+      <Button variant="ghost" size="sm" @click="emit('close')">
+        Back
+      </Button>
     </div>
 
     <!-- No conflicts: can apply directly -->
@@ -416,6 +419,17 @@ watch(
           @seek="goTo"
         />
 
+        <ReconcileApplyBar
+          v-if="allDecided"
+          :decided-count="stagedCount"
+          :total-conflicts="conflictItems.length"
+          :can-apply="true"
+          :is-applying="isApplying"
+          :override-block-count="overridableBlockedItems.length"
+          @apply="onApplyClicked"
+          @cancel="emit('close')"
+        />
+
         <div class="flex-1 min-h-0 flex flex-col">
           <RecordCard
             v-if="currentRecord"
@@ -430,6 +444,7 @@ watch(
         </div>
 
         <ReconcileDecisionButtons
+          v-if="!allDecided"
           :decision="currentStagedDecision"
           :reviewers="currentItem.reviewers"
           :kind="kind"
@@ -442,10 +457,11 @@ watch(
       </div>
 
       <ReconcileApplyBar
-        class="mt-4"
+        v-if="!allDecided"
+        class="mt-4 shrink-0"
         :decided-count="stagedCount"
         :total-conflicts="conflictItems.length"
-        :can-apply="allDecided"
+        :can-apply="false"
         :is-applying="isApplying"
         :override-block-count="overridableBlockedItems.length"
         @apply="onApplyClicked"

@@ -1,6 +1,7 @@
 export { default as PdfViewerPanel } from './PdfViewerPanel.vue';
 export { default as ScreenSplitPanel } from './ScreenSplitPanel.vue';
 export { default as ScreenCriteriaChecklist } from './ScreenCriteriaChecklist.vue';
+export { default as ScreenCriteriaDecisionButtons } from './ScreenCriteriaDecisionButtons.vue';
 export { default as ScreenRecordPanel } from './ScreenRecordPanel.vue';
 export { default as ScreenProgressBar } from './ScreenProgressBar.vue';
 export { default as ScreenEditMode } from './ScreenEditMode.vue';

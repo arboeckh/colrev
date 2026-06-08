@@ -70,7 +70,10 @@ function openGitHub() {
     <Card class="w-full max-w-xs">
       <CardHeader class="text-center">
         <CardTitle class="text-2xl font-bold">CoLRev</CardTitle>
-        <CardDescription>Collaborative Literature Reviews</CardDescription>
+        <CardDescription>
+          Collaborative Literature Reviews
+          <span class="block mt-1">A GitHub account is required to use CoLRev.</span>
+        </CardDescription>
       </CardHeader>
 
       <CardContent class="space-y-6">
@@ -143,26 +146,10 @@ function openGitHub() {
 
         <!-- Initial state -->
         <template v-else>
-          <div class="space-y-3">
-            <Button class="w-full" data-testid="login-github-button" @click="auth.login()">
-              <Github class="h-4 w-4 mr-2" />
-              Sign in with GitHub
-            </Button>
-
-            <div class="relative">
-              <div class="absolute inset-0 flex items-center">
-                <span class="w-full border-t" />
-              </div>
-              <div class="relative flex justify-center text-xs uppercase">
-                <span class="bg-card px-2 text-muted-foreground">or</span>
-              </div>
-            </div>
-
-            <Button variant="ghost" class="w-full text-muted-foreground" data-testid="continue-without-login"
-              @click="auth.continueWithoutLogin()">
-              Continue without login
-            </Button>
-          </div>
+          <Button class="w-full" data-testid="login-github-button" @click="auth.login()">
+            <Github class="h-4 w-4 mr-2" />
+            Sign in with GitHub
+          </Button>
         </template>
       </CardContent>
     </Card>

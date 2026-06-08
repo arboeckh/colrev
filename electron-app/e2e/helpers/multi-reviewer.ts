@@ -294,15 +294,16 @@ export function screenDecide(
   buttonTimeout = 60_000,
 ): DecideAllRecordsOptions['decide'] {
   return async (window, decision) => {
-    const target = decision === 'include' ? criteria.inclusionName : criteria.exclusionName;
-    // Wait until the criteria checklist for this record is visible.
-    await window.waitForSelector(
-      `[data-testid="criterion-check-${target}"]`,
-      { timeout: buttonTimeout },
-    );
-    await window.click(`[data-testid="criterion-check-${target}"]`);
-    await clickWhenEnabled(
-      window, '[data-testid="screen-btn-submit-criteria"]', buttonTimeout,
-    );
+    if (decision === 'include') {
+      await window.waitForSelector(
+        `[data-testid="criterion-check-${criteria.inclusionName}"]`,
+        { timeout: buttonTimeout },
+      );
+      await window.click(`[data-testid="criterion-check-${criteria.inclusionName}"]`);
+    }
+    const buttonTestId = decision === 'include'
+      ? '[data-testid="screen-btn-include"]'
+      : '[data-testid="screen-btn-exclude"]';
+    await clickWhenEnabled(window, buttonTestId, buttonTimeout);
   };
 }

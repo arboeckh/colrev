@@ -733,6 +733,19 @@ function setupIPC() {
     }
   });
 
+  ipcMain.handle('github:decline-invitation', async (_, params: { invitationId: number }) => {
+    const token = authManager.getToken();
+    if (!token) return { success: false, error: 'Not authenticated' };
+    try {
+      return await gh.declineRepoInvitation(token, params.invitationId);
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to decline invitation',
+      };
+    }
+  });
+
   // GitHub: delete a repository
   ipcMain.handle('github:delete-repo', async (_, params: { remoteUrl: string }) => {
     const token = authManager.getToken();

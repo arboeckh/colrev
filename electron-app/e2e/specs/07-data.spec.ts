@@ -205,7 +205,10 @@ test.describe('data', () => {
       }
       const f = FIELDS[i];
       await window.fill(`[data-testid="data-field-name-${i}"]`, f.name);
-      await window.selectOption(`[data-testid="data-field-type-${i}"]`, f.data_type);
+      if (f.data_type !== 'str') {
+        await window.click(`[data-testid="data-field-type-${i}"]`);
+        await window.click(`[data-testid="data-field-type-option-${i}-${f.data_type}"]`);
+      }
       await window.fill(`[data-testid="data-field-explanation-${i}"]`, f.explanation);
     }
 

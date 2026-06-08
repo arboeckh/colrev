@@ -164,6 +164,18 @@ export class FakeGitHubClient implements GitHubClient {
     }
   }
 
+  async declineRepoInvitation(
+    token: string,
+    invitationId: number,
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      this.registry.declineInvitation(invitationId);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+    }
+  }
+
   async createRepoAndPush(params: {
     token: string;
     repoName: string;

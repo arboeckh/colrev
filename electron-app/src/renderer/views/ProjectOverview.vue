@@ -12,7 +12,6 @@ import {
   HelpCircle,
   UserPlus,
   User,
-  Lock,
   ArrowRight,
 } from 'lucide-vue-next';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -37,6 +36,7 @@ import {
 } from '@/components/ui/dialog';
 import StepPageShell from '@/components/layout/StepPageShell.vue';
 import CollaboratorInviteForm from '@/components/common/CollaboratorInviteForm.vue';
+import RepoVisibilityToggle from '@/components/common/RepoVisibilityToggle.vue';
 import OverviewPageHelp from './OverviewPageHelp.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
@@ -345,7 +345,7 @@ const newRecordFunnel = computed(() => {
                 <Button
                   variant="outline"
                   size="sm"
-                  class="w-full gap-1.5"
+                  class="w-fit gap-1.5"
                   :disabled="isPublishing || !connection.isOnline"
                   :title="connection.isOnline ? undefined : offlineTooltip"
                   data-testid="publish-version"
@@ -684,20 +684,11 @@ const newRecordFunnel = computed(() => {
                   data-testid="push-repo-name-input"
                 />
               </div>
-              <div class="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="text-xs h-7 px-2"
-                  :disabled="isPushing"
-                  data-testid="push-toggle-visibility"
-                  @click="isPushPrivate = !isPushPrivate"
-                >
-                  <Lock v-if="isPushPrivate" class="h-3.5 w-3.5 mr-1" />
-                  <Globe v-else class="h-3.5 w-3.5 mr-1" />
-                  {{ isPushPrivate ? 'Private' : 'Public' }}
-                </Button>
-              </div>
+              <RepoVisibilityToggle
+                v-model="isPushPrivate"
+                :disabled="isPushing"
+                test-id="push-toggle-visibility"
+              />
             </div>
             <DialogFooter>
               <Button variant="outline" :disabled="isPushing" @click="showPushDialog = false">

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { Plus, FolderOpen, Loader2, RefreshCw, FolderKanban, Settings, Github, Globe, Lock, Download, Mail, Check } from 'lucide-vue-next';
+import { Plus, Loader2, RefreshCw, FolderKanban, Settings, Github, Globe, Lock, Download, Mail, Check, X } from 'lucide-vue-next';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import type { RepoInvitation } from '@/types/window';
 import { Button } from '@/components/ui/button';
@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { ProjectsTable } from '@/components/project';
-import { EmptyState, ThemeToggle, UserMenu } from '@/components/common';
+import { EmptyState, RepoVisibilityToggle, ThemeToggle, UserMenu } from '@/components/common';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
@@ -42,7 +42,7 @@ const offlineTooltip = 'Requires internet';
 const showNewProjectDialog = ref(false);
 const newProjectName = ref('');
 const isCreatingProject = ref(false);
-const createOnGitHub = ref(auth.isAuthenticated);
+const createOnGitHub = ref(true);
 const isPrivateRepo = ref(true);
 const isPushingToGitHub = ref(false);
 
@@ -61,6 +61,7 @@ const generatedSlug = computed(() => {
 // Pending invitations
 const invitations = ref<RepoInvitation[]>([]);
 const acceptingInvitationId = ref<number | null>(null);
+const decliningInvitationId = ref<number | null>(null);
 
 async function loadInvitations() {
   if (!auth.isAuthenticated) return;
@@ -107,6 +108,23 @@ async function acceptInvitation(inv: RepoInvitation) {
     notifications.error('Failed to accept', err instanceof Error ? err.message : 'Unknown error');
   } finally {
     acceptingInvitationId.value = null;
+  }
+}
+
+async function declineInvitation(inv: RepoInvitation) {
+  decliningInvitationId.value = inv.id;
+  try {
+    const result = await window.github.declineInvitation({ invitationId: inv.id });
+    if (result.success) {
+      invitations.value = invitations.value.filter((i) => i.id !== inv.id);
+      notifications.success('Invitation declined', `You declined the invitation to ${inv.repoFullName}`);
+    } else {
+      notifications.error('Failed to decline', result.error || 'Unknown error');
+    }
+  } catch (err) {
+    notifications.error('Failed to decline', err instanceof Error ? err.message : 'Unknown error');
+  } finally {
+    decliningInvitationId.value = null;
   }
 }
 
@@ -204,7 +222,7 @@ async function createProject() {
       // Reset dialog
       showNewProjectDialog.value = false;
       newProjectName.value = '';
-      createOnGitHub.value = false;
+      createOnGitHub.value = true;
 
       // Navigate to the new project
       router.push({ name: 'project-overview', params: { id: result.project_id } });
@@ -327,48 +345,13 @@ loadInvitations();
                     </p>
                   </div>
 
-                  <!-- GitHub toggle (only when authenticated) -->
-                  <div v-if="auth.isAuthenticated" class="space-y-3">
-                    <label class="text-sm font-medium">Repository</label>
-                    <div class="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        :class="{ 'ring-2 ring-primary': !createOnGitHub }"
-                        :disabled="isCreatingProject"
-                        data-testid="toggle-local-only"
-                        @click="createOnGitHub = false"
-                      >
-                        <FolderOpen class="h-4 w-4 mr-1.5" />
-                        Local only
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        :class="{ 'ring-2 ring-primary': createOnGitHub }"
-                        :disabled="isCreatingProject || !connection.isOnline"
-                        :title="connection.isOnline ? undefined : offlineTooltip"
-                        data-testid="toggle-create-on-github"
-                        @click="createOnGitHub = true"
-                      >
-                        <Github class="h-4 w-4 mr-1.5" />
-                        Create on GitHub
-                      </Button>
-                    </div>
-                    <div v-if="createOnGitHub" class="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        class="text-xs h-7 px-2"
-                        :disabled="isCreatingProject"
-                        data-testid="toggle-repo-visibility"
-                        @click="isPrivateRepo = !isPrivateRepo"
-                      >
-                        <Lock v-if="isPrivateRepo" class="h-3.5 w-3.5 mr-1" />
-                        <Globe v-else class="h-3.5 w-3.5 mr-1" />
-                        {{ isPrivateRepo ? 'Private' : 'Public' }}
-                      </Button>
-                    </div>
+                  <div class="flex flex-col gap-2">
+                    <label class="text-sm font-medium">GitHub Repository</label>
+                    <RepoVisibilityToggle
+                      v-model="isPrivateRepo"
+                      :disabled="isCreatingProject"
+                      test-id="toggle-repo-visibility"
+                    />
                   </div>
                 </div>
 
@@ -382,8 +365,8 @@ loadInvitations();
                     Cancel
                   </Button>
                   <Button
-                    :disabled="isCreatingProject || !generatedSlug || (createOnGitHub && !connection.isOnline)"
-                    :title="(createOnGitHub && !connection.isOnline) ? offlineTooltip : undefined"
+                    :disabled="isCreatingProject || !generatedSlug || !connection.isOnline"
+                    :title="!connection.isOnline ? offlineTooltip : undefined"
                     data-testid="submit-create-project"
                     @click="createProject"
                   >
@@ -449,18 +432,33 @@ loadInvitations();
                   <div class="text-xs text-muted-foreground">Invited by {{ inv.inviter }}</div>
                 </div>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                class="shrink-0 gap-1.5 h-7 text-xs"
-                :disabled="acceptingInvitationId === inv.id || !connection.isOnline"
-                :title="connection.isOnline ? undefined : offlineTooltip"
-                @click="acceptInvitation(inv)"
-              >
-                <Check v-if="acceptingInvitationId !== inv.id" class="h-3 w-3" />
-                <Loader2 v-else class="h-3 w-3 animate-spin" />
-                {{ acceptingInvitationId === inv.id ? 'Accepting...' : 'Accept' }}
-              </Button>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  class="gap-1.5 h-7 text-xs"
+                  :disabled="acceptingInvitationId === inv.id || decliningInvitationId === inv.id || !connection.isOnline"
+                  :title="connection.isOnline ? undefined : offlineTooltip"
+                  @click="acceptInvitation(inv)"
+                >
+                  <Check v-if="acceptingInvitationId !== inv.id" class="h-3 w-3" />
+                  <Loader2 v-else class="h-3 w-3 animate-spin" />
+                  {{ acceptingInvitationId === inv.id ? 'Accepting...' : 'Accept' }}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  class="gap-1.5 h-7 text-xs text-muted-foreground hover:text-destructive"
+                  :disabled="acceptingInvitationId === inv.id || decliningInvitationId === inv.id || !connection.isOnline"
+                  :title="connection.isOnline ? undefined : offlineTooltip"
+                  data-testid="decline-invitation"
+                  @click="declineInvitation(inv)"
+                >
+                  <X v-if="decliningInvitationId !== inv.id" class="h-3 w-3" />
+                  <Loader2 v-else class="h-3 w-3 animate-spin" />
+                  {{ decliningInvitationId === inv.id ? 'Declining...' : 'Decline' }}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
