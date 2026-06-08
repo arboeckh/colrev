@@ -79,6 +79,51 @@ export class FakeGitHubClient implements GitHubClient {
     return { success: true, invited: true };
   }
 
+  async getInviteUserSuggestions(
+    token: string,
+    remoteUrl: string,
+    query: string,
+    excludeLogins: string[],
+  ): Promise<GitHubCollaborator[]> {
+    const parsed = this.parseOwnerRepo(remoteUrl);
+    if (!parsed) return [];
+
+    const exclude = new Set(excludeLogins.map((login) => login.toLowerCase()));
+    const currentFullName = `${parsed.owner}/${parsed.repo}`;
+    const trimmed = query.trim();
+    const data = this.registry.read();
+
+    if (trimmed.length >= 2) {
+      const q = trimmed.toLowerCase();
+      return data.accounts
+        .filter(
+          (account) =>
+            account.login.toLowerCase().includes(q) &&
+            !exclude.has(account.login.toLowerCase()),
+        )
+        .map((account) => ({
+          login: account.login,
+          name: account.name,
+          avatarUrl: account.avatarUrl,
+        }));
+    }
+
+    const suggestions = new Map<string, GitHubCollaborator>();
+    for (const collaborator of data.collaborators) {
+      if (collaborator.repoFullName === currentFullName) continue;
+      const key = collaborator.login.toLowerCase();
+      if (exclude.has(key) || suggestions.has(key)) continue;
+      const account = this.registry.getAccountByLogin(collaborator.login);
+      suggestions.set(key, {
+        login: collaborator.login,
+        name: collaborator.name ?? account?.name ?? null,
+        avatarUrl: collaborator.avatarUrl || account?.avatarUrl || '',
+      });
+    }
+
+    return Array.from(suggestions.values()).slice(0, 15);
+  }
+
   async listPendingRepoInvitations(
     token: string,
     owner: string,

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ReviewerSelector } from '@/components/common';
+import CollaboratorInviteForm from '@/components/common/CollaboratorInviteForm.vue';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
@@ -44,6 +45,8 @@ const reviewerB = ref('');
 const showInviteForm = ref(false);
 const inviteUsername = ref('');
 const isInviting = ref(false);
+
+const excludeInviteLogins = computed(() => collaborators.value.map((collab) => collab.login));
 
 const kind = computed<'prescreen' | 'screen'>(() =>
   route.meta.step === 'screen_launch' ? 'screen' : 'prescreen',
@@ -374,32 +377,17 @@ onMounted(async () => {
           </Button>
         </div>
 
-        <!-- Invite collaborator inline form -->
-        <div v-if="showInviteForm" class="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 max-w-md">
-          <UserPlus class="h-4 w-4 text-muted-foreground shrink-0" />
-          <input
-            v-model="inviteUsername"
-            class="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
-            placeholder="GitHub username to invite..."
-            @keydown.enter="inviteCollaborator"
-          >
-          <Button
-            size="sm"
-            class="h-6 text-xs px-2"
-            :disabled="!inviteUsername || isInviting"
-            @click="inviteCollaborator"
-          >
-            {{ isInviting ? 'Sending...' : 'Send Invite' }}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            class="h-6 text-xs px-2"
-            @click="showInviteForm = false; inviteUsername = ''"
-          >
-            Cancel
-          </Button>
-        </div>
+        <CollaboratorInviteForm
+          v-if="showInviteForm"
+          v-model="inviteUsername"
+          :remote-url="remoteUrl!"
+          :exclude-logins="excludeInviteLogins"
+          :is-inviting="isInviting"
+          class="max-w-md"
+          placeholder="GitHub username to invite..."
+          @submit="inviteCollaborator"
+          @cancel="showInviteForm = false; inviteUsername = ''"
+        />
 
         <!-- Reviewer selection dropdowns -->
         <div class="grid gap-4 md:grid-cols-2 max-w-md">

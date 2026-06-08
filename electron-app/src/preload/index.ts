@@ -131,6 +131,8 @@ contextBridge.exposeInMainWorld('github', {
     ipcRenderer.invoke('github:list-collaborators', params),
   addCollaborator: (params: { remoteUrl: string; username: string; permission?: 'pull' | 'push' | 'admin' }) =>
     ipcRenderer.invoke('github:add-collaborator', params),
+  inviteUserSuggestions: (params: { remoteUrl: string; query: string; excludeLogins?: string[] }) =>
+    ipcRenderer.invoke('github:invite-user-suggestions', params),
   listPendingInvitations: (params: { remoteUrl: string }) =>
     ipcRenderer.invoke('github:list-pending-invitations', params),
   listInvitations: () =>

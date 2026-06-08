@@ -13,6 +13,7 @@ import {
   createGitHubRelease,
   listRepoCollaborators,
   addRepoCollaborator,
+  getInviteUserSuggestions,
   listPendingRepoInvitations,
   listRepoInvitations,
   acceptRepoInvitation,
@@ -59,6 +60,15 @@ export class RealGitHubClient implements GitHubClient {
     permission: 'pull' | 'push' | 'admin' = 'push',
   ): Promise<{ success: boolean; invited: boolean; error?: string }> {
     return addRepoCollaborator(token, owner, repo, username, permission);
+  }
+
+  async getInviteUserSuggestions(
+    token: string,
+    remoteUrl: string,
+    query: string,
+    excludeLogins: string[],
+  ): Promise<GitHubCollaborator[]> {
+    return getInviteUserSuggestions(token, remoteUrl, query, excludeLogins);
   }
 
   async listPendingRepoInvitations(

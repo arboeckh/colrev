@@ -219,6 +219,165 @@ export async function listRepoCollaborators(
  * Invite a collaborator to a GitHub repository.
  * Uses the PUT /repos/{owner}/{repo}/collaborators/{username} endpoint.
  */
+const SEARCH_MIN_QUERY_LENGTH = 2;
+const SUGGESTED_REPO_LIMIT = 15;
+const SUGGESTED_USER_LIMIT = 15;
+
+async function listOrgMembers(token: string, org: string): Promise<GitHubCollaborator[]> {
+  const members: GitHubCollaborator[] = [];
+  let page = 1;
+  const perPage = 100;
+
+  while (true) {
+    const res = await fetch(
+      `https://api.github.com/orgs/${org}/members?per_page=${perPage}&page=${page}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+      },
+    );
+
+    if (!res.ok) break;
+
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) break;
+
+    members.push(
+      ...data.map((member: { login: string; avatar_url?: string }) => ({
+        login: member.login,
+        name: null,
+        avatarUrl: member.avatar_url ?? '',
+      })),
+    );
+
+    if (data.length < perPage || members.length >= SUGGESTED_USER_LIMIT) break;
+    page += 1;
+  }
+
+  return members.slice(0, SUGGESTED_USER_LIMIT);
+}
+
+/**
+ * Search GitHub users by login prefix via the Search API.
+ */
+export async function searchGitHubUsers(
+  token: string,
+  query: string,
+  limit = 8,
+): Promise<GitHubCollaborator[]> {
+  const trimmed = query.trim();
+  if (trimmed.length < SEARCH_MIN_QUERY_LENGTH) return [];
+
+  const encoded = encodeURIComponent(`${trimmed} in:login type:user`);
+  const res = await fetch(
+    `https://api.github.com/search/users?q=${encoded}&per_page=${limit}`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    },
+  );
+
+  if (!res.ok) return [];
+
+  const data = await res.json();
+  if (!Array.isArray(data.items)) return [];
+
+  return data.items.map((user: { login: string; avatar_url?: string }) => ({
+    login: user.login,
+    name: null,
+    avatarUrl: user.avatar_url ?? '',
+  }));
+}
+
+/**
+ * Suggest collaborators from org membership and other repositories the user can access.
+ */
+export async function listSuggestedCollaborators(
+  token: string,
+  owner: string,
+  repo: string,
+  excludeLogins: string[],
+): Promise<GitHubCollaborator[]> {
+  const exclude = new Set(excludeLogins.map((login) => login.toLowerCase()));
+  const currentFullName = `${owner}/${repo}`;
+  const suggestions = new Map<string, GitHubCollaborator>();
+
+  const addSuggestion = (collaborator: GitHubCollaborator) => {
+    const key = collaborator.login.toLowerCase();
+    if (exclude.has(key) || suggestions.has(key)) return;
+    suggestions.set(key, collaborator);
+  };
+
+  try {
+    const ownerRes = await fetch(`https://api.github.com/users/${owner}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    });
+    if (ownerRes.ok) {
+      const ownerData = await ownerRes.json();
+      if (ownerData.type === 'Organization') {
+        for (const member of await listOrgMembers(token, owner)) {
+          addSuggestion(member);
+        }
+      }
+    }
+  } catch {
+    // Ignore org lookup failures and fall back to repo-based suggestions.
+  }
+
+  const repos = await listUserRepos(token);
+  const otherRepos = repos
+    .filter((entry) => entry.fullName !== currentFullName)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, SUGGESTED_REPO_LIMIT);
+
+  const chunkSize = 5;
+  for (let i = 0; i < otherRepos.length; i += chunkSize) {
+    const chunk = otherRepos.slice(i, i + chunkSize);
+    const results = await Promise.all(
+      chunk.map((entry) => listRepoCollaborators(token, entry.owner, entry.name)),
+    );
+    for (const collaborators of results) {
+      for (const collaborator of collaborators) {
+        addSuggestion(collaborator);
+        if (suggestions.size >= SUGGESTED_USER_LIMIT) {
+          return Array.from(suggestions.values()).slice(0, SUGGESTED_USER_LIMIT);
+        }
+      }
+    }
+  }
+
+  return Array.from(suggestions.values()).slice(0, SUGGESTED_USER_LIMIT);
+}
+
+/**
+ * Return invite suggestions: contextual picks when the query is short, Search API otherwise.
+ */
+export async function getInviteUserSuggestions(
+  token: string,
+  remoteUrl: string,
+  query: string,
+  excludeLogins: string[],
+): Promise<GitHubCollaborator[]> {
+  const parsed = parseOwnerRepo(remoteUrl);
+  if (!parsed) return [];
+
+  const trimmed = query.trim();
+  if (trimmed.length >= SEARCH_MIN_QUERY_LENGTH) {
+    const exclude = new Set(excludeLogins.map((login) => login.toLowerCase()));
+    const results = await searchGitHubUsers(token, trimmed);
+    return results.filter((user) => !exclude.has(user.login.toLowerCase()));
+  }
+
+  return listSuggestedCollaborators(token, parsed.owner, parsed.repo, excludeLogins);
+}
+
 export async function addRepoCollaborator(
   token: string,
   owner: string,

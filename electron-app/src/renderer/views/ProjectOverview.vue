@@ -36,6 +36,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import StepPageShell from '@/components/layout/StepPageShell.vue';
+import CollaboratorInviteForm from '@/components/common/CollaboratorInviteForm.vue';
 import OverviewPageHelp from './OverviewPageHelp.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
@@ -173,6 +174,11 @@ const isLoadingCollaborators = ref(false);
 const showInviteForm = ref(false);
 const inviteUsername = ref('');
 const isInviting = ref(false);
+
+const excludeInviteLogins = computed(() => [
+  ...collaborators.value.map((collab) => collab.login),
+  ...pendingInvitations.value.map((invitation) => invitation.inviteeLogin),
+]);
 
 async function loadCollaborators() {
   if (!remoteUrl.value || !isGitHubRemote.value) return;
@@ -446,33 +452,18 @@ const newRecordFunnel = computed(() => {
               </Button>
             </div>
 
-            <!-- Invite form -->
-            <div v-if="showInviteForm" class="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
-              <UserPlus class="h-4 w-4 text-muted-foreground shrink-0" />
-              <input
-                v-model="inviteUsername"
-                class="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
-                placeholder="GitHub username..."
-                @keydown.enter="inviteCollaborator"
-              >
-              <Button
-                size="sm"
-                class="h-6 text-xs px-2"
-                :disabled="!inviteUsername || isInviting || !connection.isOnline"
-                :title="connection.isOnline ? undefined : offlineTooltip"
-                @click="inviteCollaborator"
-              >
-                {{ isInviting ? 'Sending...' : 'Send' }}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                class="h-6 text-xs px-2"
-                @click="showInviteForm = false; inviteUsername = ''"
-              >
-                Cancel
-              </Button>
-            </div>
+            <CollaboratorInviteForm
+              v-if="showInviteForm"
+              v-model="inviteUsername"
+              :remote-url="remoteUrl!"
+              :exclude-logins="excludeInviteLogins"
+              :disabled="!connection.isOnline"
+              :is-inviting="isInviting"
+              send-label="Send"
+              placeholder="GitHub username..."
+              @submit="inviteCollaborator"
+              @cancel="showInviteForm = false; inviteUsername = ''"
+            />
 
             <!-- Collaborator list -->
             <div v-if="isLoadingCollaborators" class="flex items-center gap-2 text-xs text-muted-foreground py-2">

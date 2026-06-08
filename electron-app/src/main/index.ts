@@ -661,6 +661,33 @@ function setupIPC() {
     },
   );
 
+  ipcMain.handle(
+    'github:invite-user-suggestions',
+    async (
+      _,
+      params: { remoteUrl: string; query: string; excludeLogins?: string[] },
+    ) => {
+      const token = authManager.getToken();
+      if (!token) return { success: false, error: 'Not authenticated', suggestions: [] };
+      if (!params.remoteUrl) return { success: false, error: 'Missing remote URL', suggestions: [] };
+      try {
+        const suggestions = await gh.getInviteUserSuggestions(
+          token,
+          params.remoteUrl,
+          params.query,
+          params.excludeLogins ?? [],
+        );
+        return { success: true, suggestions };
+      } catch (err) {
+        return {
+          success: false,
+          suggestions: [],
+          error: err instanceof Error ? err.message : 'Failed to load suggestions',
+        };
+      }
+    },
+  );
+
   ipcMain.handle('github:list-pending-invitations', async (_, params: { remoteUrl: string }) => {
     const token = authManager.getToken();
     if (!token) return { success: false, error: 'Not authenticated', invitations: [] };

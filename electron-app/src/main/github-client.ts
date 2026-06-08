@@ -34,6 +34,13 @@ export interface GitHubClient {
     permission?: 'pull' | 'push' | 'admin',
   ): Promise<{ success: boolean; invited: boolean; error?: string }>;
 
+  getInviteUserSuggestions(
+    token: string,
+    remoteUrl: string,
+    query: string,
+    excludeLogins: string[],
+  ): Promise<GitHubCollaborator[]>;
+
   listPendingRepoInvitations(
     token: string,
     owner: string,

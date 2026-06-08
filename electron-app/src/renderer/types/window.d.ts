@@ -154,6 +154,11 @@ export interface GitHubAPI {
     username: string;
     permission?: 'pull' | 'push' | 'admin';
   }) => Promise<{ success: boolean; invited?: boolean; error?: string }>;
+  inviteUserSuggestions: (params: {
+    remoteUrl: string;
+    query: string;
+    excludeLogins?: string[];
+  }) => Promise<{ success: boolean; suggestions: GitHubCollaborator[]; error?: string }>;
   listPendingInvitations: (params: {
     remoteUrl: string;
   }) => Promise<{ success: boolean; invitations: PendingRepoInvitation[]; error?: string }>;

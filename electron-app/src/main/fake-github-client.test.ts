@@ -122,6 +122,26 @@ describe('FakeGitHubClient', () => {
       const collabs = await client.listRepoCollaborators('tok-alice', 'alice', 'lit-review');
       expect(collabs).toEqual([]);
     });
+
+    it('getInviteUserSuggestions searches accounts by login', async () => {
+      const results = await client.getInviteUserSuggestions(
+        'tok-alice',
+        'https://github.com/alice/lit-review.git',
+        'bo',
+        [],
+      );
+      expect(results.map((user) => user.login)).toContain('bob');
+    });
+
+    it('getInviteUserSuggestions excludes existing collaborators', async () => {
+      const results = await client.getInviteUserSuggestions(
+        'tok-alice',
+        'https://github.com/alice/lit-review.git',
+        'bo',
+        ['bob'],
+      );
+      expect(results.map((user) => user.login)).not.toContain('bob');
+    });
   });
 
   describe('invitation lifecycle', () => {
