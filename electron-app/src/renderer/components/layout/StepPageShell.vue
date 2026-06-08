@@ -119,7 +119,11 @@ function goNext() {
 
     <!-- Help sheet -->
     <Sheet v-model:open="isHelpOpen">
-      <SheetContent side="right" class="w-[520px] sm:max-w-[520px] overflow-y-auto">
+      <SheetContent
+        side="right"
+        overlay-class="bg-transparent"
+        class="w-[560px] sm:max-w-[560px] overflow-y-auto p-0 gap-0"
+      >
         <component :is="pageHelp" />
       </SheetContent>
     </Sheet>

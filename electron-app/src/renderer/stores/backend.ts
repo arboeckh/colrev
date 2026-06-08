@@ -104,9 +104,12 @@ export const useBackendStore = defineStore('backend', () => {
           operationTotal.value = total;
           operationDone.value = Math.min(current, total);
           operationProgress.value = Math.round((operationDone.value / total) * 100);
-          if (current >= total) {
-            setTimeout(() => { resetOperationProgress(); }, 500);
-          }
+          // Don't auto-reset on completion: many operations have a
+          // post-pool tail (commit, rename, etc.) where no further
+          // progress events fire. Resetting to null mid-tail flips the
+          // button back to a spinner. The donut is gated on isRunning
+          // anyway, so a lingering 100% disappears as soon as the call
+          // resolves.
         }
         return;
       }

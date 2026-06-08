@@ -1,46 +1,36 @@
 <script setup lang="ts">
-import { SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { FileDown, Sparkles, Layers, ArrowRight } from 'lucide-vue-next';
+import HelpDrawer from '@/components/layout/HelpDrawer.vue';
+import HelpSection from '@/components/layout/HelpSection.vue';
 </script>
 
 <template>
-  <SheetHeader>
-    <SheetTitle>Preprocessing</SheetTitle>
-    <SheetDescription>Load, prepare, and deduplicate raw search results into a clean dataset.</SheetDescription>
-  </SheetHeader>
+  <HelpDrawer
+    title="Preprocessing"
+    subtitle="Load, prepare, and deduplicate raw search results into a clean dataset."
+  >
+    <div class="space-y-7">
+      <HelpSection :icon="FileDown" title="Loading">
+        Converts raw search files (RIS, BibTeX, …) into a unified record format stored in
+        <code class="font-mono text-[12.5px] text-ink-700">records.bib</code>. Every record from
+        every source receives a unique CoLRev ID.
+      </HelpSection>
 
-  <div class="mt-4 space-y-5 text-sm">
-    <section>
-      <h3 class="font-semibold mb-1">Loading</h3>
-      <p class="text-muted-foreground">
-        The Load stage converts raw search result files (RIS, BibTeX, etc.) into a unified record
-        format stored in the project's <code class="font-mono">records.bib</code> file. Every
-        record from every source gets a unique CoLRev ID.
-      </p>
-    </section>
+      <HelpSection :icon="Sparkles" title="Preparing">
+        Cleans and standardises metadata — fixing field names, normalising author formatting,
+        resolving journal abbreviations. Records that can't be prepared automatically are
+        flagged for manual review.
+      </HelpSection>
 
-    <section>
-      <h3 class="font-semibold mb-1">Preparing</h3>
-      <p class="text-muted-foreground">
-        The Prep stage cleans and standardises metadata — fixing field names, normalising author
-        formatting, and resolving journal abbreviations. Records that can't be prepared automatically
-        are flagged for manual review.
-      </p>
-    </section>
+      <HelpSection :icon="Layers" title="Deduplicating">
+        Identifies records that appear in multiple sources and merges them into a single
+        canonical entry. Merged records retain provenance links to all original sources.
+      </HelpSection>
 
-    <section>
-      <h3 class="font-semibold mb-1">Deduplicating</h3>
-      <p class="text-muted-foreground">
-        The Dedupe stage identifies records that appear in multiple sources and merges them into a
-        single canonical entry. Merged records retain provenance links to all original sources.
-      </p>
-    </section>
-
-    <section>
-      <h3 class="font-semibold mb-1">Moving forward</h3>
-      <p class="text-muted-foreground">
-        Once deduplication is complete, click <strong>Next</strong> to proceed to Prescreen where
-        records are reviewed based on title and abstract.
-      </p>
-    </section>
-  </div>
+      <HelpSection :icon="ArrowRight" title="Moving forward">
+        Once deduplication is complete, click <span class="text-ink-800 font-medium">Next</span>
+        to proceed to Prescreen where records are reviewed by title and abstract.
+      </HelpSection>
+    </div>
+  </HelpDrawer>
 </template>

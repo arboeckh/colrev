@@ -1,48 +1,36 @@
 <script setup lang="ts">
-import { SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { Database, Play, RefreshCw, ArrowRight } from 'lucide-vue-next';
+import HelpDrawer from '@/components/layout/HelpDrawer.vue';
+import HelpSection from '@/components/layout/HelpSection.vue';
 </script>
 
 <template>
-  <SheetHeader>
-    <SheetTitle>Search</SheetTitle>
-    <SheetDescription>Configure and run literature searches across multiple databases.</SheetDescription>
-  </SheetHeader>
+  <HelpDrawer
+    title="Search"
+    subtitle="Configure and run literature searches across multiple databases."
+  >
+    <div class="space-y-7">
+      <HelpSection :icon="Database" title="Adding sources">
+        Click <span class="text-ink-800 font-medium">Add Source</span> to connect a database
+        (PubMed, Crossref, EBSCO, …). Each source stores its results in a separate file so
+        searches can be run and re-run independently.
+      </HelpSection>
 
-  <div class="mt-4 space-y-5 text-sm">
-    <section>
-      <h3 class="font-semibold mb-1">Adding sources</h3>
-      <p class="text-muted-foreground">
-        Click <strong>Add Source</strong> to connect a database (e.g. PubMed, Crossref, EBSCO).
-        Each source stores its search results in a separate file so searches can be run and
-        re-run independently.
-      </p>
-    </section>
+      <HelpSection :icon="Play" title="Running searches">
+        Use <span class="text-ink-800 font-medium">Run All Searches</span> to query every
+        configured source at once, or run sources individually. Results are fetched live and
+        written to <code class="font-mono text-[12.5px] text-ink-700">data/search/</code>.
+      </HelpSection>
 
-    <section>
-      <h3 class="font-semibold mb-1">Running searches</h3>
-      <p class="text-muted-foreground">
-        Use <strong>Run All Searches</strong> to query every configured source at once, or run
-        individual sources from their card. Results are fetched live from the database API and
-        written to the project's <code class="font-mono">data/search/</code> folder.
-      </p>
-    </section>
+      <HelpSection :icon="RefreshCw" title="Stale sources">
+        A source becomes stale when its query changes after the last run. Stale sources are
+        highlighted on their card — re-run them to bring results up to date before moving on.
+      </HelpSection>
 
-    <section>
-      <h3 class="font-semibold mb-1">Stale sources</h3>
-      <p class="text-muted-foreground">
-        A source becomes stale when its search query changes after the last run. Stale sources
-        are highlighted on their card — re-run them to bring results up to date before moving
-        to the next step.
-      </p>
-    </section>
-
-    <section>
-      <h3 class="font-semibold mb-1">Moving forward</h3>
-      <p class="text-muted-foreground">
+      <HelpSection :icon="ArrowRight" title="Moving forward">
         Once all sources have been searched and none are stale, the Search step is complete.
-        Click <strong>Next</strong> to proceed to Preprocessing where records are loaded,
-        prepared, and deduplicated.
-      </p>
-    </section>
-  </div>
+        Click <span class="text-ink-800 font-medium">Next</span> to proceed to Preprocessing.
+      </HelpSection>
+    </div>
+  </HelpDrawer>
 </template>

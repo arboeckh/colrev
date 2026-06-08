@@ -1,54 +1,42 @@
 <script setup lang="ts">
-import { SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { Download, Upload, FileCheck2, Wrench, ArrowRight } from 'lucide-vue-next';
+import HelpDrawer from '@/components/layout/HelpDrawer.vue';
+import HelpSection from '@/components/layout/HelpSection.vue';
 </script>
 
 <template>
-  <SheetHeader>
-    <SheetTitle>PDFs</SheetTitle>
-    <SheetDescription>Retrieve and prepare full-text PDFs for included records.</SheetDescription>
-  </SheetHeader>
-
-  <div class="mt-4 space-y-5 text-sm">
-    <section>
-      <h3 class="font-semibold mb-1">Retrieve</h3>
-      <p class="text-muted-foreground">
+  <HelpDrawer
+    title="PDFs"
+    subtitle="Retrieve and prepare full-text PDFs for included records."
+  >
+    <div class="space-y-7">
+      <HelpSection :icon="Download" title="Retrieve">
         CoLRev automatically fetches PDFs from open-access and licensed sources using each
         record's DOI and other identifiers. Run retrieval to find as many PDFs as possible
         before moving to manual upload.
-      </p>
-    </section>
+      </HelpSection>
 
-    <section>
-      <h3 class="font-semibold mb-1">Upload</h3>
-      <p class="text-muted-foreground">
-        Records CoLRev couldn't retrieve automatically appear in the Upload stage. Upload
-        each PDF individually or use the batch upload to import a folder of files at once.
-        Mark any records you can't find as unavailable.
-      </p>
-    </section>
+      <HelpSection :icon="Upload" title="Upload">
+        Records CoLRev couldn't retrieve automatically appear in the Upload stage. Upload each
+        PDF individually or use batch upload to import a folder at once. Mark any records you
+        can't find as unavailable.
+      </HelpSection>
 
-    <section>
-      <h3 class="font-semibold mb-1">Prepare</h3>
-      <p class="text-muted-foreground">
-        The Prepare stage validates each PDF and extracts its text for full-text screening.
-        PDFs that fail text extraction are flagged and moved to the Fix stage.
-      </p>
-    </section>
+      <HelpSection :icon="FileCheck2" title="Prepare">
+        Validates each PDF and extracts its text for full-text screening. PDFs that fail text
+        extraction are flagged and moved to the Fix stage.
+      </HelpSection>
 
-    <section>
-      <h3 class="font-semibold mb-1">Fix defects</h3>
-      <p class="text-muted-foreground">
-        PDFs flagged during preparation need a cleaner copy — scanned or image-only PDFs
-        can't be text-extracted. Re-upload a better version from another source.
-      </p>
-    </section>
+      <HelpSection :icon="Wrench" title="Fix defects">
+        PDFs flagged during preparation need a cleaner copy — scanned or image-only PDFs can't
+        be text-extracted. Re-upload a better version from another source.
+      </HelpSection>
 
-    <section>
-      <h3 class="font-semibold mb-1">Moving forward</h3>
-      <p class="text-muted-foreground">
-        Once all included records have prepared PDFs, click <strong>Next</strong> to proceed
-        to Screen where full-text records are reviewed against inclusion criteria.
-      </p>
-    </section>
-  </div>
+      <HelpSection :icon="ArrowRight" title="Moving forward">
+        Once all included records have prepared PDFs, click
+        <span class="text-ink-800 font-medium">Next</span> to proceed to Screen where records
+        are reviewed against inclusion criteria.
+      </HelpSection>
+    </div>
+  </HelpDrawer>
 </template>

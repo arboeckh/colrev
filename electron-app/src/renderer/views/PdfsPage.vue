@@ -401,6 +401,14 @@ async function handleOperationComplete() {
   await refresh();
 }
 
+async function handleOperationError() {
+  // Even when the operation surfaces an error toast, the backend may have
+  // persisted partial progress before raising — refresh so the UI reflects
+  // any status transitions that did make it to disk.
+  userSelectedStage.value = null;
+  await refresh();
+}
+
 async function handleBatchUploadComplete() {
   showBatchUpload.value = false;
   await refresh();
@@ -532,6 +540,7 @@ onMounted(async () => {
             show-progress
             test-id="pdfs-retrieve-cta"
             @success="handleOperationComplete"
+            @error="handleOperationError"
           />
           <Button
             v-else-if="stageStatus.upload !== 'locked'"
@@ -645,6 +654,7 @@ onMounted(async () => {
               show-progress
               test-id="pdfs-prepare-btn"
               @success="handleOperationComplete"
+              @error="handleOperationError"
             />
           </div>
 

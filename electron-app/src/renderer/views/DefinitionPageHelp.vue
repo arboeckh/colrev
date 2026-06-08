@@ -1,46 +1,38 @@
 <script setup lang="ts">
-import { SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { Link, Target, ListChecks, RefreshCw } from 'lucide-vue-next';
+import HelpDrawer from '@/components/layout/HelpDrawer.vue';
+import HelpSection from '@/components/layout/HelpSection.vue';
 </script>
 
 <template>
-  <SheetHeader>
-    <SheetTitle>Definition</SheetTitle>
-    <SheetDescription>Set the scope and criteria for your systematic review.</SheetDescription>
-  </SheetHeader>
+  <HelpDrawer
+    title="Definition"
+    subtitle="Set the scope and criteria for your systematic review."
+  >
+    <div class="space-y-7">
+      <HelpSection :icon="Link" title="Protocol URL">
+        Link to your pre-registered protocol (for example, a PROSPERO registration). This
+        provides a public, timestamped record of your review plan before data collection
+        begins.
+      </HelpSection>
 
-  <div class="mt-4 space-y-5 text-sm">
-    <section>
-      <h3 class="font-semibold mb-1">Protocol URL</h3>
-      <p class="text-muted-foreground">
-        Link to your pre-registered protocol (e.g., a PROSPERO registration). This provides a
-        public, timestamped record of your review plan before data collection begins.
-      </p>
-    </section>
+      <HelpSection :icon="Target" title="Research question & objectives">
+        Describe what you are trying to find out. A well-defined research question guides
+        every subsequent step — what you search for, how you screen, and what data you
+        extract.
+      </HelpSection>
 
-    <section>
-      <h3 class="font-semibold mb-1">Research question &amp; objectives</h3>
-      <p class="text-muted-foreground">
-        Describe what you are trying to find out. A well-defined research question guides every
-        subsequent step — what you search for, how you screen, and what data you extract.
-      </p>
-    </section>
-
-    <section>
-      <h3 class="font-semibold mb-1">Inclusion &amp; exclusion criteria</h3>
-      <p class="text-muted-foreground">
+      <HelpSection :icon="ListChecks" title="Inclusion & exclusion criteria">
         Criteria are applied during prescreen and screen decisions. Add them here so reviewers
-        have a shared reference. Changes to criteria after screening has started should be
-        documented carefully to maintain review integrity.
-      </p>
-    </section>
+        share a single reference. Changes after screening has started should be documented
+        carefully to maintain review integrity.
+      </HelpSection>
 
-    <section>
-      <h3 class="font-semibold mb-1">Revisiting this page</h3>
-      <p class="text-muted-foreground">
-        Definition is a reference document, not a gate. You can return here at any time to refine
-        your objectives or update criteria. Click <strong>Save changes</strong> after any edits to
-        commit them to the project.
-      </p>
-    </section>
-  </div>
+      <HelpSection :icon="RefreshCw" title="Revisiting this page">
+        Definition is a reference document, not a gate. Return any time to refine objectives
+        or update criteria. Click <span class="text-ink-800 font-medium">Save changes</span>
+        after edits to commit them to the project.
+      </HelpSection>
+    </div>
+  </HelpDrawer>
 </template>
