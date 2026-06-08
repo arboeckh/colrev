@@ -82,6 +82,7 @@ class AddSourceRequest(ProjectScopedRequest):
     search_string: str = ""
     filename: Optional[str] = None
     run_date: Optional[str] = None
+    search_parameters: Optional[Dict[str, Any]] = None
 
 
 class AddSourceDetails(BaseModel):
@@ -180,6 +181,57 @@ class GetSourceRecordsResponse(ProjectResponse):
     records: List[SourceRecord]
     total_count: int
     pagination: PaginationInfo
+
+
+def _build_openalex_search_parameters(
+    *,
+    search_string: str,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build OpenAlex search_parameters without storing the API key."""
+
+    import colrev.env.environment_manager
+    from colrev.packages.open_alex.src import open_alex_api
+    from colrev.packages.open_alex.src.open_alex_query_builder import OpenAlexSearchParams
+    from colrev.packages.open_alex.src.open_alex_query_builder import build_works_url
+    from colrev.packages.open_alex.src.open_alex_query_builder import inject_api_key
+    from colrev.packages.open_alex.src.open_alex_query_builder import strip_sensitive_url_params
+
+    api_key = open_alex_api.OpenAlexAPI.require_api_key()
+    _, email = (
+        colrev.env.environment_manager.EnvironmentManager.get_name_mail_from_git()
+    )
+
+    extra = extra or {}
+    if extra.get("url"):
+        params = OpenAlexSearchParams(raw_url=str(extra["url"]))
+    else:
+        query = extra.get("query") or {}
+        work_types = query.get("work_types") or query.get("types")
+        if isinstance(work_types, str):
+            work_types = [work_types]
+        search_text = (query.get("search") or search_string or "").strip()
+        params = OpenAlexSearchParams(
+            search=search_text,
+            search_exact=bool(query.get("search_exact")),
+            year_from=query.get("year_from"),
+            year_to=query.get("year_to"),
+            open_access_only=bool(query.get("open_access_only")),
+            work_types=work_types,
+            sort=str(query.get("sort", "relevance")),
+            min_citations=query.get("min_citations"),
+            language=query.get("language"),
+            has_abstract=bool(query.get("has_abstract")),
+        )
+
+    url = build_works_url(params, api_key=api_key, mailto=email or "")
+    stored_query = extra.get("query") or {
+        "search": search_string,
+    }
+    return {
+        "url": strip_sensitive_url_params(url),
+        "query": stored_query,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -360,11 +412,8 @@ class SearchHandler(BaseHandler):
             version=version,
         )
 
-        # API-based sources like PubMed need a constructed URL param.
-        if (
-            search_type_enum == SearchType.API
-            and req.endpoint == "colrev.pubmed"
-        ):
+        # API-based sources need constructed search parameters.
+        if search_type_enum == SearchType.API and req.endpoint == "colrev.pubmed":
             import urllib.parse
 
             encoded_query = urllib.parse.quote(req.search_string)
@@ -373,6 +422,12 @@ class SearchHandler(BaseHandler):
                 f"esearch.fcgi?db=pubmed&term={encoded_query}"
             )
             new_source.search_parameters = {"url": pubmed_url}
+
+        elif search_type_enum == SearchType.API and req.endpoint == "colrev.open_alex":
+            new_source.search_parameters = _build_openalex_search_parameters(
+                search_string=req.search_string,
+                extra=req.search_parameters,
+            )
 
         self.review_manager.settings.sources.append(new_source)
         self.review_manager.save_settings()
@@ -586,6 +641,17 @@ class SearchHandler(BaseHandler):
                 )
                 source_to_update.search_parameters["url"] = pubmed_url
                 logger.info("Rebuilt PubMed URL: %s", pubmed_url)
+
+            elif (
+                source_to_update.search_type == SearchType.API
+                and source_to_update.platform == "colrev.open_alex"
+            ):
+                rebuilt = _build_openalex_search_parameters(
+                    search_string=req.search_string,
+                    extra=source_to_update.search_parameters,
+                )
+                source_to_update.search_parameters.update(rebuilt)
+                logger.info("Rebuilt OpenAlex URL for updated query")
 
         if req.search_parameters is not None:
             if "url" in req.search_parameters:

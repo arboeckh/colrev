@@ -162,14 +162,15 @@ test.describe('search', () => {
     const historyPath = path.join(searchDir, 'openalex_search_history.json');
     expect(fs.existsSync(historyPath), `missing ${historyPath}`).toBe(true);
     const history = JSON.parse(fs.readFileSync(historyPath, 'utf-8'));
-    expect(history.platform).toBe('colrev.unknown_source');
+    expect(history.platform).toBe('colrev.open_alex');
     expect(history.search_type).toBe('DB');
     expect(history.search_string).toContain('sotatercept');
 
     const bibPath = path.join(searchDir, 'openalex.bib');
     expect(fs.existsSync(bibPath), `missing ${bibPath}`).toBe(true);
     const bib = fs.readFileSync(bibPath, 'utf-8');
-    // All 10 records present (each has a doi line)
+    // All 10 records present with titles (not empty @misc entries)
+    expect(bib).toContain('title = {Phase 3 Trial');
     const doiLines = bib.match(/^\s*doi\s*=/gm) ?? [];
     expect(doiLines.length).toBe(10);
     // Cross-source overlap DOIs are preserved (OpenAlex stores DOIs lowercase)

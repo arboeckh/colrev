@@ -135,19 +135,33 @@ export const CONNECTORS: DbConnector[] = [
     requiresApiKey: true,
   },
 
+  {
+    id: 'openalex-api',
+    style: 'api',
+    endpoint: 'colrev.open_alex',
+    name: 'OpenAlex',
+    tagline: 'Open scholarly graph',
+    brandColor: '#1B4E82',
+    status: 'enabled',
+    requiresApiKey: true,
+    queryPlaceholder: '"machine learning" AND dog AND play',
+    queryHelp:
+      'Boolean search across title and abstract. Use UPPERCASE operators (AND, OR, NOT) and wrap multi-word phrases in "quotes". Search queries use more of your daily OpenAlex API budget than filter-only requests.',
+  },
+
   // ─── Manual upload (enabled) ───────────────────────────────────
   {
     id: 'openalex',
     style: 'upload',
-    endpoint: 'colrev.unknown_source',
+    endpoint: 'colrev.open_alex',
     name: 'OpenAlex',
-    tagline: 'Open scholarly graph',
+    tagline: 'Upload an OpenAlex CSV export',
     brandColor: '#1B4E82',
     status: 'enabled',
     acceptedFormats: ['.csv', '.xlsx', '.xls'],
     csvTemplate: 'openalex',
     uploadInstructions:
-      'Export a CSV from openalex.org using Works Search, then upload it here.',
+      'Export a CSV from openalex.org (flat API columns or Title/Author/Year format), then upload it here.',
   },
 
   // ─── Manual upload (planned) ───────────────────────────────────

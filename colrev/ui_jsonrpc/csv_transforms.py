@@ -96,6 +96,7 @@ CSV_SOURCE_TEMPLATES: Dict[str, Dict[str, Any]] = {
     "openalex": {
         "label": "OpenAlex",
         "column_map": {
+            # Legacy flat API-style export columns
             "display_name": "title",
             "authorships.author.display_name": "author",
             "primary_location.source.display_name": "journal",
@@ -108,7 +109,26 @@ CSV_SOURCE_TEMPLATES: Dict[str, Dict[str, Any]] = {
             "id": "colrev.open_alex.id",
             "primary_location.source.issn_l": "issn",
             "publication_date": "date",
+            # Human-readable export columns (openalex.org column picker)
+            "Title": "title",
+            "Author": "author",
+            "Year": "year",
+            "DOI": "doi",
+            "Type": "ENTRYTYPE",
+            "Source": "journal",
+            "Citation count": "cited_by",
+            "Abstract": "abstract",
+            "Language": "language",
+            "ID": "colrev.open_alex.id",
+            "OpenAlex ID": "colrev.open_alex.id",
+            "ISSN": "issn",
+            "Publication date": "date",
+            "PubMed ID": "colrev.pubmed.pubmedid",
         },
+        "upload_instructions": (
+            "Export a CSV from openalex.org (either the legacy flat columns or "
+            "the human-readable Title/Author/Year format), then upload it here."
+        ),
         "value_transforms": {
             "author": _openalex_author,
             "doi": _strip_doi_prefix,
@@ -229,6 +249,13 @@ def transform_csv(content: str, template_id: str) -> str:
                 value = transform(value)
             if value:  # skip if transform produced empty
                 new_record[target_col] = value
+        if not new_record:
+            continue
+
+        openalex_id = new_record.get("colrev.open_alex.id")
+        if openalex_id:
+            new_record["openalex_id"] = openalex_id
+
         records.append(new_record)
 
     return _records_to_bibtex(records)

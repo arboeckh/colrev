@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import {
   Upload,
   Loader2,
@@ -60,6 +60,21 @@ const searchDate = ref<DateValue>(today(getLocalTimeZone()));
 const isSubmitting = ref(false);
 const progressText = ref('');
 
+// OpenAlex API key + filters
+const openalexApiKey = ref('');
+const openalexApiKeyConfigured = ref(false);
+const showAdvancedFilters = ref(false);
+const yearFrom = ref('');
+const yearTo = ref('');
+const openAccessOnly = ref(false);
+const workTypes = ref('');
+const sortOrder = ref('relevance');
+const searchExact = ref(false);
+const minCitations = ref('');
+const languageFilter = ref('');
+const hasAbstract = ref(false);
+const rawApiUrl = ref('');
+
 const dialogOpen = computed({
   get: () => props.open,
   set: (value) => emit('update:open', value),
@@ -110,6 +125,62 @@ function resetAll() {
   searchDate.value = today(getLocalTimeZone());
   isSubmitting.value = false;
   progressText.value = '';
+  openalexApiKey.value = '';
+  showAdvancedFilters.value = false;
+  yearFrom.value = '';
+  yearTo.value = '';
+  openAccessOnly.value = false;
+  workTypes.value = '';
+  sortOrder.value = 'relevance';
+  searchExact.value = false;
+  minCitations.value = '';
+  languageFilter.value = '';
+  hasAbstract.value = false;
+  rawApiUrl.value = '';
+}
+
+async function refreshOpenalexKeyStatus() {
+  try {
+    const status = await backend.call<{ openalex: boolean }>(
+      'get_connector_api_key_status',
+      {},
+    );
+    openalexApiKeyConfigured.value = status.openalex;
+  } catch {
+    openalexApiKeyConfigured.value = false;
+  }
+}
+
+onMounted(() => {
+  void refreshOpenalexKeyStatus();
+});
+
+const isOpenAlexApi = computed(
+  () => selected.value?.endpoint === 'colrev.open_alex' && selected.value?.style === 'api',
+);
+
+function buildOpenAlexSearchParameters(): Record<string, unknown> {
+  if (rawApiUrl.value.trim()) {
+    return { url: rawApiUrl.value.trim() };
+  }
+  const query: Record<string, unknown> = {
+    search: searchQuery.value.trim(),
+    search_exact: searchExact.value,
+    open_access_only: openAccessOnly.value,
+    sort: sortOrder.value,
+    has_abstract: hasAbstract.value,
+  };
+  if (yearFrom.value) query.year_from = Number(yearFrom.value);
+  if (yearTo.value) query.year_to = Number(yearTo.value);
+  if (workTypes.value.trim()) {
+    query.work_types = workTypes.value
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+  }
+  if (minCitations.value) query.min_citations = Number(minCitations.value);
+  if (languageFilter.value.trim()) query.language = languageFilter.value.trim();
+  return { query };
 }
 
 // ── Upload helpers ─────────────────────────────────────────────
@@ -142,6 +213,10 @@ const formattedDate = computed(() => {
 const canSubmit = computed(() => {
   if (!selected.value || isSubmitting.value) return false;
   if (selected.value.style === 'api') {
+    if (selected.value.requiresApiKey && !openalexApiKeyConfigured.value && !openalexApiKey.value.trim()) {
+      return false;
+    }
+    if (isOpenAlexApi.value && rawApiUrl.value.trim()) return true;
     return !!searchQuery.value.trim();
   }
   return !!selectedFile.value && !!searchQuery.value.trim();
@@ -152,12 +227,26 @@ async function submitApi() {
   const c = selected.value!;
   isSubmitting.value = true;
   try {
-    const response = await backend.call<AddSourceResponse>('add_source', {
+    if (c.requiresApiKey && openalexApiKey.value.trim()) {
+      await backend.call('set_connector_api_key', {
+        connector: 'openalex',
+        api_key: openalexApiKey.value.trim(),
+      });
+      openalexApiKeyConfigured.value = true;
+      openalexApiKey.value = '';
+    }
+
+    const payload: Record<string, unknown> = {
       project_id: props.projectId,
       endpoint: c.endpoint,
       search_type: 'API',
-      search_string: searchQuery.value.trim(),
-    });
+      search_string: searchQuery.value.trim() || rawApiUrl.value.trim(),
+    };
+    if (c.endpoint === 'colrev.open_alex') {
+      payload.search_parameters = buildOpenAlexSearchParameters();
+    }
+
+    const response = await backend.call<AddSourceResponse>('add_source', payload);
     if (response.success) {
       notifications.success(`${c.name} source added`, 'Run search to fetch results');
       dialogOpen.value = false;
@@ -336,6 +425,33 @@ function handleCancel() {
 
         <!-- API form -->
         <div v-if="selected.style === 'api'" class="space-y-4 py-2">
+          <div
+            v-if="selected.requiresApiKey && !openalexApiKeyConfigured"
+            class="space-y-2 rounded-md border border-border p-3"
+          >
+            <label class="text-sm font-medium">
+              OpenAlex API key
+              <span class="text-destructive">*</span>
+            </label>
+            <Input
+              v-model="openalexApiKey"
+              type="password"
+              placeholder="Paste your API key"
+              :disabled="isSubmitting"
+              data-testid="openalex-api-key-input"
+            />
+            <p class="text-xs text-muted-foreground">
+              Get a free key at
+              <a
+                href="https://openalex.org/settings/api"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="underline"
+              >openalex.org/settings/api</a>.
+              The key is stored for this session only and is never written to search history.
+            </p>
+          </div>
+
           <div class="space-y-2">
             <label class="text-sm font-medium">
               Search query
@@ -352,6 +468,82 @@ function handleCancel() {
               {{ selected.queryHelp }}
             </p>
           </div>
+
+          <template v-if="isOpenAlexApi">
+            <div class="grid grid-cols-2 gap-3">
+              <div class="space-y-1">
+                <label class="text-xs font-medium">Year from</label>
+                <Input v-model="yearFrom" type="number" placeholder="2020" :disabled="isSubmitting" />
+              </div>
+              <div class="space-y-1">
+                <label class="text-xs font-medium">Year to</label>
+                <Input v-model="yearTo" type="number" placeholder="2024" :disabled="isSubmitting" />
+              </div>
+            </div>
+
+            <label class="flex items-center gap-2 text-sm">
+              <input v-model="openAccessOnly" type="checkbox" :disabled="isSubmitting" />
+              Open access only
+            </label>
+
+            <div class="space-y-1">
+              <label class="text-xs font-medium">Work types (comma-separated)</label>
+              <Input
+                v-model="workTypes"
+                placeholder="article, preprint, book"
+                :disabled="isSubmitting"
+              />
+            </div>
+
+            <div class="space-y-1">
+              <label class="text-xs font-medium">Sort order</label>
+              <select
+                v-model="sortOrder"
+                class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                :disabled="isSubmitting"
+              >
+                <option value="relevance">Relevance</option>
+                <option value="citations">Citations</option>
+                <option value="date">Publication date</option>
+              </select>
+            </div>
+
+            <button
+              type="button"
+              class="text-xs text-muted-foreground underline"
+              @click="showAdvancedFilters = !showAdvancedFilters"
+            >
+              {{ showAdvancedFilters ? 'Hide' : 'Show' }} advanced filters
+            </button>
+
+            <div v-if="showAdvancedFilters" class="space-y-3 border-t border-border pt-3">
+              <label class="flex items-center gap-2 text-sm">
+                <input v-model="searchExact" type="checkbox" :disabled="isSubmitting" />
+                Exact match (unstemmed)
+              </label>
+              <label class="flex items-center gap-2 text-sm">
+                <input v-model="hasAbstract" type="checkbox" :disabled="isSubmitting" />
+                Has abstract
+              </label>
+              <div class="space-y-1">
+                <label class="text-xs font-medium">Minimum citations</label>
+                <Input v-model="minCitations" type="number" placeholder="10" :disabled="isSubmitting" />
+              </div>
+              <div class="space-y-1">
+                <label class="text-xs font-medium">Language (ISO code)</label>
+                <Input v-model="languageFilter" placeholder="en" :disabled="isSubmitting" />
+              </div>
+              <div class="space-y-1">
+                <label class="text-xs font-medium">Paste full OpenAlex API URL</label>
+                <Textarea
+                  v-model="rawApiUrl"
+                  placeholder="https://api.openalex.org/works?..."
+                  :disabled="isSubmitting"
+                  class="min-h-16 font-mono text-xs"
+                />
+              </div>
+            </div>
+          </template>
         </div>
 
         <!-- Upload form -->
