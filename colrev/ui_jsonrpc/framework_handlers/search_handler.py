@@ -20,7 +20,6 @@ from typing import Any
 from typing import Dict
 from typing import List
 from typing import Optional
-from typing import Tuple
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
@@ -28,6 +27,10 @@ from pydantic import ConfigDict
 from colrev.constants import OperationsType
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProgressEventKind
+from colrev.ui_jsonrpc.framework.search_staleness import check_source_staleness
+from colrev.ui_jsonrpc.framework.search_staleness import preserve_last_run_snapshot
+from colrev.ui_jsonrpc.framework.search_staleness import restore_last_run_snapshot
+from colrev.ui_jsonrpc.framework.search_staleness import run_config_snapshot
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import make_progress_callback
@@ -276,9 +279,7 @@ class SearchHandler(BaseHandler):
             history_path = (
                 self.review_manager.path / source.get_search_history_path()
             )
-            is_stale, stale_reason = self._check_source_staleness(
-                source, history_path
-            )
+            is_stale, stale_reason = check_source_staleness(source, history_path)
 
             last_run_timestamp: Optional[str] = None
             if history_path.is_file():
@@ -560,6 +561,12 @@ class SearchHandler(BaseHandler):
             raise ValueError(f"Source with filename '{req.filename}' not found")
 
         query_changed = False
+        history_path = (
+            self.review_manager.path / source_to_update.get_search_history_path()
+        )
+        preserved_snapshot, preserved_last_run = (
+            preserve_last_run_snapshot(history_path) if history_path.is_file() else (None, None)
+        )
 
         if req.search_string is not None:
             if source_to_update.search_string != req.search_string:
@@ -601,6 +608,11 @@ class SearchHandler(BaseHandler):
                 results_path.touch()
 
         self.review_manager.save_settings()
+
+        if query_changed:
+            restore_last_run_snapshot(
+                history_path, preserved_snapshot, preserved_last_run
+            )
 
         if req.run_date and source_to_update.search_type == SearchType.DB:
             self._save_source_history(source_to_update, req.run_date)
@@ -725,33 +737,6 @@ class SearchHandler(BaseHandler):
 
     # -- helpers -------------------------------------------------------------
 
-    def _check_source_staleness(
-        self, source, history_path: Path
-    ) -> Tuple[bool, Optional[str]]:
-        """Compare current settings with saved history to detect staleness."""
-        if not history_path.is_file():
-            return True, "Search has not been run"
-
-        try:
-            with open(history_path, "r", encoding="utf-8") as f:
-                history = json.load(f)
-
-            current_query = getattr(source, "search_string", "") or ""
-            history_query = history.get("search_string", "") or ""
-            if current_query != history_query:
-                return True, "Search query changed"
-
-            current_params = getattr(source, "search_parameters", {}) or {}
-            history_params = history.get("search_parameters", {}) or {}
-            if current_params != history_params:
-                return True, "Search parameters changed"
-
-            return False, None
-
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning("Error reading search history %s: %s", history_path, e)
-            return True, "Unable to read search history"
-
     def _save_source_history(
         self, source, run_date: Optional[str] = None
     ) -> None:
@@ -767,6 +752,7 @@ class SearchHandler(BaseHandler):
         history_data = source.to_dict()
         history_data.pop("search_history_path", None)
         history_data["last_run"] = last_run
+        history_data["last_run_config"] = run_config_snapshot(source)
         # Mirror on the in-memory object so save_settings() preserves it.
         source.last_run = last_run
 

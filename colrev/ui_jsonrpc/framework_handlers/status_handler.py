@@ -29,6 +29,7 @@ from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import rpc_method
+from colrev.ui_jsonrpc.framework.search_staleness import stale_reason_for_source
 
 logger = logging.getLogger(__name__)
 
@@ -582,15 +583,9 @@ class StatusHandler(BaseHandler):
         return False, None
 
     def _source_settings_changed(self, source, history: dict) -> bool:
-        current_query = getattr(source, "search_string", "") or ""
-        history_query = history.get("search_string", "") or ""
-        if current_query != history_query:
-            return True
-        current_params = getattr(source, "search_parameters", {}) or {}
-        history_params = history.get("search_parameters", {}) or {}
-        if current_params != history_params:
-            return True
-        return False
+        if not history.get("last_run"):
+            return False
+        return stale_reason_for_source(source, history) is not None
 
     def _load_records_from_branch(
         self, git_repo, branch_name: str

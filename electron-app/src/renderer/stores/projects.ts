@@ -339,6 +339,11 @@ export const useProjectsStore = defineStore('projects', () => {
       // Refresh operation info
       await loadAllOperationInfo(id);
 
+      const searchOp = operationInfo.value.search;
+      if (searchOp?.needs_rerun) {
+        hasStaleSearchSources.value = true;
+      }
+
       // Refresh managed review task state for sidebar
       try {
         const { useManagedReviewStore } = await import('./managedReview');
