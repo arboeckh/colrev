@@ -12,7 +12,7 @@
     "package:win": "electron-builder --win",
     "package:linux": "electron-builder --linux",
     "package:mac:unsigned": "electron-builder --mac -c.mac.identity=null",
-    "package:win:unsigned": "electron-builder --win -c.win.sign=false",
+    "package:win:unsigned": "electron-builder --win --publish never -c.win.signAndEditExecutable=false",
     "package:linux:unsigned": "electron-builder --linux",
     "release": "bash ../scripts/build_and_package.sh",
     "release:mac": "bash ../scripts/build_and_package.sh mac",
