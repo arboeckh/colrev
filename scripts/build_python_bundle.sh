@@ -129,7 +129,27 @@ extract_bundle() {
     mkdir -p "$dest_dir"
     # python-build-standalone tarballs root at `python/` — strip it so the
     # bundle contents land directly in dest_dir.
-    tar -xzf "$tarball" -C "$dest_dir" --strip-components=1
+  # Git Bash on Windows: GNU tar treats `D:` in paths as a remote host.
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      "$HOST_PYTHON" - "$tarball" "$dest_dir" <<'PY'
+import sys
+import tarfile
+
+tarball, dest_dir = sys.argv[1], sys.argv[2]
+with tarfile.open(tarball, "r:gz") as tf:
+    for member in tf.getmembers():
+        parts = member.name.split("/", 1)
+        if len(parts) < 2 or not parts[1]:
+            continue
+        member.name = parts[1]
+        tf.extract(member, dest_dir, filter="data")
+PY
+      ;;
+    *)
+      tar -xzf "$tarball" -C "$dest_dir" --strip-components=1
+      ;;
+  esac
 }
 
 build_wheels() {
