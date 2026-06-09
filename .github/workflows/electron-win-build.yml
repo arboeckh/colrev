@@ -1,0 +1,63 @@
+name: Electron Windows Build
+
+on:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      COLREV_BUILD_CACHE: ${{ github.workspace }}/.cache/colrev-build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pip and build
+        run: python -m pip install --upgrade pip build
+
+      - name: Cache Python bundle
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.cache/colrev-build
+          key: colrev-build-${{ hashFiles('requirements.txt', 'pyproject.toml', 'colrev/packages/*/pyproject.toml') }}
+          restore-keys: |
+            colrev-build-
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: electron-app/pnpm-lock.yaml
+
+      - name: Build and package
+        env:
+          HOST_PYTHON: python
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: bash scripts/build_and_package.sh win unsigned
+
+      - name: Smoke test Python bundle
+        run: ./electron-app/resources/python-win-x64/Scripts/colrev-jsonrpc.cmd --help
+
+      - name: Upload portable exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: colrev-win-x64-portable
+          path: electron-app/release/*.exe
+          retention-days: 14

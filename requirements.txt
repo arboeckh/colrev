@@ -103,6 +103,8 @@ pre-commit==4.2.0
     # via colrev (pyproject.toml)
 prompt-toolkit==3.0.50
     # via click-repl
+pyalex==0.21
+    # via colrev (pyproject.toml)
 pycountry==24.6.1
     # via colrev (pyproject.toml)
 pydantic==2.10.6
@@ -134,6 +136,7 @@ requests==2.32.4
     #   colrev (pyproject.toml)
     #   bib-dedupe
     #   docker
+    #   pyalex
     #   requests-cache
 requests-cache==1.2.1
     # via colrev (pyproject.toml)
@@ -167,6 +170,7 @@ url-normalize==1.4.3
 urllib3==2.5.0
     # via
     #   docker
+    #   pyalex
     #   requests
     #   requests-cache
 virtualenv==20.29.3
