@@ -12,6 +12,12 @@ contextBridge.exposeInMainWorld('colrev', {
 
   /**
    * Make a JSON-RPC call to the backend.
+   *
+   * Resolves to an envelope `{ ok: true, result }` or
+   * `{ ok: false, error: { code, message, data?, method } }` — Electron
+   * strips custom Error properties at the IPC boundary, so the structured
+   * error crosses as data and the renderer rethrows it as `RpcError`
+   * (see renderer/lib/rpc-errors.ts).
    */
   call: (method: string, params: Record<string, unknown>) =>
     ipcRenderer.invoke('colrev:call', method, params),
@@ -58,6 +64,40 @@ contextBridge.exposeInMainWorld('colrev', {
     const handler = (_: Electron.IpcRendererEvent, event: unknown) => callback(event);
     ipcRenderer.on('colrev:progress', handler);
     return () => ipcRenderer.removeListener('colrev:progress', handler);
+  },
+
+  /**
+   * Subscribe to supervised-restart lifecycle events. After a crash the
+   * backend restarts itself with capped backoff; the renderer shows
+   * "backend restarting…" instead of dying to `stopped`.
+   */
+  onRestarting: (callback: (info: unknown) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, info: unknown) => callback(info);
+    ipcRenderer.on('colrev:restarting', handler);
+    return () => ipcRenderer.removeListener('colrev:restarting', handler);
+  },
+
+  onRestarted: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('colrev:restarted', handler);
+    return () => ipcRenderer.removeListener('colrev:restarted', handler);
+  },
+
+  onRestartFailed: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('colrev:restart-failed', handler);
+    return () => ipcRenderer.removeListener('colrev:restart-failed', handler);
+  },
+
+  /**
+   * Subscribe to RPC queue snapshots. The Python server is serial; this
+   * exposes which method is in flight and what is waiting behind it so the
+   * UI can say *why* it's busy instead of freezing silently.
+   */
+  onRpcQueue: (callback: (state: unknown) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, state: unknown) => callback(state);
+    ipcRenderer.on('colrev:rpc-queue', handler);
+    return () => ipcRenderer.removeListener('colrev:rpc-queue', handler);
   },
 });
 

@@ -176,7 +176,11 @@ def enrich_records(
             "results": [],
         }
 
-    prep_operation = review_manager.get_prep_operation()
+    # notify=False: the prep operation is only a connector parameter for
+    # prep_link_md, not an operation start — no precondition applies.
+    prep_operation = review_manager.get_prep_operation(
+        notify_state_transition_operation=False
+    )
     records_dict = review_manager.dataset.load_records_dict() or {}
 
     enriched_count = 0

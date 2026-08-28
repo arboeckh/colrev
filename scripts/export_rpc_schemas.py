@@ -9,7 +9,6 @@ generation (see ``electron-app/scripts/gen-rpc-types.ts``).
 Run this whenever handlers change. CI should fail if the output file is
 stale — that enforces the frontend type surface tracking the backend.
 """
-
 from __future__ import annotations
 
 import json
@@ -22,7 +21,6 @@ from colrev.ui_jsonrpc.framework import RecordPayload
 from colrev.ui_jsonrpc.framework import RecordStateName
 from colrev.ui_jsonrpc.framework import RecordSummary
 from colrev.ui_jsonrpc.framework import registry
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_PATH = (
@@ -63,6 +61,8 @@ def build_schema_document() -> dict:
             "request": spec.request_model.model_json_schema(),
             "response": spec.response_model.model_json_schema(),
             "requires_project": spec.requires_project,
+            "writes": spec.writes,
+            "timeout_class": spec.timeout_class,
         }
 
     shared: dict[str, dict] = {
