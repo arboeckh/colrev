@@ -152,9 +152,7 @@ export interface AddScreeningCriterionResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {
-  [k: string]: unknown;
-}
+export interface Details {}
 
 // add_source
 export type BasePath = string | null;
@@ -162,9 +160,7 @@ export type Endpoint = string | null;
 export type Filename = string | null;
 export type ProjectId = string;
 export type RunDate = string | null;
-export type SearchParameters = {
-  [k: string]: unknown;
-} | null;
+export type SearchParameters = {} | null;
 export type SearchString = string;
 export type SearchType = string | null;
 export type Verbose = boolean;
@@ -200,7 +196,134 @@ export interface AddSourceDetails {
   source: Source;
   [k: string]: unknown;
 }
-export interface Source {
+export interface Source {}
+
+// analyze_merge
+export type BasePath = string | null;
+/**
+ * Expected current branch; mismatch is an error.
+ */
+export type Ours = string | null;
+export type ProjectId = string;
+/**
+ * Ref to merge (the branch's upstream tracking ref)
+ */
+export type Theirs = string;
+export type Verbose = boolean;
+
+/**
+ * Request for analyze_merge.
+ */
+export interface AnalyzeMergeRequest {
+  base_path?: BasePath;
+  ours?: Ours;
+  project_id: ProjectId;
+  theirs: Theirs;
+  verbose?: Verbose;
+}
+
+export type AutoMergeable = boolean;
+export type Id = string | null;
+export type Reason = string;
+export type Blockers = MergeBlockerItem[];
+export type ProjectId = string;
+export type SettingsConflict = boolean;
+export type Path = string;
+export type SettingsConflicts = SettingsConflictItem[];
+export type Author = string | null;
+export type Id1 = string;
+export type Ours1 = string;
+export type Theirs1 = string;
+export type Title = string | null;
+export type Year = string | null;
+export type StatusConflicts = StatusConflictItem[];
+export type Success = true;
+
+/**
+ * Structured divergence report for the conflict-resolution dialog.
+ */
+export interface AnalyzeMergeResponse {
+  auto_mergeable: AutoMergeable;
+  blockers?: Blockers;
+  project_id: ProjectId;
+  settings_conflict?: SettingsConflict;
+  settings_conflicts?: SettingsConflicts;
+  status_conflicts?: StatusConflicts;
+  success?: Success;
+  [k: string]: unknown;
+}
+/**
+ * A reason the merge cannot proceed through the app.
+ */
+export interface MergeBlockerItem {
+  id?: Id;
+  reason: Reason;
+}
+/**
+ * A settings.json field changed differently on both sides.
+ */
+export interface SettingsConflictItem {
+  ours?: Ours;
+  path: Path;
+  theirs?: Theirs;
+}
+export interface Ours {
+  [k: string]: unknown;
+}
+export interface Theirs {
+  [k: string]: unknown;
+}
+/**
+ * A per-record colrev_status disagreement between the merge sides.
+ */
+export interface StatusConflictItem {
+  author?: Author;
+  id: Id1;
+  ours: Ours1;
+  theirs: Theirs1;
+  title?: Title;
+  year?: Year;
+}
+
+// apply_merge
+export type BasePath = string | null;
+export type ProjectId = string;
+export type Theirs = string;
+export type Verbose = boolean;
+
+/**
+ * Request for apply_merge with the user's per-conflict decisions.
+ */
+export interface ApplyMergeRequest {
+  base_path?: BasePath;
+  project_id: ProjectId;
+  resolutions?: Resolutions;
+  settings_resolutions?: SettingsResolutions;
+  theirs: Theirs;
+  verbose?: Verbose;
+}
+export interface Resolutions {
+  [k: string]: "ours" | "theirs";
+}
+export interface SettingsResolutions {
+  [k: string]: "ours" | "theirs";
+}
+
+export type CommitSha = string;
+export type Merged = boolean;
+export type ProjectId = string;
+export type Statistics = {} | null;
+export type Success = true;
+
+/**
+ * Result of a completed merge commit.
+ */
+export interface ApplyMergeResponse {
+  commit_sha: CommitSha;
+  merged: Merged;
+  project_id: ProjectId;
+  statistics?: Statistics;
+  success?: Success;
   [k: string]: unknown;
 }
 
@@ -357,9 +480,7 @@ export interface StructuredFieldSpec {
   [k: string]: unknown;
 }
 
-export type Fields = {
-  [k: string]: unknown;
-}[];
+export type Fields = {}[];
 export type Message = string;
 export type ProjectId = string;
 export type Success = true;
@@ -424,9 +545,7 @@ export interface DataResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {
-  [k: string]: unknown;
-}
+export interface Details {}
 
 // dedupe
 export type BasePath = string | null;
@@ -450,9 +569,7 @@ export interface DedupeResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {
-  [k: string]: unknown;
-}
+export interface Details {}
 
 // delete_project
 export type BasePath = string;
@@ -692,9 +809,7 @@ export interface GetCSVSourceTemplatesRequest {
 }
 
 export type Success = true;
-export type Templates = {
-  [k: string]: unknown;
-}[];
+export type Templates = {}[];
 
 export interface GetCSVSourceTemplatesResponse {
   success?: Success;
@@ -1302,9 +1417,7 @@ export interface GetSettingsResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Settings {
-  [k: string]: unknown;
-}
+export interface Settings {}
 
 // get_source_records
 export type BasePath = string | null;
@@ -1403,9 +1516,7 @@ export interface GetStatusResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Status {
-  [k: string]: unknown;
-}
+export interface Status {}
 
 // import_pdfs
 export type BasePath = string | null;
@@ -1576,9 +1687,7 @@ export interface LoadResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {
-  [k: string]: unknown;
-}
+export interface Details {}
 
 // mark_pdf_not_available
 export type BasePath = string | null;
@@ -1691,9 +1800,7 @@ export interface PDFGetResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {
-  [k: string]: unknown;
-}
+export interface Details {}
 
 // pdf_prep
 export type BasePath = string | null;
@@ -1721,9 +1828,7 @@ export interface PDFPrepResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {
-  [k: string]: unknown;
-}
+export interface Details {}
 
 // ping
 export type BasePath = string | null;
@@ -1770,9 +1875,7 @@ export interface PrepResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {
-  [k: string]: unknown;
-}
+export interface Details {}
 
 // prep_man_update_record
 export type BasePath = string | null;
@@ -1787,9 +1890,7 @@ export interface PrepManUpdateRecordRequest {
   record_id: RecordId;
   verbose?: Verbose;
 }
-export interface Fields {
-  [k: string]: unknown;
-}
+export interface Fields {}
 
 export type Operation = string;
 export type ProjectId = string;
@@ -1802,9 +1903,7 @@ export interface PrepManUpdateRecordResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {
-  [k: string]: unknown;
-}
+export interface Details {}
 
 // prescreen
 export type BasePath = string | null;
@@ -1897,9 +1996,7 @@ export interface RemoveScreeningCriterionResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {
-  [k: string]: unknown;
-}
+export interface Details {}
 
 // remove_source
 export type BasePath = string | null;
@@ -2010,9 +2107,7 @@ export interface SaveDataExtractionRequest {
   values: Values;
   verbose?: Verbose;
 }
-export interface Values {
-  [k: string]: unknown;
-}
+export interface Values {}
 
 export type Message = string;
 export type ProjectId = string;
@@ -2187,9 +2282,7 @@ export interface GetStatusResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Status {
-  [k: string]: unknown;
-}
+export interface Status {}
 
 // undo_pdf_not_available
 export type BasePath = string | null;
@@ -2261,9 +2354,7 @@ export interface SkippedChange {
 
 // update_record
 export type BasePath = string | null;
-export type Fields = {
-  [k: string]: unknown;
-} | null;
+export type Fields = {} | null;
 export type ProjectId = string;
 export type RecordId = string | null;
 export type Verbose = boolean;
@@ -2287,9 +2378,7 @@ export interface UpdateRecordResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {
-  [k: string]: unknown;
-}
+export interface Details {}
 
 // update_review_definition
 export type BasePath = string | null;
@@ -2319,9 +2408,7 @@ export interface UpdateReviewDefinitionResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {
-  [k: string]: unknown;
-}
+export interface Details {}
 
 // update_screen_decisions
 export type BasePath = string | null;
@@ -2395,9 +2482,7 @@ export interface UpdateScreeningCriterionResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {
-  [k: string]: unknown;
-}
+export interface Details {}
 
 // update_settings
 export type BasePath = string | null;
@@ -2410,9 +2495,7 @@ export interface UpdateSettingsRequest {
   settings: Settings;
   verbose?: Verbose;
 }
-export interface Settings {
-  [k: string]: unknown;
-}
+export interface Settings {}
 
 export type Message = string;
 export type Operation = string;
@@ -2427,18 +2510,14 @@ export interface UpdateSettingsResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {
-  [k: string]: unknown;
-}
+export interface Details {}
 
 // update_source
 export type BasePath = string | null;
 export type Filename = string | null;
 export type ProjectId = string;
 export type RunDate = string | null;
-export type SearchParameters = {
-  [k: string]: unknown;
-} | null;
+export type SearchParameters = {} | null;
 export type SearchString = string | null;
 export type Verbose = boolean;
 
@@ -2471,9 +2550,7 @@ export interface UpdateSourceDetails {
   source: Source;
   [k: string]: unknown;
 }
-export interface Source {
-  [k: string]: unknown;
-}
+export interface Source {}
 
 // upload_pdf
 export type BasePath = string | null;
@@ -2573,9 +2650,7 @@ export interface ValidateResponse {
   success?: Success;
   [k: string]: unknown;
 }
-export interface Details {
-  [k: string]: unknown;
-}
+export interface Details {}
 
 /** Discriminated map: method name → request/response types. */
 export interface RPCMethods {
@@ -2586,6 +2661,14 @@ export interface RPCMethods {
   "add_source": {
     params: AddSourceRequest;
     result: AddSourceResponse;
+  };
+  "analyze_merge": {
+    params: AnalyzeMergeRequest;
+    result: AnalyzeMergeResponse;
+  };
+  "apply_merge": {
+    params: ApplyMergeRequest;
+    result: ApplyMergeResponse;
   };
   "apply_reconciliation": {
     params: ApplyReconciliationRequest;

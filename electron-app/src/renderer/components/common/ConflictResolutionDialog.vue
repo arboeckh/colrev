@@ -4,7 +4,6 @@ import { Check, User, Users } from 'lucide-vue-next';
 import { Dialog, DialogScrollContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
 import { useGitStore } from '@/stores/git';
 import type { MergeConflictResolution } from '@/types/window';
 
@@ -170,22 +169,9 @@ function formatValue(value: unknown, formatted?: string): string {
           </CardContent>
         </Card>
 
-        <!-- Auto-merged summary -->
-        <div v-if="git.mergeAnalysis.autoMerged.length > 0">
-          <Separator class="my-3" />
-          <details class="text-sm">
-            <summary class="cursor-pointer text-muted-foreground hover:text-foreground">
-              {{ git.mergeAnalysis.autoMerged.length }} change(s) merged automatically
-            </summary>
-            <ul class="mt-2 space-y-1 pl-4 text-muted-foreground">
-              <li v-for="(change, i) in git.mergeAnalysis.autoMerged" :key="i" class="flex items-center gap-2">
-                <Check class="h-3 w-3 text-green-500 shrink-0" />
-                <span>{{ change.label }}</span>
-                <span class="text-xs">({{ change.source === 'local' ? 'your change' : "collaborator's change" }})</span>
-              </li>
-            </ul>
-          </details>
-        </div>
+        <p class="text-sm text-muted-foreground">
+          All other changes are combined automatically.
+        </p>
       </div>
 
       <DialogFooter class="gap-2">

@@ -263,9 +263,10 @@ export interface GitDirtyState extends GitOperationResult {
   untrackedCount: number;
 }
 
-// --- Merge conflict resolution types ---
+// --- Merge conflict resolution types (mirror main/merge-flow.ts) ---
 
 export interface MergeConflictItem {
+  /** "records:<record_id>" or "settings:<dotted.path>" */
   id: string;
   file: string;
   path: string;
@@ -277,21 +278,16 @@ export interface MergeConflictItem {
   remoteLabel?: string;
 }
 
-export interface MergeAutoMergedChange {
-  label: string;
-  source: 'local' | 'remote';
-}
-
-export interface MergeFileResolution {
-  content: string;
-  needsResolution: boolean;
+export interface MergeBlocker {
+  id?: string;
+  reason: string;
 }
 
 export interface MergeAnalysis {
   hasConflicts: boolean;
+  autoMergeable: boolean;
   conflicts: MergeConflictItem[];
-  autoMerged: MergeAutoMergedChange[];
-  fileResults: Record<string, MergeFileResolution>;
+  blockers: MergeBlocker[];
 }
 
 export interface MergeConflictResolution {
@@ -317,8 +313,15 @@ export interface GitAPI {
   hasMergeConflict: (projectPath: string) => Promise<boolean>;
   addAndCommit: (projectPath: string, message: string) => Promise<GitOperationResult>;
   revListCount: (projectPath: string, from: string, to: string) => Promise<{ success: boolean; count: number; error?: string }>;
-  analyzeDivergence: (projectPath: string) => Promise<{ success: boolean; analysis?: MergeAnalysis; error?: string }>;
-  applyMerge: (projectPath: string, resolutions: MergeConflictResolution[], analysis: MergeAnalysis) => Promise<{ success: boolean; pushFailed?: boolean; error?: string }>;
+  analyzeDivergence: (
+    projectPath: string,
+    projectId: string,
+  ) => Promise<{ success: boolean; analysis?: MergeAnalysis; error?: string }>;
+  applyMerge: (
+    projectPath: string,
+    projectId: string,
+    resolutions: MergeConflictResolution[],
+  ) => Promise<{ success: boolean; pushed?: boolean; pushError?: string; error?: string }>;
 }
 
 declare global {

@@ -65,7 +65,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -154,7 +153,6 @@
           "search_parameters": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -204,7 +202,6 @@
                 "type": "string"
               },
               "source": {
-                "additionalProperties": true,
                 "title": "Source",
                 "type": "object"
               }
@@ -248,6 +245,336 @@
           "details"
         ],
         "title": "AddSourceResponse",
+        "type": "object"
+      },
+      "timeout_class": "slow",
+      "writes": true
+    },
+    "analyze_merge": {
+      "request": {
+        "additionalProperties": false,
+        "description": "Request for analyze_merge.",
+        "properties": {
+          "base_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Path"
+          },
+          "ours": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Expected current branch; mismatch is an error.",
+            "title": "Ours"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "theirs": {
+            "description": "Ref to merge (the branch's upstream tracking ref)",
+            "minLength": 1,
+            "title": "Theirs",
+            "type": "string"
+          },
+          "verbose": {
+            "default": false,
+            "title": "Verbose",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "theirs"
+        ],
+        "title": "AnalyzeMergeRequest",
+        "type": "object"
+      },
+      "requires_project": true,
+      "response": {
+        "$defs": {
+          "MergeBlockerItem": {
+            "additionalProperties": false,
+            "description": "A reason the merge cannot proceed through the app.",
+            "properties": {
+              "id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Id"
+              },
+              "reason": {
+                "title": "Reason",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason"
+            ],
+            "title": "MergeBlockerItem",
+            "type": "object"
+          },
+          "SettingsConflictItem": {
+            "additionalProperties": false,
+            "description": "A settings.json field changed differently on both sides.",
+            "properties": {
+              "ours": {
+                "default": null,
+                "title": "Ours"
+              },
+              "path": {
+                "title": "Path",
+                "type": "string"
+              },
+              "theirs": {
+                "default": null,
+                "title": "Theirs"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "title": "SettingsConflictItem",
+            "type": "object"
+          },
+          "StatusConflictItem": {
+            "additionalProperties": false,
+            "description": "A per-record colrev_status disagreement between the merge sides.",
+            "properties": {
+              "author": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Author"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "ours": {
+                "title": "Ours",
+                "type": "string"
+              },
+              "theirs": {
+                "title": "Theirs",
+                "type": "string"
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Title"
+              },
+              "year": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Year"
+              }
+            },
+            "required": [
+              "id",
+              "ours",
+              "theirs"
+            ],
+            "title": "StatusConflictItem",
+            "type": "object"
+          }
+        },
+        "additionalProperties": true,
+        "description": "Structured divergence report for the conflict-resolution dialog.",
+        "properties": {
+          "auto_mergeable": {
+            "title": "Auto Mergeable",
+            "type": "boolean"
+          },
+          "blockers": {
+            "items": {
+              "$ref": "#/$defs/MergeBlockerItem"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "settings_conflict": {
+            "default": false,
+            "title": "Settings Conflict",
+            "type": "boolean"
+          },
+          "settings_conflicts": {
+            "items": {
+              "$ref": "#/$defs/SettingsConflictItem"
+            },
+            "title": "Settings Conflicts",
+            "type": "array"
+          },
+          "status_conflicts": {
+            "items": {
+              "$ref": "#/$defs/StatusConflictItem"
+            },
+            "title": "Status Conflicts",
+            "type": "array"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "auto_mergeable"
+        ],
+        "title": "AnalyzeMergeResponse",
+        "type": "object"
+      },
+      "timeout_class": "slow",
+      "writes": false
+    },
+    "apply_merge": {
+      "request": {
+        "additionalProperties": false,
+        "description": "Request for apply_merge with the user's per-conflict decisions.",
+        "properties": {
+          "base_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Path"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "resolutions": {
+            "additionalProperties": {
+              "enum": [
+                "ours",
+                "theirs"
+              ],
+              "type": "string"
+            },
+            "title": "Resolutions",
+            "type": "object"
+          },
+          "settings_resolutions": {
+            "additionalProperties": {
+              "enum": [
+                "ours",
+                "theirs"
+              ],
+              "type": "string"
+            },
+            "title": "Settings Resolutions",
+            "type": "object"
+          },
+          "theirs": {
+            "minLength": 1,
+            "title": "Theirs",
+            "type": "string"
+          },
+          "verbose": {
+            "default": false,
+            "title": "Verbose",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "theirs"
+        ],
+        "title": "ApplyMergeRequest",
+        "type": "object"
+      },
+      "requires_project": true,
+      "response": {
+        "additionalProperties": true,
+        "description": "Result of a completed merge commit.",
+        "properties": {
+          "commit_sha": {
+            "title": "Commit Sha",
+            "type": "string"
+          },
+          "merged": {
+            "title": "Merged",
+            "type": "boolean"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "statistics": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Statistics"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "merged",
+          "commit_sha"
+        ],
+        "title": "ApplyMergeResponse",
         "type": "object"
       },
       "timeout_class": "slow",
@@ -704,7 +1031,6 @@
         "properties": {
           "fields": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Fields",
@@ -848,7 +1174,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -915,7 +1240,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -1629,7 +1953,6 @@
           },
           "templates": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Templates",
@@ -3371,7 +3694,6 @@
             "type": "string"
           },
           "settings": {
-            "additionalProperties": true,
             "title": "Settings",
             "type": "object"
           },
@@ -3662,7 +3984,6 @@
             "type": "string"
           },
           "status": {
-            "additionalProperties": true,
             "title": "Status",
             "type": "object"
           },
@@ -4121,7 +4442,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4452,7 +4772,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4529,7 +4848,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4645,7 +4963,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4692,7 +5009,6 @@
             "title": "Base Path"
           },
           "fields": {
-            "additionalProperties": true,
             "title": "Fields",
             "type": "object"
           },
@@ -4723,7 +5039,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4997,7 +5312,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -5324,7 +5638,6 @@
             "type": "string"
           },
           "values": {
-            "additionalProperties": true,
             "title": "Values",
             "type": "object"
           },
@@ -5817,7 +6130,6 @@
             "type": "string"
           },
           "status": {
-            "additionalProperties": true,
             "title": "Status",
             "type": "object"
           },
@@ -6065,7 +6377,6 @@
           "fields": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -6108,7 +6419,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -6214,7 +6524,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -6458,7 +6767,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -6509,7 +6817,6 @@
             "type": "string"
           },
           "settings": {
-            "additionalProperties": true,
             "title": "Settings",
             "type": "object"
           },
@@ -6531,7 +6838,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -6613,7 +6919,6 @@
           "search_parameters": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -6658,7 +6963,6 @@
                 "type": "string"
               },
               "source": {
-                "additionalProperties": true,
                 "title": "Source",
                 "type": "object"
               }
@@ -6969,7 +7273,6 @@
         "additionalProperties": true,
         "properties": {
           "details": {
-            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
