@@ -217,8 +217,6 @@ async function handleUpdate() {
       notifications.success('Source updated', 'Query changed - run search again to fetch new results');
       showEditDialog.value = false;
       emit('updated');
-      // Refresh project status since search results were cleared
-      await projects.refreshCurrentProject();
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -282,7 +280,6 @@ async function handleUpdateFile() {
       notifications.success('Source updated', 'File replaced and search date updated');
       showUpdateFileDialog.value = false;
       emit('updated');
-      await projects.refreshCurrentProject();
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

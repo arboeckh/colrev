@@ -23,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { EmptyState } from '@/components/common';
+import { EmptyState, LoadErrorState } from '@/components/common';
 import DecisionButtons from '@/components/prescreen/DecisionButtons.vue';
 import RecordCard from '@/components/prescreen/RecordCard.vue';
 import ProgressTrack from '@/components/prescreen/ProgressTrack.vue';
@@ -34,9 +34,11 @@ import { useGitStore } from '@/stores/git';
 import { useManagedReviewStore } from '@/stores/managedReview';
 import { useNotificationsStore } from '@/stores/notifications';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
+import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 import { useReadOnly } from '@/composables/useReadOnly';
 import { useReconcileGate } from '@/composables/useReconcileGate';
 import { useWalkthroughNavigation } from '@/composables/useWalkthroughNavigation';
+import { useProjectDataStore } from '@/stores/projectData';
 import type {
   GetCurrentManagedReviewTaskResponse,
   ListManagedReviewTasksResponse,
@@ -70,6 +72,7 @@ const git = useGitStore();
 const managedReview = useManagedReviewStore();
 const notifications = useNotificationsStore();
 const pending = usePendingChangesStore();
+const projectData = useProjectDataStore();
 const { isReadOnly } = useReadOnly();
 
 const isSavingToRemote = ref(false);
@@ -98,6 +101,7 @@ const queue = ref<EnrichedRecord[]>([]);
 const decisionHistory = ref<EnrichedRecord[]>([]);
 const totalCount = ref(0);
 const isLoading = ref(false);
+const loadError = ref<string | null>(null);
 const isDeciding = ref(false);
 const managedTask = ref<GetCurrentManagedReviewTaskResponse['task']>(null);
 const accessState = ref<'loading' | 'switching' | 'ready' | 'blocked'>('loading');
@@ -248,12 +252,17 @@ async function loadQueue() {
   if (!projects.currentProjectId || !backend.isRunning) return;
 
   isLoading.value = true;
+  loadError.value = null;
+  const guard = projectData.snapshot();
   try {
     const response = await backend.call('get_prescreen_queue', {
       project_id: projects.currentProjectId,
       limit: 50,
       task_id: managedTask.value?.id,
     });
+    // Project/branch switch mid-flight: this response belongs to the old
+    // context — never paint it into the new view.
+    if (!guard.isCurrent()) return;
     if (response.success) {
       const newRecords: EnrichedRecord[] = response.records.map((record) => ({
         ...record,
@@ -277,7 +286,9 @@ async function loadQueue() {
       startBackgroundEnrichment();
     }
   } catch (err) {
-    console.error('Failed to load prescreen queue:', err);
+    if (guard.isCurrent()) {
+      loadError.value = err instanceof Error ? err.message : 'Unknown error';
+    }
   } finally {
     isLoading.value = false;
   }
@@ -395,6 +406,7 @@ async function makeDecision(decision: 'include' | 'exclude') {
   lastDecisionTime.value = now;
 
   isDeciding.value = true;
+  const guard = projectData.snapshot();
   try {
     const response = await backend.call('prescreen_record', {
       project_id: projects.currentProjectId,
@@ -403,6 +415,7 @@ async function makeDecision(decision: 'include' | 'exclude') {
       task_id: managedTask.value?.id,
     });
 
+    if (!guard.isCurrent()) return;
     if (response.success) {
       currentRecord.value._decision = decision === 'include' ? 'included' : 'excluded';
       totalCount.value = response.remaining_count;
@@ -414,10 +427,12 @@ async function makeDecision(decision: 'include' | 'exclude') {
       } else if (response.remaining_count > 0) {
         await loadQueue();
       } else {
+        // Queue exhausted — flush the seam immediately so the completion
+        // screen renders fresh counts (the debounced write refresh would
+        // land a beat too late).
         queue.value = [];
-        await projects.refreshCurrentProject();
+        await projectData.refreshNow();
         allDecisionsMade.value = true;
-        managedReview.refresh();
       }
     }
   } catch (err) {
@@ -501,7 +516,6 @@ async function saveEdits() {
         'Decisions updated',
         `${response.changes_count} record(s) updated`,
       );
-      await projects.refreshCurrentProject();
       isEditMode.value = false;
       editRecords.value = [];
     }
@@ -595,13 +609,25 @@ async function ensureManagedTaskAccess(): Promise<boolean> {
   return managedTask.value !== null;
 }
 
+// Full invalidations (pull, reset, merge, backend restart) replace the
+// working tree — discard walkthrough state and rebuild the queue. Regular
+// write events are ignored: the in-progress queue is self-managed and store
+// counts refresh through the seam.
+useProjectDataChanged(async (event) => {
+  if (!event.full) return;
+  decisionHistory.value = [];
+  allDecisionsMade.value = false;
+  const canLoadQueue = await ensureManagedTaskAccess();
+  if (canLoadQueue) {
+    await loadQueue();
+  } else {
+    queue.value = [];
+    totalCount.value = 0;
+  }
+});
+
 onMounted(async () => {
   try {
-    if (!props.embedded) {
-      // Refresh status first so completion state is accurate when navigating back
-      await projects.refreshCurrentProject();
-      await git.refreshStatus();
-    }
     const canLoadQueue = await ensureManagedTaskAccess();
     if (canLoadQueue) {
       await loadQueue();
@@ -866,6 +892,15 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- Load failure: retry UI, distinguishable from an empty queue -->
+    <LoadErrorState
+      v-else-if="!isLoading && loadError"
+      title="Failed to load prescreen queue"
+      :message="loadError"
+      test-id="prescreen-load-error"
+      @retry="loadQueue"
+    />
 
     <!-- Empty state (no records available yet) -->
     <EmptyState

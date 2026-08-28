@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { CheckSquare, FileDown, AlertCircle, RefreshCw } from 'lucide-vue-next';
-import { EmptyState } from '@/components/common';
-import { Button } from '@/components/ui/button';
+import { CheckSquare, FileDown } from 'lucide-vue-next';
+import { EmptyState, LoadErrorState } from '@/components/common';
 import {
   PdfViewerPanel,
   ScreenSplitPanel,
@@ -18,6 +17,8 @@ import { useGitStore } from '@/stores/git';
 import { useManagedReviewStore } from '@/stores/managedReview';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
+import { useProjectDataStore } from '@/stores/projectData';
+import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 import { useReadOnly } from '@/composables/useReadOnly';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
 import { canIncludeDecision, canExcludeDecision } from '@/lib/screen-decision';
@@ -55,6 +56,7 @@ const managedReview = useManagedReviewStore();
 const notifications = useNotificationsStore();
 const reviewDefStore = useReviewDefinitionStore();
 const pending = usePendingChangesStore();
+const projectData = useProjectDataStore();
 const { isReadOnly } = useReadOnly();
 
 const isPageReady = ref(false);
@@ -215,12 +217,15 @@ async function loadQueue() {
   isLoading.value = true;
   loadError.value = null;
   allDecisionsMade.value = false;
+  const guard = projectData.snapshot();
   try {
     const response = await backend.call('get_screen_queue', {
       project_id: projects.currentProjectId,
       limit: 50,
       task_id: managedTask.value?.id,
     });
+    // Project/branch switch mid-flight: discard the stale response.
+    if (!guard.isCurrent()) return;
     if (response.success) {
       criteria.value = response.criteria || {};
       const criteriaNames = Object.keys(criteria.value);
@@ -241,7 +246,9 @@ async function loadQueue() {
       currentIndex.value = history.length;
     }
   } catch (err) {
-    loadError.value = err instanceof Error ? err.message : 'Unknown error';
+    if (guard.isCurrent()) {
+      loadError.value = err instanceof Error ? err.message : 'Unknown error';
+    }
   } finally {
     isLoading.value = false;
   }
@@ -260,6 +267,7 @@ async function makeDecision(decision: 'include' | 'exclude') {
       }
     }
 
+    const guard = projectData.snapshot();
     const response = await backend.call('screen_record', {
       project_id: projects.currentProjectId,
       record_id: currentRecord.value.id,
@@ -268,6 +276,7 @@ async function makeDecision(decision: 'include' | 'exclude') {
       task_id: managedTask.value?.id,
     });
 
+    if (!guard.isCurrent()) return;
     if (response.success) {
       currentRecord.value._decision = decision === 'include' ? 'included' : 'excluded';
       totalCount.value = response.remaining_count;
@@ -277,10 +286,12 @@ async function makeDecision(decision: 'include' | 'exclude') {
       } else if (response.remaining_count > 0) {
         await loadQueue();
       } else {
+        // Queue exhausted — flush the seam immediately so the completion
+        // screen renders fresh counts (the debounced write refresh would
+        // land a beat too late).
         queue.value = [];
-        await projects.refreshCurrentProject();
+        await projectData.refreshNow();
         allDecisionsMade.value = true;
-        managedReview.refresh();
       }
     }
   } catch (err) {
@@ -336,17 +347,27 @@ function handleKeydown(e: KeyboardEvent) {
 
 async function handlePdfsImported() {
   // A zip import placed new PDFs on disk — queue items that showed
-  // "No PDF available" may now have files. Refresh everything that
-  // depends on PDF presence.
-  await Promise.all([loadQueue(), projects.refreshCurrentProject()]);
+  // "No PDF available" may now have files. Store-level state refreshes via
+  // the invalidation seam; the queue is page-owned so reload it here.
+  await loadQueue();
 }
+
+// Full invalidations (pull, reset, merge, backend restart) replace the
+// working tree — discard walkthrough state and rebuild the queue.
+useProjectDataChanged(async (event) => {
+  if (!event.full) return;
+  decisionHistory.value = [];
+  const canLoadQueue = await ensureManagedTaskAccess();
+  if (canLoadQueue) {
+    await loadQueue();
+  } else {
+    queue.value = [];
+    totalCount.value = 0;
+  }
+});
 
 onMounted(async () => {
   try {
-    if (!props.embedded) {
-      await projects.refreshCurrentProject();
-      await git.refreshStatus();
-    }
     await reviewDefStore.loadDefinition();
     const canLoadQueue = await ensureManagedTaskAccess();
     if (canLoadQueue) {
@@ -421,20 +442,13 @@ onUnmounted(() => {
       @navigate-reconcile="emit('navigateReconcile')"
     />
 
-    <div
+    <LoadErrorState
       v-else-if="!isLoading && loadError"
-      class="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8"
-    >
-      <AlertCircle class="h-10 w-10 text-destructive" />
-      <div>
-        <h3 class="text-lg font-medium">Failed to load screening queue</h3>
-        <p class="text-sm text-muted-foreground mt-1">{{ loadError }}</p>
-      </div>
-      <Button variant="outline" @click="loadQueue">
-        <RefreshCw class="h-4 w-4 mr-2" />
-        Retry
-      </Button>
-    </div>
+      title="Failed to load screening queue"
+      :message="loadError"
+      test-id="screen-load-error"
+      @retry="loadQueue"
+    />
 
     <div
       v-else-if="!isLoading && queue.length === 0 && !isScreenComplete && pdfPreparedCount === 0"

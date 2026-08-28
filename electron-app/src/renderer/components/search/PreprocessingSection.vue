@@ -218,11 +218,8 @@ onMounted(() => {
   loadSources();
 });
 
-watch(showResultsModal, (newVal, oldVal) => {
-  if (!newVal && oldVal) {
-    projects.refreshCurrentProject();
-  }
-});
+// Record edits inside the results modal go through writer RPCs — the
+// invalidation seam refreshes status when they land.
 
 watch(
   () => projects.currentProjectId,

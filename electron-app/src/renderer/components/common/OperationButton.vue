@@ -35,6 +35,9 @@ const progressPct = computed(() =>
 
 async function run() {
   if (isRunning.value || props.disabled || !backend.isRunning || isReadOnly.value) return;
+  // Store-level guard: another operation (possibly triggered from a different
+  // surface) is already in flight — don't queue a second write.
+  if (backend.runningOperation) return;
 
   isRunning.value = true;
 
@@ -75,7 +78,7 @@ async function run() {
   </TooltipProvider>
   <Button
     v-else
-    :disabled="disabled || isRunning || !backend.isRunning"
+    :disabled="disabled || isRunning || !backend.isRunning || backend.runningOperation !== null"
     :data-testid="testId || `run-${operation}-button`"
     @click="run"
   >

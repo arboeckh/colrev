@@ -21,6 +21,8 @@ import type { PdfRecord, UploadResult } from '@/components/pdf-get/PdfRecordTabl
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useProjectDataStore } from '@/stores/projectData';
+import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 import { useReadOnly } from '@/composables/useReadOnly';
 
 const props = defineProps<{
@@ -36,6 +38,7 @@ const emit = defineEmits<{
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
+const projectData = useProjectDataStore();
 const { isReadOnly } = useReadOnly();
 
 const pdfGetInfo = computed(() => projects.operationInfo.pdf_get);
@@ -110,6 +113,7 @@ const filteredNotAvailableRecords = computed(() => filterBySearch(notAvailableRe
 async function loadRecords() {
   if (!projects.currentProjectId || !backend.isRunning) return;
   isLoading.value = true;
+  const guard = projectData.snapshot();
   try {
     const response = await backend.call('get_records', {
       project_id: projects.currentProjectId,
@@ -125,6 +129,8 @@ async function loadRecords() {
       pagination: { offset: 0, limit: 500 },
       fields: ['ID', 'title', 'author', 'year', 'colrev_status', 'journal', 'booktitle', 'doi', 'colrev_data_provenance'],
     });
+    // Project/branch switch mid-flight: discard the stale response.
+    if (!guard.isCurrent()) return;
     if (response.success) {
       records.value = response.records as unknown as PdfRecord[];
     }
@@ -190,7 +196,7 @@ async function handlePdfFileSelected(event: Event) {
         uploadResults.value[recordId] = { status: 'success' };
         notifications.success('PDF uploaded', `PDF linked to ${recordId}`);
       }
-      setTimeout(async () => { await refresh(); }, 2000);
+      // Record list + status refresh via the invalidation seam.
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -243,8 +249,14 @@ async function undoNotAvailable(recordId: string) {
 }
 
 async function refresh() {
-  await Promise.all([loadRecords(), projects.refreshCurrentProject()]);
+  await loadRecords();
 }
+
+// Store-level status + this section's record list refresh after any write
+// via the invalidation seam.
+useProjectDataChanged(async () => {
+  await loadRecords();
+});
 
 async function handleOperationComplete() {
   await refresh();
@@ -261,7 +273,6 @@ watch(() => props.step, async () => {
 });
 
 onMounted(async () => {
-  await projects.refreshCurrentProject();
   await loadRecords();
 });
 </script>

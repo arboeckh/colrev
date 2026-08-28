@@ -6,6 +6,8 @@ Don't edit colrev package code, only the jsoon rpc layer or electron code. colre
 
 Use the playwright cli tool skill for ad hoc exploration if you need to get visibility
 
+When work on a branch is complete, always auto-open a PR from that branch targeting the branch it was branched from (its base branch) — commit, push, and `gh pr create` without asking.
+
 ## Agent skills
 
 ### Issue tracker

@@ -10,7 +10,7 @@ import {
   ArrowRight,
 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
-import { OperationButton, EmptyState } from '@/components/common';
+import { OperationButton, EmptyState, LoadErrorState } from '@/components/common';
 import PdfRecordTable from '@/components/pdf-get/PdfRecordTable.vue';
 import BatchUploadDialog from '@/components/pdf-get/BatchUploadDialog.vue';
 import PdfShareActions from '@/components/shared/PdfShareActions.vue';
@@ -26,11 +26,14 @@ import {
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useProjectDataStore } from '@/stores/projectData';
+import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 import { useReadOnly } from '@/composables/useReadOnly';
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
+const projectData = useProjectDataStore();
 const { isReadOnly } = useReadOnly();
 
 type StageId = 'retrieve' | 'upload' | 'prepare' | 'fix' | 'summary';
@@ -39,6 +42,7 @@ type PendingUploadKind = 'normal' | 'missing-restore';
 
 const records = ref<PdfRecord[]>([]);
 const isLoading = ref(false);
+const loadError = ref<string | null>(null);
 const uploadingRecordId = ref<string | null>(null);
 const markingRecordId = ref<string | null>(null);
 const undoingRecordId = ref<string | null>(null);
@@ -199,6 +203,8 @@ async function loadRecords() {
   if (!projects.currentProjectId || !backend.isRunning) return;
 
   isLoading.value = true;
+  loadError.value = null;
+  const guard = projectData.snapshot();
   try {
     const response = await backend.call('get_records', {
       project_id: projects.currentProjectId,
@@ -229,11 +235,15 @@ async function loadRecords() {
       ],
     });
 
+    // Project/branch switch mid-flight: discard the stale response.
+    if (!guard.isCurrent()) return;
     if (response.success) {
       records.value = response.records as unknown as PdfRecord[];
     }
   } catch (err) {
-    console.error('Failed to load PDF records:', err);
+    if (guard.isCurrent()) {
+      loadError.value = err instanceof Error ? err.message : 'Unknown error';
+    }
   } finally {
     isLoading.value = false;
   }
@@ -288,9 +298,6 @@ async function handlePdfFileSelected(event: Event) {
       });
       uploadResults.value[recordId] = { status: 'success' };
       notifications.success('PDF restored', `File placed on disk for ${recordId}`);
-      setTimeout(async () => {
-        await refresh();
-      }, 500);
       return;
     }
 
@@ -321,10 +328,6 @@ async function handlePdfFileSelected(event: Event) {
         uploadResults.value[recordId] = { status: 'success' };
         notifications.success('PDF uploaded', `PDF linked to ${recordId}`);
       }
-
-      setTimeout(async () => {
-        await refresh();
-      }, 2000);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -352,7 +355,6 @@ async function markNotAvailable(recordId: string) {
 
     if (response.success) {
       notifications.success('Marked unavailable', recordId);
-      await refresh();
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -376,7 +378,6 @@ async function undoNotAvailable(recordId: string) {
 
     if (response.success) {
       notifications.success('Restored', `${recordId} ready to upload`);
-      await refresh();
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -386,26 +387,26 @@ async function undoNotAvailable(recordId: string) {
   }
 }
 
-async function refresh() {
-  await Promise.all([loadRecords(), projects.refreshCurrentProject()]);
-}
+// Record list + store-level status refresh after any write via the
+// invalidation seam (upload_pdf, pdf_get, pdf_prep, mark/undo, batch import
+// are all writer RPCs) — no per-action refresh choreography needed.
+useProjectDataChanged(async () => {
+  await loadRecords();
+});
 
-async function handleOperationComplete() {
+function handleOperationComplete() {
   userSelectedStage.value = null;
-  await refresh();
 }
 
-async function handleOperationError() {
+function handleOperationError() {
   // Even when the operation surfaces an error toast, the backend may have
-  // persisted partial progress before raising — refresh so the UI reflects
-  // any status transitions that did make it to disk.
+  // persisted partial progress before raising — the seam still fires on the
+  // error path, so the UI reflects whatever made it to disk.
   userSelectedStage.value = null;
-  await refresh();
 }
 
-async function handleBatchUploadComplete() {
+function handleBatchUploadComplete() {
   showBatchUpload.value = false;
-  await refresh();
 }
 
 function selectStage(id: StageId) {
@@ -414,7 +415,6 @@ function selectStage(id: StageId) {
 }
 
 onMounted(async () => {
-  await projects.refreshCurrentProject();
   await loadRecords();
 });
 </script>
@@ -436,6 +436,15 @@ onMounted(async () => {
         :icon="Lock"
         title="Complete prescreening first"
         description="PDF retrieval starts once records have been included in the prescreen."
+      />
+    </div>
+
+    <div v-else-if="loadError && !isLoading" class="flex-1 flex flex-col">
+      <LoadErrorState
+        title="Failed to load PDF records"
+        :message="loadError"
+        test-id="pdfs-load-error"
+        @retry="loadRecords"
       />
     </div>
 

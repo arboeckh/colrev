@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { ArrowLeft, RefreshCw } from 'lucide-vue-next';
+import { AlertTriangle, ArrowLeft, RefreshCw } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import GitSyncControls from '@/components/common/GitSyncControls.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
-import { usePendingChangesStore } from '@/stores/pendingChanges';
+import { useProjectDataStore } from '@/stores/projectData';
 const router = useRouter();
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const git = useGitStore();
-const pending = usePendingChangesStore();
+const projectData = useProjectDataStore();
 
 const projectTitle = computed(() => {
   return projects.currentSettings?.project?.title || projects.currentProjectId || 'Review';
@@ -29,17 +29,16 @@ function goToProjects() {
   router.push('/');
 }
 
-// Single user-initiated refresh covering project metadata, local git state,
-// pending changes, and (if remote) a fetch so ahead/behind is fresh. This is
-// the explicit replacement for the interval polling that used to run.
+// Single user-initiated refresh through the invalidation seam (project
+// metadata, local git state, pending changes, active page's records), plus a
+// fetch (if remote) so ahead/behind is fresh. This is the explicit
+// replacement for the interval polling that used to run.
 async function refresh() {
   if (isRefreshingManual.value) return;
   isRefreshingManual.value = true;
   try {
     await Promise.all([
-      projects.refreshCurrentProject(),
-      git.refreshStatus(),
-      pending.refresh(),
+      projectData.refreshNow(),
       git.hasRemote ? git.fetch() : Promise.resolve(),
     ]);
   } finally {
@@ -83,6 +82,19 @@ async function refresh() {
       <!-- Right side: Git sync + Refresh -->
       <div class="flex items-center gap-3">
         <GitSyncControls v-if="git.hasRemote" />
+
+        <!-- A background refresh failed: what's on screen may be stale. -->
+        <button
+          v-if="projectData.isStale"
+          type="button"
+          class="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500 hover:underline"
+          data-testid="stale-data-indicator"
+          :title="projectData.staleReason ?? 'A background refresh failed'"
+          @click="refresh"
+        >
+          <AlertTriangle class="h-3.5 w-3.5" />
+          Data may be stale
+        </button>
 
         <Button
           variant="ghost"

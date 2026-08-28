@@ -149,8 +149,6 @@ async function saveExtraction() {
       currentRecord.value.extraction_values = { ...localValues.value };
       completedCount.value = totalCount.value - response.remaining_count;
 
-      await projects.refreshCurrentProject();
-
       // If all complete, go to completion page
       if (response.remaining_count === 0 && completedCount.value >= totalCount.value) {
         isEditing.value = false;
@@ -260,7 +258,6 @@ async function exportCsv() {
 
 // --- Lifecycle ---
 onMounted(async () => {
-  await projects.refreshCurrentProject();
   await loadQueue();
 });
 </script>

@@ -19,6 +19,7 @@ import { computeStepStatus, type StepStatus } from '@/lib/stepStatus';
 // Lazy use only — not called at store init time (circular dep safe via Vite ESM live bindings).
 import { useGitStore } from './git';
 import { useManagedReviewStore } from './managedReview';
+import { useProjectDataStore } from './projectData';
 
 function sanitizeGitStatus(git: GitStatus): GitStatus {
   if (git.remote_url) {
@@ -62,8 +63,6 @@ export const useProjectsStore = defineStore('projects', () => {
   const hasStaleSearchSources = ref(false);
   const isLoadingProject = ref(false);
   const projectError = ref<string | null>(null);
-  // Bumped after pull/merge to force view remount and data re-fetch
-  const dataVersion = ref(0);
 
   // Freeze state: held during branch switches to prevent sidebar flicker.
   // Snapshotted before checkout; cleared after loadProject completes.
@@ -198,8 +197,14 @@ export const useProjectsStore = defineStore('projects', () => {
     projectError.value = null;
     currentProjectId.value = id;
 
+    // Project switch or branch-switch reload: any in-flight project-scoped
+    // load belongs to the previous context — invalidate it.
+    useProjectDataStore().bumpEpoch();
+
     // Ensure project is in list
     addProject(id);
+
+    const guard = useProjectDataStore().snapshot();
 
     try {
       debug.logInfo('Starting parallel load of status, git status, settings...');
@@ -212,6 +217,12 @@ export const useProjectsStore = defineStore('projects', () => {
       ]);
 
       debug.logInfo(`Parallel load complete. Status: ${!!status}, Git: ${!!gitStatus}, Settings: ${!!settings}`);
+
+      if (!guard.isCurrent()) {
+        // Another loadProject (project or branch switch) superseded this one
+        // mid-flight — let it own the state.
+        return false;
+      }
 
       if (!status) {
         projectError.value = 'Failed to load project status';
@@ -272,15 +283,33 @@ export const useProjectsStore = defineStore('projects', () => {
     }
   }
 
+  // In-flight coalescing with a "dirty re-run": callers arriving while a
+  // request is in flight share ONE follow-up request that starts after the
+  // current one completes. A post-mutation refresh therefore never receives
+  // pre-mutation data (the old bug: returning the older in-flight promise).
   let _opInfoInFlight: Promise<void> | null = null;
+  let _opInfoQueued: Promise<void> | null = null;
 
-  async function loadAllOperationInfo(id: string): Promise<void> {
-    if (_opInfoInFlight) return _opInfoInFlight;
-    _opInfoInFlight = _loadAllOperationInfoImpl(id);
-    try { await _opInfoInFlight; } finally { _opInfoInFlight = null; }
+  function loadAllOperationInfo(id: string): Promise<void> {
+    if (_opInfoInFlight) {
+      if (!_opInfoQueued) {
+        _opInfoQueued = _opInfoInFlight
+          .catch(() => {})
+          .then(() => {
+            _opInfoQueued = null;
+            return loadAllOperationInfo(id);
+          });
+      }
+      return _opInfoQueued;
+    }
+    _opInfoInFlight = _loadAllOperationInfoImpl(id).finally(() => {
+      _opInfoInFlight = null;
+    });
+    return _opInfoInFlight;
   }
 
   async function _loadAllOperationInfoImpl(id: string): Promise<void> {
+    const guard = useProjectDataStore().snapshot();
     const operations: WorkflowStep[] = [
       'search',
       'load',
@@ -300,68 +329,100 @@ export const useProjectsStore = defineStore('projects', () => {
             project_id: id,
             operation: op,
           });
+          if (!guard.isCurrent()) return;
           operationInfo.value[op] = response;
         } catch {
+          if (!guard.isCurrent()) return;
           operationInfo.value[op] = null;
         }
       })
     );
   }
 
-  async function refreshCurrentProject(): Promise<void> {
+  // Same dirty re-run coalescing as loadAllOperationInfo: concurrent callers
+  // share the in-flight refresh, and at most one follow-up is queued so a
+  // refresh requested mid-flight (e.g. post-mutation) re-reads fresh data.
+  let _refreshInFlight: Promise<void> | null = null;
+  let _refreshQueued: Promise<void> | null = null;
+
+  function refreshCurrentProject(): Promise<void> {
+    if (_refreshInFlight) {
+      if (!_refreshQueued) {
+        _refreshQueued = _refreshInFlight
+          .catch(() => {})
+          .then(() => {
+            _refreshQueued = null;
+            return refreshCurrentProject();
+          });
+      }
+      return _refreshQueued;
+    }
+    _refreshInFlight = _refreshCurrentProjectImpl().finally(() => {
+      _refreshInFlight = null;
+    });
+    return _refreshInFlight;
+  }
+
+  /**
+   * Refresh the current project in place, without the loading spinner.
+   * Newest-wins: results from a superseded context (project/branch switch
+   * mid-flight) are discarded. Throws on failure — the invalidation seam
+   * (stores/projectData.ts) turns that into a visible staleness flag.
+   */
+  async function _refreshCurrentProjectImpl(): Promise<void> {
     if (!currentProjectId.value || !currentProject.value) return;
 
     const id = currentProjectId.value;
+    const guard = useProjectDataStore().snapshot();
 
-    // Refresh WITHOUT showing loading spinner (keeps current content visible)
+    // Load all project data in parallel
+    const [status, gitStatus, settings] = await Promise.all([
+      loadProjectStatus(id),
+      loadProjectGitStatus(id),
+      loadProjectSettings(id),
+    ]);
+
+    if (!guard.isCurrent() || !currentProject.value) return;
+
+    if (status) {
+      // Update current project in place (no flicker)
+      currentProject.value = {
+        ...currentProject.value,
+        status,
+        gitStatus: gitStatus ?? currentProject.value.gitStatus,
+        settings: settings ?? currentProject.value.settings,
+      };
+    } else {
+      throw new Error('Failed to refresh project status');
+    }
+
+    // Refresh operation info
+    await loadAllOperationInfo(id);
+    if (!guard.isCurrent()) return;
+
+    const searchOp = operationInfo.value.search;
+    if (searchOp?.needs_rerun) {
+      hasStaleSearchSources.value = true;
+    }
+
+    // Refresh managed review task state for sidebar
     try {
-      // Load all project data in parallel
-      const [status, gitStatus, settings] = await Promise.all([
-        loadProjectStatus(id),
-        loadProjectGitStatus(id),
-        loadProjectSettings(id),
-      ]);
+      const { useManagedReviewStore } = await import('./managedReview');
+      const managedReviewStore = useManagedReviewStore();
+      await managedReviewStore.refresh();
+    } catch {
+      // Non-critical
+    }
 
-      if (status) {
-        // Update current project in place (no flicker)
-        currentProject.value = {
-          ...currentProject.value,
-          status,
-          gitStatus: gitStatus ?? currentProject.value.gitStatus,
-          settings: settings ?? currentProject.value.settings,
-        };
+    // Refresh branch delta (fire-and-forget) when on dev
+    try {
+      const { useGitStore } = await import('./git');
+      const gitStore = useGitStore();
+      if (gitStore.isOnDev) {
+        gitStore.refreshBranchDelta();
       }
-
-      // Refresh operation info
-      await loadAllOperationInfo(id);
-
-      const searchOp = operationInfo.value.search;
-      if (searchOp?.needs_rerun) {
-        hasStaleSearchSources.value = true;
-      }
-
-      // Refresh managed review task state for sidebar
-      try {
-        const { useManagedReviewStore } = await import('./managedReview');
-        const managedReviewStore = useManagedReviewStore();
-        await managedReviewStore.refresh();
-      } catch {
-        // Non-critical
-      }
-
-      // Refresh branch delta (fire-and-forget) when on dev
-      try {
-        const { useGitStore } = await import('./git');
-        const gitStore = useGitStore();
-        if (gitStore.isOnDev) {
-          gitStore.refreshBranchDelta();
-        }
-      } catch {
-        // Non-critical
-      }
-    } catch (err) {
-      console.error('Failed to refresh project:', err);
-      // Keep existing data on error - don't clear
+    } catch {
+      // Non-critical
     }
   }
 
@@ -379,6 +440,8 @@ export const useProjectsStore = defineStore('projects', () => {
     currentProject.value = null;
     projectError.value = null;
     hasStaleSearchSources.value = false;
+    // Invalidate any in-flight project-scoped loads.
+    useProjectDataStore().bumpEpoch();
 
     // Clean up managed review state
     try {
@@ -497,7 +560,6 @@ export const useProjectsStore = defineStore('projects', () => {
     hasStaleSearchSources,
     isLoadingProject,
     projectError,
-    dataVersion,
     // Computed
     hasProjects,
     currentGitStatus,

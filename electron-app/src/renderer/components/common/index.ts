@@ -1,6 +1,7 @@
 export { default as StatusBadge } from './StatusBadge.vue';
 export { default as GitSyncControls } from './GitSyncControls.vue';
 export { default as EmptyState } from './EmptyState.vue';
+export { default as LoadErrorState } from './LoadErrorState.vue';
 export { default as OperationButton } from './OperationButton.vue';
 export { default as ProgressCircle } from './ProgressCircle.vue';
 export { default as ReadOnlyBanner } from './ReadOnlyBanner.vue';

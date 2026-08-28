@@ -1,6 +1,7 @@
 // Re-export all stores
 export { useBackendStore } from './backend';
 export { useProjectsStore } from './projects';
+export { useProjectDataStore } from './projectData';
 export { useNotificationsStore } from './notifications';
 export { useDebugStore } from './debug';
 export { useThemeStore } from './theme';
