@@ -20,6 +20,17 @@ COLREV_OPERATION_ERROR = -32001
 COLREV_SERVICE_NOT_AVAILABLE = -32002
 COLREV_MISSING_DEPENDENCY = -32003
 COLREV_PARAMETER_ERROR = -32004
+# An engine operation precondition failed (dirty working tree, record-state
+# model violation, no records). The renderer can tell the user to commit or
+# discard changes; the exception class name travels in the error's ``data``.
+COLREV_PRECONDITION_FAILED = -32005
+
+_PRECONDITION_EXCEPTIONS = (
+    colrev_exceptions.UnstagedGitChangesError,
+    colrev_exceptions.CleanRepoRequiredError,
+    colrev_exceptions.ProcessOrderViolation,
+    colrev_exceptions.NoRecordsError,
+)
 
 
 def map_exception_to_error_code(exception: Exception) -> int:
@@ -32,7 +43,9 @@ def map_exception_to_error_code(exception: Exception) -> int:
     Returns:
         Appropriate JSON-RPC error code
     """
-    if isinstance(exception, colrev_exceptions.RepoSetupError):
+    if isinstance(exception, _PRECONDITION_EXCEPTIONS):
+        return COLREV_PRECONDITION_FAILED
+    elif isinstance(exception, colrev_exceptions.RepoSetupError):
         return COLREV_REPO_SETUP_ERROR
     elif isinstance(exception, colrev_exceptions.ServiceNotAvailableException):
         return COLREV_SERVICE_NOT_AVAILABLE

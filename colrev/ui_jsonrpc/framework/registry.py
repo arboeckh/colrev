@@ -5,12 +5,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 from typing import Iterable
+from typing import Literal
 from typing import Optional
 from typing import Type
 
 from pydantic import BaseModel
 
 from colrev.constants import OperationsType
+
+# Precondition policy for a method's ReviewManager:
+# - "enforce": the engine's own operation preconditions apply unchanged
+#   (clean-repo checks, record-state model checks). The default.
+# - "manual_decision": per-record manual decision endpoints (prescreen/screen).
+#   The engine allows the working tree to have only data/records.bib dirty,
+#   mirroring its prep_man precedent — a review session accumulates staged
+#   decisions between commits.
+# A "skip" value is deliberately not offered: it would recreate the blanket
+# bypass this field replaced (interactive_mode), and no registered method
+# needs it. A method that ever does must instead add a narrow, documented
+# relaxation to the engine (see colrev/PATCHES.md).
+PreconditionPolicy = Literal["enforce", "manual_decision"]
 
 
 @dataclass(frozen=True)
@@ -28,6 +42,7 @@ class MethodSpecDraft:
     response_model: Type[BaseModel]
     operation_type: Optional[OperationsType] = None
     requires_project: bool = True
+    precondition: PreconditionPolicy = "enforce"
 
 
 @dataclass(frozen=True)
@@ -46,6 +61,8 @@ class MethodSpec:
         requires_project: If True, the request must be a ProjectScopedRequest and the
             dispatcher will construct a ReviewManager. If False (``ping``, ``list_projects``,
             ``init_project``), no ReviewManager is built.
+        precondition: How the engine's operation preconditions apply to this
+            method (see :data:`PreconditionPolicy`). Defaults to "enforce".
     """
 
     name: str
@@ -55,6 +72,7 @@ class MethodSpec:
     handler_cls: Type
     operation_type: Optional[OperationsType] = None
     requires_project: bool = True
+    precondition: PreconditionPolicy = "enforce"
 
 
 class MethodRegistry:

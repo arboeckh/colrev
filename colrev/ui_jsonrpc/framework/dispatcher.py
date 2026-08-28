@@ -5,8 +5,10 @@ method flows through one code path:
 
 1. Look up MethodSpec by method name.
 2. Validate params against ``spec.request_model`` (Pydantic).
-3. If ``spec.requires_project``: construct ``ReviewManager(interactive_mode=True)``
-   rooted at the resolved project path, inject LazyWriteGitRepo.
+3. If ``spec.requires_project``: construct a ``ReviewManager`` rooted at the
+   resolved project path, apply ``spec.precondition`` (the engine's operation
+   preconditions apply unchanged unless the method is a per-record
+   manual-decision endpoint), inject LazyWriteGitRepo.
 4. Instantiate ``spec.handler_cls`` with a HandlerContext.
 5. Call the handler, serialize the response via ``model_dump``.
 """
@@ -142,10 +144,14 @@ class Dispatcher:
             os.chdir(project_path)
             review_manager = colrev.review_manager.ReviewManager(
                 path_str=str(project_path),
-                interactive_mode=True,
                 verbose_mode=getattr(request_obj, "verbose", False),
                 high_level_operation=True,
             )
+            if spec.precondition == "manual_decision":
+                # Narrow engine relaxation (see colrev/PATCHES.md): per-record
+                # prescreen/screen decisions may run with only data/records.bib
+                # dirty, mirroring the engine's prep_man precedent.
+                review_manager.manual_decision_mode = True
             install_lazy_git_repo(review_manager, Path(project_path))
 
             ctx = HandlerContext(

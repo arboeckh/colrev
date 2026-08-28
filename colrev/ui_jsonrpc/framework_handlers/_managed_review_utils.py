@@ -1,10 +1,9 @@
 """Shared helpers for managed-review gating in stage handlers.
 
 Coupling note: ``ManagedReviewService._find_task`` and
-``_get_current_branch`` are name-mangled-by-convention privates on a
-core-colrev class. Promoting them to public is tracked separately as a
-core-colrev change; until then the gate logic stays in this module so
-the privacy break exists in exactly one place.
+``_get_current_branch`` are underscore-private methods on the service.
+The gate logic stays in this module so the privacy break exists in
+exactly one place.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ from typing import Optional
 from typing import Set
 
 import colrev.review_manager
-from colrev.managed_review import ManagedReviewService
+from colrev.ui_jsonrpc.managed_review import ManagedReviewService
 
 
 def task_record_ids(
