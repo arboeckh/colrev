@@ -142,12 +142,16 @@ test.describe('search', () => {
 
     // Phase 8: Run both API searches (per-source buttons). Both hit the
     // requests-level HTTP mock, so no live network is used.
+    // Wait for the settled record count on the card. The in-flight progress
+    // line also says "N/N records", so matching the whole card text would
+    // resolve while the search RPC is still running and race the backend's
+    // file writes. record-count-* only renders once the search has completed
+    // and the source list has been reloaded.
     const waitForRecords = (sourceName: string) =>
       window.waitForFunction(
         (name) => {
-          const card = document.querySelector(`[data-testid="source-card-${name}"]`);
-          return card !== null && /(\d+)\s*records/.test(card.textContent ?? '')
-            && Number(((card.textContent ?? '').match(/(\d+)\s*records/) ?? [])[1] ?? 0) > 0;
+          const count = document.querySelector(`[data-testid="record-count-${name}"]`);
+          return count !== null && Number(count.textContent ?? '0') > 0;
         },
         sourceName,
         { timeout: 60_000 },

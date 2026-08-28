@@ -415,7 +415,7 @@ async function handleUpdateFile() {
           <template v-else-if="source.last_run_timestamp && !source.is_stale">
             <CheckCircle2 class="h-4 w-4 text-green-500" />
             <span class="text-muted-foreground">
-              <span class="font-medium text-foreground">{{ source.record_count }}</span> records
+              <span class="font-medium text-foreground" :data-testid="`record-count-${sourceName}`">{{ source.record_count }}</span> records
             </span>
             <span class="text-muted-foreground">·</span>
             <TooltipProvider>
