@@ -1,9 +1,12 @@
 """Error handling and mapping for JSON-RPC responses."""
-
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
+from typing import Dict
+from typing import Optional
 
 import colrev.exceptions as colrev_exceptions
+from colrev.ui_jsonrpc.errors import MethodNotFoundError
+from colrev.ui_jsonrpc.errors import NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -14,12 +17,29 @@ METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
 
-# CoLRev-specific error codes (starting from -32000 as per JSON-RPC spec)
+# CoLRev-specific error codes (starting from -32000 as per JSON-RPC spec).
+# The renderer branches on these (see electron-app/src/renderer/lib/rpc-errors.ts)
+# — keep both sides in sync when adding codes.
 COLREV_REPO_SETUP_ERROR = -32000
 COLREV_OPERATION_ERROR = -32001
 COLREV_SERVICE_NOT_AVAILABLE = -32002
 COLREV_MISSING_DEPENDENCY = -32003
 COLREV_PARAMETER_ERROR = -32004
+# The operation refused to run because the repo is not in the required state
+# (uncommitted changes, unresolved merge, ...). UI: "commit or discard first".
+COLREV_PRECONDITION_FAILED = -32005
+# A lock (e.g. .git/index.lock) is held by another process after retries.
+COLREV_RESOURCE_LOCKED = -32006
+# A referenced resource (project, record, source) does not exist.
+COLREV_NOT_FOUND = -32007
+
+# Exceptions signalling "repo not in the required state to run this".
+_PRECONDITION_EXCEPTIONS = (
+    colrev_exceptions.UnstagedGitChangesError,
+    colrev_exceptions.CleanRepoRequiredError,
+    colrev_exceptions.DirtyRepoAfterProcessingError,
+    colrev_exceptions.GitConflictError,
+)
 
 
 def map_exception_to_error_code(exception: Exception) -> int:
@@ -32,7 +52,15 @@ def map_exception_to_error_code(exception: Exception) -> int:
     Returns:
         Appropriate JSON-RPC error code
     """
-    if isinstance(exception, colrev_exceptions.RepoSetupError):
+    if isinstance(exception, MethodNotFoundError):
+        return METHOD_NOT_FOUND
+    elif isinstance(exception, NotFoundError):
+        return COLREV_NOT_FOUND
+    elif isinstance(exception, colrev_exceptions.GitNotAvailableError):
+        return COLREV_RESOURCE_LOCKED
+    elif isinstance(exception, _PRECONDITION_EXCEPTIONS):
+        return COLREV_PRECONDITION_FAILED
+    elif isinstance(exception, colrev_exceptions.RepoSetupError):
         return COLREV_REPO_SETUP_ERROR
     elif isinstance(exception, colrev_exceptions.ServiceNotAvailableException):
         return COLREV_SERVICE_NOT_AVAILABLE

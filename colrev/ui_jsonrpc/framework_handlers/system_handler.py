@@ -54,6 +54,7 @@ class SystemHandler(BaseHandler):
         request=PingRequest,
         response=PingResponse,
         requires_project=False,
+        timeout_class="fast",
     )
     def ping(self, _req: PingRequest) -> PingResponse:
         return PingResponse()
@@ -63,6 +64,7 @@ class SystemHandler(BaseHandler):
         request=GetCSVSourceTemplatesRequest,
         response=GetCSVSourceTemplatesResponse,
         requires_project=False,
+        timeout_class="fast",
     )
     def get_csv_source_templates(
         self, _req: GetCSVSourceTemplatesRequest
@@ -76,6 +78,7 @@ class SystemHandler(BaseHandler):
         request=SetConnectorApiKeyRequest,
         response=SetConnectorApiKeyResponse,
         requires_project=False,
+        timeout_class="fast",
     )
     def set_connector_api_key(
         self, req: SetConnectorApiKeyRequest
@@ -96,6 +99,7 @@ class SystemHandler(BaseHandler):
         request=GetConnectorApiKeyStatusRequest,
         response=GetConnectorApiKeyStatusResponse,
         requires_project=False,
+        timeout_class="fast",
     )
     def get_connector_api_key_status(
         self, _req: GetConnectorApiKeyStatusRequest

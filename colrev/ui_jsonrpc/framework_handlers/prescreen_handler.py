@@ -174,6 +174,7 @@ class PrescreenHandler(BaseHandler):
         request=PrescreenRecordRequest,
         response=PrescreenRecordResponse,
         operation_type=OperationsType.prescreen,
+        writes=True,
     )
     def prescreen_record(self, req: PrescreenRecordRequest) -> PrescreenRecordResponse:
         assert self.review_manager is not None
@@ -250,6 +251,7 @@ class PrescreenHandler(BaseHandler):
         request=PrescreenBatchRequest,
         response=PrescreenBatchResponse,
         operation_type=OperationsType.prescreen,
+        writes=True,
     )
     def prescreen(self, req: PrescreenBatchRequest) -> PrescreenBatchResponse:
         assert self.review_manager is not None
@@ -270,6 +272,7 @@ class PrescreenHandler(BaseHandler):
         request=GetPrescreenQueueRequest,
         response=GetPrescreenQueueResponse,
         operation_type=OperationsType.prescreen,
+        timeout_class="fast",
     )
     def get_prescreen_queue(
         self, req: GetPrescreenQueueRequest
@@ -306,6 +309,7 @@ class PrescreenHandler(BaseHandler):
         request=UpdatePrescreenDecisionsRequest,
         response=UpdatePrescreenDecisionsResponse,
         operation_type=OperationsType.prescreen,
+        writes=True,
     )
     def update_prescreen_decisions(
         self, req: UpdatePrescreenDecisionsRequest
@@ -371,6 +375,7 @@ class PrescreenHandler(BaseHandler):
         name="enrich_record_metadata",
         request=EnrichRecordMetadataRequest,
         response=EnrichRecordMetadataResponse,
+        writes=True,
     )
     def enrich_record_metadata(
         self, req: EnrichRecordMetadataRequest
@@ -420,6 +425,7 @@ class PrescreenHandler(BaseHandler):
         name="batch_enrich_records",
         request=BatchEnrichRecordsRequest,
         response=BatchEnrichRecordsResponse,
+        writes=True,
     )
     def batch_enrich_records(
         self, req: BatchEnrichRecordsRequest

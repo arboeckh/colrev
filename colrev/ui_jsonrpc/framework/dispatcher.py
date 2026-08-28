@@ -10,7 +10,6 @@ method flows through one code path:
 4. Instantiate ``spec.handler_cls`` with a HandlerContext.
 5. Call the handler, serialize the response via ``model_dump``.
 """
-
 from __future__ import annotations
 
 import logging
@@ -101,7 +100,9 @@ class Dispatcher:
             return _retry_on_lock(
                 method, lambda: self._dispatch_project_scoped(spec, request_obj)
             )
-        return _retry_on_lock(method, lambda: self._dispatch_no_project(spec, request_obj))
+        return _retry_on_lock(
+            method, lambda: self._dispatch_no_project(spec, request_obj)
+        )
 
     def _dispatch_no_project(
         self,
@@ -131,8 +132,10 @@ class Dispatcher:
         original_cwd = os.getcwd()
 
         # OS-level fd 1 redirect so child processes (and Python-level prints)
-        # can't pollute stdout — stdout is the JSON-RPC transport, nothing
-        # else may write to it.
+        # can't pollute the JSON-RPC stream. Responses and progress events are
+        # written through the private wire handle captured at server startup
+        # (see colrev.ui_jsonrpc.transport), so this redirect only silences
+        # writers that were never supposed to touch the wire.
         saved_stdout_fd = os.dup(1)
         devnull_fd = os.open(os.devnull, os.O_WRONLY)
         os.dup2(devnull_fd, 1)

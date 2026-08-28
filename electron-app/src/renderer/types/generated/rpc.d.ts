@@ -47,13 +47,6 @@ export interface ProgressEvent {
 // shared: RecordPayload
 export type Entrytype = string;
 export type Id = string;
-/**
- * RecordState as a string-valued enum for JSON Schema export.
- *
- * Mirrors :class:`colrev.constants.RecordState` but uses string values
- * so JSON Schema sees it as an ``enum`` of strings rather than integers.
- * Frontend (via codegen) gets a proper string-literal union.
- */
 export type RecordStateName =
   | "md_retrieved"
   | "md_imported"
@@ -167,6 +160,7 @@ export type Endpoint = string | null;
 export type Filename = string | null;
 export type ProjectId = string;
 export type RunDate = string | null;
+export type SearchParameters = {} | null;
 export type SearchString = string;
 export type SearchType = string | null;
 export type Verbose = boolean;
@@ -177,6 +171,7 @@ export interface AddSourceRequest {
   filename?: Filename;
   project_id: ProjectId;
   run_date?: RunDate;
+  search_parameters?: SearchParameters;
   search_string?: SearchString;
   search_type?: SearchType;
   verbose?: Verbose;
@@ -205,6 +200,7 @@ export interface Source {}
 
 // apply_reconciliation
 export type BasePath = string | null;
+export type OverrideBlocks = boolean;
 export type ProjectId = string;
 export type Resolutions = unknown[];
 export type ResolvedBy = string;
@@ -213,6 +209,7 @@ export type Verbose = boolean;
 
 export interface ApplyReconciliationRequest {
   base_path?: BasePath;
+  override_blocks?: OverrideBlocks;
   project_id: ProjectId;
   resolutions?: Resolutions;
   resolved_by?: ResolvedBy;
@@ -657,6 +654,22 @@ export interface DeltaByState {
 }
 export interface SourceBranchCounts {
   [k: string]: number;
+}
+
+// get_connector_api_key_status
+export type BasePath = string | null;
+
+export interface GetConnectorApiKeyStatusRequest {
+  base_path?: BasePath;
+}
+
+export type Openalex = boolean;
+export type Success = true;
+
+export interface GetConnectorApiKeyStatusResponse {
+  openalex: Openalex;
+  success?: Success;
+  [k: string]: unknown;
 }
 
 // get_csv_source_templates
@@ -1698,6 +1711,11 @@ export interface PingRequest {
 export type Status = "pong";
 export type Success = true;
 
+/**
+ * Readiness probe response. Lives here (not in system_handler) so the
+ * fast path in ``handler.py`` can construct it without importing
+ * ``framework_handlers`` (which would defeat the lazy-load design).
+ */
 export interface PingResponse {
   status?: Status;
   success?: Success;
@@ -2085,6 +2103,28 @@ export interface SearchDetails {
   message: Message;
   rerun: Rerun;
   source: Source;
+  [k: string]: unknown;
+}
+
+// set_connector_api_key
+export type ApiKey = string;
+export type BasePath = string | null;
+export type Connector = string;
+
+export interface SetConnectorApiKeyRequest {
+  api_key: ApiKey;
+  base_path?: BasePath;
+  connector: Connector;
+}
+
+export type Configured = boolean;
+export type Connector = string;
+export type Success = true;
+
+export interface SetConnectorApiKeyResponse {
+  configured: Configured;
+  connector: Connector;
+  success?: Success;
   [k: string]: unknown;
 }
 
@@ -2553,6 +2593,10 @@ export interface RPCMethods {
     params: GetBranchDeltaRequest;
     result: GetBranchDeltaResponse;
   };
+  "get_connector_api_key_status": {
+    params: GetConnectorApiKeyStatusRequest;
+    result: GetConnectorApiKeyStatusResponse;
+  };
   "get_csv_source_templates": {
     params: GetCsvSourceTemplatesRequest;
     result: GetCsvSourceTemplatesResponse;
@@ -2720,6 +2764,10 @@ export interface RPCMethods {
   "search": {
     params: SearchRequest;
     result: SearchResponse;
+  };
+  "set_connector_api_key": {
+    params: SetConnectorApiKeyRequest;
+    result: SetConnectorApiKeyResponse;
   };
   "status": {
     params: StatusRequest;

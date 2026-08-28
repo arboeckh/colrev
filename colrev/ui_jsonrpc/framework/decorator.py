@@ -4,7 +4,6 @@ Registration into the global registry happens when the surrounding
 :class:`BaseHandler` subclass is processed by ``__init_subclass__``;
 the draft is finalised there by attaching ``handler`` and ``handler_cls``.
 """
-
 from __future__ import annotations
 
 from typing import Callable
@@ -24,6 +23,8 @@ def rpc_method(
     response: Type[BaseModel],
     operation_type: Optional[OperationsType] = None,
     requires_project: bool = True,
+    writes: bool = False,
+    timeout_class: str = "slow",
 ) -> Callable:
     """Mark a handler method as an RPC endpoint.
 
@@ -34,7 +35,18 @@ def rpc_method(
         operation_type: If this wraps a CoLRev operation, the OperationsType.
             None for UI-native methods.
         requires_project: False for project-list / ping / init endpoints.
+        writes: True if the method mutates project state (staged changes).
+            Drives the renderer's post-write git/pending-changes refresh.
+        timeout_class: ``"fast"`` for cheap read/status methods (client caps
+            server processing at ~10s); ``"slow"`` (default) for everything
+            else — no client-side cap, liveness comes from progress events
+            and crash detection.
     """
+
+    if timeout_class not in ("fast", "slow"):
+        raise ValueError(
+            f"timeout_class must be 'fast' or 'slow', got {timeout_class!r}"
+        )
 
     draft = MethodSpecDraft(
         name=name,
@@ -42,6 +54,8 @@ def rpc_method(
         response_model=response,
         operation_type=operation_type,
         requires_project=requires_project,
+        writes=writes,
+        timeout_class=timeout_class,
     )
 
     def decorator(fn: Callable) -> Callable:
