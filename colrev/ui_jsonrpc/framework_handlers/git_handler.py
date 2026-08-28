@@ -226,6 +226,7 @@ class GitHandler(BaseHandler):
         name="commit_changes",
         request=CommitChangesRequest,
         response=CommitChangesResponse,
+        writes=True,
     )
     def commit_changes(self, req: CommitChangesRequest) -> CommitChangesResponse:
         assert self.review_manager is not None
@@ -292,6 +293,7 @@ class GitHandler(BaseHandler):
         name="discard_changes",
         request=DiscardChangesRequest,
         response=DiscardChangesResponse,
+        writes=True,
     )
     def discard_changes(self, req: DiscardChangesRequest) -> DiscardChangesResponse:
         assert self.review_manager is not None
@@ -346,6 +348,7 @@ class GitHandler(BaseHandler):
         name="reset_to_remote",
         request=ResetToRemoteRequest,
         response=ResetToRemoteResponse,
+        writes=True,
     )
     def reset_to_remote(
         self, req: ResetToRemoteRequest

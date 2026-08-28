@@ -149,6 +149,18 @@
             "default": null,
             "title": "Run Date"
           },
+          "search_parameters": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Search Parameters"
+          },
           "search_string": {
             "default": "",
             "title": "Search String",
@@ -236,6 +248,334 @@
       },
       "writes": true
     },
+    "analyze_merge": {
+      "request": {
+        "additionalProperties": false,
+        "description": "Request for analyze_merge.",
+        "properties": {
+          "base_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Path"
+          },
+          "ours": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Expected current branch; mismatch is an error.",
+            "title": "Ours"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "theirs": {
+            "description": "Ref to merge (the branch's upstream tracking ref)",
+            "minLength": 1,
+            "title": "Theirs",
+            "type": "string"
+          },
+          "verbose": {
+            "default": false,
+            "title": "Verbose",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "theirs"
+        ],
+        "title": "AnalyzeMergeRequest",
+        "type": "object"
+      },
+      "requires_project": true,
+      "response": {
+        "$defs": {
+          "MergeBlockerItem": {
+            "additionalProperties": false,
+            "description": "A reason the merge cannot proceed through the app.",
+            "properties": {
+              "id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Id"
+              },
+              "reason": {
+                "title": "Reason",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason"
+            ],
+            "title": "MergeBlockerItem",
+            "type": "object"
+          },
+          "SettingsConflictItem": {
+            "additionalProperties": false,
+            "description": "A settings.json field changed differently on both sides.",
+            "properties": {
+              "ours": {
+                "default": null,
+                "title": "Ours"
+              },
+              "path": {
+                "title": "Path",
+                "type": "string"
+              },
+              "theirs": {
+                "default": null,
+                "title": "Theirs"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "title": "SettingsConflictItem",
+            "type": "object"
+          },
+          "StatusConflictItem": {
+            "additionalProperties": false,
+            "description": "A per-record colrev_status disagreement between the merge sides.",
+            "properties": {
+              "author": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Author"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "ours": {
+                "title": "Ours",
+                "type": "string"
+              },
+              "theirs": {
+                "title": "Theirs",
+                "type": "string"
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Title"
+              },
+              "year": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Year"
+              }
+            },
+            "required": [
+              "id",
+              "ours",
+              "theirs"
+            ],
+            "title": "StatusConflictItem",
+            "type": "object"
+          }
+        },
+        "additionalProperties": true,
+        "description": "Structured divergence report for the conflict-resolution dialog.",
+        "properties": {
+          "auto_mergeable": {
+            "title": "Auto Mergeable",
+            "type": "boolean"
+          },
+          "blockers": {
+            "items": {
+              "$ref": "#/$defs/MergeBlockerItem"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "settings_conflict": {
+            "default": false,
+            "title": "Settings Conflict",
+            "type": "boolean"
+          },
+          "settings_conflicts": {
+            "items": {
+              "$ref": "#/$defs/SettingsConflictItem"
+            },
+            "title": "Settings Conflicts",
+            "type": "array"
+          },
+          "status_conflicts": {
+            "items": {
+              "$ref": "#/$defs/StatusConflictItem"
+            },
+            "title": "Status Conflicts",
+            "type": "array"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "auto_mergeable"
+        ],
+        "title": "AnalyzeMergeResponse",
+        "type": "object"
+      },
+      "writes": false
+    },
+    "apply_merge": {
+      "request": {
+        "additionalProperties": false,
+        "description": "Request for apply_merge with the user's per-conflict decisions.",
+        "properties": {
+          "base_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Path"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "resolutions": {
+            "additionalProperties": {
+              "enum": [
+                "ours",
+                "theirs"
+              ],
+              "type": "string"
+            },
+            "title": "Resolutions",
+            "type": "object"
+          },
+          "settings_resolutions": {
+            "additionalProperties": {
+              "enum": [
+                "ours",
+                "theirs"
+              ],
+              "type": "string"
+            },
+            "title": "Settings Resolutions",
+            "type": "object"
+          },
+          "theirs": {
+            "minLength": 1,
+            "title": "Theirs",
+            "type": "string"
+          },
+          "verbose": {
+            "default": false,
+            "title": "Verbose",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "theirs"
+        ],
+        "title": "ApplyMergeRequest",
+        "type": "object"
+      },
+      "requires_project": true,
+      "response": {
+        "additionalProperties": true,
+        "description": "Result of a completed merge commit.",
+        "properties": {
+          "commit_sha": {
+            "title": "Commit Sha",
+            "type": "string"
+          },
+          "merged": {
+            "title": "Merged",
+            "type": "boolean"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "statistics": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Statistics"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "merged",
+          "commit_sha"
+        ],
+        "title": "ApplyMergeResponse",
+        "type": "object"
+      },
+      "writes": true
+    },
     "apply_reconciliation": {
       "request": {
         "additionalProperties": false,
@@ -251,6 +591,11 @@
             ],
             "default": null,
             "title": "Base Path"
+          },
+          "override_blocks": {
+            "default": false,
+            "title": "Override Blocks",
+            "type": "boolean"
           },
           "project_id": {
             "title": "Project Id",
@@ -1509,6 +1854,49 @@
           "source_branch_counts"
         ],
         "title": "GetBranchDeltaResponse",
+        "type": "object"
+      },
+      "writes": false
+    },
+    "get_connector_api_key_status": {
+      "request": {
+        "additionalProperties": false,
+        "properties": {
+          "base_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Path"
+          }
+        },
+        "title": "GetConnectorApiKeyStatusRequest",
+        "type": "object"
+      },
+      "requires_project": false,
+      "response": {
+        "additionalProperties": true,
+        "properties": {
+          "openalex": {
+            "title": "Openalex",
+            "type": "boolean"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "openalex"
+        ],
+        "title": "GetConnectorApiKeyStatusResponse",
         "type": "object"
       },
       "writes": false
@@ -4463,6 +4851,7 @@
       "requires_project": false,
       "response": {
         "additionalProperties": true,
+        "description": "Readiness probe response. Lives here (not in system_handler) so the\nfast path in ``handler.py`` can construct it without importing\n``framework_handlers`` (which would defeat the lazy-load design).",
         "properties": {
           "status": {
             "const": "pong",
@@ -5571,6 +5960,66 @@
         "type": "object"
       },
       "writes": true
+    },
+    "set_connector_api_key": {
+      "request": {
+        "additionalProperties": false,
+        "properties": {
+          "api_key": {
+            "title": "Api Key",
+            "type": "string"
+          },
+          "base_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Path"
+          },
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connector",
+          "api_key"
+        ],
+        "title": "SetConnectorApiKeyRequest",
+        "type": "object"
+      },
+      "requires_project": false,
+      "response": {
+        "additionalProperties": true,
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "connector",
+          "configured"
+        ],
+        "title": "SetConnectorApiKeyResponse",
+        "type": "object"
+      },
+      "writes": false
     },
     "status": {
       "request": {
@@ -6869,7 +7318,6 @@
     "RecordPayload": {
       "$defs": {
         "RecordStateName": {
-          "description": "RecordState as a string-valued enum for JSON Schema export.\n\nMirrors :class:`colrev.constants.RecordState` but uses string values\nso JSON Schema sees it as an ``enum`` of strings rather than integers.\nFrontend (via codegen) gets a proper string-literal union.",
           "enum": [
             "md_retrieved",
             "md_imported",

@@ -9,19 +9,19 @@ generation (see ``electron-app/scripts/gen-rpc-types.ts``).
 Run this whenever handlers change. CI should fail if the output file is
 stale — that enforces the frontend type surface tracking the backend.
 """
-
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-# Importing framework_handlers triggers all @rpc_method registrations.
 import colrev.ui_jsonrpc.framework_handlers  # noqa: F401
 from colrev.ui_jsonrpc.framework import ProgressEvent
 from colrev.ui_jsonrpc.framework import RecordPayload
 from colrev.ui_jsonrpc.framework import RecordStateName
 from colrev.ui_jsonrpc.framework import RecordSummary
 from colrev.ui_jsonrpc.framework import registry
+
+# Importing framework_handlers triggers all @rpc_method registrations.
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

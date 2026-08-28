@@ -164,6 +164,7 @@ class ManagedReviewHandler(BaseHandler):
         name="create_managed_review_task",
         request=CreateManagedReviewTaskRequest,
         response=ManagedReviewResponse,
+        writes=True,
     )
     def create_managed_review_task(
         self, req: CreateManagedReviewTaskRequest
@@ -183,6 +184,7 @@ class ManagedReviewHandler(BaseHandler):
         name="cancel_managed_review_task",
         request=CancelManagedReviewTaskRequest,
         response=ManagedReviewResponse,
+        writes=True,
     )
     def cancel_managed_review_task(
         self, req: CancelManagedReviewTaskRequest
@@ -230,6 +232,7 @@ class ManagedReviewHandler(BaseHandler):
         name="apply_reconciliation",
         request=ApplyReconciliationRequest,
         response=ManagedReviewResponse,
+        writes=True,
     )
     def apply_reconciliation(
         self, req: ApplyReconciliationRequest

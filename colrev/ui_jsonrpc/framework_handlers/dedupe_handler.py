@@ -32,6 +32,7 @@ class DedupeHandler(BaseHandler):
         request=DedupeRequest,
         response=DedupeResponse,
         operation_type=OperationsType.dedupe,
+        writes=True,
     )
     def dedupe(self, req: DedupeRequest) -> DedupeResponse:
         assert self.review_manager is not None

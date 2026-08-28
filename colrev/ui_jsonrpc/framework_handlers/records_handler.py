@@ -209,6 +209,7 @@ class RecordsHandler(BaseHandler):
         name="update_record",
         request=UpdateRecordRequest,
         response=UpdateRecordResponse,
+        writes=True,
     )
     def update_record(self, req: UpdateRecordRequest) -> UpdateRecordResponse:
         assert self.review_manager is not None

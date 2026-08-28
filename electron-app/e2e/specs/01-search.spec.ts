@@ -177,8 +177,9 @@ test.describe('search', () => {
     const bibPath = path.join(searchDir, 'open_alex.bib');
     expect(fs.existsSync(bibPath), `missing ${bibPath}`).toBe(true);
     const bib = fs.readFileSync(bibPath, 'utf-8');
-    // All 10 records present with titles (not empty @misc entries)
-    expect(bib).toContain('title = {Phase 3 Trial');
+    // All 10 records present with titles (not empty @misc entries).
+    // Field names are padded by the bib writer — match with flexible spacing.
+    expect(bib).toMatch(/title\s+= \{Phase 3 Trial/);
     const doiLines = bib.match(/^\s*doi\s*=/gm) ?? [];
     expect(doiLines.length).toBe(10);
     // Cross-source overlap DOIs are preserved (the API parser uppercases DOIs,

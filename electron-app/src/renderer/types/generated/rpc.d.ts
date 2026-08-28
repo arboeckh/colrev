@@ -47,13 +47,6 @@ export interface ProgressEvent {
 // shared: RecordPayload
 export type Entrytype = string;
 export type Id = string;
-/**
- * RecordState as a string-valued enum for JSON Schema export.
- *
- * Mirrors :class:`colrev.constants.RecordState` but uses string values
- * so JSON Schema sees it as an ``enum`` of strings rather than integers.
- * Frontend (via codegen) gets a proper string-literal union.
- */
 export type RecordStateName =
   | "md_retrieved"
   | "md_imported"
@@ -167,6 +160,7 @@ export type Endpoint = string | null;
 export type Filename = string | null;
 export type ProjectId = string;
 export type RunDate = string | null;
+export type SearchParameters = {} | null;
 export type SearchString = string;
 export type SearchType = string | null;
 export type Verbose = boolean;
@@ -177,6 +171,7 @@ export interface AddSourceRequest {
   filename?: Filename;
   project_id: ProjectId;
   run_date?: RunDate;
+  search_parameters?: SearchParameters;
   search_string?: SearchString;
   search_type?: SearchType;
   verbose?: Verbose;
@@ -203,8 +198,138 @@ export interface AddSourceDetails {
 }
 export interface Source {}
 
+// analyze_merge
+export type BasePath = string | null;
+/**
+ * Expected current branch; mismatch is an error.
+ */
+export type Ours = string | null;
+export type ProjectId = string;
+/**
+ * Ref to merge (the branch's upstream tracking ref)
+ */
+export type Theirs = string;
+export type Verbose = boolean;
+
+/**
+ * Request for analyze_merge.
+ */
+export interface AnalyzeMergeRequest {
+  base_path?: BasePath;
+  ours?: Ours;
+  project_id: ProjectId;
+  theirs: Theirs;
+  verbose?: Verbose;
+}
+
+export type AutoMergeable = boolean;
+export type Id = string | null;
+export type Reason = string;
+export type Blockers = MergeBlockerItem[];
+export type ProjectId = string;
+export type SettingsConflict = boolean;
+export type Path = string;
+export type SettingsConflicts = SettingsConflictItem[];
+export type Author = string | null;
+export type Id1 = string;
+export type Ours1 = string;
+export type Theirs1 = string;
+export type Title = string | null;
+export type Year = string | null;
+export type StatusConflicts = StatusConflictItem[];
+export type Success = true;
+
+/**
+ * Structured divergence report for the conflict-resolution dialog.
+ */
+export interface AnalyzeMergeResponse {
+  auto_mergeable: AutoMergeable;
+  blockers?: Blockers;
+  project_id: ProjectId;
+  settings_conflict?: SettingsConflict;
+  settings_conflicts?: SettingsConflicts;
+  status_conflicts?: StatusConflicts;
+  success?: Success;
+  [k: string]: unknown;
+}
+/**
+ * A reason the merge cannot proceed through the app.
+ */
+export interface MergeBlockerItem {
+  id?: Id;
+  reason: Reason;
+}
+/**
+ * A settings.json field changed differently on both sides.
+ */
+export interface SettingsConflictItem {
+  ours?: Ours;
+  path: Path;
+  theirs?: Theirs;
+}
+export interface Ours {
+  [k: string]: unknown;
+}
+export interface Theirs {
+  [k: string]: unknown;
+}
+/**
+ * A per-record colrev_status disagreement between the merge sides.
+ */
+export interface StatusConflictItem {
+  author?: Author;
+  id: Id1;
+  ours: Ours1;
+  theirs: Theirs1;
+  title?: Title;
+  year?: Year;
+}
+
+// apply_merge
+export type BasePath = string | null;
+export type ProjectId = string;
+export type Theirs = string;
+export type Verbose = boolean;
+
+/**
+ * Request for apply_merge with the user's per-conflict decisions.
+ */
+export interface ApplyMergeRequest {
+  base_path?: BasePath;
+  project_id: ProjectId;
+  resolutions?: Resolutions;
+  settings_resolutions?: SettingsResolutions;
+  theirs: Theirs;
+  verbose?: Verbose;
+}
+export interface Resolutions {
+  [k: string]: "ours" | "theirs";
+}
+export interface SettingsResolutions {
+  [k: string]: "ours" | "theirs";
+}
+
+export type CommitSha = string;
+export type Merged = boolean;
+export type ProjectId = string;
+export type Statistics = {} | null;
+export type Success = true;
+
+/**
+ * Result of a completed merge commit.
+ */
+export interface ApplyMergeResponse {
+  commit_sha: CommitSha;
+  merged: Merged;
+  project_id: ProjectId;
+  statistics?: Statistics;
+  success?: Success;
+  [k: string]: unknown;
+}
+
 // apply_reconciliation
 export type BasePath = string | null;
+export type OverrideBlocks = boolean;
 export type ProjectId = string;
 export type Resolutions = unknown[];
 export type ResolvedBy = string;
@@ -213,6 +338,7 @@ export type Verbose = boolean;
 
 export interface ApplyReconciliationRequest {
   base_path?: BasePath;
+  override_blocks?: OverrideBlocks;
   project_id: ProjectId;
   resolutions?: Resolutions;
   resolved_by?: ResolvedBy;
@@ -657,6 +783,22 @@ export interface DeltaByState {
 }
 export interface SourceBranchCounts {
   [k: string]: number;
+}
+
+// get_connector_api_key_status
+export type BasePath = string | null;
+
+export interface GetConnectorApiKeyStatusRequest {
+  base_path?: BasePath;
+}
+
+export type Openalex = boolean;
+export type Success = true;
+
+export interface GetConnectorApiKeyStatusResponse {
+  openalex: Openalex;
+  success?: Success;
+  [k: string]: unknown;
 }
 
 // get_csv_source_templates
@@ -1698,6 +1840,11 @@ export interface PingRequest {
 export type Status = "pong";
 export type Success = true;
 
+/**
+ * Readiness probe response. Lives here (not in system_handler) so the
+ * fast path in ``handler.py`` can construct it without importing
+ * ``framework_handlers`` (which would defeat the lazy-load design).
+ */
 export interface PingResponse {
   status?: Status;
   success?: Success;
@@ -2085,6 +2232,28 @@ export interface SearchDetails {
   message: Message;
   rerun: Rerun;
   source: Source;
+  [k: string]: unknown;
+}
+
+// set_connector_api_key
+export type ApiKey = string;
+export type BasePath = string | null;
+export type Connector = string;
+
+export interface SetConnectorApiKeyRequest {
+  api_key: ApiKey;
+  base_path?: BasePath;
+  connector: Connector;
+}
+
+export type Configured = boolean;
+export type Connector = string;
+export type Success = true;
+
+export interface SetConnectorApiKeyResponse {
+  configured: Configured;
+  connector: Connector;
+  success?: Success;
   [k: string]: unknown;
 }
 
@@ -2493,6 +2662,14 @@ export interface RPCMethods {
     params: AddSourceRequest;
     result: AddSourceResponse;
   };
+  "analyze_merge": {
+    params: AnalyzeMergeRequest;
+    result: AnalyzeMergeResponse;
+  };
+  "apply_merge": {
+    params: ApplyMergeRequest;
+    result: ApplyMergeResponse;
+  };
   "apply_reconciliation": {
     params: ApplyReconciliationRequest;
     result: ApplyReconciliationResponse;
@@ -2552,6 +2729,10 @@ export interface RPCMethods {
   "get_branch_delta": {
     params: GetBranchDeltaRequest;
     result: GetBranchDeltaResponse;
+  };
+  "get_connector_api_key_status": {
+    params: GetConnectorApiKeyStatusRequest;
+    result: GetConnectorApiKeyStatusResponse;
   };
   "get_csv_source_templates": {
     params: GetCsvSourceTemplatesRequest;
@@ -2720,6 +2901,10 @@ export interface RPCMethods {
   "search": {
     params: SearchRequest;
     result: SearchResponse;
+  };
+  "set_connector_api_key": {
+    params: SetConnectorApiKeyRequest;
+    result: SetConnectorApiKeyResponse;
   };
   "status": {
     params: StatusRequest;

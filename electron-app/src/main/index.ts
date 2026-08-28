@@ -33,18 +33,14 @@ import {
   gitPushTags,
   gitRevListCount,
   gitAddAndCommit,
-  gitMergeBase,
-  gitShowFile,
-  gitDiffNameOnly,
-  gitMergeNoCommit,
-  gitStageAndCommitMerge,
+  gitGetBranchAndUpstream,
 } from './git-manager';
 import {
-  analyzeDivergence,
-  applyResolutions,
-  type MergeAnalysis,
-  type ConflictResolution,
-} from './semantic-merge';
+  analyzeDivergenceFlow,
+  applyMergeFlow,
+  type MergeConflictResolution,
+  type MergeFlowDeps,
+} from './merge-flow';
 import { withGitLock, withLockRetry } from './gitMutex';
 
 /**
@@ -490,118 +486,44 @@ function setupIPC() {
   });
 
   // --- Conflict resolution handlers ---
+  //
+  // Thin bridges into merge-flow.ts: fetch already happened (the pull that
+  // reported DIVERGED), the engine RPCs own all merge semantics, and dugite
+  // pushes the result. Both handlers hold the git mutex; the RPC is called
+  // directly (not via `colrev:call`) so the lock is not re-acquired.
 
-  registerGitRead('git:analyze-divergence', async (_, projectPath: string) => {
-    try {
-      // 1. Find merge base
-      const baseResult = await gitMergeBase(projectPath, 'HEAD', 'origin/dev');
-      if (!baseResult.success || !baseResult.commitHash) {
-        return { success: false, error: baseResult.error || 'No common ancestor found' };
+  const mergeFlowDeps = (projectPath: string): MergeFlowDeps => ({
+    getBranchAndUpstream: gitGetBranchAndUpstream,
+    callBackend: <T>(method: string, params: Record<string, unknown>) => {
+      if (!backend) {
+        return Promise.reject(new Error('Backend not running'));
       }
-      const baseHash = baseResult.commitHash;
-
-      // 2. Find files changed on each side
-      const [localDiff, remoteDiff] = await Promise.all([
-        gitDiffNameOnly(projectPath, baseHash, 'HEAD'),
-        gitDiffNameOnly(projectPath, baseHash, 'origin/dev'),
-      ]);
-
-      if (!localDiff.success || !remoteDiff.success) {
-        return { success: false, error: 'Failed to determine changed files' };
-      }
-
-      // 3. Run semantic analysis
-      const analysis = await analyzeDivergence({
-        projectPath,
-        baseHash,
-        localChangedFiles: localDiff.files,
-        remoteChangedFiles: remoteDiff.files,
-        getFileContent: async (ref: string, filePath: string) => {
-          const result = await gitShowFile(projectPath, ref, filePath);
-          return result.success ? (result.content ?? null) : null;
-        },
-      });
-
-      return { success: true, analysis };
-    } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : 'Analysis failed' };
-    }
+      // The RPC layer resolves projects as `<base_path>/<project_id>`.
+      return backend.call<T>(method, { base_path: path.dirname(projectPath), ...params });
+    },
+    push: (p: string) => gitPush(p, authManager.getToken()),
   });
+
+  registerGit(
+    'git:analyze-divergence',
+    async (_, projectPath: string, projectId: string) => {
+      return analyzeDivergenceFlow(mergeFlowDeps(projectPath), { projectPath, projectId });
+    },
+  );
 
   registerGit(
     'git:apply-merge',
     async (
       _,
       projectPath: string,
-      resolutions: ConflictResolution[],
-      analysisJson: MergeAnalysis,
+      projectId: string,
+      resolutions: MergeConflictResolution[],
     ) => {
-      const token = authManager.getToken();
-      console.log('[apply-merge] Starting with', resolutions.length, 'resolutions, files:', Object.keys(analysisJson.fileResults || {}));
-
-      try {
-        // 1. Read local and remote files for resolution
-        const localFiles: Record<string, string> = {};
-        const remoteFiles: Record<string, string> = {};
-
-        for (const filePath of Object.keys(analysisJson.fileResults)) {
-          const [localResult, remoteResult] = await Promise.all([
-            gitShowFile(projectPath, 'HEAD', filePath),
-            gitShowFile(projectPath, 'origin/dev', filePath),
-          ]);
-          if (localResult.success && localResult.content) localFiles[filePath] = localResult.content;
-          if (remoteResult.success && remoteResult.content) remoteFiles[filePath] = remoteResult.content;
-        }
-
-        // 2. Compute resolved file contents
-        const resolvedFiles = applyResolutions(analysisJson, resolutions, localFiles, remoteFiles);
-        console.log('[apply-merge] Resolved files:', Object.keys(resolvedFiles));
-
-        // 3. Start the merge (no-commit so we can write resolved files)
-        const mergeResult = await gitMergeNoCommit(projectPath, 'origin/dev');
-        console.log('[apply-merge] Merge result:', mergeResult);
-        if (!mergeResult.success) {
-          await gitAbortMerge(projectPath);
-          return { success: false, error: mergeResult.error || 'Merge failed' };
-        }
-
-        // 4. Write resolved files to disk
-        const filesToStage: string[] = [];
-        for (const [filePath, content] of Object.entries(resolvedFiles)) {
-          const fullPath = path.join(projectPath, filePath);
-          // Ensure directory exists
-          const dir = path.dirname(fullPath);
-          if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-          }
-          fs.writeFileSync(fullPath, content, 'utf-8');
-          filesToStage.push(filePath);
-        }
-
-        // 5. Stage and commit
-        const commitResult = await gitStageAndCommitMerge(
-          projectPath,
-          filesToStage,
-          'Sync: merge remote changes',
-        );
-        if (!commitResult.success) {
-          await gitAbortMerge(projectPath);
-          return { success: false, error: commitResult.error || 'Commit failed' };
-        }
-
-        // 6. Push
-        const pushResult = await gitPush(projectPath, token);
-        if (!pushResult.success) {
-          // Merge succeeded locally but push failed — not fatal, user can retry
-          return { success: true, pushFailed: true };
-        }
-
-        return { success: true };
-      } catch (err) {
-        // Abort merge on any unexpected error
-        await gitAbortMerge(projectPath);
-        return { success: false, error: err instanceof Error ? err.message : 'Merge failed' };
-      }
+      return applyMergeFlow(mergeFlowDeps(projectPath), {
+        projectPath,
+        projectId,
+        resolutions,
+      });
     },
   );
 

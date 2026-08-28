@@ -32,6 +32,7 @@ class LoadHandler(BaseHandler):
         request=LoadRequest,
         response=LoadResponse,
         operation_type=OperationsType.load,
+        writes=True,
     )
     def load(self, req: LoadRequest) -> LoadResponse:
         assert self.review_manager is not None

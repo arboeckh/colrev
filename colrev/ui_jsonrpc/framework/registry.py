@@ -28,6 +28,7 @@ class MethodSpecDraft:
     response_model: Type[BaseModel]
     operation_type: Optional[OperationsType] = None
     requires_project: bool = True
+    writes: bool = False
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,10 @@ class MethodSpec:
         requires_project: If True, the request must be a ProjectScopedRequest and the
             dispatcher will construct a ReviewManager. If False (``ping``, ``list_projects``,
             ``init_project``), no ReviewManager is built.
+        writes: Hint that the handler mutates on-disk project state. Exported to
+            the frontend schema — the renderer schedules a pending-changes/git
+            refresh after every method with ``writes=True`` (see the frontend's
+            ``WRITER_METHODS``). Never triggers commits.
     """
 
     name: str
@@ -55,6 +60,7 @@ class MethodSpec:
     handler_cls: Type
     operation_type: Optional[OperationsType] = None
     requires_project: bool = True
+    writes: bool = False
 
 
 class MethodRegistry:

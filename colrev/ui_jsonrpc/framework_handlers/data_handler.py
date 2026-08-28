@@ -131,6 +131,7 @@ class DataHandler(BaseHandler):
         request=DataRequest,
         response=DataResponse,
         operation_type=OperationsType.data,
+        writes=True,
     )
     def data(self, req: DataRequest) -> DataResponse:
         assert self.review_manager is not None
@@ -302,6 +303,7 @@ class DataHandler(BaseHandler):
         request=SaveDataExtractionRequest,
         response=SaveDataExtractionResponse,
         operation_type=OperationsType.data,
+        writes=True,
     )
     def save_data_extraction(
         self, req: SaveDataExtractionRequest
@@ -414,6 +416,7 @@ class DataHandler(BaseHandler):
         name="configure_structured_endpoint",
         request=ConfigureStructuredEndpointRequest,
         response=ConfigureStructuredEndpointResponse,
+        writes=True,
     )
     def configure_structured_endpoint(
         self, req: ConfigureStructuredEndpointRequest
