@@ -118,9 +118,11 @@ describe('FakeGitHubClient', () => {
       expect(pending[0].inviteeLogin).toBe('bob');
     });
 
-    it('listRepoCollaborators returns collaborators', async () => {
+    it('listRepoCollaborators includes the repo owner like the real API', async () => {
       const collabs = await client.listRepoCollaborators('tok-alice', 'alice', 'lit-review');
-      expect(collabs).toEqual([]);
+      expect(collabs).toEqual([
+        { login: 'alice', name: 'Alice Smith', avatarUrl: 'https://avatar/alice' },
+      ]);
     });
 
     it('getInviteUserSuggestions searches accounts by login', async () => {
@@ -160,8 +162,7 @@ describe('FakeGitHubClient', () => {
       expect(result.success).toBe(true);
 
       const collabs = await client.listRepoCollaborators('tok-alice', 'alice', 'lit-review');
-      expect(collabs).toHaveLength(1);
-      expect(collabs[0].login).toBe('bob');
+      expect(collabs.map((c) => c.login)).toEqual(['alice', 'bob']);
 
       const remaining = await client.listRepoInvitations('tok-bob');
       expect(remaining).toHaveLength(0);
