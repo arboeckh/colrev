@@ -20,7 +20,7 @@ from typing import Optional
 
 from pydantic import ConfigDict
 
-from colrev.managed_review import ManagedReviewService
+from colrev.ui_jsonrpc.managed_review import ManagedReviewService
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest

@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from colrev.constants import OperationsType
 from colrev.ui_jsonrpc.framework.registry import MethodSpecDraft
+from colrev.ui_jsonrpc.framework.registry import PreconditionPolicy
 
 
 def rpc_method(
@@ -25,6 +26,7 @@ def rpc_method(
     requires_project: bool = True,
     writes: bool = False,
     timeout_class: str = "slow",
+    precondition: PreconditionPolicy = "enforce",
 ) -> Callable:
     """Mark a handler method as an RPC endpoint.
 
@@ -41,6 +43,10 @@ def rpc_method(
             server processing at ~10s); ``"slow"`` (default) for everything
             else — no client-side cap, liveness comes from progress events
             and crash detection.
+        precondition: Engine precondition policy (see
+            :data:`~colrev.ui_jsonrpc.framework.registry.PreconditionPolicy`).
+            "manual_decision" is reserved for per-record prescreen/screen
+            decision endpoints; everything else keeps the default "enforce".
     """
 
     if timeout_class not in ("fast", "slow"):
@@ -56,6 +62,7 @@ def rpc_method(
         requires_project=requires_project,
         writes=writes,
         timeout_class=timeout_class,
+        precondition=precondition,
     )
 
     def decorator(fn: Callable) -> Callable:

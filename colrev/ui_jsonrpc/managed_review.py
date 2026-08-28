@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Managed dual-review workflows for the Electron app."""
+"""Managed dual-review workflows for the Electron app.
+
+App-layer code: orchestrates reviewer branches, reconciliation, and the
+audit manifest. Every record state transition is written through the
+engine's own operations (``Prescreen.prescreen`` / ``Screen.screen``);
+this module owns only classification, block-overrides, the manifest audit
+trail, and the final commit.
+"""
 from __future__ import annotations
 
 import csv
@@ -18,25 +25,42 @@ import colrev.loader.load_utils
 import colrev.record.record
 import colrev.review_manager
 from colrev.constants import Fields
+from colrev.constants import OperationsType
 from colrev.constants import RecordState
+from colrev.process.model import ProcessModel
 
 
 APP_MANIFEST_FILENAME = Path("colrev_app.json")
 
 SUPPORTED_KINDS = {"prescreen", "screen"}
-ELIGIBLE_STATE_BY_KIND = {
-    "prescreen": RecordState.md_processed,
-    "screen": RecordState.pdf_prepared,
+OPERATION_TYPE_BY_KIND = {
+    "prescreen": OperationsType.prescreen,
+    "screen": OperationsType.screen,
 }
-FINAL_STATES_BY_KIND = {
-    "prescreen": {
-        "rev_prescreen_included": RecordState.rev_prescreen_included,
-        "rev_prescreen_excluded": RecordState.rev_prescreen_excluded,
-    },
-    "screen": {
-        "rev_included": RecordState.rev_included,
-        "rev_excluded": RecordState.rev_excluded,
-    },
+
+
+def _transition_states(kind: str, key: str) -> set[RecordState]:
+    return {
+        transition[key]  # type: ignore[misc]
+        for transition in ProcessModel.transitions
+        if transition["trigger"] == OPERATION_TYPE_BY_KIND[kind]
+    }
+
+
+# Derived from the engine's ProcessModel so the wrapper never maintains its
+# own copy of the state machine. Both kinds have exactly one source state;
+# the unpacking fails loudly if the engine's model ever changes that.
+ELIGIBLE_STATE_BY_KIND: Dict[str, RecordState] = {}
+for _kind in SUPPORTED_KINDS:
+    (_source_state,) = _transition_states(_kind, "source")
+    ELIGIBLE_STATE_BY_KIND[_kind] = _source_state
+FINAL_STATE_NAMES_BY_KIND = {
+    kind: {state.name for state in _transition_states(kind, "dest")}
+    for kind in SUPPORTED_KINDS
+}
+INCLUSION_STATE_NAMES = {
+    RecordState.rev_prescreen_included.name,
+    RecordState.rev_included.name,
 }
 TASK_STATES_ACTIVE = {"active", "reconciling"}
 REVIEWER_ROLES = ("reviewer_a", "reviewer_b")
@@ -58,7 +82,8 @@ class ManagedReviewService:
         self.review_manager = review_manager
 
     def _manifest_path(self) -> Path:
-        return self.review_manager.paths.app_manifest
+        # App-owned file; deliberately not part of the engine's PathManager.
+        return self.review_manager.path / APP_MANIFEST_FILENAME
 
     @staticmethod
     def _now() -> str:
@@ -157,6 +182,25 @@ class ManagedReviewService:
                 notify_state_transition_operation=False
             )
             return
+        raise ValueError(f"Unsupported managed review kind: {kind}")
+
+    def _decision_operation(self, *, kind: str) -> Any:
+        """Engine operation whose write path applies reconciliation decisions.
+
+        Constructed with ``notify_state_transition_operation=False``:
+        reconciliation has its own gate (dev branch, blocked/pending checks)
+        and the operation is used purely as the engine's write path — the
+        same ``prescreen()`` / ``screen()`` methods the live per-record
+        decision RPCs call.
+        """
+        if kind == "prescreen":
+            return self.review_manager.get_prescreen_operation(
+                notify_state_transition_operation=False
+            )
+        if kind == "screen":
+            return self.review_manager.get_screen_operation(
+                notify_state_transition_operation=False
+            )
         raise ValueError(f"Unsupported managed review kind: {kind}")
 
     def _load_records_from_ref(
@@ -513,9 +557,9 @@ class ManagedReviewService:
         if not record_ids:
             return {"enriched_count": 0, "failed_count": 0, "skipped_count": 0}
 
-        # Lazy import: keep the service-layer module free of ui_jsonrpc deps
-        # at load time. The progress channel is best-effort — if it can't be
-        # emitted (e.g., outside an RPC context), enrichment still runs.
+        # Lazy import: avoids a module-load cycle with the framework package.
+        # The progress channel is best-effort — if it can't be emitted
+        # (e.g., outside an RPC context), enrichment still runs.
         from colrev.ui_jsonrpc._record_enrichment import enrich_records
         from colrev.ui_jsonrpc.framework import ProgressEvent
         from colrev.ui_jsonrpc.framework import ProgressEventKind
@@ -807,9 +851,13 @@ class ManagedReviewService:
         resolution_map: Dict[str, Dict[str, Any]] = {
             resolution["record_id"]: resolution for resolution in resolutions
         }
-        current_records = self._load_records_from_ref(ref=None, kind=task["kind"])
-        records_to_save: Dict[str, Dict[str, Any]] = {}
-        audit_rows = []
+        kind = task["kind"]
+        current_records = self._load_records_from_ref(ref=None, kind=kind)
+        final_state_names = FINAL_STATE_NAMES_BY_KIND[kind]
+
+        # Pass 1: resolve and validate every decision before any write, so a
+        # bad resolution leaves the working tree untouched.
+        decisions: list[Dict[str, Any]] = []
 
         for item in preview["items"]:
             if item["status"] == "blocked":
@@ -824,13 +872,10 @@ class ManagedReviewService:
             resolution = resolution_map.get(item["id"], {})
             has_custom = (
                 item["status"] != "auto"
-                and task["kind"] == "screen"
+                and kind == "screen"
                 and resolution.get("resolved_status") is not None
                 and resolution.get("resolved_criteria_string") is not None
             )
-
-            record_dict = deepcopy(current_records[item["id"]])
-            record = colrev.record.record.Record(record_dict)
 
             if item["status"] == "auto":
                 selected_role = item["auto_resolution"]["selected_reviewer"]
@@ -840,29 +885,11 @@ class ManagedReviewService:
                 resolved_status = selected_reviewer["status"]
                 resolved_criteria_string = selected_reviewer["criteria_string"]
                 resolution_type = "auto"
-                if task["kind"] == "prescreen":
-                    record.set_status(FINAL_STATES_BY_KIND["prescreen"][resolved_status])
-                else:
-                    if resolved_criteria_string:
-                        record.data[Fields.SCREENING_CRITERIA] = resolved_criteria_string
-                    else:
-                        record.data.pop(Fields.SCREENING_CRITERIA, None)
-                    record.set_status(FINAL_STATES_BY_KIND["screen"][resolved_status])
             elif has_custom:
                 resolved_status = resolution["resolved_status"]
-                resolved_criteria_string_raw = resolution["resolved_criteria_string"] or ""
-                if resolved_status not in FINAL_STATES_BY_KIND["screen"]:
-                    raise ValueError(
-                        f"Invalid resolved_status for record {item['id']}: {resolved_status!r}"
-                    )
                 resolved_criteria_string = self._format_criteria(
-                    self._parse_criteria(resolved_criteria_string_raw)
+                    self._parse_criteria(resolution["resolved_criteria_string"] or "")
                 )
-                if resolved_criteria_string:
-                    record.data[Fields.SCREENING_CRITERIA] = resolved_criteria_string
-                else:
-                    record.data.pop(Fields.SCREENING_CRITERIA, None)
-                record.set_status(FINAL_STATES_BY_KIND["screen"][resolved_status])
                 selected_role = None
                 resolution_type = "manual_custom"
             else:
@@ -877,29 +904,55 @@ class ManagedReviewService:
                 resolved_status = selected_reviewer["status"]
                 resolved_criteria_string = selected_reviewer["criteria_string"]
                 resolution_type = "manual"
-                if task["kind"] == "prescreen":
-                    record.set_status(FINAL_STATES_BY_KIND["prescreen"][resolved_status])
-                else:
-                    if resolved_criteria_string:
-                        record.data[Fields.SCREENING_CRITERIA] = resolved_criteria_string
-                    else:
-                        record.data.pop(Fields.SCREENING_CRITERIA, None)
-                    record.set_status(FINAL_STATES_BY_KIND["screen"][resolved_status])
+
+            if resolved_status not in final_state_names:
+                raise ValueError(
+                    f"Invalid resolved_status for record {item['id']}: {resolved_status!r}"
+                )
 
             if item.get("_was_overridden"):
                 resolution_type = f"override_{resolution_type}"
 
-            records_to_save[item["id"]] = record.get_data()
+            decisions.append(
+                {
+                    "item": item,
+                    "selected_role": selected_role,
+                    "resolved_status": resolved_status,
+                    "resolved_criteria_string": resolved_criteria_string,
+                    "resolution_type": resolution_type,
+                }
+            )
+
+        # Pass 2: route every decision through the engine's own write path —
+        # the same operation methods the live per-record decision RPCs use.
+        decision_op = self._decision_operation(kind=kind)
+        audit_rows = []
+        for decision in decisions:
+            item = decision["item"]
+            resolved_status = decision["resolved_status"]
+            record = colrev.record.record.Record(current_records[item["id"]])
+            if kind == "prescreen":
+                decision_op.prescreen(
+                    record=record,
+                    prescreen_inclusion=resolved_status in INCLUSION_STATE_NAMES,
+                )
+            else:
+                decision_op.screen(
+                    record=record,
+                    screen_inclusion=resolved_status in INCLUSION_STATE_NAMES,
+                    screening_criteria=decision["resolved_criteria_string"] or "NA",
+                )
+
             audit_rows.append(
                 {
                     "record_id": item["id"],
                     "title": item["title"],
                     "author": item["author"],
                     "year": item["year"],
-                    "resolution_type": resolution_type,
-                    "selected_reviewer": selected_role,
+                    "resolution_type": decision["resolution_type"],
+                    "selected_reviewer": decision["selected_role"],
                     "resolved_status": resolved_status,
-                    "resolved_criteria_string": resolved_criteria_string,
+                    "resolved_criteria_string": decision["resolved_criteria_string"],
                     "reviewers": item["reviewers"],
                 }
             )
@@ -928,7 +981,8 @@ class ManagedReviewService:
             }
         )
 
-        self.review_manager.dataset.save_records_dict(records_to_save, partial=True)
+        # Record writes already happened per decision via the operation's
+        # save path; only the manifest remains to be staged.
         self.save_manifest(manifest=manifest, add_to_git=True)
         self.review_manager.create_commit(
             msg=f"Managed {manifest_task['kind']} reconciliation: {task_id}",

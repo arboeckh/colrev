@@ -58,6 +58,7 @@ class BaseHandler:
                 requires_project=draft.requires_project,
                 writes=draft.writes,
                 timeout_class=draft.timeout_class,
+                precondition=draft.precondition,
             )
             registry.register(spec)
 

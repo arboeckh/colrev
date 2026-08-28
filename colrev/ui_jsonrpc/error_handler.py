@@ -25,20 +25,22 @@ COLREV_OPERATION_ERROR = -32001
 COLREV_SERVICE_NOT_AVAILABLE = -32002
 COLREV_MISSING_DEPENDENCY = -32003
 COLREV_PARAMETER_ERROR = -32004
-# The operation refused to run because the repo is not in the required state
-# (uncommitted changes, unresolved merge, ...). UI: "commit or discard first".
+# An engine operation precondition failed (dirty working tree, record-state
+# model violation, no records). The renderer can tell the user to commit or
+# discard changes; the exception class name travels in the error's ``data``.
 COLREV_PRECONDITION_FAILED = -32005
 # A lock (e.g. .git/index.lock) is held by another process after retries.
 COLREV_RESOURCE_LOCKED = -32006
 # A referenced resource (project, record, source) does not exist.
 COLREV_NOT_FOUND = -32007
 
-# Exceptions signalling "repo not in the required state to run this".
 _PRECONDITION_EXCEPTIONS = (
     colrev_exceptions.UnstagedGitChangesError,
     colrev_exceptions.CleanRepoRequiredError,
     colrev_exceptions.DirtyRepoAfterProcessingError,
     colrev_exceptions.GitConflictError,
+    colrev_exceptions.ProcessOrderViolation,
+    colrev_exceptions.NoRecordsError,
 )
 
 
