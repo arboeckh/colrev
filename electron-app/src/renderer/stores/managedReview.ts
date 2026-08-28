@@ -16,6 +16,10 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
   const prescreenTasks = ref<ManagedReviewTask[]>([]);
   const screenTasks = ref<ManagedReviewTask[]>([]);
   const isLoading = ref(false);
+  // Set when the last refresh failed. Task state gates access control, so a
+  // fetch failure must be distinguishable from "no tasks": on failure the
+  // last-known task lists are kept and this flag is set.
+  const lastRefreshError = ref<string | null>(null);
 
   // Computed: active task per kind
   const activePrescreenTask = computed(() =>
@@ -92,9 +96,11 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
       ]);
       prescreenTasks.value = prescreenResp.tasks;
       screenTasks.value = screenResp.tasks;
-    } catch {
-      prescreenTasks.value = [];
-      screenTasks.value = [];
+      lastRefreshError.value = null;
+    } catch (err) {
+      // Keep last-known tasks — clearing them would make a failed fetch look
+      // like "no active tasks" and wrongly change access decisions.
+      lastRefreshError.value = err instanceof Error ? err.message : 'Failed to load review tasks';
     } finally {
       isLoading.value = false;
     }
@@ -103,6 +109,7 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
   function cleanup() {
     prescreenTasks.value = [];
     screenTasks.value = [];
+    lastRefreshError.value = null;
   }
 
   return {
@@ -114,6 +121,7 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
     latestCompletedScreenTask,
     isOnReviewerBranch,
     isLoading,
+    lastRefreshError,
     getStepStatus,
     refresh,
     cleanup,

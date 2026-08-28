@@ -123,11 +123,9 @@ function onWalkthroughClose() {
 
 async function onWalkthroughApplied(_: ApplyReconciliationResponse) {
   showWalkthrough.value = false;
-  await Promise.all([
-    refreshData(),
-    managedReview.refresh(),
-    projects.refreshCurrentProject(),
-  ]);
+  // Store-level state (status, managed review tasks) refreshes via the
+  // invalidation seam; reload the panel-owned reconciliation data here.
+  await refreshData();
 }
 
 async function exportAudit(format: 'csv' | 'json') {

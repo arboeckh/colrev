@@ -59,6 +59,12 @@ export const useBackendStore = defineStore('backend', () => {
   const rpcInFlight = ref<string | null>(null);
   const rpcQueued = ref<string[]>([]);
 
+  // A writer RPC is in flight. Operation-triggering buttons disable off this
+  // so double-clicks (and concurrent triggers from different surfaces) fire
+  // exactly one RPC. Tracks the first writer when several overlap.
+  const runningOperation = ref<{ method: string; startedAt: number } | null>(null);
+  let writerDepth = 0;
+
   // Request ID counter for tracking
   let requestIdCounter = 0;
 
@@ -275,6 +281,14 @@ export const useBackendStore = defineStore('backend', () => {
     const requestId = `req-${++requestIdCounter}`;
     debug.logRpcRequest(method, paramsWithPath, requestId);
 
+    const isWriter = WRITER_METHODS.has(method);
+    if (isWriter) {
+      writerDepth += 1;
+      if (writerDepth === 1) {
+        runningOperation.value = { method, startedAt: Date.now() };
+      }
+    }
+
     try {
       // The preload bridge is typed against known method names; callRaw is
       // the single untyped funnel beneath the typed `call` wrapper.
@@ -297,50 +311,46 @@ export const useBackendStore = defineStore('backend', () => {
       debug.logRpcResponse(requestId, envelope.result, false);
       return envelope.result as T;
     } finally {
-      // Refresh on the error path too: a handler can fail *after* mutating
-      // disk (e.g. serialization raising post-commit), and the UI must not
-      // keep showing a clean git state.
-      if (WRITER_METHODS.has(method)) {
-        schedulePostWriteRefresh();
+      if (isWriter) {
+        writerDepth -= 1;
+        if (writerDepth === 0) {
+          runningOperation.value = null;
+        }
+        // Notify the invalidation seam on the error path too: a handler can
+        // fail *after* mutating disk (e.g. serialization raising
+        // post-commit), and the UI must not keep showing a clean git state.
+        void notifyWriteCompleted(method);
       }
     }
   }
 
-  // Lazy imports to avoid circular `backend -> pendingChanges/git -> backend`
-  // load. Resolved on first use and memoized.
-  let pendingChangesRefresh: (() => Promise<void>) | null = null;
-  let gitRefresh: (() => Promise<void>) | null = null;
-  async function schedulePostWriteRefresh() {
+  // Lazy import to avoid circular `backend -> projectData -> stores -> backend`
+  // load at module evaluation. Resolved on first use and memoized.
+  let projectDataNotify: ((method: string) => void) | null = null;
+  async function notifyWriteCompleted(method: string) {
     try {
-      if (!pendingChangesRefresh) {
-        const mod = await import('./pendingChanges');
-        const store = mod.usePendingChangesStore();
-        pendingChangesRefresh = () => store.refresh();
+      if (!projectDataNotify) {
+        const mod = await import('./projectData');
+        const store = mod.useProjectDataStore();
+        projectDataNotify = (m) => store.notifyWriteCompleted(m);
       }
-      if (!gitRefresh) {
-        const mod = await import('./git');
-        const store = mod.useGitStore();
-        gitRefresh = () => store.refreshStatus();
-      }
-      void Promise.all([pendingChangesRefresh(), gitRefresh()]);
+      projectDataNotify(method);
     } catch {
-      // Post-write refresh is best-effort; swallow.
+      // The seam being unavailable must not fail the RPC itself.
     }
   }
 
   /**
    * After a supervised backend restart, all project state derived from the
-   * old process is stale — re-derive it. (WP-05 will replace this with a
-   * proper invalidation seam; until then, reuse the existing refreshes.)
+   * old process is stale — run a full invalidation through the seam.
    */
   async function refreshAfterRestart() {
     try {
-      const mod = await import('./projects');
-      await mod.useProjectsStore().refreshCurrentProject();
+      const mod = await import('./projectData');
+      await mod.useProjectDataStore().invalidateAll();
     } catch {
       // Best-effort: a failed refresh must not take the restart path down.
     }
-    void schedulePostWriteRefresh();
   }
 
   /**
@@ -390,6 +400,7 @@ export const useBackendStore = defineStore('backend', () => {
     operationProgress,
     rpcInFlight,
     rpcQueued,
+    runningOperation,
     // Computed
     isRunning,
     isStarting,

@@ -230,8 +230,8 @@ async function runAllStages() {
     isRunning.value = false;
     currentStage.value = null;
     backend.resetOperationProgress();
-    // Refresh counts and sources once after all stages complete
-    projects.refreshCurrentProject();
+    // Counts and operation info refresh via the invalidation seam; the
+    // page-owned source list reloads here.
     loadSources();
   }
 }
@@ -282,11 +282,8 @@ onMounted(() => {
 });
 
 // Refresh status when results modal closes (records may have been edited)
-watch(showResultsModal, (newVal, oldVal) => {
-  if (!newVal && oldVal) {
-    projects.refreshCurrentProject();
-  }
-});
+// Record edits inside the results modal go through writer RPCs — the
+// invalidation seam refreshes status when they land.
 
 watch(
   () => projects.currentProjectId,

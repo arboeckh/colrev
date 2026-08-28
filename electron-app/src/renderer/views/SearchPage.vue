@@ -7,21 +7,26 @@ import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
 import { AddSourceDialog, SourceCard } from '@/components/search';
+import { LoadErrorState } from '@/components/common';
 import StepPageShell from '@/components/layout/StepPageShell.vue';
 import SearchPageHelp from './SearchPageHelp.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useProjectDataStore } from '@/stores/projectData';
+import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 import { useReadOnly } from '@/composables/useReadOnly';
 import type { SearchSource } from '@/types';
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
+const projectData = useProjectDataStore();
 const { isReadOnly } = useReadOnly();
 
 const sources = ref<SearchSource[]>([]);
 const isLoadingSources = ref(false);
+const sourcesLoadError = ref<string | null>(null);
 
 // Search state
 const isSearching = ref(false);
@@ -81,9 +86,9 @@ async function runSourceSearch(sourceFilename: string) {
     stopProgressTracking(true);
     notifications.success('Search completed');
 
+    // Sources, status counts and operation info refresh via the invalidation
+    // seam (search is a writer RPC). Short delay to show 100% before hiding.
     await new Promise(resolve => setTimeout(resolve, 500));
-    await loadSources();
-    await projects.refreshCurrentProject();
   } catch (err) {
     stopProgressTracking(false);
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -102,10 +107,14 @@ async function loadSources() {
   if (!projects.currentProjectId || !backend.isRunning) return;
 
   isLoadingSources.value = true;
+  sourcesLoadError.value = null;
+  const guard = projectData.snapshot();
   try {
     const response = await backend.call('get_sources', {
       project_id: projects.currentProjectId,
     });
+    // Project/branch switch mid-flight: discard the stale response.
+    if (!guard.isCurrent()) return;
     if (response.success) {
       const loadedSources = response.sources as unknown as SearchSource[];
       sources.value = loadedSources;
@@ -124,7 +133,9 @@ async function loadSources() {
       projects.setHasStaleSearchSources(hasSourcesNeedingAction);
     }
   } catch (err) {
-    console.error('Failed to load sources:', err);
+    if (guard.isCurrent()) {
+      sourcesLoadError.value = err instanceof Error ? err.message : 'Unknown error';
+    }
   } finally {
     isLoadingSources.value = false;
   }
@@ -186,12 +197,9 @@ async function runSearch() {
     stopProgressTracking(true);
     notifications.success('Search completed');
 
-    // Short delay to show 100% before hiding
+    // Sources, status counts and operation info refresh via the invalidation
+    // seam. Short delay to show 100% before hiding.
     await new Promise(resolve => setTimeout(resolve, 500));
-
-    await loadSources();
-    // Refresh project to get updated operation info from backend
-    await projects.refreshCurrentProject();
   } catch (err) {
     stopProgressTracking(false);
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -206,23 +214,12 @@ async function runSearch() {
   }
 }
 
-async function handleSourceAdded() {
+// Source mutations (add/update/delete/upload) and searches are writer RPCs:
+// the invalidation seam refreshes store-level state and this reloads the
+// page-owned source list.
+useProjectDataChanged(async () => {
   await loadSources();
-  // Refresh operation info to detect that search needs re-run
-  await projects.refreshCurrentProject();
-}
-
-async function handleSourceDeleted() {
-  await loadSources();
-  // Refresh operation info to detect that search needs re-run
-  await projects.refreshCurrentProject();
-}
-
-async function handleSourceUpdated() {
-  await loadSources();
-  // Refresh operation info to detect that search needs re-run
-  await projects.refreshCurrentProject();
-}
+});
 
 onMounted(() => {
   loadSources();
@@ -299,8 +296,17 @@ onMounted(() => {
       </Button>
     </div>
 
+    <!-- Load failure: retry UI, distinguishable from "no sources" -->
+    <LoadErrorState
+      v-if="sourcesLoadError && !isLoadingSources"
+      title="Failed to load search sources"
+      :message="sourcesLoadError"
+      test-id="search-sources-load-error"
+      @retry="loadSources"
+    />
+
     <!-- Sources grid -->
-    <div class="flex flex-wrap gap-3" :class="{ 'opacity-50 pointer-events-none': isSearching }">
+    <div v-else class="flex flex-wrap gap-3" :class="{ 'opacity-50 pointer-events-none': isSearching }">
       <!-- Source cards -->
       <SourceCard
         v-for="source in visibleSources"
@@ -311,8 +317,6 @@ onMounted(() => {
         :search-progress="isSearching && (searchingSource === null || searchingSource === (source.filename || source.search_results_path)) ? { progress: searchProgress, status: searchStatus, fetchedRecords, totalRecords, currentBatch, totalBatches } : undefined"
         :read-only="isReadOnly"
         class="w-80"
-        @deleted="handleSourceDeleted"
-        @updated="handleSourceUpdated"
         @run-search="runSourceSearch"
       />
 
@@ -338,7 +342,6 @@ onMounted(() => {
       v-model:open="showAddSourceDialog"
       :project-id="projects.currentProjectId"
       :existing-api-endpoints="existingApiEndpoints"
-      @source-added="handleSourceAdded"
     />
     </div>
   </StepPageShell>

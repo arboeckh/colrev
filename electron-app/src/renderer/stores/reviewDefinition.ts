@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { useBackendStore } from './backend';
 import { useProjectsStore } from './projects';
+import { useNotificationsStore } from './notifications';
 import type { GetReviewDefinitionResponse } from '@/types/generated/rpc';
 
 /**
@@ -22,11 +23,13 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
   const isLoading = ref(false);
   const isSaving = ref(false);
   const hasBeenVisited = ref(false);
+  const loadError = ref<string | null>(null);
 
   async function loadDefinition() {
     if (!projects.currentProjectId || !backend.isRunning) return;
 
     isLoading.value = true;
+    loadError.value = null;
     try {
       const response = await backend.call(
         'get_review_definition',
@@ -40,7 +43,7 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
       // Load visited status from localStorage
       loadVisitedStatus(projects.currentProjectId);
     } catch (err) {
-      console.error('Failed to load review definition:', err);
+      loadError.value = err instanceof Error ? err.message : 'Failed to load review definition';
     } finally {
       isLoading.value = false;
     }
@@ -92,7 +95,10 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
       }
       return false;
     } catch (err) {
-      console.error('Failed to update review definition:', err);
+      useNotificationsStore().error(
+        'Failed to update review definition',
+        err instanceof Error ? err.message : 'Unknown error',
+      );
       return false;
     } finally {
       isSaving.value = false;
@@ -129,7 +135,10 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
       }
       return false;
     } catch (err) {
-      console.error('Failed to add criterion:', err);
+      useNotificationsStore().error(
+        'Failed to add criterion',
+        err instanceof Error ? err.message : 'Unknown error',
+      );
       return false;
     } finally {
       isSaving.value = false;
@@ -166,7 +175,10 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
       }
       return false;
     } catch (err) {
-      console.error('Failed to update criterion:', err);
+      useNotificationsStore().error(
+        'Failed to update criterion',
+        err instanceof Error ? err.message : 'Unknown error',
+      );
       return false;
     } finally {
       isSaving.value = false;
@@ -191,7 +203,10 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
       }
       return false;
     } catch (err) {
-      console.error('Failed to remove criterion:', err);
+      useNotificationsStore().error(
+        'Failed to remove criterion',
+        err instanceof Error ? err.message : 'Unknown error',
+      );
       return false;
     } finally {
       isSaving.value = false;
@@ -203,6 +218,7 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
     isLoading,
     isSaving,
     hasBeenVisited,
+    loadError,
     loadDefinition,
     updateDefinition,
     addCriterion,

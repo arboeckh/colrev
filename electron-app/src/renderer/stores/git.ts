@@ -6,6 +6,7 @@ import { useConnectionStore } from './connection';
 import type { GitBranchInfo, GitLogEntry, GitHubRelease, MergeAnalysis, MergeConflictResolution } from '@/types/window';
 import type { BranchDelta } from '@/types/project';
 import { useBackendStore } from './backend';
+import { useProjectDataStore } from './projectData';
 
 // No interval polling. Remote state refreshes on: (a) window focus,
 // (b) explicit user action (Refresh / Fetch buttons), (c) after a write
@@ -30,7 +31,6 @@ export const useGitStore = defineStore('git', () => {
   const isFetching = ref(false);
   const isPulling = ref(false);
   const isPushing = ref(false);
-  const isOperationRunning = ref(false);
   const isSwitchingBranch = ref(false);
   const lastFetchTime = ref<number | null>(null);
   const recentCommits = ref<GitLogEntry[]>([]);
@@ -137,10 +137,9 @@ export const useGitStore = defineStore('git', () => {
     try {
       const result = await window.git.pull(path, true);
       if (result.success) {
-        await refreshStatus();
-        await refreshMergeConflictState();
-        await projects.refreshCurrentProject();
-        window.location.reload();
+        // The working tree changed wholesale — full invalidation through the
+        // seam (bumps the request epoch, refreshes stores, reloads pages).
+        await useProjectDataStore().invalidateAll();
         return true;
       } else if (result.error === 'DIVERGED') {
         // Trigger semantic conflict resolution instead of dead-end message
@@ -181,10 +180,9 @@ export const useGitStore = defineStore('git', () => {
       );
       showResetToRemoteDialog.value = false;
       showPullBlockedDialog.value = false;
-      await refreshStatus();
-      await refreshMergeConflictState();
-      // Reload so any in-memory record / settings state matches the new tree.
-      window.location.reload();
+      // The working tree was hard-reset — full invalidation so any in-memory
+      // record / settings state matches the new tree.
+      await useProjectDataStore().invalidateAll();
       return true;
     } catch (err) {
       notifications.error(
@@ -627,7 +625,6 @@ export const useGitStore = defineStore('git', () => {
   async function applyMergeResolutions(resolutions: MergeConflictResolution[]): Promise<boolean> {
     const path = getProjectPath();
     if (!path || !projects.currentProjectId || !mergeAnalysis.value) {
-      console.error('[git] applyMergeResolutions: no path or analysis', { path, hasAnalysis: !!mergeAnalysis.value });
       return false;
     }
 
@@ -650,12 +647,9 @@ export const useGitStore = defineStore('git', () => {
         }
         showConflictDialog.value = false;
         mergeAnalysis.value = null;
-        await refreshStatus();
-        await refreshMergeConflictState();
-        // Reload project to pick up merged settings
-        if (projects.currentProjectId) {
-          await projects.loadProject(projects.currentProjectId);
-        }
+        // The merge rewrote the working tree — full invalidation picks up
+        // merged records and settings everywhere.
+        await useProjectDataStore().invalidateAll();
         return true;
       } else {
         notifications.error('Sync failed', result.error || 'Could not apply changes.');
@@ -693,16 +687,6 @@ export const useGitStore = defineStore('git', () => {
     }
     notifications.error('Failed to abort merge', result.error);
     return false;
-  }
-
-  /**
-   * Auto-sync: if safe to pull (behind > 0, ahead == 0, clean), do it.
-   */
-  async function autoSyncIfSafe(): Promise<void> {
-    if (isOperationRunning.value) return;
-    if (behind.value > 0 && ahead.value === 0 && isClean.value) {
-      await pull();
-    }
   }
 
   /**
@@ -772,7 +756,6 @@ export const useGitStore = defineStore('git', () => {
     isFetching,
     isPulling,
     isPushing,
-    isOperationRunning,
     isSwitchingBranch,
     lastFetchTime,
     recentCommits,
@@ -824,7 +807,6 @@ export const useGitStore = defineStore('git', () => {
     startDivergenceResolution,
     applyMergeResolutions,
     cancelMerge,
-    autoSyncIfSafe,
     initialize,
     cleanup,
     resetToRemote,

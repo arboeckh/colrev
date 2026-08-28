@@ -78,8 +78,6 @@ async function loadEditRecords() {
 
   isLoading.value = true;
   try {
-    await projects.refreshCurrentProject();
-
     const response = await backend.call('get_records', {
       project_id: projects.currentProjectId,
       filters: { status: ['rev_included', 'rev_excluded'] },
@@ -147,7 +145,6 @@ async function saveEdits() {
         'Decisions updated',
         `${response.changes_count} record(s) updated`,
       );
-      await projects.refreshCurrentProject();
       emit('close');
     }
   } catch (err) {
