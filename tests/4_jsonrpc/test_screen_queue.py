@@ -74,7 +74,7 @@ class TestGetScreenQueueEndpoint:
         assert "records" in result
         assert "criteria" in result
         assert isinstance(result["records"], list)
-        assert isinstance(result["criteria"], list)
+        assert isinstance(result["criteria"], dict)
         assert isinstance(result["total_count"], int)
 
     def test_get_screen_queue_with_limit(self):

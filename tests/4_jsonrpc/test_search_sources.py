@@ -286,10 +286,8 @@ class TestUploadSearchFileEndpoint:
         result = response["result"]
 
         assert result["success"] is True
-        assert result["operation"] == "upload_search_file"
-        assert "details" in result
-        assert "path" in result["details"]
-        assert "detected_format" in result["details"]
+        assert "path" in result
+        assert "detected_format" in result
 
     def test_upload_search_file_detects_bibtex(self):
         """Test that BibTeX format is detected."""
@@ -311,7 +309,7 @@ class TestUploadSearchFileEndpoint:
         response = self.handler.handle_request(request)
         assert "error" not in response, f"Unexpected error: {response.get('error')}"
 
-        assert response["result"]["details"]["detected_format"] == "bibtex"
+        assert response["result"]["detected_format"] == "bibtex"
 
     def test_upload_search_file_detects_ris(self):
         """Test that RIS format is detected."""
@@ -336,7 +334,7 @@ ER  -
         response = self.handler.handle_request(request)
         assert "error" not in response, f"Unexpected error: {response.get('error')}"
 
-        assert response["result"]["details"]["detected_format"] == "ris"
+        assert response["result"]["detected_format"] == "ris"
 
     def test_upload_search_file_missing_filename_returns_error(self):
         """Test that missing filename parameter returns error."""
