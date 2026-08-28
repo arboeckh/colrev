@@ -65,6 +65,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -90,8 +91,7 @@
         ],
         "title": "AddScreeningCriterionResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "add_source": {
       "request": {
@@ -149,6 +149,19 @@
             "default": null,
             "title": "Run Date"
           },
+          "search_parameters": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Search Parameters"
+          },
           "search_string": {
             "default": "",
             "title": "Search String",
@@ -189,6 +202,7 @@
                 "type": "string"
               },
               "source": {
+                "additionalProperties": true,
                 "title": "Source",
                 "type": "object"
               }
@@ -233,8 +247,7 @@
         ],
         "title": "AddSourceResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "apply_reconciliation": {
       "request": {
@@ -251,6 +264,11 @@
             ],
             "default": null,
             "title": "Base Path"
+          },
+          "override_blocks": {
+            "default": false,
+            "title": "Override Blocks",
+            "type": "boolean"
           },
           "project_id": {
             "title": "Project Id",
@@ -305,8 +323,7 @@
         ],
         "title": "ManagedReviewResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "batch_enrich_records": {
       "request": {
@@ -422,8 +439,7 @@
         ],
         "title": "BatchEnrichRecordsResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "cancel_managed_review_task": {
       "request": {
@@ -488,8 +504,7 @@
         ],
         "title": "ManagedReviewResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "commit_changes": {
       "request": {
@@ -578,8 +593,7 @@
         ],
         "title": "CommitChangesResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "configure_structured_endpoint": {
       "request": {
@@ -678,6 +692,7 @@
         "properties": {
           "fields": {
             "items": {
+              "additionalProperties": true,
               "type": "object"
             },
             "title": "Fields",
@@ -705,8 +720,7 @@
         ],
         "title": "ConfigureStructuredEndpointResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "create_managed_review_task": {
       "request": {
@@ -779,8 +793,7 @@
         ],
         "title": "ManagedReviewResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "data": {
       "request": {
@@ -819,6 +832,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -844,8 +858,7 @@
         ],
         "title": "DataResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "dedupe": {
       "request": {
@@ -884,6 +897,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -909,8 +923,7 @@
         ],
         "title": "DedupeResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "delete_project": {
       "request": {
@@ -957,8 +970,7 @@
         ],
         "title": "DeleteProjectResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "discard_changes": {
       "request": {
@@ -1039,8 +1051,7 @@
         ],
         "title": "DiscardChangesResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "enrich_record_metadata": {
       "request": {
@@ -1186,8 +1197,7 @@
         ],
         "title": "EnrichRecordMetadataResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "export_data_csv": {
       "request": {
@@ -1251,8 +1261,7 @@
         ],
         "title": "ExportDataCsvResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "export_pdfs": {
       "request": {
@@ -1326,8 +1335,7 @@
         ],
         "title": "ExportPDFsResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "export_reconciliation_audit": {
       "request": {
@@ -1392,8 +1400,7 @@
         ],
         "title": "ManagedReviewResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_branch_delta": {
       "request": {
@@ -1510,8 +1517,49 @@
         ],
         "title": "GetBranchDeltaResponse",
         "type": "object"
+      }
+    },
+    "get_connector_api_key_status": {
+      "request": {
+        "additionalProperties": false,
+        "properties": {
+          "base_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Path"
+          }
+        },
+        "title": "GetConnectorApiKeyStatusRequest",
+        "type": "object"
       },
-      "writes": false
+      "requires_project": false,
+      "response": {
+        "additionalProperties": true,
+        "properties": {
+          "openalex": {
+            "title": "Openalex",
+            "type": "boolean"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "openalex"
+        ],
+        "title": "GetConnectorApiKeyStatusResponse",
+        "type": "object"
+      }
     },
     "get_csv_source_templates": {
       "request": {
@@ -1545,6 +1593,7 @@
           },
           "templates": {
             "items": {
+              "additionalProperties": true,
               "type": "object"
             },
             "title": "Templates",
@@ -1556,8 +1605,7 @@
         ],
         "title": "GetCSVSourceTemplatesResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_current_managed_review_task": {
       "request": {
@@ -1617,8 +1665,7 @@
         ],
         "title": "ManagedReviewResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_data_extraction_queue": {
       "request": {
@@ -1781,8 +1828,7 @@
         ],
         "title": "GetDataExtractionQueueResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_git_status": {
       "request": {
@@ -1998,8 +2044,7 @@
         ],
         "title": "GetGitStatusResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_managed_review_task_queue": {
       "request": {
@@ -2059,8 +2104,7 @@
         ],
         "title": "ManagedReviewResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_managed_review_task_readiness": {
       "request": {
@@ -2120,8 +2164,7 @@
         ],
         "title": "ManagedReviewResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_operation_info": {
       "request": {
@@ -2229,8 +2272,7 @@
         ],
         "title": "GetOperationInfoResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_preprocessing_summary": {
       "request": {
@@ -2311,8 +2353,7 @@
         ],
         "title": "GetPreprocessingSummaryResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_prescreen_queue": {
       "request": {
@@ -2432,8 +2473,7 @@
         ],
         "title": "GetPrescreenQueueResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_reconciliation_preview": {
       "request": {
@@ -2493,8 +2533,7 @@
         ],
         "title": "ManagedReviewResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_record": {
       "request": {
@@ -2573,8 +2612,7 @@
         ],
         "title": "GetRecordResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_records": {
       "request": {
@@ -2861,8 +2899,7 @@
         ],
         "title": "GetRecordsResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_review_definition": {
       "request": {
@@ -2985,8 +3022,7 @@
         ],
         "title": "GetReviewDefinitionResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_screen_queue": {
       "request": {
@@ -3131,8 +3167,7 @@
         ],
         "title": "GetScreenQueueResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_screening_criteria": {
       "request": {
@@ -3227,8 +3262,7 @@
         ],
         "title": "GetScreeningCriteriaResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_settings": {
       "request": {
@@ -3271,6 +3305,7 @@
             "type": "string"
           },
           "settings": {
+            "additionalProperties": true,
             "title": "Settings",
             "type": "object"
           },
@@ -3287,8 +3322,7 @@
         ],
         "title": "GetSettingsResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_source_records": {
       "request": {
@@ -3438,8 +3472,7 @@
         ],
         "title": "GetSourceRecordsResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_sources": {
       "request": {
@@ -3509,8 +3542,7 @@
         ],
         "title": "GetSourcesResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "get_status": {
       "request": {
@@ -3558,6 +3590,7 @@
             "type": "string"
           },
           "status": {
+            "additionalProperties": true,
             "title": "Status",
             "type": "object"
           },
@@ -3575,8 +3608,7 @@
         ],
         "title": "GetStatusResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "import_pdfs": {
       "request": {
@@ -3684,8 +3716,7 @@
         ],
         "title": "ImportPDFsResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "include_all_screen": {
       "request": {
@@ -3749,8 +3780,7 @@
         ],
         "title": "IncludeAllScreenResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "init_project": {
       "request": {
@@ -3839,8 +3869,7 @@
         ],
         "title": "InitProjectResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "list_managed_review_tasks": {
       "request": {
@@ -3900,8 +3929,7 @@
         ],
         "title": "ManagedReviewResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "list_projects": {
       "request": {
@@ -3965,8 +3993,7 @@
         ],
         "title": "ListProjectsResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "load": {
       "request": {
@@ -4010,6 +4037,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4035,8 +4063,7 @@
         ],
         "title": "LoadResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "mark_pdf_not_available": {
       "request": {
@@ -4105,8 +4132,7 @@
         ],
         "title": "MarkPDFNotAvailableResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "match_pdf_to_records": {
       "request": {
@@ -4297,8 +4323,7 @@
         ],
         "title": "MatchPDFToRecordsResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "pdf_get": {
       "request": {
@@ -4337,6 +4362,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4362,8 +4388,7 @@
         ],
         "title": "PDFGetResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "pdf_prep": {
       "request": {
@@ -4412,6 +4437,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4437,8 +4463,7 @@
         ],
         "title": "PDFPrepResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "ping": {
       "request": {
@@ -4463,6 +4488,7 @@
       "requires_project": false,
       "response": {
         "additionalProperties": true,
+        "description": "Readiness probe response. Lives here (not in system_handler) so the\nfast path in ``handler.py`` can construct it without importing\n``framework_handlers`` (which would defeat the lazy-load design).",
         "properties": {
           "status": {
             "const": "pong",
@@ -4479,8 +4505,7 @@
         },
         "title": "PingResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "prep": {
       "request": {
@@ -4524,6 +4549,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4549,8 +4575,7 @@
         ],
         "title": "PrepResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "prep_man_update_record": {
       "request": {
@@ -4569,6 +4594,7 @@
             "title": "Base Path"
           },
           "fields": {
+            "additionalProperties": true,
             "title": "Fields",
             "type": "object"
           },
@@ -4599,6 +4625,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4624,8 +4651,7 @@
         ],
         "title": "PrepManUpdateRecordResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "prescreen": {
       "request": {
@@ -4699,8 +4725,7 @@
         ],
         "title": "PrescreenBatchResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "prescreen_record": {
       "request": {
@@ -4824,8 +4849,7 @@
         ],
         "title": "PrescreenRecordResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "remove_screening_criterion": {
       "request": {
@@ -4869,6 +4893,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4894,8 +4919,7 @@
         ],
         "title": "RemoveScreeningCriterionResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "remove_source": {
       "request": {
@@ -4996,8 +5020,7 @@
         ],
         "title": "RemoveSourceResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "reset_to_remote": {
       "request": {
@@ -5083,8 +5106,7 @@
         ],
         "title": "ResetToRemoteResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "restore_pdf_file": {
       "request": {
@@ -5163,8 +5185,7 @@
         ],
         "title": "RestorePDFFileResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "save_data_extraction": {
       "request": {
@@ -5191,6 +5212,7 @@
             "type": "string"
           },
           "values": {
+            "additionalProperties": true,
             "title": "Values",
             "type": "object"
           },
@@ -5243,8 +5265,7 @@
         ],
         "title": "SaveDataExtractionResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "screen": {
       "request": {
@@ -5313,8 +5334,7 @@
         ],
         "title": "ScreenBatchResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "screen_record": {
       "request": {
@@ -5464,8 +5484,7 @@
         ],
         "title": "ScreenRecordResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "search": {
       "request": {
@@ -5569,8 +5588,66 @@
         ],
         "title": "SearchResponse",
         "type": "object"
+      }
+    },
+    "set_connector_api_key": {
+      "request": {
+        "additionalProperties": false,
+        "properties": {
+          "api_key": {
+            "title": "Api Key",
+            "type": "string"
+          },
+          "base_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Path"
+          },
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connector",
+          "api_key"
+        ],
+        "title": "SetConnectorApiKeyRequest",
+        "type": "object"
       },
-      "writes": true
+      "requires_project": false,
+      "response": {
+        "additionalProperties": true,
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "connector",
+          "configured"
+        ],
+        "title": "SetConnectorApiKeyResponse",
+        "type": "object"
+      }
     },
     "status": {
       "request": {
@@ -5618,6 +5695,7 @@
             "type": "string"
           },
           "status": {
+            "additionalProperties": true,
             "title": "Status",
             "type": "object"
           },
@@ -5635,8 +5713,7 @@
         ],
         "title": "GetStatusResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     },
     "undo_pdf_not_available": {
       "request": {
@@ -5705,8 +5782,7 @@
         ],
         "title": "UndoPDFNotAvailableResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "update_prescreen_decisions": {
       "request": {
@@ -5840,8 +5916,7 @@
         ],
         "title": "UpdatePrescreenDecisionsResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "update_record": {
       "request": {
@@ -5862,6 +5937,7 @@
           "fields": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -5904,6 +5980,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -5929,8 +6006,7 @@
         ],
         "title": "UpdateRecordResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "update_review_definition": {
       "request": {
@@ -6008,6 +6084,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -6033,8 +6110,7 @@
         ],
         "title": "UpdateReviewDefinitionResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "update_screen_decisions": {
       "request": {
@@ -6168,8 +6244,7 @@
         ],
         "title": "UpdateScreenDecisionsResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "update_screening_criterion": {
       "request": {
@@ -6249,6 +6324,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -6274,8 +6350,7 @@
         ],
         "title": "UpdateScreeningCriterionResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "update_settings": {
       "request": {
@@ -6298,6 +6373,7 @@
             "type": "string"
           },
           "settings": {
+            "additionalProperties": true,
             "title": "Settings",
             "type": "object"
           },
@@ -6319,6 +6395,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -6349,8 +6426,7 @@
         ],
         "title": "UpdateSettingsResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "update_source": {
       "request": {
@@ -6399,6 +6475,7 @@
           "search_parameters": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -6443,6 +6520,7 @@
                 "type": "string"
               },
               "source": {
+                "additionalProperties": true,
                 "title": "Source",
                 "type": "object"
               }
@@ -6487,8 +6565,7 @@
         ],
         "title": "UpdateSourceResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "upload_pdf": {
       "request": {
@@ -6589,8 +6666,7 @@
         ],
         "title": "UploadPDFResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "upload_search_file": {
       "request": {
@@ -6700,8 +6776,7 @@
         ],
         "title": "UploadSearchFileResponse",
         "type": "object"
-      },
-      "writes": true
+      }
     },
     "validate": {
       "request": {
@@ -6750,6 +6825,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -6780,8 +6856,7 @@
         ],
         "title": "ValidateResponse",
         "type": "object"
-      },
-      "writes": false
+      }
     }
   },
   "shared": {
@@ -6869,7 +6944,6 @@
     "RecordPayload": {
       "$defs": {
         "RecordStateName": {
-          "description": "RecordState as a string-valued enum for JSON Schema export.\n\nMirrors :class:`colrev.constants.RecordState` but uses string values\nso JSON Schema sees it as an ``enum`` of strings rather than integers.\nFrontend (via codegen) gets a proper string-literal union.",
           "enum": [
             "md_retrieved",
             "md_imported",

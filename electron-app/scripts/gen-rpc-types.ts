@@ -35,7 +35,6 @@ type MethodSchema = {
   request: Record<string, unknown>;
   response: Record<string, unknown>;
   requires_project: boolean;
-  writes: boolean;
 };
 
 type SchemaDoc = {

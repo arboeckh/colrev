@@ -63,7 +63,6 @@ def build_schema_document() -> dict:
             "request": spec.request_model.model_json_schema(),
             "response": spec.response_model.model_json_schema(),
             "requires_project": spec.requires_project,
-            "writes": spec.writes,
         }
 
     shared: dict[str, dict] = {
