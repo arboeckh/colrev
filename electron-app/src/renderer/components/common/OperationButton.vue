@@ -39,7 +39,7 @@ async function run() {
   isRunning.value = true;
 
   try {
-    const result = await backend.call(props.operation, {
+    const result = await backend.callUntyped(props.operation, {
       project_id: props.projectId,
       ...props.params,
     });

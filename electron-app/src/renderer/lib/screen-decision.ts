@@ -1,9 +1,9 @@
-import type { ScreenCriterionDefinition } from '@/types/api';
+import type { ScreenCriterionInfo } from '@/types/generated/rpc';
 
 export type CriterionDecision = 'in' | 'out' | 'TODO';
 
 export function canIncludeDecision(
-  criteria: Record<string, ScreenCriterionDefinition>,
+  criteria: Record<string, ScreenCriterionInfo>,
   decisions: Record<string, CriterionDecision>,
 ): boolean {
   if (Object.keys(criteria).length === 0) return false;
@@ -15,7 +15,7 @@ export function canIncludeDecision(
 }
 
 export function canExcludeDecision(
-  criteria: Record<string, ScreenCriterionDefinition>,
+  criteria: Record<string, ScreenCriterionInfo>,
   decisions: Record<string, CriterionDecision>,
 ): boolean {
   if (Object.keys(criteria).length === 0) return false;
@@ -24,7 +24,7 @@ export function canExcludeDecision(
 }
 
 export function deriveScreenDecision(
-  criteria: Record<string, ScreenCriterionDefinition>,
+  criteria: Record<string, ScreenCriterionInfo>,
   decisions: Record<string, CriterionDecision>,
 ): 'include' | 'exclude' | null {
   if (canIncludeDecision(criteria, decisions)) return 'include';

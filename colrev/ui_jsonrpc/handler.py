@@ -90,7 +90,7 @@ class JSONRPCHandler:
         if method == "ping":
             return {
                 "jsonrpc": "2.0",
-                "result": PingResponse().model_dump(mode="json", exclude_none=True),
+                "result": PingResponse().model_dump(mode="json"),
                 "id": request_id,
             }
 

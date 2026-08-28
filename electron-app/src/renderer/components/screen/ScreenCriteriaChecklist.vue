@@ -2,11 +2,11 @@
 import { computed } from 'vue';
 import { Check, Circle, X } from 'lucide-vue-next';
 import { Badge } from '@/components/ui/badge';
-import type { ReconciliationPreviewItem, ScreenCriterionDefinition } from '@/types/api';
+import type { ReconciliationPreviewItem, ScreenCriterionInfo } from '@/types/generated/rpc';
 
 const props = withDefaults(
   defineProps<{
-    criteria: Record<string, ScreenCriterionDefinition>;
+    criteria: Record<string, ScreenCriterionInfo>;
     decisions: Record<string, 'in' | 'out' | 'TODO'>;
     reviewers?: ReconciliationPreviewItem['reviewers'];
     testIdPrefix?: string;

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-vue-next';
-import type { ReconciliationPreviewItem } from '@/types/api';
+import type { ReconciliationPreviewItem } from '@/types/generated/rpc';
 
 defineProps<{
   items: ReconciliationPreviewItem[];

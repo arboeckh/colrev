@@ -20,15 +20,12 @@ import { useBackendStore } from '@/stores/backend';
 import { useReadOnly } from '@/composables/useReadOnly';
 // notifications removed — progress bar provides sufficient feedback
 import type {
-  DataField,
-  DataExtractionRecord,
-  GetDataExtractionQueueResponse,
-  SaveDataExtractionResponse,
-  ConfigureStructuredEndpointResponse,
-} from '@/types/api';
+  FieldDefinition,
+  ExtractionRecord,
+} from '@/types/generated/rpc';
 
 // --- Types ---
-interface EnrichedRecord extends DataExtractionRecord {
+interface EnrichedRecord extends ExtractionRecord {
   _completed: boolean;
 }
 
@@ -43,7 +40,7 @@ const overviewRoute = computed(() =>
 
 // --- State ---
 const isConfigured = ref(false);
-const fields = ref<DataField[]>([]);
+const fields = ref<FieldDefinition[]>([]);
 const queue = ref<EnrichedRecord[]>([]);
 const currentIndex = ref(0);
 const totalCount = ref(0);
@@ -60,7 +57,7 @@ const showDataTable = ref(false);
 // --- Computed ---
 const currentRecord = computed(() => queue.value[currentIndex.value] || null);
 
-function isFieldComplete(f: DataField): boolean {
+function isFieldComplete(f: FieldDefinition): boolean {
   if (f.optional) return true;
   const val = localValues.value[f.name];
   return !!val && val.trim() !== '' && val !== 'TODO';
@@ -88,7 +85,7 @@ async function loadQueue() {
 
   isLoading.value = true;
   try {
-    const response = await backend.call<GetDataExtractionQueueResponse>(
+    const response = await backend.call(
       'get_data_extraction_queue',
       { project_id: projects.currentProjectId },
     );
@@ -101,7 +98,7 @@ async function loadQueue() {
       const enriched: EnrichedRecord[] = response.records.map((r) => {
         const hasAllFilled = fields.value.length > 0 && fields.value.every((f) => {
           if (f.optional) return true;
-          const val = r.extraction_values[f.name];
+          const val = r.extraction_values?.[f.name];
           return !!val && val.trim() !== '' && val !== 'TODO';
         });
         return { ...r, _completed: hasAllFilled };
@@ -137,7 +134,7 @@ async function saveExtraction() {
 
   isSaving.value = true;
   try {
-    const response = await backend.call<SaveDataExtractionResponse>(
+    const response = await backend.call(
       'save_data_extraction',
       {
         project_id: projects.currentProjectId,
@@ -211,12 +208,12 @@ function updateValue(fieldName: string, value: string) {
 }
 
 // --- Fields configuration ---
-async function handleFieldsConfigured(configuredFields: DataField[]) {
+async function handleFieldsConfigured(configuredFields: FieldDefinition[]) {
   if (!projects.currentProjectId) return;
 
   isSavingFields.value = true;
   try {
-    const response = await backend.call<ConfigureStructuredEndpointResponse>(
+    const response = await backend.call(
       'configure_structured_endpoint',
       {
         project_id: projects.currentProjectId,
@@ -242,7 +239,7 @@ async function exportCsv() {
 
   isExporting.value = true;
   try {
-    const response = await backend.call<{ success: boolean; csv_content: string; filename: string }>(
+    const response = await backend.call(
       'export_data_csv',
       { project_id: projects.currentProjectId },
     );

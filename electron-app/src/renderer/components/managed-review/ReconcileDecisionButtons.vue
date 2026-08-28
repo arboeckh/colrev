@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { Check, X, Loader2, ArrowRight } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
-import type { ReconciliationPreviewItem } from '@/types/api';
+import type { ReconciliationPreviewItem } from '@/types/generated/rpc';
 import { reviewerStatusToDecision, type ReconcileKind } from './reconcile-utils';
 
 type DecisionState = 'undecided' | 'included' | 'excluded';

@@ -11,7 +11,19 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useBackendStore } from '@/stores/backend';
-import type { GetSourceRecordsResponse, SourceRecord } from '@/types';
+import type { SourceRecord } from '@/types/generated/rpc';
+
+/** UI refinement of the open source-record dict: fields the table displays. */
+interface DisplaySourceRecord extends SourceRecord {
+  ID?: string;
+  ENTRYTYPE?: string;
+  title?: string;
+  author?: string;
+  year?: string;
+  journal?: string;
+  booktitle?: string;
+  doi?: string;
+}
 
 const props = defineProps<{
   open: boolean;
@@ -28,7 +40,7 @@ const backend = useBackendStore();
 
 // State
 const isLoading = ref(false);
-const records = ref<SourceRecord[]>([]);
+const records = ref<DisplaySourceRecord[]>([]);
 const totalCount = ref(0);
 const currentPage = ref(1);
 const pageSize = 20;
@@ -45,7 +57,7 @@ async function loadRecords() {
 
   isLoading.value = true;
   try {
-    const response = await backend.call<GetSourceRecordsResponse>('get_source_records', {
+    const response = await backend.call('get_source_records', {
       project_id: props.projectId,
       filename: props.filename,
       pagination: {
@@ -55,7 +67,7 @@ async function loadRecords() {
     });
 
     if (response.success) {
-      records.value = response.records;
+      records.value = response.records as DisplaySourceRecord[];
       totalCount.value = response.total_count;
     }
   } catch (err) {
@@ -87,7 +99,7 @@ watch(() => props.open, (newValue) => {
   }
 });
 
-function truncate(text: string, maxLength: number): string {
+function truncate(text: string | undefined, maxLength: number): string {
   if (!text) return '';
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength) + '...';

@@ -59,7 +59,7 @@ class GetPrescreenQueueRequest(ProjectScopedRequest):
     task_id: Optional[str] = None
 
 
-class QueueRecord(BaseModel):
+class PrescreenQueueRecord(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str
@@ -67,11 +67,17 @@ class QueueRecord(BaseModel):
     author: str = ""
     year: str = ""
     can_enrich: bool = False
+    # Set by _format_queue_record only when present on the record.
+    abstract: Optional[str] = None
+    journal: Optional[str] = None
+    booktitle: Optional[str] = None
+    doi: Optional[str] = None
+    pubmedid: Optional[str] = None
 
 
 class GetPrescreenQueueResponse(ProjectResponse):
     total_count: int
-    records: List[QueueRecord]
+    records: List[PrescreenQueueRecord]
 
 
 class PrescreenRecordRequest(ProjectScopedRequest):
@@ -124,18 +130,9 @@ class EnrichRecordMetadataRequest(ProjectScopedRequest):
     fields: Optional[List[str]] = None
 
 
-class EnrichedRecord(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    id: str
-    title: str = ""
-    author: str = ""
-    year: str = ""
-    can_enrich: bool = False
-
-
 class EnrichRecordMetadataResponse(ProjectResponse):
-    record: EnrichedRecord
+    # Enrichment returns the same projection as the prescreen queue.
+    record: PrescreenQueueRecord
     enriched_fields: List[str]
     source: Optional[str] = None
     message: Optional[str] = None
@@ -151,6 +148,11 @@ class BatchEnrichItem(BaseModel):
 
     id: str
     success: bool
+    record: Optional[PrescreenQueueRecord] = None
+    enriched_fields: Optional[List[str]] = None
+    source: Optional[str] = None
+    error: Optional[str] = None
+    message: Optional[str] = None
 
 
 class BatchEnrichRecordsResponse(ProjectResponse):
@@ -174,6 +176,7 @@ class PrescreenHandler(BaseHandler):
         request=PrescreenRecordRequest,
         response=PrescreenRecordResponse,
         operation_type=OperationsType.prescreen,
+        writes=True,
     )
     def prescreen_record(self, req: PrescreenRecordRequest) -> PrescreenRecordResponse:
         assert self.review_manager is not None
@@ -250,6 +253,7 @@ class PrescreenHandler(BaseHandler):
         request=PrescreenBatchRequest,
         response=PrescreenBatchResponse,
         operation_type=OperationsType.prescreen,
+        writes=True,
     )
     def prescreen(self, req: PrescreenBatchRequest) -> PrescreenBatchResponse:
         assert self.review_manager is not None
@@ -290,7 +294,7 @@ class PrescreenHandler(BaseHandler):
         ]
         total_count = len(prescreen_records)
         formatted = [
-            QueueRecord(**_format_queue_record(r))
+            PrescreenQueueRecord(**_format_queue_record(r))
             for r in prescreen_records[: req.limit]
         ]
         return GetPrescreenQueueResponse(
@@ -306,6 +310,7 @@ class PrescreenHandler(BaseHandler):
         request=UpdatePrescreenDecisionsRequest,
         response=UpdatePrescreenDecisionsResponse,
         operation_type=OperationsType.prescreen,
+        writes=True,
     )
     def update_prescreen_decisions(
         self, req: UpdatePrescreenDecisionsRequest
@@ -371,6 +376,7 @@ class PrescreenHandler(BaseHandler):
         name="enrich_record_metadata",
         request=EnrichRecordMetadataRequest,
         response=EnrichRecordMetadataResponse,
+        writes=True,
     )
     def enrich_record_metadata(
         self, req: EnrichRecordMetadataRequest
@@ -387,7 +393,7 @@ class PrescreenHandler(BaseHandler):
         if Fields.ABSTRACT in record_dict and record_dict[Fields.ABSTRACT]:
             return EnrichRecordMetadataResponse(
                 project_id=req.project_id,
-                record=EnrichedRecord(
+                record=PrescreenQueueRecord(
                     id=req.record_id,
                     title=record_dict.get(Fields.TITLE, ""),
                     author=record_dict.get(Fields.AUTHOR, ""),
@@ -408,7 +414,7 @@ class PrescreenHandler(BaseHandler):
 
         return EnrichRecordMetadataResponse(
             project_id=req.project_id,
-            record=EnrichedRecord(**result["record"]),
+            record=PrescreenQueueRecord(**result["record"]),
             enriched_fields=result["enriched_fields"],
             source=result["source"],
             message=None,
@@ -420,6 +426,7 @@ class PrescreenHandler(BaseHandler):
         name="batch_enrich_records",
         request=BatchEnrichRecordsRequest,
         response=BatchEnrichRecordsResponse,
+        writes=True,
     )
     def batch_enrich_records(
         self, req: BatchEnrichRecordsRequest

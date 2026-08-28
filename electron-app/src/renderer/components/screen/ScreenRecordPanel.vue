@@ -12,14 +12,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ScreenCriteriaChecklist from './ScreenCriteriaChecklist.vue';
 import ScreenCriteriaDecisionButtons from './ScreenCriteriaDecisionButtons.vue';
 import ScreenProgressBar from './ScreenProgressBar.vue';
-import type { ScreenQueueRecord, ScreenCriterionDefinition } from '@/types/api';
+import type { ScreenQueueRecord, ScreenCriterionInfo } from '@/types/generated/rpc';
 import type { CriterionDecision } from '@/lib/screen-decision';
 
 type DecisionState = 'undecided' | 'included' | 'excluded';
 
 defineProps<{
   record: ScreenQueueRecord & { _decision: DecisionState; _criteriaDecisions: Record<string, CriterionDecision> };
-  criteria: Record<string, ScreenCriterionDefinition>;
+  criteria: Record<string, ScreenCriterionInfo>;
   criteriaDecisions: Record<string, CriterionDecision>;
   hasCriteria: boolean;
   decidedCount: number;

@@ -13,7 +13,6 @@ import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
 import { useGithubReposStore } from '@/stores/github-repos';
-import type { ListProjectsResponse } from '@/types/api';
 
 const route = useRoute();
 const backend = useBackendStore();
@@ -47,7 +46,7 @@ onMounted(async () => {
 // Discover existing projects from disk
 async function discoverProjects() {
   try {
-    const response = await backend.call<ListProjectsResponse>('list_projects', {});
+    const response = await backend.call('list_projects', {});
     if (response.success && response.projects) {
       for (const proj of response.projects) {
         projects.addProject(proj.id, proj.path, proj.title);

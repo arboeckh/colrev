@@ -3,7 +3,7 @@ import { ref, computed } from 'vue';
 import { useBackendStore } from './backend';
 import { useProjectsStore } from './projects';
 import { useGitStore } from './git';
-import type { ManagedReviewTask, ListManagedReviewTasksResponse } from '@/types/api';
+import type { ManagedReviewTask } from '@/types/generated/rpc';
 import type { WorkflowStep } from '@/types/project';
 
 const TASK_STATES_ACTIVE = new Set(['active', 'reconciling']);
@@ -81,11 +81,11 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
       }
 
       const [prescreenResp, screenResp] = await Promise.all([
-        backend.call<ListManagedReviewTasksResponse>('list_managed_review_tasks', {
+        backend.call('list_managed_review_tasks', {
           project_id: id,
           kind: 'prescreen',
         }),
-        backend.call<ListManagedReviewTasksResponse>('list_managed_review_tasks', {
+        backend.call('list_managed_review_tasks', {
           project_id: id,
           kind: 'screen',
         }),

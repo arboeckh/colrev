@@ -202,10 +202,15 @@ class StatusHandler(BaseHandler):
 
     # -- validate ------------------------------------------------------------
 
+    # writes=True is conservative: the UI's filter_settings ("general",
+    # "prep") are pure reads, but filter_setting is caller-controlled and
+    # "dedupe"/"all" write data/dedupe/merge_candidates_file.txt. A spurious
+    # post-write refresh is cheap; a missed one leaves the UI stale.
     @rpc_method(
         name="validate",
         request=ValidateRequest,
         response=ValidateResponse,
+        writes=True,
     )
     def validate(self, req: ValidateRequest) -> ValidateResponse:
         assert self.review_manager is not None
@@ -232,10 +237,7 @@ class StatusHandler(BaseHandler):
     )
     def get_operation_info(
         self, req: GetOperationInfoRequest
-    ) -> Dict[str, Any]:
-        """Returns a plain dict so nullable ``reason`` / ``needs_rerun_reason``
-        survive dispatcher serialization (which strips None from Pydantic
-        models)."""
+    ) -> GetOperationInfoResponse:
         assert self.review_manager is not None
 
         if req.operation not in OPERATION_DESCRIPTIONS:
@@ -258,17 +260,16 @@ class StatusHandler(BaseHandler):
             canonical_operation, status_stats
         )
 
-        return {
-            "success": True,
-            "project_id": req.project_id,
-            "operation": req.operation,
-            "can_run": can_run,
-            "reason": reason,
-            "needs_rerun": needs_rerun,
-            "needs_rerun_reason": needs_rerun_reason,
-            "affected_records": affected_records,
-            "description": OPERATION_DESCRIPTIONS[req.operation],
-        }
+        return GetOperationInfoResponse(
+            project_id=req.project_id,
+            operation=req.operation,
+            can_run=can_run,
+            reason=reason,
+            needs_rerun=needs_rerun,
+            needs_rerun_reason=needs_rerun_reason,
+            affected_records=affected_records,
+            description=OPERATION_DESCRIPTIONS[req.operation],
+        )
 
     # -- get_preprocessing_summary ------------------------------------------
 

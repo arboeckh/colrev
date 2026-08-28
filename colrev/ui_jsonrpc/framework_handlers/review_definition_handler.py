@@ -181,6 +181,7 @@ class ReviewDefinitionHandler(BaseHandler):
         name="update_review_definition",
         request=UpdateReviewDefinitionRequest,
         response=UpdateReviewDefinitionResponse,
+        writes=True,
     )
     def update_review_definition(
         self, req: UpdateReviewDefinitionRequest
@@ -247,6 +248,7 @@ class ReviewDefinitionHandler(BaseHandler):
         name="add_screening_criterion",
         request=AddScreeningCriterionRequest,
         response=AddScreeningCriterionResponse,
+        writes=True,
     )
     def add_screening_criterion(
         self, req: AddScreeningCriterionRequest
@@ -298,6 +300,7 @@ class ReviewDefinitionHandler(BaseHandler):
         name="update_screening_criterion",
         request=UpdateScreeningCriterionRequest,
         response=UpdateScreeningCriterionResponse,
+        writes=True,
     )
     def update_screening_criterion(
         self, req: UpdateScreeningCriterionRequest
@@ -352,6 +355,7 @@ class ReviewDefinitionHandler(BaseHandler):
         name="remove_screening_criterion",
         request=RemoveScreeningCriterionRequest,
         response=RemoveScreeningCriterionResponse,
+        writes=True,
     )
     def remove_screening_criterion(
         self, req: RemoveScreeningCriterionRequest

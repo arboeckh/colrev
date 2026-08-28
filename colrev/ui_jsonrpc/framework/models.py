@@ -45,7 +45,7 @@ class SuccessResponse(_FrameworkModel):
     """Every successful response carries ``success=True``.
 
     Subclasses add domain fields; the dispatcher serializes via
-    ``model_dump(mode='json', exclude_none=True)``.
+    ``model_dump(mode='json')`` — nullable fields arrive as ``null``.
     """
 
     model_config = ConfigDict(extra="allow")  # subclasses may add fields freely

@@ -1,0 +1,60 @@
+name: RPC contract
+
+# Enforces the single-source-of-truth RPC contract:
+# 1. Regenerates rpc-schemas.json (from the Pydantic models) and rpc.d.ts
+#    (from the schema) and fails if the committed copies are stale — changing
+#    a backend model without regenerating breaks the build here. The check
+#    uses `git status --porcelain` so newly-emitted (untracked) generated
+#    files fail too, not just modified ones.
+# 2. Typechecks the renderer (vue-tsc), the main/preload processes, and the
+#    e2e specs against the regenerated types, so a schema change that breaks
+#    frontend code fails at the PR, not at runtime.
+#
+# No paths filter: schema content can change from edits outside ui_jsonrpc
+# (e.g. an enum in colrev/constants.py feeds the generated unions).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  rpc-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install Python dependencies
+        run: |
+          uv sync --all-extras --dev
+          # gen-types:full invokes plain `python`; point it at the uv venv.
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: electron-app/package-lock.json
+
+      - name: Install npm dependencies
+        working-directory: electron-app
+        run: npm ci
+
+      - name: Regenerate schema + types and fail if committed copies are stale
+        working-directory: electron-app
+        run: npm run gen-types:check
+
+      - name: Typecheck renderer, node processes, and e2e against generated types
+        working-directory: electron-app
+        run: npm run typecheck

@@ -10,18 +10,15 @@ import type {
 export interface ColrevAPI {
   start: () => Promise<{ success: boolean; error?: string }>;
   /**
-   * Typed overload: when ``method`` is a known RPC method name, both the
-   * ``params`` and the returned ``result`` are validated against the
-   * backend's Pydantic-derived schema.
-   *
-   * The generic fallback remains for legacy call sites that haven't been
-   * updated; once every caller is typed, we can drop it.
+   * Send a JSON-RPC call: ``params`` and the returned ``result`` are typed
+   * from the backend's Pydantic-derived schema. Renderer code should go
+   * through the backend store's `call`/`callUntyped` rather than using this
+   * directly.
    */
-  call: (<M extends RPCMethodName>(
+  call: <M extends RPCMethodName>(
     method: M,
     params: RPCParams<M>,
-  ) => Promise<RPCResult<M>>) &
-    (<T>(method: string, params: Record<string, unknown>) => Promise<T>);
+  ) => Promise<RPCResult<M>>;
   stop: () => Promise<{ success: boolean }>;
   onLog: (callback: (msg: string) => void) => () => void;
   onError: (callback: (msg: string) => void) => () => void;

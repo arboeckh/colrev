@@ -1,4 +1,4 @@
-import type { ReconciliationPreviewItem } from '@/types/api';
+import type { ReconciliationPreviewItem } from '@/types/generated/rpc';
 
 export type ReviewerRole = 'reviewer_a' | 'reviewer_b';
 export type ReconcileKind = 'prescreen' | 'screen';

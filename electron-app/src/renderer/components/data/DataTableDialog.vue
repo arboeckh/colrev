@@ -14,19 +14,19 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import type { DataField, DataExtractionRecord } from '@/types/api';
+import type { FieldDefinition, ExtractionRecord } from '@/types/generated/rpc';
 
 defineProps<{
   open: boolean;
-  fields: DataField[];
-  records: DataExtractionRecord[];
+  fields: FieldDefinition[];
+  records: ExtractionRecord[];
 }>();
 
 const emit = defineEmits<{
   'update:open': [value: boolean];
 }>();
 
-function displayValue(val: string | undefined, field: DataField): string {
+function displayValue(val: string | undefined, field: FieldDefinition): string {
   if (!val || val === 'TODO') return '';
   if (field.data_type === 'multi_select') {
     return val.split(';').map((s) => s.trim()).filter(Boolean).join(', ');
@@ -75,7 +75,7 @@ function displayValue(val: string | undefined, field: DataField): string {
                   :key="field.name"
                   class="text-sm"
                 >
-                  {{ displayValue(record.extraction_values[field.name], field) }}
+                  {{ displayValue(record.extraction_values?.[field.name], field) }}
                 </TableCell>
               </TableRow>
             </TableBody>

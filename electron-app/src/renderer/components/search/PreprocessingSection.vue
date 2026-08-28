@@ -9,7 +9,7 @@ import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
 import PreprocessingResultsModal from '@/components/preprocessing/PreprocessingResultsModal.vue';
-import type { GetSourcesResponse, SearchSource } from '@/types';
+import type { SearchSource } from '@/types';
 
 defineProps<{
   projectId: string;
@@ -115,11 +115,11 @@ async function loadSources() {
 
   isLoadingSources.value = true;
   try {
-    const response = await backend.call<GetSourcesResponse>('get_sources', {
+    const response = await backend.call('get_sources', {
       project_id: projects.currentProjectId,
     });
     if (response.success && response.sources) {
-      sources.value = response.sources;
+      sources.value = response.sources as unknown as SearchSource[];
     }
   } catch (err) {
     console.error('Failed to load sources:', err);
@@ -143,7 +143,7 @@ async function runStage(stageId: StageId): Promise<boolean> {
       params.use_minimal_prep = true;
     }
 
-    await backend.call(stageId, params);
+    await backend.callUntyped(stageId, params);
     completedStages.value.add(stageId);
     return true;
   } catch (err) {

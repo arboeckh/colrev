@@ -144,6 +144,7 @@ class PDFGetHandler(BaseHandler):
         request=PDFGetRequest,
         response=PDFGetResponse,
         operation_type=OperationsType.pdf_get,
+        writes=True,
     )
     def pdf_get(self, req: PDFGetRequest) -> PDFGetResponse:
         assert self.review_manager is not None
@@ -258,6 +259,7 @@ class PDFGetHandler(BaseHandler):
         name="upload_pdf",
         request=UploadPDFRequest,
         response=UploadPDFResponse,
+        writes=True,
     )
     def upload_pdf(self, req: UploadPDFRequest) -> UploadPDFResponse:
         assert self.review_manager is not None
@@ -428,6 +430,7 @@ class PDFGetHandler(BaseHandler):
         name="mark_pdf_not_available",
         request=MarkPDFNotAvailableRequest,
         response=MarkPDFNotAvailableResponse,
+        writes=True,
     )
     def mark_pdf_not_available(
         self, req: MarkPDFNotAvailableRequest
@@ -499,6 +502,7 @@ class PDFGetHandler(BaseHandler):
         name="undo_pdf_not_available",
         request=UndoPDFNotAvailableRequest,
         response=UndoPDFNotAvailableResponse,
+        writes=True,
     )
     def undo_pdf_not_available(
         self, req: UndoPDFNotAvailableRequest

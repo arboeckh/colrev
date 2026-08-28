@@ -143,6 +143,7 @@ class PDFShareHandler(BaseHandler):
         name="import_pdfs",
         request=ImportPDFsRequest,
         response=ImportPDFsResponse,
+        writes=True,
     )
     def import_pdfs(self, req: ImportPDFsRequest) -> ImportPDFsResponse:
         assert self.review_manager is not None
@@ -241,6 +242,7 @@ class PDFShareHandler(BaseHandler):
         name="restore_pdf_file",
         request=RestorePDFFileRequest,
         response=RestorePDFFileResponse,
+        writes=True,
     )
     def restore_pdf_file(
         self, req: RestorePDFFileRequest

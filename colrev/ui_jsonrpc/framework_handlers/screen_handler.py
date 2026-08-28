@@ -65,6 +65,12 @@ class ScreenQueueRecord(BaseModel):
     title: str = ""
     author: str = ""
     year: str = ""
+    # Set by get_screen_queue only when present on the record.
+    abstract: Optional[str] = None
+    journal: Optional[str] = None
+    booktitle: Optional[str] = None
+    pdf_path: Optional[str] = None
+    current_criteria: Optional[Dict[str, str]] = None
 
 
 class GetScreenQueueResponse(ProjectResponse):
@@ -144,6 +150,7 @@ class ScreenHandler(BaseHandler):
         request=ScreenBatchRequest,
         response=ScreenBatchResponse,
         operation_type=OperationsType.screen,
+        writes=True,
     )
     def screen(self, req: ScreenBatchRequest) -> ScreenBatchResponse:
         assert self.review_manager is not None
@@ -227,6 +234,7 @@ class ScreenHandler(BaseHandler):
         request=ScreenRecordRequest,
         response=ScreenRecordResponse,
         operation_type=OperationsType.screen,
+        writes=True,
     )
     def screen_record(self, req: ScreenRecordRequest) -> ScreenRecordResponse:
         assert self.review_manager is not None
@@ -314,6 +322,7 @@ class ScreenHandler(BaseHandler):
         request=UpdateScreenDecisionsRequest,
         response=UpdateScreenDecisionsResponse,
         operation_type=OperationsType.screen,
+        writes=True,
     )
     def update_screen_decisions(
         self, req: UpdateScreenDecisionsRequest
@@ -385,6 +394,7 @@ class ScreenHandler(BaseHandler):
         request=IncludeAllScreenRequest,
         response=IncludeAllScreenResponse,
         operation_type=OperationsType.screen,
+        writes=True,
     )
     def include_all_screen(
         self, req: IncludeAllScreenRequest

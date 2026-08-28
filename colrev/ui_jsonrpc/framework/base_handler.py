@@ -57,6 +57,7 @@ class BaseHandler:
                 handler_cls=cls,
                 operation_type=draft.operation_type,
                 requires_project=draft.requires_project,
+                writes=draft.writes,
             )
             registry.register(spec)
 

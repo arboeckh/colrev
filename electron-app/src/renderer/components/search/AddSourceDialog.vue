@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
-import type { AddSourceResponse, UploadSearchFileResponse } from '@/types';
+import type { AddSourceRequest, UploadSearchFileRequest } from '@/types/generated/rpc';
 import { getLocalTimeZone, today, type DateValue } from '@internationalized/date';
 import { cn } from '@/lib/utils';
 import DatabaseTile from './DatabaseTile.vue';
@@ -141,10 +141,7 @@ function resetAll() {
 
 async function refreshOpenalexKeyStatus() {
   try {
-    const status = await backend.call<{ openalex: boolean }>(
-      'get_connector_api_key_status',
-      {},
-    );
+    const status = await backend.call('get_connector_api_key_status', {});
     openalexApiKeyConfigured.value = status.openalex;
   } catch {
     openalexApiKeyConfigured.value = false;
@@ -236,7 +233,7 @@ async function submitApi() {
       openalexApiKey.value = '';
     }
 
-    const payload: Record<string, unknown> = {
+    const payload: AddSourceRequest = {
       project_id: props.projectId,
       endpoint: c.endpoint,
       search_type: 'API',
@@ -246,7 +243,7 @@ async function submitApi() {
       payload.search_parameters = buildOpenAlexSearchParameters();
     }
 
-    const response = await backend.call<AddSourceResponse>('add_source', payload);
+    const response = await backend.call('add_source', payload);
     if (response.success) {
       notifications.success(`${c.name} source added`, 'Run search to fetch results');
       dialogOpen.value = false;
@@ -274,17 +271,14 @@ async function submitUpload() {
     const targetFilename = `${sanitized}.${ext}`;
 
     progressText.value = 'Uploading file...';
-    const uploadParams: Record<string, unknown> = {
+    const uploadParams: UploadSearchFileRequest = {
       project_id: props.projectId,
       filename: targetFilename,
       content,
       encoding: 'utf-8',
     };
     if (c.csvTemplate) uploadParams.source_template = c.csvTemplate;
-    const uploadResp = await backend.call<UploadSearchFileResponse>(
-      'upload_search_file',
-      uploadParams,
-    );
+    const uploadResp = await backend.call('upload_search_file', uploadParams);
     if (!uploadResp.success) throw new Error('Upload failed');
 
     progressText.value = 'Adding source...';
@@ -296,7 +290,7 @@ async function submitUpload() {
         ).toISOString()
       : new Date().toISOString();
 
-    const addResp = await backend.call<AddSourceResponse>('add_source', {
+    const addResp = await backend.call('add_source', {
       project_id: props.projectId,
       endpoint: c.endpoint,
       search_type: 'DB',

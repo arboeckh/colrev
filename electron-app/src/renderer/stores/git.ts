@@ -5,8 +5,6 @@ import { useNotificationsStore } from './notifications';
 import { useConnectionStore } from './connection';
 import type { GitBranchInfo, GitLogEntry, GitHubRelease, MergeAnalysis, MergeConflictResolution } from '@/types/window';
 import type { BranchDelta } from '@/types/project';
-import type { GetBranchDeltaResponse } from '@/types/api';
-import type { ResetToRemoteResponse } from '@/types/generated/rpc';
 import { useBackendStore } from './backend';
 
 // No interval polling. Remote state refreshes on: (a) window focus,
@@ -173,7 +171,7 @@ export const useGitStore = defineStore('git', () => {
 
     isResettingToRemote.value = true;
     try {
-      const response = await backend.call<ResetToRemoteResponse>('reset_to_remote', {
+      const response = await backend.call('reset_to_remote', {
         project_id: projects.currentProjectId,
         confirm: true,
       });
@@ -484,7 +482,7 @@ export const useGitStore = defineStore('git', () => {
     const backend = useBackendStore();
     isLoadingDelta.value = true;
     try {
-      const response = await backend.call<GetBranchDeltaResponse>('get_branch_delta', {
+      const response = await backend.call('get_branch_delta', {
         project_id: projects.currentProjectId,
         ...(sourceBranch ? { source_branch: sourceBranch } : {}),
       });

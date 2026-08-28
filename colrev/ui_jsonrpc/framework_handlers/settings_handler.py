@@ -106,6 +106,7 @@ class SettingsHandler(BaseHandler):
         name="update_settings",
         request=UpdateSettingsRequest,
         response=UpdateSettingsResponse,
+        writes=True,
     )
     def update_settings(
         self, req: UpdateSettingsRequest

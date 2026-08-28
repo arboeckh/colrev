@@ -13,7 +13,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useBackendStore } from '@/stores/backend';
 import RecordEditDialog from '@/components/preprocessing/RecordEditDialog.vue';
-import type { GetRecordsResponse, Record } from '@/types';
+import type { Record } from '@/types';
 
 const props = defineProps<{
   open: boolean;
@@ -67,7 +67,7 @@ async function loadReadyRecords() {
 
   isLoadingReady.value = true;
   try {
-    const response = await backend.call<GetRecordsResponse>('get_records', {
+    const response = await backend.call('get_records', {
       project_id: props.projectId,
       filters: {
         status: 'md_processed',
@@ -80,7 +80,7 @@ async function loadReadyRecords() {
     });
 
     if (response.success) {
-      readyRecords.value = response.records;
+      readyRecords.value = response.records as Record[];
       readyTotalCount.value = response.total_count;
     }
   } catch (err) {
@@ -95,7 +95,7 @@ async function loadAttentionRecords() {
 
   isLoadingAttention.value = true;
   try {
-    const response = await backend.call<GetRecordsResponse>('get_records', {
+    const response = await backend.call('get_records', {
       project_id: props.projectId,
       filters: {
         status: 'md_needs_manual_preparation',
@@ -108,7 +108,7 @@ async function loadAttentionRecords() {
     });
 
     if (response.success) {
-      attentionRecords.value = response.records;
+      attentionRecords.value = response.records as Record[];
       attentionTotalCount.value = response.total_count;
     }
   } catch (err) {
@@ -123,7 +123,7 @@ async function loadMergedRecords() {
 
   isLoadingMerged.value = true;
   try {
-    const response = await backend.call<GetRecordsResponse>('get_records', {
+    const response = await backend.call('get_records', {
       project_id: props.projectId,
       filters: {
         is_merged_duplicate: true,
@@ -136,7 +136,7 @@ async function loadMergedRecords() {
     });
 
     if (response.success) {
-      mergedRecords.value = response.records;
+      mergedRecords.value = response.records as Record[];
       mergedTotalCount.value = response.total_count;
     }
   } catch (err) {

@@ -1,12 +1,9 @@
 /* eslint-disable */
 /**
  * GENERATED FILE — do not edit by hand.
- * Regenerate via `npm run gen-types` after backend handler changes.
+ * Regenerate via `npm run gen-types:full` after backend handler changes.
  * Source: src/renderer/types/generated/rpc-schemas.json
  */
-
-// shared: ProgressEvent
-export type Current = number | null;
 /**
  * Top-level discriminator for structured progress events (Phase E).
  */
@@ -18,10 +15,6 @@ export type ProgressEventKind =
   | "pdf_get_progress"
   | "pdf_prep_progress"
   | "generic";
-export type Level = "info" | "warning" | "error";
-export type Message = string;
-export type Source = string | null;
-export type Total = number | null;
 
 /**
  * Structured progress event emitted by long-running handlers.
@@ -34,26 +27,17 @@ export type Total = number | null;
  * data (``extra="allow"`` lets handlers attach arbitrary structured
  * context without a schema change).
  */
+
 export interface ProgressEvent {
-  current?: Current;
+  current?: number | null;
   kind: ProgressEventKind;
-  level?: Level;
-  message: Message;
-  source?: Source;
-  total?: Total;
+  level?: "info" | "warning" | "error";
+  message: string;
+  source?: string | null;
+  total?: number | null;
   [k: string]: unknown;
 }
 
-// shared: RecordPayload
-export type Entrytype = string;
-export type Id = string;
-/**
- * RecordState as a string-valued enum for JSON Schema export.
- *
- * Mirrors :class:`colrev.constants.RecordState` but uses string values
- * so JSON Schema sees it as an ``enum`` of strings rather than integers.
- * Frontend (via codegen) gets a proper string-literal union.
- */
 export type RecordStateName =
   | "md_retrieved"
   | "md_imported"
@@ -79,39 +63,13 @@ export type RecordStateName =
  * frontend still gets IntelliSense on the known subset without losing
  * the ability to render arbitrary metadata.
  */
+
 export interface RecordPayload {
-  ENTRYTYPE?: Entrytype;
-  ID: Id;
+  ENTRYTYPE?: string;
+  ID: string;
   colrev_status?: RecordStateName | null;
   [k: string]: unknown;
 }
-
-// shared: RecordStateName
-/**
- * CoLRev record workflow state (mirrors RecordState).
- */
-export type RecordStateName =
-  | "md_retrieved"
-  | "md_imported"
-  | "md_needs_manual_preparation"
-  | "md_prepared"
-  | "md_processed"
-  | "rev_prescreen_excluded"
-  | "rev_prescreen_included"
-  | "pdf_needs_manual_retrieval"
-  | "pdf_imported"
-  | "pdf_not_available"
-  | "pdf_needs_manual_preparation"
-  | "pdf_prepared"
-  | "rev_excluded"
-  | "rev_included"
-  | "rev_synthesized";
-
-// shared: RecordSummary
-export type Author = string;
-export type Id = string;
-export type Title = string;
-export type Year = string;
 
 /**
  * Lightweight record view used by queue endpoints.
@@ -122,2366 +80,1673 @@ export type Year = string;
  * ``current_criteria`` without a schema change.
  */
 export interface RecordSummary {
-  author?: Author;
-  id: Id;
-  title?: Title;
-  year?: Year;
+  author?: string;
+  id: string;
+  title?: string;
+  year?: string;
   [k: string]: unknown;
 }
-
-// add_screening_criterion
-export type BasePath = string | null;
-export type Comment = string | null;
-export type CriterionType = string;
-export type Explanation = string;
-export type Name = string;
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface AddScreeningCriterionRequest {
-  base_path?: BasePath;
-  comment?: Comment;
-  criterion_type: CriterionType;
-  explanation: Explanation;
-  name: Name;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  comment?: string | null;
+  criterion_type: string;
+  explanation: string;
+  name: string;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface AddScreeningCriterionResponse {
-  details: Details;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+  details: {
+    [k: string]: unknown;
+  };
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-export interface Details {}
-
-// add_source
-export type BasePath = string | null;
-export type Endpoint = string | null;
-export type Filename = string | null;
-export type ProjectId = string;
-export type RunDate = string | null;
-export type SearchString = string;
-export type SearchType = string | null;
-export type Verbose = boolean;
 
 export interface AddSourceRequest {
-  base_path?: BasePath;
-  endpoint?: Endpoint;
-  filename?: Filename;
-  project_id: ProjectId;
-  run_date?: RunDate;
-  search_string?: SearchString;
-  search_type?: SearchType;
-  verbose?: Verbose;
+  base_path?: string | null;
+  endpoint?: string | null;
+  filename?: string | null;
+  project_id: string;
+  run_date?: string | null;
+  search_parameters?: {
+    [k: string]: unknown;
+  } | null;
+  search_string?: string;
+  search_type?: string | null;
+  verbose?: boolean;
 }
-
-export type Message = string;
-export type Message1 = string;
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface AddSourceResponse {
   details: AddSourceDetails;
-  message: Message1;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+  message: string;
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-export interface AddSourceDetails {
-  message: Message;
-  source: Source;
-  [k: string]: unknown;
-}
-export interface Source {}
 
-// apply_reconciliation
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Resolutions = unknown[];
-export type ResolvedBy = string;
-export type TaskId = string;
-export type Verbose = boolean;
+export interface AddSourceDetails {
+  message: string;
+  source: {
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
 
 export interface ApplyReconciliationRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  resolutions?: Resolutions;
-  resolved_by?: ResolvedBy;
-  task_id: TaskId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  override_blocks?: boolean;
+  project_id: string;
+  resolutions?: unknown[];
+  resolved_by?: string;
+  task_id: string;
+  verbose?: boolean;
 }
 
-export type ProjectId = string;
-export type Success = true;
-
-/**
- * All managed-review responses share the same envelope: success +
- * project_id plus an open dict of service-specific fields.
- */
-export interface ManagedReviewResponse {
-  project_id: ProjectId;
-  success?: Success;
+export interface ApplyReconciliationResponse {
+  commit_sha: string;
+  project_id: string;
+  resolved_count: number;
+  success?: true;
+  task_id: string;
   [k: string]: unknown;
 }
-
-// batch_enrich_records
-export type BasePath = string | null;
-export type Fields = string[] | null;
-export type ProjectId = string;
-export type RecordIds = string[];
-export type Verbose = boolean;
 
 export interface BatchEnrichRecordsRequest {
-  base_path?: BasePath;
-  fields?: Fields;
-  project_id: ProjectId;
-  record_ids: RecordIds;
-  verbose?: Verbose;
+  base_path?: string | null;
+  fields?: string[] | null;
+  project_id: string;
+  record_ids: string[];
+  verbose?: boolean;
 }
-
-export type EnrichedCount = number;
-export type FailedCount = number;
-export type ProjectId = string;
-export type Id = string;
-export type Success = boolean;
-export type Records = BatchEnrichItem[];
-export type Success1 = true;
 
 export interface BatchEnrichRecordsResponse {
-  enriched_count: EnrichedCount;
-  failed_count: FailedCount;
-  project_id: ProjectId;
-  records: Records;
-  success?: Success1;
-  [k: string]: unknown;
-}
-export interface BatchEnrichItem {
-  id: Id;
-  success: Success;
+  enriched_count: number;
+  failed_count: number;
+  project_id: string;
+  records: BatchEnrichItem[];
+  success?: true;
   [k: string]: unknown;
 }
 
-// cancel_managed_review_task
-export type BasePath = string | null;
-export type CanceledBy = string;
-export type ProjectId = string;
-export type TaskId = string;
-export type Verbose = boolean;
+export interface BatchEnrichItem {
+  enriched_fields?: string[] | null;
+  error?: string | null;
+  id: string;
+  message?: string | null;
+  record?: PrescreenQueueRecord | null;
+  source?: string | null;
+  success: boolean;
+  [k: string]: unknown;
+}
+
+export interface PrescreenQueueRecord {
+  abstract?: string | null;
+  author?: string;
+  booktitle?: string | null;
+  can_enrich?: boolean;
+  doi?: string | null;
+  id: string;
+  journal?: string | null;
+  pubmedid?: string | null;
+  title?: string;
+  year?: string;
+  [k: string]: unknown;
+}
 
 export interface CancelManagedReviewTaskRequest {
-  base_path?: BasePath;
-  canceled_by?: CanceledBy;
-  project_id: ProjectId;
-  task_id: TaskId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  canceled_by?: string;
+  project_id: string;
+  task_id: string;
+  verbose?: boolean;
 }
 
-export type ProjectId = string;
-export type Success = true;
-
-/**
- * All managed-review responses share the same envelope: success +
- * project_id plus an open dict of service-specific fields.
- */
-export interface ManagedReviewResponse {
-  project_id: ProjectId;
-  success?: Success;
+export interface CancelManagedReviewTaskResponse {
+  project_id: string;
+  success?: true;
+  task: ManagedReviewTask;
   [k: string]: unknown;
 }
 
-// commit_changes
-export type BasePath = string | null;
-export type Message = string;
-export type ProjectId = string;
-export type Verbose = boolean;
+export interface ManagedReviewTask {
+  base_branch: string;
+  base_commit: string;
+  canceled_at?: string | null;
+  canceled_by?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  created_by: string;
+  eligible_state: string;
+  id: string;
+  kind: "prescreen" | "screen";
+  mode: string;
+  reconciliation_summary?: ManagedReviewReconciliationSummary | null;
+  record_count: number;
+  record_ids: string[];
+  reviewer_progress: ManagedReviewReviewerProgress[];
+  reviewers: ManagedReviewReviewer[];
+  state: "active" | "reconciling" | "completed" | "aborted";
+  [k: string]: unknown;
+}
+
+export interface ManagedReviewReconciliationSummary {
+  auto_resolved_count: number;
+  manual_conflict_count: number;
+  record_count: number;
+  resolved_at: string;
+  resolved_by: string;
+  [k: string]: unknown;
+}
+
+export interface ManagedReviewReviewerProgress {
+  available: boolean;
+  branch_name: string;
+  branch_ref?: string | null;
+  completed_count: number;
+  github_login: string;
+  last_seen_commit?: string | null;
+  pending_count: number;
+  role: "reviewer_a" | "reviewer_b";
+  [k: string]: unknown;
+}
+
+export interface ManagedReviewReviewer {
+  branch_name: string;
+  github_login: string;
+  last_seen_commit?: string | null;
+  role: "reviewer_a" | "reviewer_b";
+  [k: string]: unknown;
+}
 
 export interface CommitChangesRequest {
-  base_path?: BasePath;
-  message: Message;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  message: string;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type ChangedFiles = string[];
-export type CommitSha = string | null;
-export type Committed = boolean;
-export type Message = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface CommitChangesResponse {
-  changed_files?: ChangedFiles;
-  commit_sha?: CommitSha;
-  committed: Committed;
-  message: Message;
-  project_id: ProjectId;
-  success?: Success;
+  changed_files?: string[];
+  commit_sha?: string | null;
+  committed: boolean;
+  message: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-
-// configure_structured_endpoint
-export type BasePath = string | null;
-export type DataType = string;
-export type Explanation = string;
-export type Name = string;
-export type Optional = boolean | null;
-export type Options = unknown[] | null;
-export type Fields = StructuredFieldSpec[];
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface ConfigureStructuredEndpointRequest {
-  base_path?: BasePath;
-  fields: Fields;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  fields: StructuredFieldSpec[];
+  project_id: string;
+  verbose?: boolean;
 }
+/**
+ * Field spec accepted by ``configure_structured_endpoint``. Mirrors
+ * ``FieldDefinition`` (the read-side shape) so the renderer can round-trip
+ * fields from ``get_data_extraction_queue`` without casts.
+ */
+
 export interface StructuredFieldSpec {
-  data_type?: DataType;
-  explanation: Explanation;
-  name: Name;
-  optional?: Optional;
-  options?: Options;
+  data_type?: string;
+  explanation?: string;
+  name: string;
+  optional?: boolean | null;
+  options?: unknown[] | null;
   [k: string]: unknown;
 }
-
-export type Fields = {}[];
-export type Message = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface ConfigureStructuredEndpointResponse {
-  fields: Fields;
-  message: Message;
-  project_id: ProjectId;
-  success?: Success;
+  fields: {
+    [k: string]: unknown;
+  }[];
+  message: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-
-// create_managed_review_task
-export type BasePath = string | null;
-export type CreatedBy = string;
-export type Kind = string;
-export type ProjectId = string;
-export type ReviewerLogins = string[];
-export type Verbose = boolean;
 
 export interface CreateManagedReviewTaskRequest {
-  base_path?: BasePath;
-  created_by?: CreatedBy;
-  kind: Kind;
-  project_id: ProjectId;
-  reviewer_logins: ReviewerLogins;
-  verbose?: Verbose;
+  base_path?: string | null;
+  created_by?: string;
+  kind: "prescreen" | "screen";
+  project_id: string;
+  reviewer_logins: string[];
+  verbose?: boolean;
 }
 
-export type ProjectId = string;
-export type Success = true;
-
-/**
- * All managed-review responses share the same envelope: success +
- * project_id plus an open dict of service-specific fields.
- */
-export interface ManagedReviewResponse {
-  project_id: ProjectId;
-  success?: Success;
+export interface CreateManagedReviewTaskResponse {
+  enriched_count: number;
+  enrichment_failed_count: number;
+  enrichment_skipped_count: number;
+  launch_ref: string;
+  project_id: string;
+  success?: true;
+  task: ManagedReviewTask;
   [k: string]: unknown;
 }
-
-// data
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface DataRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface DataResponse {
-  details: Details;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+  details: {
+    [k: string]: unknown;
+  };
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-export interface Details {}
-
-// dedupe
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface DedupeRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface DedupeResponse {
-  details: Details;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+  details: {
+    [k: string]: unknown;
+  };
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-export interface Details {}
-
-// delete_project
-export type BasePath = string;
-export type ProjectId = string;
 
 export interface DeleteProjectRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
+  base_path?: string;
+  project_id: string;
 }
-
-export type Message = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface DeleteProjectResponse {
-  message: Message;
-  project_id: ProjectId;
-  success?: Success;
+  message: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-
-// discard_changes
-export type BasePath = string | null;
-export type Confirm = boolean;
-export type Paths = string[] | null;
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface DiscardChangesRequest {
-  base_path?: BasePath;
-  confirm?: Confirm;
-  paths?: Paths;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  confirm?: boolean;
+  paths?: string[] | null;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type DiscardedFiles = string[];
-export type ProjectId = string;
-export type Success = true;
 
 export interface DiscardChangesResponse {
-  discarded_files?: DiscardedFiles;
-  project_id: ProjectId;
-  success?: Success;
+  discarded_files?: string[];
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-
-// enrich_record_metadata
-export type BasePath = string | null;
-export type Fields = string[] | null;
-export type ProjectId = string;
-export type RecordId = string;
-export type Verbose = boolean;
 
 export interface EnrichRecordMetadataRequest {
-  base_path?: BasePath;
-  fields?: Fields;
-  project_id: ProjectId;
-  record_id: RecordId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  fields?: string[] | null;
+  project_id: string;
+  record_id: string;
+  verbose?: boolean;
 }
-
-export type EnrichedFields = string[];
-export type Message = string | null;
-export type ProjectId = string;
-export type Author = string;
-export type CanEnrich = boolean;
-export type Id = string;
-export type Title = string;
-export type Year = string;
-export type Source = string | null;
-export type Success = true;
 
 export interface EnrichRecordMetadataResponse {
-  enriched_fields: EnrichedFields;
-  message?: Message;
-  project_id: ProjectId;
-  record: EnrichedRecord;
-  source?: Source;
-  success?: Success;
+  enriched_fields: string[];
+  message?: string | null;
+  project_id: string;
+  record: PrescreenQueueRecord;
+  source?: string | null;
+  success?: true;
   [k: string]: unknown;
 }
-export interface EnrichedRecord {
-  author?: Author;
-  can_enrich?: CanEnrich;
-  id: Id;
-  title?: Title;
-  year?: Year;
-  [k: string]: unknown;
-}
-
-// export_data_csv
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface ExportDataCsvRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type CsvContent = string;
-export type Filename = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface ExportDataCsvResponse {
-  csv_content: CsvContent;
-  filename: Filename;
-  project_id: ProjectId;
-  success?: Success;
+  csv_content: string;
+  filename: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
 
-// export_pdfs
-export type BasePath = string | null;
-export type OutputPath = string;
-export type ProjectId = string;
-export type Verbose = boolean;
-
-export interface ExportPDFsRequest {
-  base_path?: BasePath;
-  output_path: OutputPath;
-  project_id: ProjectId;
-  verbose?: Verbose;
+export interface ExportPdfsRequest {
+  base_path?: string | null;
+  output_path: string;
+  project_id: string;
+  verbose?: boolean;
 }
 
-export type FileCount = number;
-export type Path = string;
-export type ProjectId = string;
-export type Success = true;
-export type TotalBytes = number;
-
-export interface ExportPDFsResponse {
-  file_count: FileCount;
-  path: Path;
-  project_id: ProjectId;
-  success?: Success;
-  total_bytes: TotalBytes;
+export interface ExportPdfsResponse {
+  file_count: number;
+  path: string;
+  project_id: string;
+  success?: true;
+  total_bytes: number;
   [k: string]: unknown;
 }
-
-// export_reconciliation_audit
-export type BasePath = string | null;
-export type Format = string;
-export type ProjectId = string;
-export type TaskId = string;
-export type Verbose = boolean;
 
 export interface ExportReconciliationAuditRequest {
-  base_path?: BasePath;
-  format: Format;
-  project_id: ProjectId;
-  task_id: TaskId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  format: string;
+  project_id: string;
+  task_id: string;
+  verbose?: boolean;
 }
 
-export type ProjectId = string;
-export type Success = true;
-
-/**
- * All managed-review responses share the same envelope: success +
- * project_id plus an open dict of service-specific fields.
- */
-export interface ManagedReviewResponse {
-  project_id: ProjectId;
-  success?: Success;
+export interface ExportReconciliationAuditResponse {
+  content: string;
+  filename: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-
-// get_branch_delta
-export type BaseBranch = string;
-export type BasePath = string | null;
-export type ProjectId = string;
-export type SourceBranch = string | null;
-export type Verbose = boolean;
 
 export interface GetBranchDeltaRequest {
-  base_branch?: BaseBranch;
-  base_path?: BasePath;
-  project_id: ProjectId;
-  source_branch?: SourceBranch;
-  verbose?: Verbose;
+  base_branch?: string;
+  base_path?: string | null;
+  project_id: string;
+  source_branch?: string | null;
+  verbose?: boolean;
 }
-
-export type BaseBranch = string;
-export type ChangedRecordCount = number;
-export type CurrentBranch = string;
-export type NewRecordCount = number;
-export type ProjectId = string;
-export type RemovedRecordCount = number;
-export type SourceBranch = string;
-export type Success = true;
 
 export interface GetBranchDeltaResponse {
-  base_branch: BaseBranch;
-  changed_record_count: ChangedRecordCount;
-  current_branch: CurrentBranch;
-  delta_by_state: DeltaByState;
-  new_record_count: NewRecordCount;
-  project_id: ProjectId;
-  removed_record_count: RemovedRecordCount;
-  source_branch: SourceBranch;
-  source_branch_counts: SourceBranchCounts;
-  success?: Success;
-  [k: string]: unknown;
-}
-export interface DeltaByState {
-  [k: string]: number;
-}
-export interface SourceBranchCounts {
-  [k: string]: number;
-}
-
-// get_csv_source_templates
-export type BasePath = string | null;
-
-export interface GetCSVSourceTemplatesRequest {
-  base_path?: BasePath;
-}
-
-export type Success = true;
-export type Templates = {}[];
-
-export interface GetCSVSourceTemplatesResponse {
-  success?: Success;
-  templates: Templates;
+  base_branch: string;
+  changed_record_count: number;
+  current_branch: string;
+  delta_by_state: {
+    [k: string]: number;
+  };
+  new_record_count: number;
+  project_id: string;
+  removed_record_count: number;
+  source_branch: string;
+  source_branch_counts: {
+    [k: string]: number;
+  };
+  success?: true;
   [k: string]: unknown;
 }
 
-// get_current_managed_review_task
-export type BasePath = string | null;
-export type Kind = string;
-export type ProjectId = string;
-export type Verbose = boolean;
+export interface GetConnectorApiKeyStatusRequest {
+  base_path?: string | null;
+}
+
+export interface GetConnectorApiKeyStatusResponse {
+  openalex: boolean;
+  success?: true;
+  [k: string]: unknown;
+}
+
+export interface GetCsvSourceTemplatesRequest {
+  base_path?: string | null;
+}
+
+export interface GetCsvSourceTemplatesResponse {
+  success?: true;
+  templates: {
+    [k: string]: unknown;
+  }[];
+  [k: string]: unknown;
+}
 
 export interface GetCurrentManagedReviewTaskRequest {
-  base_path?: BasePath;
-  kind: Kind;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  kind: "prescreen" | "screen";
+  project_id: string;
+  verbose?: boolean;
 }
 
-export type ProjectId = string;
-export type Success = true;
-
-/**
- * All managed-review responses share the same envelope: success +
- * project_id plus an open dict of service-specific fields.
- */
-export interface ManagedReviewResponse {
-  project_id: ProjectId;
-  success?: Success;
+export interface GetCurrentManagedReviewTaskResponse {
+  current_branch: string;
+  kind: "prescreen" | "screen";
+  project_id: string;
+  success?: true;
+  task?: ManagedReviewTask | null;
   [k: string]: unknown;
 }
-
-// get_data_extraction_queue
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface GetDataExtractionQueueRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type CompletedCount = number;
-export type Configured = boolean;
-export type DataType = string;
-export type Explanation = string;
-export type Name = string;
-export type Fields = FieldDefinition[];
-export type ProjectId = string;
-export type Author = string;
-export type Booktitle = string;
-export type Id = string;
-export type Journal = string;
-export type PdfPath = string;
-export type Title = string;
-export type Year = string;
-export type Records = ExtractionRecord[];
-export type Success = true;
-export type TotalCount = number;
 
 export interface GetDataExtractionQueueResponse {
-  completed_count: CompletedCount;
-  configured: Configured;
-  fields: Fields;
-  project_id: ProjectId;
-  records: Records;
-  success?: Success;
-  total_count: TotalCount;
+  completed_count: number;
+  configured: boolean;
+  fields: FieldDefinition[];
+  project_id: string;
+  records: ExtractionRecord[];
+  success?: true;
+  total_count: number;
   [k: string]: unknown;
-}
-export interface FieldDefinition {
-  data_type?: DataType;
-  explanation?: Explanation;
-  name: Name;
-  [k: string]: unknown;
-}
-export interface ExtractionRecord {
-  author?: Author;
-  booktitle?: Booktitle;
-  extraction_values?: ExtractionValues;
-  id: Id;
-  journal?: Journal;
-  pdf_path?: PdfPath;
-  title?: Title;
-  year?: Year;
-  [k: string]: unknown;
-}
-export interface ExtractionValues {
-  [k: string]: string;
 }
 
-// get_git_status
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
+export interface FieldDefinition {
+  data_type?: string;
+  explanation?: string;
+  name: string;
+  optional?: boolean | null;
+  options?: string[] | null;
+  [k: string]: unknown;
+}
+
+export interface ExtractionRecord {
+  author?: string;
+  booktitle?: string;
+  extraction_values?: {
+    [k: string]: string;
+  };
+  id: string;
+  journal?: string;
+  pdf_path?: string;
+  title?: string;
+  year?: string;
+  [k: string]: unknown;
+}
 
 export interface GetGitStatusRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type Ahead = number;
-export type Behind = number;
-export type Branch = string;
-export type IsClean = boolean;
-export type Author = string;
-export type Email = string;
-export type Hash = string;
-export type Message = string;
-export type ShortHash = string;
-export type Timestamp = string;
-export type MainAhead = number;
-export type MainBehind = number;
-export type ModifiedFiles = string[];
-export type RemoteUrl = string | null;
-export type StagedFiles = string[];
-export type ChangeType = string;
-export type RecordId = string;
-export type StagedRecordChanges = StagedRecordChange[];
-export type UncommittedChanges = number;
-export type UntrackedFiles = string[];
-export type ProjectId = string;
-export type Success = true;
 
 export interface GetGitStatusResponse {
   git: GitStatus;
-  project_id: ProjectId;
-  success?: Success;
-  [k: string]: unknown;
-}
-export interface GitStatus {
-  ahead: Ahead;
-  behind: Behind;
-  branch: Branch;
-  is_clean: IsClean;
-  last_commit?: LastCommitInfo | null;
-  main_ahead?: MainAhead;
-  main_behind?: MainBehind;
-  modified_files: ModifiedFiles;
-  remote_url?: RemoteUrl;
-  staged_files: StagedFiles;
-  staged_record_changes?: StagedRecordChanges;
-  uncommitted_changes: UncommittedChanges;
-  untracked_files: UntrackedFiles;
-  [k: string]: unknown;
-}
-export interface LastCommitInfo {
-  author: Author;
-  email: Email;
-  hash: Hash;
-  message: Message;
-  short_hash: ShortHash;
-  timestamp: Timestamp;
-  [k: string]: unknown;
-}
-export interface StagedRecordChange {
-  change_type: ChangeType;
-  record_id: RecordId;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
 
-// get_managed_review_task_queue
-export type BasePath = string | null;
-export type ProjectId = string;
-export type TaskId = string;
-export type Verbose = boolean;
+export interface GitStatus {
+  ahead: number;
+  behind: number;
+  branch: string;
+  is_clean: boolean;
+  last_commit?: LastCommitInfo | null;
+  main_ahead?: number;
+  main_behind?: number;
+  modified_files: string[];
+  remote_url?: string | null;
+  staged_files: string[];
+  staged_record_changes?: StagedRecordChange[];
+  uncommitted_changes: number;
+  untracked_files: string[];
+  [k: string]: unknown;
+}
+
+export interface LastCommitInfo {
+  author: string;
+  email: string;
+  hash: string;
+  message: string;
+  short_hash: string;
+  timestamp: string;
+  [k: string]: unknown;
+}
+
+export interface StagedRecordChange {
+  change_type: string;
+  record_id: string;
+  [k: string]: unknown;
+}
 
 export interface GetManagedReviewTaskQueueRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  task_id: TaskId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  task_id: string;
+  verbose?: boolean;
 }
 
-export type ProjectId = string;
-export type Success = true;
-
-/**
- * All managed-review responses share the same envelope: success +
- * project_id plus an open dict of service-specific fields.
- */
-export interface ManagedReviewResponse {
-  project_id: ProjectId;
-  success?: Success;
+export interface GetManagedReviewTaskQueueResponse {
+  kind: "prescreen" | "screen";
+  project_id: string;
+  records: ManagedReviewQueueRecord[];
+  success?: true;
+  task_id: string;
+  total_count: number;
   [k: string]: unknown;
 }
 
-// get_managed_review_task_readiness
-export type BasePath = string | null;
-export type Kind = string;
-export type ProjectId = string;
-export type Verbose = boolean;
+export interface ManagedReviewQueueRecord {
+  author: string;
+  id: string;
+  status: string;
+  title: string;
+  year: string;
+  [k: string]: unknown;
+}
 
 export interface GetManagedReviewTaskReadinessRequest {
-  base_path?: BasePath;
-  kind: Kind;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  kind: "prescreen" | "screen";
+  project_id: string;
+  verbose?: boolean;
 }
 
-export type ProjectId = string;
-export type Success = true;
-
-/**
- * All managed-review responses share the same envelope: success +
- * project_id plus an open dict of service-specific fields.
- */
-export interface ManagedReviewResponse {
-  project_id: ProjectId;
-  success?: Success;
+export interface GetManagedReviewTaskReadinessResponse {
+  current_branch: string;
+  eligible_count: number;
+  eligible_record_ids: string[];
+  eligible_state: string;
+  issues: string[];
+  kind: "prescreen" | "screen";
+  project_id: string;
+  ready: boolean;
+  success?: true;
+  tracking: ManagedReviewTracking;
   [k: string]: unknown;
 }
 
-// get_operation_info
-export type BasePath = string | null;
-export type Operation = string;
-export type ProjectId = string;
-export type Verbose = boolean;
+export interface ManagedReviewTracking {
+  ahead: number;
+  behind: number;
+  has_remote: boolean;
+  tracking_branch?: string | null;
+  [k: string]: unknown;
+}
 
 export interface GetOperationInfoRequest {
-  base_path?: BasePath;
-  operation: Operation;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  operation: string;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type AffectedRecords = number;
-export type CanRun = boolean;
-export type Description = string;
-export type NeedsRerun = boolean;
-export type NeedsRerunReason = string | null;
-export type Operation = string;
-export type ProjectId = string;
-export type Reason = string | null;
-export type Success = true;
 
 export interface GetOperationInfoResponse {
-  affected_records: AffectedRecords;
-  can_run: CanRun;
-  description: Description;
-  needs_rerun: NeedsRerun;
-  needs_rerun_reason?: NeedsRerunReason;
-  operation: Operation;
-  project_id: ProjectId;
-  reason?: Reason;
-  success?: Success;
+  affected_records: number;
+  can_run: boolean;
+  description: string;
+  needs_rerun: boolean;
+  needs_rerun_reason?: string | null;
+  operation: string;
+  project_id: string;
+  reason?: string | null;
+  success?: true;
   [k: string]: unknown;
 }
-
-// get_preprocessing_summary
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface GetPreprocessingSummaryRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type DuplicatesRemoved = number;
-export type ProjectId = string;
-export type Sources = unknown[];
-export type Success = true;
 
 export interface GetPreprocessingSummaryResponse {
-  duplicates_removed: DuplicatesRemoved;
-  pipeline_counts: PipelineCounts;
-  project_id: ProjectId;
-  sources: Sources;
-  stage_status: StageStatus;
-  success?: Success;
+  duplicates_removed: number;
+  pipeline_counts: {
+    [k: string]: number;
+  };
+  project_id: string;
+  sources: unknown[];
+  stage_status: {
+    [k: string]: boolean;
+  };
+  success?: true;
   [k: string]: unknown;
 }
-export interface PipelineCounts {
-  [k: string]: number;
-}
-export interface StageStatus {
-  [k: string]: boolean;
-}
-
-// get_prescreen_queue
-export type BasePath = string | null;
-export type Limit = number;
-export type ProjectId = string;
-export type TaskId = string | null;
-export type Verbose = boolean;
 
 export interface GetPrescreenQueueRequest {
-  base_path?: BasePath;
-  limit?: Limit;
-  project_id: ProjectId;
-  task_id?: TaskId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  limit?: number;
+  project_id: string;
+  task_id?: string | null;
+  verbose?: boolean;
 }
-
-export type ProjectId = string;
-export type Author = string;
-export type CanEnrich = boolean;
-export type Id = string;
-export type Title = string;
-export type Year = string;
-export type Records = QueueRecord[];
-export type Success = true;
-export type TotalCount = number;
 
 export interface GetPrescreenQueueResponse {
-  project_id: ProjectId;
-  records: Records;
-  success?: Success;
-  total_count: TotalCount;
+  project_id: string;
+  records: PrescreenQueueRecord[];
+  success?: true;
+  total_count: number;
   [k: string]: unknown;
 }
-export interface QueueRecord {
-  author?: Author;
-  can_enrich?: CanEnrich;
-  id: Id;
-  title?: Title;
-  year?: Year;
-  [k: string]: unknown;
-}
-
-// get_reconciliation_preview
-export type BasePath = string | null;
-export type ProjectId = string;
-export type TaskId = string;
-export type Verbose = boolean;
 
 export interface GetReconciliationPreviewRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  task_id: TaskId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  task_id: string;
+  verbose?: boolean;
 }
 
-export type ProjectId = string;
-export type Success = true;
-
-/**
- * All managed-review responses share the same envelope: success +
- * project_id plus an open dict of service-specific fields.
- */
-export interface ManagedReviewResponse {
-  project_id: ProjectId;
-  success?: Success;
+export interface GetReconciliationPreviewResponse {
+  items: ReconciliationPreviewItem[];
+  project_id: string;
+  success?: true;
+  summary: ReconciliationSummaryCounts;
+  task: ManagedReviewTask;
   [k: string]: unknown;
 }
 
-// get_record
-export type BasePath = string | null;
-export type ProjectId = string;
-export type RecordId = string | null;
-export type Verbose = boolean;
-
-export interface GetRecordRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  record_id?: RecordId;
-  verbose?: Verbose;
+export interface ReconciliationPreviewItem {
+  author: string;
+  auto_resolution?: ReconciliationAutoResolution | null;
+  blocked_reasons: string[];
+  id: string;
+  reviewers: ReconciliationReviewerEntry[];
+  status: "auto" | "conflict" | "pending" | "blocked";
+  title: string;
+  year: string;
+  [k: string]: unknown;
 }
 
-export type ProjectId = string;
-export type Success = true;
+export interface ReconciliationAutoResolution {
+  criteria_string: string;
+  selected_reviewer: "reviewer_a" | "reviewer_b";
+  status: string;
+  [k: string]: unknown;
+}
+
+export interface ReconciliationReviewerEntry {
+  branch_name: string;
+  criteria: {
+    [k: string]: string;
+  };
+  criteria_string: string;
+  github_login: string;
+  last_seen_commit?: string | null;
+  role: "reviewer_a" | "reviewer_b";
+  status: string;
+  [k: string]: unknown;
+}
+
+export interface ReconciliationSummaryCounts {
+  auto_resolved_count: number;
+  blocked_count: number;
+  manual_conflict_count: number;
+  pending_count: number;
+  total_count: number;
+  [k: string]: unknown;
+}
+
+export interface GetRecordRequest {
+  base_path?: string | null;
+  project_id: string;
+  record_id?: string | null;
+  verbose?: boolean;
+}
 
 export interface GetRecordResponse {
-  project_id: ProjectId;
+  project_id: string;
   record: FormattedRecord;
-  success?: Success;
+  success?: true;
   [k: string]: unknown;
 }
 /**
  * A record dict formatted for the API.
  *
- * Accepts arbitrary bibliographic fields; identity/status are always present
- * after formatting.
+ * Accepts arbitrary bibliographic fields. ``_format_record`` always includes
+ * identity/status (even under a ``fields`` projection), so those are
+ * declared; everything else rides along via ``extra="allow"``.
  */
+
 export interface FormattedRecord {
+  ENTRYTYPE?: string | null;
+  ID: string;
+  colrev_status?: string | null;
+  file_on_disk?: boolean | null;
   [k: string]: unknown;
 }
-
-// get_records
-export type BasePath = string | null;
-export type Fields = string[] | null;
-export type HasPdf = boolean | null;
-export type IsMergedDuplicate = boolean | null;
-export type SearchSource = string | null;
-export type SearchText = string | null;
-export type YearFrom = number | null;
-export type YearTo = number | null;
-export type Limit = number;
-export type Offset = number;
-export type ProjectId = string;
-export type Direction = string;
-export type Field = string;
-export type Verbose = boolean;
 
 export interface GetRecordsRequest {
-  base_path?: BasePath;
-  fields?: Fields;
+  base_path?: string | null;
+  fields?: string[] | null;
   filters?: RecordFilters | null;
   pagination?: Pagination | null;
-  project_id: ProjectId;
+  project_id: string;
   sort?: SortConfig | null;
-  verbose?: Verbose;
-}
-export interface RecordFilters {
-  entrytype?: unknown;
-  has_pdf?: HasPdf;
-  is_merged_duplicate?: IsMergedDuplicate;
-  search_source?: SearchSource;
-  search_text?: SearchText;
-  status?: unknown;
-  year_from?: YearFrom;
-  year_to?: YearTo;
-  [k: string]: unknown;
-}
-export interface Pagination {
-  limit?: Limit;
-  offset?: Offset;
-}
-export interface SortConfig {
-  direction?: Direction;
-  field?: Field;
+  verbose?: boolean;
 }
 
-export type HasMore = boolean;
-export type Limit = number;
-export type Offset = number;
-export type ProjectId = string;
-export type Records = FormattedRecord[];
-export type Success = true;
-export type TotalCount = number;
+export interface RecordFilters {
+  entrytype?: unknown;
+  has_pdf?: boolean | null;
+  is_merged_duplicate?: boolean | null;
+  search_source?: string | null;
+  search_text?: string | null;
+  status?: unknown;
+  year_from?: number | null;
+  year_to?: number | null;
+  [k: string]: unknown;
+}
+
+export interface Pagination {
+  limit?: number;
+  offset?: number;
+}
+
+export interface SortConfig {
+  direction?: string;
+  field?: string;
+}
 
 export interface GetRecordsResponse {
   pagination: PaginationInfo;
-  project_id: ProjectId;
-  records: Records;
-  success?: Success;
-  total_count: TotalCount;
+  project_id: string;
+  records: FormattedRecord[];
+  success?: true;
+  total_count: number;
   [k: string]: unknown;
 }
+
 export interface PaginationInfo {
-  has_more: HasMore;
-  limit: Limit;
-  offset: Offset;
+  has_more: boolean;
+  limit: number;
+  offset: number;
 }
 /**
  * A record dict formatted for the API.
  *
- * Accepts arbitrary bibliographic fields; identity/status are always present
- * after formatting.
+ * Accepts arbitrary bibliographic fields. ``_format_record`` always includes
+ * identity/status (even under a ``fields`` projection), so those are
+ * declared; everything else rides along via ``extra="allow"``.
  */
-export interface FormattedRecord {
-  [k: string]: unknown;
-}
-
-// get_review_definition
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface GetReviewDefinitionRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type Comment = string | null;
-export type CriterionType = string;
-export type Explanation = string;
-export type Keywords = string[];
-export type Objectives = string;
-export type ProjectId = string;
-export type ProtocolUrl = string;
-export type ReviewType = string;
-export type Success = true;
-export type Title = string;
 
 export interface GetReviewDefinitionResponse {
-  criteria: Criteria;
-  keywords: Keywords;
-  objectives: Objectives;
-  project_id: ProjectId;
-  protocol_url: ProtocolUrl;
-  review_type: ReviewType;
-  success?: Success;
-  title: Title;
-  [k: string]: unknown;
-}
-export interface Criteria {
-  [k: string]: CriterionInfo;
-}
-export interface CriterionInfo {
-  comment?: Comment;
-  criterion_type: CriterionType;
-  explanation: Explanation;
+  criteria: {
+    [k: string]: CriterionInfo;
+  };
+  keywords: string[];
+  objectives: string;
+  project_id: string;
+  protocol_url: string;
+  review_type: string;
+  success?: true;
+  title: string;
   [k: string]: unknown;
 }
 
-// get_screen_queue
-export type BasePath = string | null;
-export type Limit = number;
-export type ProjectId = string;
-export type TaskId = string | null;
-export type Verbose = boolean;
+export interface CriterionInfo {
+  comment?: string | null;
+  criterion_type: string;
+  explanation: string;
+  [k: string]: unknown;
+}
 
 export interface GetScreenQueueRequest {
-  base_path?: BasePath;
-  limit?: Limit;
-  project_id: ProjectId;
-  task_id?: TaskId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  limit?: number;
+  project_id: string;
+  task_id?: string | null;
+  verbose?: boolean;
 }
-
-export type Comment = string;
-export type CriterionType = string;
-export type Explanation = string;
-export type ProjectId = string;
-export type Author = string;
-export type Id = string;
-export type Title = string;
-export type Year = string;
-export type Records = ScreenQueueRecord[];
-export type Success = true;
-export type TotalCount = number;
 
 export interface GetScreenQueueResponse {
-  criteria: Criteria;
-  project_id: ProjectId;
-  records: Records;
-  success?: Success;
-  total_count: TotalCount;
-  [k: string]: unknown;
-}
-export interface Criteria {
-  [k: string]: ScreenCriterionInfo;
-}
-export interface ScreenCriterionInfo {
-  comment?: Comment;
-  criterion_type?: CriterionType;
-  explanation?: Explanation;
-  [k: string]: unknown;
-}
-export interface ScreenQueueRecord {
-  author?: Author;
-  id: Id;
-  title?: Title;
-  year?: Year;
+  criteria: {
+    [k: string]: ScreenCriterionInfo;
+  };
+  project_id: string;
+  records: ScreenQueueRecord[];
+  success?: true;
+  total_count: number;
   [k: string]: unknown;
 }
 
-// get_screening_criteria
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
+export interface ScreenCriterionInfo {
+  comment?: string;
+  criterion_type?: string;
+  explanation?: string;
+  [k: string]: unknown;
+}
+
+export interface ScreenQueueRecord {
+  abstract?: string | null;
+  author?: string;
+  booktitle?: string | null;
+  current_criteria?: {
+    [k: string]: string;
+  } | null;
+  id: string;
+  journal?: string | null;
+  pdf_path?: string | null;
+  title?: string;
+  year?: string;
+  [k: string]: unknown;
+}
 
 export interface GetScreeningCriteriaRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type Comment = string | null;
-export type CriterionType = string;
-export type Explanation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface GetScreeningCriteriaResponse {
-  criteria: Criteria;
-  project_id: ProjectId;
-  success?: Success;
+  criteria: {
+    [k: string]: CriterionInfo;
+  };
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-export interface Criteria {
-  [k: string]: CriterionInfo;
-}
-export interface CriterionInfo {
-  comment?: Comment;
-  criterion_type: CriterionType;
-  explanation: Explanation;
-  [k: string]: unknown;
-}
-
-// get_settings
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface GetSettingsRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type ProjectId = string;
-export type Success = true;
 
 export interface GetSettingsResponse {
-  project_id: ProjectId;
-  settings: Settings;
-  success?: Success;
+  project_id: string;
+  settings: {
+    [k: string]: unknown;
+  };
+  success?: true;
   [k: string]: unknown;
 }
-export interface Settings {}
-
-// get_source_records
-export type BasePath = string | null;
-export type Filename = string | null;
-export type Limit = number;
-export type Offset = number;
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface GetSourceRecordsRequest {
-  base_path?: BasePath;
-  filename?: Filename;
+  base_path?: string | null;
+  filename?: string | null;
   pagination?: PaginationRequest | null;
-  project_id: ProjectId;
-  verbose?: Verbose;
-}
-export interface PaginationRequest {
-  limit?: Limit;
-  offset?: Offset;
+  project_id: string;
+  verbose?: boolean;
 }
 
-export type Filename = string;
-export type HasMore = boolean;
-export type Limit = number;
-export type Offset = number;
-export type ProjectId = string;
-export type Records = SourceRecord[];
-export type Success = true;
-export type TotalCount = number;
+export interface PaginationRequest {
+  limit?: number;
+  offset?: number;
+}
 
 export interface GetSourceRecordsResponse {
-  filename: Filename;
+  filename: string;
   pagination: PaginationInfo;
-  project_id: ProjectId;
-  records: Records;
-  success?: Success;
-  total_count: TotalCount;
+  project_id: string;
+  records: SourceRecord[];
+  success?: true;
+  total_count: number;
   [k: string]: unknown;
 }
-export interface PaginationInfo {
-  has_more: HasMore;
-  limit: Limit;
-  offset: Offset;
-}
+
 export interface SourceRecord {
   [k: string]: unknown;
 }
 
-// get_sources
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
-
 export interface GetSourcesRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type ProjectId = string;
-export type Sources = SourceInfo[];
-export type Success = true;
 
 export interface GetSourcesResponse {
-  project_id: ProjectId;
-  sources: Sources;
-  success?: Success;
+  project_id: string;
+  sources: SourceInfo[];
+  success?: true;
   [k: string]: unknown;
 }
-export interface SourceInfo {
-  [k: string]: unknown;
-}
+/**
+ * The wire shape built in ``get_sources``: ``ExtendedSearchFile.model_dump()``
+ * plus the staleness metadata. Extra fields ride along via ``extra="allow"``.
+ */
 
-// get_status
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
+export interface SourceInfo {
+  is_stale?: boolean | null;
+  last_run_timestamp?: string | null;
+  platform?: string | null;
+  record_count?: number | null;
+  search_results_path?: string | null;
+  search_string?: string | null;
+  search_type?: string | null;
+  stale_reason?: string | null;
+  [k: string]: unknown;
+}
 
 export interface GetStatusRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type Path = string;
-export type ProjectId = string;
-export type Success = true;
 
 /**
  * Nested ``status`` payload is deliberately an untyped dict.
  */
 export interface GetStatusResponse {
-  path: Path;
-  project_id: ProjectId;
-  status: Status;
-  success?: Success;
-  [k: string]: unknown;
-}
-export interface Status {}
-
-// import_pdfs
-export type BasePath = string | null;
-export type OnConflict = "skip" | "overwrite";
-export type ProjectId = string;
-export type Verbose = boolean;
-export type ZipPath = string;
-
-export interface ImportPDFsRequest {
-  base_path?: BasePath;
-  on_conflict?: OnConflict;
-  project_id: ProjectId;
-  verbose?: Verbose;
-  zip_path: ZipPath;
-}
-
-export type Conflicts = string[];
-export type ImportedCount = number;
-export type ManifestMismatch = boolean;
-export type ManifestProjectId = string | null;
-export type OverwrittenCount = number;
-export type ProjectId = string;
-export type SkippedCount = number;
-export type Success = true;
-
-export interface ImportPDFsResponse {
-  conflicts: Conflicts;
-  imported_count: ImportedCount;
-  manifest_mismatch?: ManifestMismatch;
-  manifest_project_id?: ManifestProjectId;
-  overwritten_count: OverwrittenCount;
-  project_id: ProjectId;
-  skipped_count: SkippedCount;
-  success?: Success;
+  path: string;
+  project_id: string;
+  status: {
+    [k: string]: unknown;
+  };
+  success?: true;
   [k: string]: unknown;
 }
 
-// include_all_screen
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
+export interface ImportPdfsRequest {
+  base_path?: string | null;
+  on_conflict?: "skip" | "overwrite";
+  project_id: string;
+  verbose?: boolean;
+  zip_path: string;
+}
+
+export interface ImportPdfsResponse {
+  conflicts: string[];
+  imported_count: number;
+  manifest_mismatch?: boolean;
+  manifest_project_id?: string | null;
+  overwritten_count: number;
+  project_id: string;
+  skipped_count: number;
+  success?: true;
+  [k: string]: unknown;
+}
 
 export interface IncludeAllScreenRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type Message = string;
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface IncludeAllScreenResponse {
-  message: Message;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+  message: string;
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-
-// init_project
-export type BasePath = string;
-export type Example = boolean;
-export type ForceMode = boolean;
-export type Light = boolean;
-export type ProjectId = string;
-export type ReviewType = string;
-export type Title = string | null;
 
 export interface InitProjectRequest {
-  base_path?: BasePath;
-  example?: Example;
-  force_mode?: ForceMode;
-  light?: Light;
-  project_id: ProjectId;
-  review_type?: ReviewType;
-  title?: Title;
+  base_path?: string;
+  example?: boolean;
+  force_mode?: boolean;
+  light?: boolean;
+  project_id: string;
+  review_type?: string;
+  title?: string | null;
 }
-
-export type Message = string;
-export type Path = string;
-export type ProjectId = string;
-export type ReviewType = string;
-export type Success = true;
 
 export interface InitProjectResponse {
-  message: Message;
-  path: Path;
-  project_id: ProjectId;
-  review_type: ReviewType;
-  success?: Success;
+  message: string;
+  path: string;
+  project_id: string;
+  review_type: string;
+  success?: true;
   [k: string]: unknown;
 }
-
-// list_managed_review_tasks
-export type BasePath = string | null;
-export type Kind = string;
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface ListManagedReviewTasksRequest {
-  base_path?: BasePath;
-  kind: Kind;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  kind: "prescreen" | "screen";
+  project_id: string;
+  verbose?: boolean;
 }
 
-export type ProjectId = string;
-export type Success = true;
-
-/**
- * All managed-review responses share the same envelope: success +
- * project_id plus an open dict of service-specific fields.
- */
-export interface ManagedReviewResponse {
-  project_id: ProjectId;
-  success?: Success;
+export interface ListManagedReviewTasksResponse {
+  kind: "prescreen" | "screen";
+  project_id: string;
+  success?: true;
+  tasks: ManagedReviewTask[];
   [k: string]: unknown;
 }
-
-// list_projects
-export type BasePath = string;
 
 export interface ListProjectsRequest {
-  base_path?: BasePath;
+  base_path?: string;
 }
-
-export type Id = string;
-export type Path = string;
-export type Title = string;
-export type Projects = ProjectListItem[];
-export type Success = true;
 
 export interface ListProjectsResponse {
-  projects: Projects;
-  success?: Success;
-  [k: string]: unknown;
-}
-export interface ProjectListItem {
-  id: Id;
-  path: Path;
-  title: Title;
+  projects: ProjectListItem[];
+  success?: true;
   [k: string]: unknown;
 }
 
-// load
-export type BasePath = string | null;
-export type KeepIds = boolean;
-export type ProjectId = string;
-export type Verbose = boolean;
+export interface ProjectListItem {
+  id: string;
+  path: string;
+  title: string;
+  [k: string]: unknown;
+}
 
 export interface LoadRequest {
-  base_path?: BasePath;
-  keep_ids?: KeepIds;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  keep_ids?: boolean;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface LoadResponse {
-  details: Details;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
-  [k: string]: unknown;
-}
-export interface Details {}
-
-// mark_pdf_not_available
-export type BasePath = string | null;
-export type ProjectId = string;
-export type RecordId = string;
-export type Verbose = boolean;
-
-export interface MarkPDFNotAvailableRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  record_id: RecordId;
-  verbose?: Verbose;
-}
-
-export type NewStatus = string;
-export type ProjectId = string;
-export type RecordId = string;
-export type Success = true;
-
-export interface MarkPDFNotAvailableResponse {
-  new_status: NewStatus;
-  project_id: ProjectId;
-  record_id: RecordId;
-  success?: Success;
+  details: {
+    [k: string]: unknown;
+  };
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
 
-// match_pdf_to_records
-export type BasePath = string | null;
-export type Content = string;
-export type Filename = string;
-export type ProjectId = string;
-export type Verbose = boolean;
-
-export interface MatchPDFToRecordsRequest {
-  base_path?: BasePath;
-  content: Content;
-  filename: Filename;
-  project_id: ProjectId;
-  verbose?: Verbose;
+export interface MarkPdfNotAvailableRequest {
+  base_path?: string | null;
+  project_id: string;
+  record_id: string;
+  verbose?: boolean;
 }
 
-export type RecordId = string;
-export type Similarity = number;
-export type Author = string;
-export type Doi = string;
-export type Title = string;
-export type Year = string;
-export type ExtractionMethod = "pdf_metadata" | "filename_only" | "none";
-export type Filename = string;
-export type Author1 = string;
-export type RecordId1 = string;
-export type Similarity1 = number;
-export type Title1 = string;
-export type Year1 = string;
-export type Matches = PDFMatchCandidate[];
-export type ProjectId = string;
-export type Success = true;
+export interface MarkPdfNotAvailableResponse {
+  new_status: string;
+  project_id: string;
+  record_id: string;
+  success?: true;
+  [k: string]: unknown;
+}
 
-export interface MatchPDFToRecordsResponse {
+export interface MatchPdfToRecordsRequest {
+  base_path?: string | null;
+  content: string;
+  filename: string;
+  project_id: string;
+  verbose?: boolean;
+}
+
+export interface MatchPdfToRecordsResponse {
   best_match?: BestMatch | null;
   extracted_metadata?: ExtractedMetadata | null;
-  extraction_method: ExtractionMethod;
-  filename: Filename;
-  matches: Matches;
-  project_id: ProjectId;
-  success?: Success;
+  extraction_method: "pdf_metadata" | "filename_only" | "none";
+  filename: string;
+  matches: PDFMatchCandidate[];
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
+
 export interface BestMatch {
-  record_id: RecordId;
-  similarity: Similarity;
+  record_id: string;
+  similarity: number;
   [k: string]: unknown;
 }
+
 export interface ExtractedMetadata {
-  author?: Author;
-  doi?: Doi;
-  title?: Title;
-  year?: Year;
+  author?: string;
+  doi?: string;
+  title?: string;
+  year?: string;
   [k: string]: unknown;
 }
+
 export interface PDFMatchCandidate {
-  author?: Author1;
-  record_id: RecordId1;
-  similarity: Similarity1;
-  title?: Title1;
-  year?: Year1;
+  author?: string;
+  record_id: string;
+  similarity: number;
+  title?: string;
+  year?: string;
   [k: string]: unknown;
 }
 
-// pdf_get
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
-
-export interface PDFGetRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  verbose?: Verbose;
+export interface PdfGetRequest {
+  base_path?: string | null;
+  project_id: string;
+  verbose?: boolean;
 }
 
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
-
-export interface PDFGetResponse {
-  details: Details;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+export interface PdfGetResponse {
+  details: {
+    [k: string]: unknown;
+  };
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-export interface Details {}
 
-// pdf_prep
-export type BasePath = string | null;
-export type BatchSize = number;
-export type ProjectId = string;
-export type Reprocess = boolean;
-export type Verbose = boolean;
-
-export interface PDFPrepRequest {
-  base_path?: BasePath;
-  batch_size?: BatchSize;
-  project_id: ProjectId;
-  reprocess?: Reprocess;
-  verbose?: Verbose;
+export interface PdfPrepRequest {
+  base_path?: string | null;
+  batch_size?: number;
+  project_id: string;
+  reprocess?: boolean;
+  verbose?: boolean;
 }
 
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
-
-export interface PDFPrepResponse {
-  details: Details;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+export interface PdfPrepResponse {
+  details: {
+    [k: string]: unknown;
+  };
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-export interface Details {}
-
-// ping
-export type BasePath = string | null;
 
 export interface PingRequest {
-  base_path?: BasePath;
+  base_path?: string | null;
 }
 
-export type Status = "pong";
-export type Success = true;
-
+/**
+ * Readiness probe response. Lives here (not in system_handler) so the
+ * fast path in ``handler.py`` can construct it without importing
+ * ``framework_handlers`` (which would defeat the lazy-load design).
+ */
 export interface PingResponse {
-  status?: Status;
-  success?: Success;
+  status?: "pong";
+  success?: true;
   [k: string]: unknown;
 }
-
-// prep
-export type BasePath = string | null;
-export type ProjectId = string;
-export type UseMinimalPrep = boolean;
-export type Verbose = boolean;
 
 export interface PrepRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  use_minimal_prep?: UseMinimalPrep;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  use_minimal_prep?: boolean;
+  verbose?: boolean;
 }
-
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface PrepResponse {
-  details: Details;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+  details: {
+    [k: string]: unknown;
+  };
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-export interface Details {}
-
-// prep_man_update_record
-export type BasePath = string | null;
-export type ProjectId = string;
-export type RecordId = string;
-export type Verbose = boolean;
 
 export interface PrepManUpdateRecordRequest {
-  base_path?: BasePath;
-  fields: Fields;
-  project_id: ProjectId;
-  record_id: RecordId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  fields: {
+    [k: string]: unknown;
+  };
+  project_id: string;
+  record_id: string;
+  verbose?: boolean;
 }
-export interface Fields {}
-
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface PrepManUpdateRecordResponse {
-  details: Details;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
-  [k: string]: unknown;
-}
-export interface Details {}
-
-// prescreen
-export type BasePath = string | null;
-export type ProjectId = string;
-export type SplitStr = string;
-export type Verbose = boolean;
-
-export interface PrescreenBatchRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  split_str?: SplitStr;
-  verbose?: Verbose;
-}
-
-export type Message = string;
-export type Operation = string;
-export type ProjectId = string;
-export type SplitStr = string;
-export type Success = true;
-
-export interface PrescreenBatchResponse {
-  message: Message;
-  operation: Operation;
-  project_id: ProjectId;
-  split_str: SplitStr;
-  success?: Success;
+  details: PrepManUpdateDetails;
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
 
-// prescreen_record
-export type BasePath = string | null;
-export type Decision = "include" | "exclude";
-export type ProjectId = string;
-export type RecordId = string;
-export type TaskId = string | null;
-export type Verbose = boolean;
+export interface PrepManUpdateDetails {
+  message: string;
+  new_status: string;
+  record: {
+    [k: string]: unknown;
+  };
+  remaining_defects?: {
+    [k: string]: string[];
+  } | null;
+  [k: string]: unknown;
+}
+
+export interface PrescreenRequest {
+  base_path?: string | null;
+  project_id: string;
+  split_str?: string;
+  verbose?: boolean;
+}
+
+export interface PrescreenResponse {
+  message: string;
+  operation: string;
+  project_id: string;
+  split_str: string;
+  success?: true;
+  [k: string]: unknown;
+}
 
 export interface PrescreenRecordRequest {
-  base_path?: BasePath;
-  decision: Decision;
-  project_id: ProjectId;
-  record_id: RecordId;
-  task_id?: TaskId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  decision: "include" | "exclude";
+  project_id: string;
+  record_id: string;
+  task_id?: string | null;
+  verbose?: boolean;
 }
-
-export type AlreadyDecided = boolean;
-export type ProjectId = string;
-export type Decision = "include" | "exclude";
-export type Id = string;
-export type NewStatus = string;
-export type RemainingCount = number;
-export type Success = true;
 
 export interface PrescreenRecordResponse {
-  already_decided?: AlreadyDecided;
-  project_id: ProjectId;
+  already_decided?: boolean;
+  project_id: string;
   record: PrescreenedRecord;
-  remaining_count: RemainingCount;
-  success?: Success;
+  remaining_count: number;
+  success?: true;
   [k: string]: unknown;
 }
-export interface PrescreenedRecord {
-  decision: Decision;
-  id: Id;
-  new_status: NewStatus;
-}
 
-// remove_screening_criterion
-export type BasePath = string | null;
-export type CriterionName = string;
-export type ProjectId = string;
-export type Verbose = boolean;
+export interface PrescreenedRecord {
+  decision: "include" | "exclude";
+  id: string;
+  new_status: string;
+}
 
 export interface RemoveScreeningCriterionRequest {
-  base_path?: BasePath;
-  criterion_name: CriterionName;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  criterion_name: string;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface RemoveScreeningCriterionResponse {
-  details: Details;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+  details: {
+    [k: string]: unknown;
+  };
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-export interface Details {}
-
-// remove_source
-export type BasePath = string | null;
-export type DeleteFile = boolean;
-export type Filename = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface RemoveSourceRequest {
-  base_path?: BasePath;
-  delete_file?: DeleteFile;
-  filename?: Filename;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  delete_file?: boolean;
+  filename?: string | null;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type Message = string;
-export type Message1 = string;
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface RemoveSourceResponse {
   details: RemoveSourceDetails;
-  message: Message1;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
-  [k: string]: unknown;
-}
-export interface RemoveSourceDetails {
-  message: Message;
+  message: string;
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
 
-// reset_to_remote
-export type BasePath = string | null;
-export type Confirm = boolean;
-export type ProjectId = string;
-export type Verbose = boolean;
+export interface RemoveSourceDetails {
+  message: string;
+  [k: string]: unknown;
+}
 
 export interface ResetToRemoteRequest {
-  base_path?: BasePath;
-  confirm?: Confirm;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  confirm?: boolean;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type DiscardedCommits = number;
-export type DiscardedFiles = string[];
-export type Message = string;
-export type ProjectId = string;
-export type Reset = boolean;
-export type Success = true;
-export type TargetRef = string;
 
 export interface ResetToRemoteResponse {
-  discarded_commits: DiscardedCommits;
-  discarded_files?: DiscardedFiles;
-  message: Message;
-  project_id: ProjectId;
-  reset: Reset;
-  success?: Success;
-  target_ref: TargetRef;
+  discarded_commits: number;
+  discarded_files?: string[];
+  message: string;
+  project_id: string;
+  reset: boolean;
+  success?: true;
+  target_ref: string;
   [k: string]: unknown;
 }
 
-// restore_pdf_file
-export type BasePath = string | null;
-export type Content = string;
-export type ProjectId = string;
-export type RecordId = string;
-export type Verbose = boolean;
-
-export interface RestorePDFFileRequest {
-  base_path?: BasePath;
-  content: Content;
-  project_id: ProjectId;
-  record_id: RecordId;
-  verbose?: Verbose;
+export interface RestorePdfFileRequest {
+  base_path?: string | null;
+  content: string;
+  project_id: string;
+  record_id: string;
+  verbose?: boolean;
 }
 
-export type BytesWritten = number;
-export type Path = string;
-export type ProjectId = string;
-export type RecordId = string;
-export type Success = true;
-
-export interface RestorePDFFileResponse {
-  bytes_written: BytesWritten;
-  path: Path;
-  project_id: ProjectId;
-  record_id: RecordId;
-  success?: Success;
+export interface RestorePdfFileResponse {
+  bytes_written: number;
+  path: string;
+  project_id: string;
+  record_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-
-// save_data_extraction
-export type BasePath = string | null;
-export type ProjectId = string;
-export type RecordId = string;
-export type Verbose = boolean;
 
 export interface SaveDataExtractionRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  record_id: RecordId;
-  values: Values;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  record_id: string;
+  values: {
+    [k: string]: unknown;
+  };
+  verbose?: boolean;
 }
-export interface Values {}
-
-export type Message = string;
-export type ProjectId = string;
-export type RecordId = string;
-export type RemainingCount = number;
-export type Success = true;
 
 export interface SaveDataExtractionResponse {
-  message: Message;
-  project_id: ProjectId;
-  record_id: RecordId;
-  remaining_count: RemainingCount;
-  success?: Success;
+  message: string;
+  project_id: string;
+  record_id: string;
+  remaining_count: number;
+  success?: true;
   [k: string]: unknown;
 }
 
-// screen
-export type BasePath = string | null;
-export type ProjectId = string;
-export type SplitStr = string;
-export type Verbose = boolean;
-
-export interface ScreenBatchRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  split_str?: SplitStr;
-  verbose?: Verbose;
+export interface ScreenRequest {
+  base_path?: string | null;
+  project_id: string;
+  split_str?: string;
+  verbose?: boolean;
 }
 
-export type Message = string;
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
-
-export interface ScreenBatchResponse {
-  message: Message;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+export interface ScreenResponse {
+  message: string;
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-
-// screen_record
-export type BasePath = string | null;
-export type Decision = "include" | "exclude";
-export type ProjectId = string;
-export type RecordId = string;
-export type TaskId = string | null;
-export type Verbose = boolean;
 
 export interface ScreenRecordRequest {
-  base_path?: BasePath;
-  criteria_decisions?: CriteriaDecisions;
-  decision: Decision;
-  project_id: ProjectId;
-  record_id: RecordId;
-  task_id?: TaskId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  criteria_decisions?: {
+    [k: string]: "in" | "out" | "TODO";
+  };
+  decision: "include" | "exclude";
+  project_id: string;
+  record_id: string;
+  task_id?: string | null;
+  verbose?: boolean;
 }
-export interface CriteriaDecisions {
-  [k: string]: "in" | "out" | "TODO";
-}
-
-export type AlreadyDecided = boolean;
-export type ProjectId = string;
-export type Decision = "include" | "exclude";
-export type Id = string;
-export type NewStatus = string;
-export type RemainingCount = number;
-export type Success = true;
 
 export interface ScreenRecordResponse {
-  already_decided?: AlreadyDecided;
-  project_id: ProjectId;
+  already_decided?: boolean;
+  project_id: string;
   record: ScreenedRecord;
-  remaining_count: RemainingCount;
-  success?: Success;
+  remaining_count: number;
+  success?: true;
   [k: string]: unknown;
 }
-export interface ScreenedRecord {
-  criteria_decisions: CriteriaDecisions;
-  decision: Decision;
-  id: Id;
-  new_status: NewStatus;
-}
-export interface CriteriaDecisions {
-  [k: string]: "in" | "out" | "TODO";
-}
 
-// search
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Rerun = boolean;
-export type Source = string;
-export type Verbose = boolean;
+export interface ScreenedRecord {
+  criteria_decisions: {
+    [k: string]: "in" | "out" | "TODO";
+  };
+  decision: "include" | "exclude";
+  id: string;
+  new_status: string;
+}
 
 export interface SearchRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  rerun?: Rerun;
-  source?: Source;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  rerun?: boolean;
+  source?: string;
+  verbose?: boolean;
 }
-
-export type Message = string;
-export type Rerun = boolean;
-export type Source = string;
-export type Message1 = string;
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface SearchResponse {
   details: SearchDetails;
-  message: Message1;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+  message: string;
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
+
 export interface SearchDetails {
-  message: Message;
-  rerun: Rerun;
-  source: Source;
+  message: string;
+  rerun: boolean;
+  source: string;
   [k: string]: unknown;
 }
 
-// status
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
-
-export interface GetStatusRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  verbose?: Verbose;
+export interface SetConnectorApiKeyRequest {
+  api_key: string;
+  base_path?: string | null;
+  connector: string;
 }
 
-export type Path = string;
-export type ProjectId = string;
-export type Success = true;
+export interface SetConnectorApiKeyResponse {
+  configured: boolean;
+  connector: string;
+  success?: true;
+  [k: string]: unknown;
+}
+
+export interface StatusRequest {
+  base_path?: string | null;
+  project_id: string;
+  verbose?: boolean;
+}
 
 /**
  * Nested ``status`` payload is deliberately an untyped dict.
  */
-export interface GetStatusResponse {
-  path: Path;
-  project_id: ProjectId;
-  status: Status;
-  success?: Success;
-  [k: string]: unknown;
-}
-export interface Status {}
-
-// undo_pdf_not_available
-export type BasePath = string | null;
-export type ProjectId = string;
-export type RecordId = string;
-export type Verbose = boolean;
-
-export interface UndoPDFNotAvailableRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  record_id: RecordId;
-  verbose?: Verbose;
-}
-
-export type NewStatus = string;
-export type ProjectId = string;
-export type RecordId = string;
-export type Success = true;
-
-export interface UndoPDFNotAvailableResponse {
-  new_status: NewStatus;
-  project_id: ProjectId;
-  record_id: RecordId;
-  success?: Success;
+export interface StatusResponse {
+  path: string;
+  project_id: string;
+  status: {
+    [k: string]: unknown;
+  };
+  success?: true;
   [k: string]: unknown;
 }
 
-// update_prescreen_decisions
-export type BasePath = string | null;
-export type Decision = "include" | "exclude";
-export type RecordId = string;
-export type Changes = PrescreenDecisionChange[];
-export type ProjectId = string;
-export type Verbose = boolean;
+export interface UndoPdfNotAvailableRequest {
+  base_path?: string | null;
+  project_id: string;
+  record_id: string;
+  verbose?: boolean;
+}
+
+export interface UndoPdfNotAvailableResponse {
+  new_status: string;
+  project_id: string;
+  record_id: string;
+  success?: true;
+  [k: string]: unknown;
+}
 
 export interface UpdatePrescreenDecisionsRequest {
-  base_path?: BasePath;
-  changes: Changes;
-  project_id: ProjectId;
-  verbose?: Verbose;
-}
-export interface PrescreenDecisionChange {
-  decision: Decision;
-  record_id: RecordId;
+  base_path?: string | null;
+  changes: PrescreenDecisionChange[];
+  project_id: string;
+  verbose?: boolean;
 }
 
-export type ChangesCount = number;
-export type Message = string;
-export type ProjectId = string;
-export type Reason = string;
-export type RecordId = string;
-export type Skipped = SkippedChange[];
-export type Success = true;
-export type UpdatedRecords = string[];
+export interface PrescreenDecisionChange {
+  decision: "include" | "exclude";
+  record_id: string;
+}
 
 export interface UpdatePrescreenDecisionsResponse {
-  changes_count: ChangesCount;
-  message: Message;
-  project_id: ProjectId;
-  skipped: Skipped;
-  success?: Success;
-  updated_records: UpdatedRecords;
+  changes_count: number;
+  message: string;
+  project_id: string;
+  skipped: SkippedChange[];
+  success?: true;
+  updated_records: string[];
   [k: string]: unknown;
 }
-export interface SkippedChange {
-  reason: Reason;
-  record_id: RecordId;
-}
 
-// update_record
-export type BasePath = string | null;
-export type Fields = {} | null;
-export type ProjectId = string;
-export type RecordId = string | null;
-export type Verbose = boolean;
+export interface SkippedChange {
+  reason: string;
+  record_id: string;
+}
 
 export interface UpdateRecordRequest {
-  base_path?: BasePath;
-  fields?: Fields;
-  project_id: ProjectId;
-  record_id?: RecordId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  fields?: {
+    [k: string]: unknown;
+  } | null;
+  project_id: string;
+  record_id?: string | null;
+  verbose?: boolean;
 }
-
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface UpdateRecordResponse {
-  details: Details;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+  details: {
+    [k: string]: unknown;
+  };
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-export interface Details {}
-
-// update_review_definition
-export type BasePath = string | null;
-export type Keywords = string[] | null;
-export type Objectives = string | null;
-export type ProjectId = string;
-export type ProtocolUrl = string | null;
-export type Verbose = boolean;
 
 export interface UpdateReviewDefinitionRequest {
-  base_path?: BasePath;
-  keywords?: Keywords;
-  objectives?: Objectives;
-  project_id: ProjectId;
-  protocol_url?: ProtocolUrl;
-  verbose?: Verbose;
+  base_path?: string | null;
+  keywords?: string[] | null;
+  objectives?: string | null;
+  project_id: string;
+  protocol_url?: string | null;
+  verbose?: boolean;
 }
-
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface UpdateReviewDefinitionResponse {
-  details: Details;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+  details: {
+    [k: string]: unknown;
+  };
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-export interface Details {}
-
-// update_screen_decisions
-export type BasePath = string | null;
-export type Decision = "include" | "exclude";
-export type RecordId = string;
-export type Changes = ScreenDecisionChange[];
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface UpdateScreenDecisionsRequest {
-  base_path?: BasePath;
-  changes: Changes;
-  project_id: ProjectId;
-  verbose?: Verbose;
-}
-export interface ScreenDecisionChange {
-  decision: Decision;
-  record_id: RecordId;
+  base_path?: string | null;
+  changes: ScreenDecisionChange[];
+  project_id: string;
+  verbose?: boolean;
 }
 
-export type ChangesCount = number;
-export type Message = string;
-export type ProjectId = string;
-export type Reason = string;
-export type RecordId = string;
-export type Skipped = SkippedChange[];
-export type Success = true;
-export type UpdatedRecords = string[];
+export interface ScreenDecisionChange {
+  decision: "include" | "exclude";
+  record_id: string;
+}
 
 export interface UpdateScreenDecisionsResponse {
-  changes_count: ChangesCount;
-  message: Message;
-  project_id: ProjectId;
-  skipped: Skipped;
-  success?: Success;
-  updated_records: UpdatedRecords;
+  changes_count: number;
+  message: string;
+  project_id: string;
+  skipped: SkippedChange[];
+  success?: true;
+  updated_records: string[];
   [k: string]: unknown;
 }
-export interface SkippedChange {
-  reason: Reason;
-  record_id: RecordId;
-}
-
-// update_screening_criterion
-export type BasePath = string | null;
-export type Comment = string | null;
-export type CriterionName = string;
-export type CriterionType = string | null;
-export type Explanation = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface UpdateScreeningCriterionRequest {
-  base_path?: BasePath;
-  comment?: Comment;
-  criterion_name: CriterionName;
-  criterion_type?: CriterionType;
-  explanation?: Explanation;
-  project_id: ProjectId;
-  verbose?: Verbose;
+  base_path?: string | null;
+  comment?: string | null;
+  criterion_name: string;
+  criterion_type?: string | null;
+  explanation?: string | null;
+  project_id: string;
+  verbose?: boolean;
 }
-
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface UpdateScreeningCriterionResponse {
-  details: Details;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+  details: {
+    [k: string]: unknown;
+  };
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-export interface Details {}
-
-// update_settings
-export type BasePath = string | null;
-export type ProjectId = string;
-export type Verbose = boolean;
 
 export interface UpdateSettingsRequest {
-  base_path?: BasePath;
-  project_id: ProjectId;
-  settings: Settings;
-  verbose?: Verbose;
+  base_path?: string | null;
+  project_id: string;
+  settings: {
+    [k: string]: unknown;
+  };
+  verbose?: boolean;
 }
-export interface Settings {}
-
-export type Message = string;
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface UpdateSettingsResponse {
-  details: Details;
-  message: Message;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+  details: {
+    [k: string]: unknown;
+  };
+  message: string;
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-export interface Details {}
-
-// update_source
-export type BasePath = string | null;
-export type Filename = string | null;
-export type ProjectId = string;
-export type RunDate = string | null;
-export type SearchParameters = {} | null;
-export type SearchString = string | null;
-export type Verbose = boolean;
 
 export interface UpdateSourceRequest {
-  base_path?: BasePath;
-  filename?: Filename;
-  project_id: ProjectId;
-  run_date?: RunDate;
-  search_parameters?: SearchParameters;
-  search_string?: SearchString;
-  verbose?: Verbose;
+  base_path?: string | null;
+  filename?: string | null;
+  project_id: string;
+  run_date?: string | null;
+  search_parameters?: {
+    [k: string]: unknown;
+  } | null;
+  search_string?: string | null;
+  verbose?: boolean;
 }
-
-export type Message = string;
-export type Message1 = string;
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface UpdateSourceResponse {
   details: UpdateSourceDetails;
-  message: Message1;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+  message: string;
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
+
 export interface UpdateSourceDetails {
-  message: Message;
-  source: Source;
-  [k: string]: unknown;
-}
-export interface Source {}
-
-// upload_pdf
-export type BasePath = string | null;
-export type Content = string;
-export type Filename = string;
-export type ProjectId = string;
-export type RecordId = string;
-export type Verbose = boolean;
-
-export interface UploadPDFRequest {
-  base_path?: BasePath;
-  content: Content;
-  filename: Filename;
-  project_id: ProjectId;
-  record_id: RecordId;
-  verbose?: Verbose;
-}
-
-export type FilePath = string;
-export type NewStatus = string;
-export type PrepMessage = string | null;
-export type PrepStatus = string;
-export type ProjectId = string;
-export type RecordId = string;
-export type Success = true;
-
-export interface UploadPDFResponse {
-  file_path: FilePath;
-  new_status: NewStatus;
-  prep_message?: PrepMessage;
-  prep_status?: PrepStatus;
-  project_id: ProjectId;
-  record_id: RecordId;
-  success?: Success;
+  message: string;
+  source: {
+    [k: string]: unknown;
+  };
   [k: string]: unknown;
 }
 
-// upload_search_file
-export type BasePath = string | null;
-export type Content = string | null;
-export type Encoding = string;
-export type Filename = string | null;
-export type ProjectId = string;
-export type SourceTemplate = string | null;
-export type Verbose = boolean;
+export interface UploadPdfRequest {
+  base_path?: string | null;
+  content: string;
+  filename: string;
+  project_id: string;
+  record_id: string;
+  verbose?: boolean;
+}
+
+export interface UploadPdfResponse {
+  file_path: string;
+  new_status: string;
+  prep_message?: string | null;
+  prep_status?: string;
+  project_id: string;
+  record_id: string;
+  success?: true;
+  [k: string]: unknown;
+}
 
 export interface UploadSearchFileRequest {
-  base_path?: BasePath;
-  content?: Content;
-  encoding?: Encoding;
-  filename?: Filename;
-  project_id: ProjectId;
-  source_template?: SourceTemplate;
-  verbose?: Verbose;
+  base_path?: string | null;
+  content?: string | null;
+  encoding?: string;
+  filename?: string | null;
+  project_id: string;
+  source_template?: string | null;
+  verbose?: boolean;
 }
-
-export type DetectedFormat = string;
-export type Message = string;
-export type Path = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface UploadSearchFileResponse {
-  detected_format: DetectedFormat;
-  message: Message;
-  path: Path;
-  project_id: ProjectId;
-  success?: Success;
+  detected_format: string;
+  message: string;
+  path: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-
-// validate
-export type BasePath = string | null;
-export type FilterSetting = string;
-export type ProjectId = string;
-export type Scope = string;
-export type Verbose = boolean;
 
 export interface ValidateRequest {
-  base_path?: BasePath;
-  filter_setting?: FilterSetting;
-  project_id: ProjectId;
-  scope?: Scope;
-  verbose?: Verbose;
+  base_path?: string | null;
+  filter_setting?: string;
+  project_id: string;
+  scope?: string;
+  verbose?: boolean;
 }
-
-export type Message = string;
-export type Operation = string;
-export type ProjectId = string;
-export type Success = true;
 
 export interface ValidateResponse {
-  details: Details;
-  message: Message;
-  operation: Operation;
-  project_id: ProjectId;
-  success?: Success;
+  details: {
+    [k: string]: unknown;
+  };
+  message: string;
+  operation: string;
+  project_id: string;
+  success?: true;
   [k: string]: unknown;
 }
-export interface Details {}
 
 /** Discriminated map: method name → request/response types. */
 export interface RPCMethods {
@@ -2552,6 +1817,10 @@ export interface RPCMethods {
   "get_branch_delta": {
     params: GetBranchDeltaRequest;
     result: GetBranchDeltaResponse;
+  };
+  "get_connector_api_key_status": {
+    params: GetConnectorApiKeyStatusRequest;
+    result: GetConnectorApiKeyStatusResponse;
   };
   "get_csv_source_templates": {
     params: GetCsvSourceTemplatesRequest;
@@ -2720,6 +1989,10 @@ export interface RPCMethods {
   "search": {
     params: SearchRequest;
     result: SearchResponse;
+  };
+  "set_connector_api_key": {
+    params: SetConnectorApiKeyRequest;
+    result: SetConnectorApiKeyResponse;
   };
   "status": {
     params: StatusRequest;

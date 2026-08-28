@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { Plus, Loader2, RefreshCw, FolderKanban, Settings, Github, Globe, Lock, Download, Mail, Check, X } from 'lucide-vue-next';
+import { Plus, Loader2, RefreshCw, FolderKanban, FolderOpen, Settings, Github, Globe, Lock, Download, Mail, Check, X } from 'lucide-vue-next';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import type { RepoInvitation } from '@/types/window';
 import { Button } from '@/components/ui/button';
@@ -25,7 +25,6 @@ import { useNotificationsStore } from '@/stores/notifications';
 import { useAuthStore } from '@/stores/auth';
 import { useGithubReposStore } from '@/stores/github-repos';
 import { useConnectionStore } from '@/stores/connection';
-import type { InitProjectResponse, ListProjectsResponse } from '@/types/api';
 
 const router = useRouter();
 const route = useRoute();
@@ -139,7 +138,7 @@ async function discoverProjects() {
 
   try {
     // Discover existing projects from disk
-    const response = await backend.call<ListProjectsResponse>('list_projects', {});
+    const response = await backend.call('list_projects', {});
 
     if (response.success && response.projects) {
       // Add discovered projects to the store
@@ -169,7 +168,7 @@ async function createProject() {
   const slug = generatedSlug.value;
 
   try {
-    const result = await backend.call<InitProjectResponse>('init_project', {
+    const result = await backend.call('init_project', {
       project_id: slug,
       title,
       review_type: 'colrev.literature_review',

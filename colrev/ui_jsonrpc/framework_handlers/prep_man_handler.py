@@ -6,6 +6,10 @@ import logging
 from typing import Any
 from typing import Dict
 from typing import List
+from typing import Optional
+
+from pydantic import BaseModel
+from pydantic import ConfigDict
 
 import colrev.record.record_prep
 from colrev.constants import Fields
@@ -24,9 +28,19 @@ class PrepManUpdateRecordRequest(ProjectScopedRequest):
     fields: Dict[str, Any]
 
 
+class PrepManUpdateDetails(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    record: Dict[str, Any]
+    new_status: str
+    message: str
+    # Present only when the record still has quality defects.
+    remaining_defects: Optional[Dict[str, List[str]]] = None
+
+
 class PrepManUpdateRecordResponse(ProjectResponse):
     operation: str
-    details: dict
+    details: PrepManUpdateDetails
 
 
 class PrepManHandler(BaseHandler):
@@ -37,6 +51,7 @@ class PrepManHandler(BaseHandler):
         request=PrepManUpdateRecordRequest,
         response=PrepManUpdateRecordResponse,
         operation_type=OperationsType.prep_man,
+        writes=True,
     )
     def prep_man_update_record(
         self, req: PrepManUpdateRecordRequest

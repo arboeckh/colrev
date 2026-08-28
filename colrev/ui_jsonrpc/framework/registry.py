@@ -28,6 +28,7 @@ class MethodSpecDraft:
     response_model: Type[BaseModel]
     operation_type: Optional[OperationsType] = None
     requires_project: bool = True
+    writes: bool = False
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,13 @@ class MethodSpec:
         requires_project: If True, the request must be a ProjectScopedRequest and the
             dispatcher will construct a ReviewManager. If False (``ping``, ``list_projects``,
             ``init_project``), no ReviewManager is built.
+        writes: True if the handler mutates on-disk project state (records.bib,
+            settings.json, search files, PDFs, git refs/index). Exported into
+            ``rpc-schemas.json`` and load-bearing in the renderer: the backend
+            store triggers its post-write git/pending-changes refresh off this
+            flag (``stores/backend.ts`` WRITER_METHODS). Any handler that
+            commits, saves, or stages files MUST set ``writes=True`` on its
+            ``@rpc_method`` registration. Does NOT trigger auto-commit.
     """
 
     name: str
@@ -55,6 +63,7 @@ class MethodSpec:
     handler_cls: Type
     operation_type: Optional[OperationsType] = None
     requires_project: bool = True
+    writes: bool = False
 
 
 class MethodRegistry:

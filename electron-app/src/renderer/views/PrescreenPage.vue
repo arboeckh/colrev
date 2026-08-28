@@ -39,16 +39,10 @@ import { useReconcileGate } from '@/composables/useReconcileGate';
 import { useWalkthroughNavigation } from '@/composables/useWalkthroughNavigation';
 import type {
   GetCurrentManagedReviewTaskResponse,
-  GetPrescreenQueueResponse,
-  GetRecordsResponse,
   ListManagedReviewTasksResponse,
   ManagedReviewTask,
   PrescreenQueueRecord,
-  PrescreenRecordResponse,
-  EnrichRecordMetadataResponse,
-  BatchEnrichRecordsResponse,
-  UpdatePrescreenDecisionsResponse,
-} from '@/types/api';
+} from '@/types/generated/rpc';
 
 // Enrichment status tracking
 type EnrichmentStatus = 'pending' | 'loading' | 'complete' | 'failed';
@@ -255,7 +249,7 @@ async function loadQueue() {
 
   isLoading.value = true;
   try {
-    const response = await backend.call<GetPrescreenQueueResponse>('get_prescreen_queue', {
+    const response = await backend.call('get_prescreen_queue', {
       project_id: projects.currentProjectId,
       limit: 50,
       task_id: managedTask.value?.id,
@@ -312,7 +306,7 @@ async function startBackgroundEnrichment() {
     });
 
     try {
-      const response = await backend.call<BatchEnrichRecordsResponse>('batch_enrich_records', {
+      const response = await backend.call('batch_enrich_records', {
         project_id: projects.currentProjectId!,
         record_ids: recordsToEnrich,
       });
@@ -322,8 +316,9 @@ async function startBackgroundEnrichment() {
       if (response.success) {
         for (const result of response.records) {
           const queueRecord = queue.value.find((r) => r.id === result.id);
-          if (queueRecord && result.record) {
-            queueRecord.abstract = result.record.abstract;
+          const enriched = result.record;
+          if (queueRecord && enriched) {
+            queueRecord.abstract = enriched.abstract;
             queueRecord.can_enrich = false;
             queueRecord._enrichmentStatus = result.success ? 'complete' : 'failed';
           } else if (queueRecord) {
@@ -356,7 +351,7 @@ async function enrichSingleRecord(recordId: string) {
   record._enrichmentStatus = 'loading';
 
   try {
-    const response = await backend.call<EnrichRecordMetadataResponse>('enrich_record_metadata', {
+    const response = await backend.call('enrich_record_metadata', {
       project_id: projects.currentProjectId!,
       record_id: recordId,
     });
@@ -401,7 +396,7 @@ async function makeDecision(decision: 'include' | 'exclude') {
 
   isDeciding.value = true;
   try {
-    const response = await backend.call<PrescreenRecordResponse>('prescreen_record', {
+    const response = await backend.call('prescreen_record', {
       project_id: projects.currentProjectId,
       record_id: currentRecord.value.id,
       decision,
@@ -443,7 +438,7 @@ async function enterEditMode() {
   editSearchText.value = '';
 
   try {
-    const response = await backend.call<GetRecordsResponse>('get_records', {
+    const response = await backend.call('get_records', {
       project_id: projects.currentProjectId,
       filters: { status: ['rev_prescreen_included', 'rev_prescreen_excluded'] },
       pagination: { offset: 0, limit: 500 },
@@ -490,7 +485,7 @@ async function saveEdits() {
 
   isSavingEdits.value = true;
   try {
-    const response = await backend.call<UpdatePrescreenDecisionsResponse>(
+    const response = await backend.call(
       'update_prescreen_decisions',
       {
         project_id: projects.currentProjectId,
@@ -528,7 +523,7 @@ async function loadManagedTask() {
   if (!projects.currentProjectId || !backend.isRunning) return;
 
   try {
-    const response = await backend.call<GetCurrentManagedReviewTaskResponse>('get_current_managed_review_task', {
+    const response = await backend.call('get_current_managed_review_task', {
       project_id: projects.currentProjectId,
       kind: 'prescreen',
     });
@@ -554,7 +549,7 @@ async function ensureManagedTaskAccess(): Promise<boolean> {
 
   let tasksResponse: ListManagedReviewTasksResponse;
   try {
-    tasksResponse = await backend.call<ListManagedReviewTasksResponse>('list_managed_review_tasks', {
+    tasksResponse = await backend.call('list_managed_review_tasks', {
       project_id: projects.currentProjectId,
       kind: 'prescreen',
     });

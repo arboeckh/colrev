@@ -25,7 +25,6 @@ import { useProjectsStore, type ProjectListItem } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useConnectionStore } from '@/stores/connection';
-import type { DeleteProjectResponse } from '@/types/api';
 
 defineProps<{
   projects: ProjectListItem[];
@@ -78,7 +77,7 @@ async function confirmDelete() {
       }
     }
 
-    const response = await backend.call<DeleteProjectResponse>('delete_project', {
+    const response = await backend.call('delete_project', {
       project_id: projectToDelete.value.id,
     });
 

@@ -24,6 +24,7 @@ def rpc_method(
     response: Type[BaseModel],
     operation_type: Optional[OperationsType] = None,
     requires_project: bool = True,
+    writes: bool = False,
 ) -> Callable:
     """Mark a handler method as an RPC endpoint.
 
@@ -34,6 +35,9 @@ def rpc_method(
         operation_type: If this wraps a CoLRev operation, the OperationsType.
             None for UI-native methods.
         requires_project: False for project-list / ping / init endpoints.
+        writes: True if the handler mutates on-disk project state. Load-bearing
+            in the renderer (post-write refresh keys off the exported schema) —
+            any handler that commits, saves, or stages files must set it.
     """
 
     draft = MethodSpecDraft(
@@ -42,6 +46,7 @@ def rpc_method(
         response_model=response,
         operation_type=operation_type,
         requires_project=requires_project,
+        writes=writes,
     )
 
     def decorator(fn: Callable) -> Callable:

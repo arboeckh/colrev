@@ -5,8 +5,6 @@ import { useProjectsStore } from './projects';
 import { useNotificationsStore } from './notifications';
 import type {
   GetGitStatusResponse,
-  CommitChangesResponse,
-  DiscardChangesResponse,
   StagedRecordChange,
 } from '@/types/generated/rpc';
 import { stripUrlUserinfo } from '@/lib/utils';
@@ -52,7 +50,7 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
 
     inFlightRefresh = (async () => {
       try {
-        const response = await backend.call<GetGitStatusResponse>('get_git_status', {
+        const response = await backend.call('get_git_status', {
           project_id: projects.currentProjectId!,
         });
         gitStatus.value = response.git
@@ -76,7 +74,7 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
 
     isCommitting.value = true;
     try {
-      const response = await backend.call<CommitChangesResponse>('commit_changes', {
+      const response = await backend.call('commit_changes', {
         project_id: projects.currentProjectId,
         message: trimmed,
       });
@@ -106,7 +104,7 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
 
     isDiscarding.value = true;
     try {
-      const response = await backend.call<DiscardChangesResponse>('discard_changes', {
+      const response = await backend.call('discard_changes', {
         project_id: projects.currentProjectId,
         confirm: true,
       });

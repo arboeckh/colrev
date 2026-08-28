@@ -6,14 +6,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { NativeSelect } from '@/components/ui/native-select';
-import type { ScreenCriterionDefinition } from '@/types/api';
 
 interface Props {
+  // Aligned with the generated criterion shapes (CriterionInfo /
+  // ScreenCriterionInfo): criterion_type is a plain string on the wire,
+  // not a literal union, and every field except the name may be absent.
   criterion?: {
     name: string;
-    explanation: string;
-    comment?: string;
-    criterion_type: 'inclusion_criterion' | 'exclusion_criterion';
+    explanation?: string | null;
+    comment?: string | null;
+    criterion_type?: string | null;
   };
   mode: 'add' | 'edit' | 'view';
   isSaving?: boolean;
@@ -47,9 +49,9 @@ watch(() => props.criterion, (newCriterion) => {
   if (newCriterion && props.mode !== 'add') {
     formData.value = {
       name: newCriterion.name,
-      explanation: newCriterion.explanation,
+      explanation: newCriterion.explanation ?? '',
       comment: newCriterion.comment || '',
-      criterion_type: newCriterion.criterion_type,
+      criterion_type: newCriterion.criterion_type ?? 'inclusion_criterion',
     };
   }
 }, { immediate: true });
@@ -92,9 +94,9 @@ function cancel() {
     // Reset to original values
     formData.value = {
       name: props.criterion.name,
-      explanation: props.criterion.explanation,
+      explanation: props.criterion.explanation ?? '',
       comment: props.criterion.comment || '',
-      criterion_type: props.criterion.criterion_type,
+      criterion_type: props.criterion.criterion_type ?? 'inclusion_criterion',
     };
     isEditing.value = false;
   } else {

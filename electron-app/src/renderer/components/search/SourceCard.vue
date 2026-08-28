@@ -26,7 +26,7 @@ import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import type { SearchSource, RemoveSourceResponse, UpdateSourceResponse } from '@/types';
+import type { SearchSource } from '@/types';
 
 interface SearchProgress {
   progress: number;
@@ -184,7 +184,7 @@ async function handleDelete() {
   isDeleting.value = true;
 
   try {
-    const response = await backend.call<RemoveSourceResponse>('remove_source', {
+    const response = await backend.call('remove_source', {
       project_id: props.projectId,
       filename: filename.value,
       delete_file: true,
@@ -207,7 +207,7 @@ async function handleUpdate() {
   isUpdating.value = true;
 
   try {
-    const response = await backend.call<UpdateSourceResponse>('update_source', {
+    const response = await backend.call('update_source', {
       project_id: props.projectId,
       filename: filename.value,
       search_string: editSearchString.value,
@@ -259,7 +259,7 @@ async function handleUpdateFile() {
     const sourceFilename = filename.value.split('/').pop() || filename.value;
 
     // Upload the file with the same filename to overwrite
-    const uploadResponse = await backend.call<{ success: boolean; path: string }>('upload_search_file', {
+    const uploadResponse = await backend.call('upload_search_file', {
       project_id: props.projectId,
       filename: sourceFilename,
       content: fileContent,
@@ -272,7 +272,7 @@ async function handleUpdateFile() {
 
     // Update the source with the new run date (convert YYYY-MM-DD to ISO string)
     const runDateISO = new Date(updateSearchDate.value).toISOString();
-    const response = await backend.call<UpdateSourceResponse>('update_source', {
+    const response = await backend.call('update_source', {
       project_id: props.projectId,
       filename: filename.value,
       run_date: runDateISO,

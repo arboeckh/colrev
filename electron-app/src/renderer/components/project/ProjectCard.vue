@@ -18,7 +18,6 @@ import { useProjectsStore, type ProjectListItem } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useConnectionStore } from '@/stores/connection';
-import type { DeleteProjectResponse } from '@/types/api';
 
 const props = defineProps<{
   project: ProjectListItem;
@@ -42,8 +41,13 @@ const totalRecords = computed(() => {
   return props.project.status?.records?.total ?? 0;
 });
 
+// `overall.currently` never existed on the wire (latent drift bug — the badge
+// always fell back to 'Unknown'); the step shown is the next operation.
+// `next_operation` is null once every record is synthesized — that's a
+// finished review, not an unknown state.
 const currentStep = computed(() => {
-  return props.project.status?.overall?.currently ?? 'Unknown';
+  if (!props.project.status) return 'Unknown';
+  return props.project.status.next_operation ?? 'complete';
 });
 
 const projectTitle = computed(() => {
@@ -83,7 +87,7 @@ async function confirmDelete() {
       }
     }
 
-    const response = await backend.call<DeleteProjectResponse>('delete_project', {
+    const response = await backend.call('delete_project', {
       project_id: props.project.id,
     });
 

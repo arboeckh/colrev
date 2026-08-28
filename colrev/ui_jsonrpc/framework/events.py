@@ -40,7 +40,7 @@ def _default_stdout_emitter(event: ProgressEvent) -> None:
     notification = {
         "jsonrpc": "2.0",
         "method": "progress",
-        "params": event.model_dump(mode="json", exclude_none=True),
+        "params": event.model_dump(mode="json"),
     }
     # Transport is line-delimited JSON; stdout is the single wire.
     sys.stdout.write(json.dumps(notification) + "\n")

@@ -68,8 +68,19 @@ class GetSourcesRequest(ProjectScopedRequest):
 
 
 class SourceInfo(BaseModel):
-    # Nested SearchSource has many fields — allow arbitrary structure.
+    """The wire shape built in ``get_sources``: ``ExtendedSearchFile.model_dump()``
+    plus the staleness metadata. Extra fields ride along via ``extra="allow"``."""
+
     model_config = ConfigDict(extra="allow")
+
+    platform: Optional[str] = None
+    search_results_path: Optional[str] = None
+    search_string: Optional[str] = None
+    search_type: Optional[str] = None
+    record_count: Optional[int] = None
+    last_run_timestamp: Optional[str] = None
+    is_stale: Optional[bool] = None
+    stale_reason: Optional[str] = None
 
 
 class GetSourcesResponse(ProjectResponse):
@@ -249,6 +260,7 @@ class SearchHandler(BaseHandler):
         request=SearchRequest,
         response=SearchResponse,
         operation_type=OperationsType.search,
+        writes=True,
     )
     def search(self, req: SearchRequest) -> SearchResponse:
         assert self.review_manager is not None
@@ -363,6 +375,7 @@ class SearchHandler(BaseHandler):
         name="add_source",
         request=AddSourceRequest,
         response=AddSourceResponse,
+        writes=True,
     )
     def add_source(self, req: AddSourceRequest) -> AddSourceResponse:
         assert self.review_manager is not None
@@ -453,6 +466,7 @@ class SearchHandler(BaseHandler):
         name="upload_search_file",
         request=UploadSearchFileRequest,
         response=UploadSearchFileResponse,
+        writes=True,
     )
     def upload_search_file(
         self, req: UploadSearchFileRequest
@@ -526,6 +540,7 @@ class SearchHandler(BaseHandler):
         name="remove_source",
         request=RemoveSourceRequest,
         response=RemoveSourceResponse,
+        writes=True,
     )
     def remove_source(self, req: RemoveSourceRequest) -> RemoveSourceResponse:
         assert self.review_manager is not None
@@ -589,6 +604,7 @@ class SearchHandler(BaseHandler):
         name="update_source",
         request=UpdateSourceRequest,
         response=UpdateSourceResponse,
+        writes=True,
     )
     def update_source(self, req: UpdateSourceRequest) -> UpdateSourceResponse:
         assert self.review_manager is not None

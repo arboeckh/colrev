@@ -8,9 +8,9 @@ export interface DisplayRecord {
   title?: string;
   author?: string;
   year?: string | number;
-  journal?: string;
-  booktitle?: string;
-  abstract?: string;
+  journal?: string | null;
+  booktitle?: string | null;
+  abstract?: string | null;
   _enrichmentStatus?: 'pending' | 'loading' | 'complete' | 'failed';
 }
 

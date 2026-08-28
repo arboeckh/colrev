@@ -54,6 +54,9 @@ class FieldDefinition(BaseModel):
     name: str
     explanation: str = ""
     data_type: str = "str"
+    # Set only when configured on the endpoint (see get_data_extraction_queue).
+    options: Optional[List[str]] = None
+    optional: Optional[bool] = None
 
 
 class ExtractionRecord(BaseModel):
@@ -89,10 +92,14 @@ class SaveDataExtractionResponse(ProjectResponse):
 
 
 class StructuredFieldSpec(BaseModel):
+    """Field spec accepted by ``configure_structured_endpoint``. Mirrors
+    ``FieldDefinition`` (the read-side shape) so the renderer can round-trip
+    fields from ``get_data_extraction_queue`` without casts."""
+
     model_config = ConfigDict(extra="allow")
 
     name: str
-    explanation: str
+    explanation: str = ""
     data_type: str = "str"
     options: Optional[List[Any]] = None
     optional: Optional[bool] = None
@@ -131,6 +138,7 @@ class DataHandler(BaseHandler):
         request=DataRequest,
         response=DataResponse,
         operation_type=OperationsType.data,
+        writes=True,
     )
     def data(self, req: DataRequest) -> DataResponse:
         assert self.review_manager is not None
@@ -150,6 +158,7 @@ class DataHandler(BaseHandler):
         request=GetDataExtractionQueueRequest,
         response=GetDataExtractionQueueResponse,
         operation_type=OperationsType.data,
+        writes=True,
     )
     def get_data_extraction_queue(
         self, req: GetDataExtractionQueueRequest
@@ -302,6 +311,7 @@ class DataHandler(BaseHandler):
         request=SaveDataExtractionRequest,
         response=SaveDataExtractionResponse,
         operation_type=OperationsType.data,
+        writes=True,
     )
     def save_data_extraction(
         self, req: SaveDataExtractionRequest
@@ -414,6 +424,7 @@ class DataHandler(BaseHandler):
         name="configure_structured_endpoint",
         request=ConfigureStructuredEndpointRequest,
         response=ConfigureStructuredEndpointResponse,
+        writes=True,
     )
     def configure_structured_endpoint(
         self, req: ConfigureStructuredEndpointRequest
