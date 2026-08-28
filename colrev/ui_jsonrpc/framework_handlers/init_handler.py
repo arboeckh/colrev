@@ -188,6 +188,7 @@ class InitHandler(BaseHandler):
         request=ListProjectsRequest,
         response=ListProjectsResponse,
         requires_project=False,
+        timeout_class="fast",
     )
     def list_projects(self, req: ListProjectsRequest) -> ListProjectsResponse:
         base_path = Path(req.base_path)

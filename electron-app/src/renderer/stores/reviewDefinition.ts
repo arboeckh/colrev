@@ -5,13 +5,13 @@ import { useProjectsStore } from './projects';
 import type { GetReviewDefinitionResponse } from '@/types/generated/rpc';
 
 /**
- * The review definition minus the response envelope — derived from the
- * generated type so backend additions surface here as type errors instead of
- * being silently dropped.
+ * The review definition minus the response envelope. Field types are derived
+ * from the generated response (Pick, not Omit — the envelope's index
+ * signature makes Omit collapse every property to `unknown`).
  */
-export type ReviewDefinitionData = Omit<
+export type ReviewDefinitionData = Pick<
   GetReviewDefinitionResponse,
-  'success' | 'project_id'
+  'review_type' | 'title' | 'protocol_url' | 'keywords' | 'objectives' | 'criteria'
 >;
 
 export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {

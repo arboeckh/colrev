@@ -319,6 +319,7 @@ class SearchHandler(BaseHandler):
         name="get_sources",
         request=GetSourcesRequest,
         response=GetSourcesResponse,
+        timeout_class="fast",
     )
     def get_sources(self, req: GetSourcesRequest) -> GetSourcesResponse:
         assert self.review_manager is not None

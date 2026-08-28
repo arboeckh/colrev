@@ -166,6 +166,7 @@ class StatusHandler(BaseHandler):
         name="get_status",
         request=GetStatusRequest,
         response=GetStatusResponse,
+        timeout_class="fast",
     )
     def get_status(self, req: GetStatusRequest) -> GetStatusResponse:
         assert self.review_manager is not None
@@ -196,6 +197,7 @@ class StatusHandler(BaseHandler):
         name="status",
         request=GetStatusRequest,
         response=GetStatusResponse,
+        timeout_class="fast",
     )
     def status(self, req: GetStatusRequest) -> GetStatusResponse:
         return self.get_status(req)
@@ -234,6 +236,7 @@ class StatusHandler(BaseHandler):
         name="get_operation_info",
         request=GetOperationInfoRequest,
         response=GetOperationInfoResponse,
+        timeout_class="fast",
     )
     def get_operation_info(
         self, req: GetOperationInfoRequest

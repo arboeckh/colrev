@@ -7,7 +7,7 @@ These endpoints are UI-native (``operation_type=None``) — they wrap
 The service returns dict payloads; each method validates its payload into a
 typed response model so the exported schema (and the generated frontend
 types) carry the real wire shape. The nested models mirror the dicts built
-in ``colrev/managed_review.py`` — keep them in sync.
+in ``colrev/ui_jsonrpc/managed_review.py`` — keep them in sync.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from typing import Optional
 from pydantic import BaseModel
 from pydantic import ConfigDict
 
-from colrev.managed_review import ManagedReviewService
+from colrev.ui_jsonrpc.managed_review import ManagedReviewService
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
@@ -88,7 +88,7 @@ class ExportReconciliationAuditRequest(ProjectScopedRequest):
 
 
 # ---------------------------------------------------------------------------
-# Response models — mirror the dict payloads built in colrev/managed_review.py
+# Response models — mirror the dict payloads built in colrev/ui_jsonrpc/managed_review.py
 # ---------------------------------------------------------------------------
 
 
@@ -272,6 +272,7 @@ class ManagedReviewHandler(BaseHandler):
         name="get_managed_review_task_readiness",
         request=GetManagedReviewTaskReadinessRequest,
         response=GetManagedReviewTaskReadinessResponse,
+        timeout_class="fast",
     )
     def get_managed_review_task_readiness(
         self, req: GetManagedReviewTaskReadinessRequest
@@ -284,6 +285,7 @@ class ManagedReviewHandler(BaseHandler):
         name="list_managed_review_tasks",
         request=ListManagedReviewTasksRequest,
         response=ListManagedReviewTasksResponse,
+        timeout_class="fast",
     )
     def list_managed_review_tasks(
         self, req: ListManagedReviewTasksRequest
@@ -296,6 +298,7 @@ class ManagedReviewHandler(BaseHandler):
         name="get_current_managed_review_task",
         request=GetCurrentManagedReviewTaskRequest,
         response=GetCurrentManagedReviewTaskResponse,
+        timeout_class="fast",
     )
     def get_current_managed_review_task(
         self, req: GetCurrentManagedReviewTaskRequest
@@ -349,6 +352,7 @@ class ManagedReviewHandler(BaseHandler):
         name="get_managed_review_task_queue",
         request=GetManagedReviewTaskQueueRequest,
         response=GetManagedReviewTaskQueueResponse,
+        timeout_class="fast",
     )
     def get_managed_review_task_queue(
         self, req: GetManagedReviewTaskQueueRequest

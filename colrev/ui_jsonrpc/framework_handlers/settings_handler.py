@@ -84,6 +84,7 @@ class SettingsHandler(BaseHandler):
         name="get_settings",
         request=GetSettingsRequest,
         response=GetSettingsResponse,
+        timeout_class="fast",
     )
     def get_settings(self, req: GetSettingsRequest) -> GetSettingsResponse:
         assert self.review_manager is not None

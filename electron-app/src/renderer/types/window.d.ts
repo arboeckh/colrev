@@ -1,5 +1,6 @@
 // Window API type declarations for Electron IPC
 
+import type { RpcCallEnvelope } from "../lib/rpc-errors";
 import type {
   ProgressEvent,
   RPCMethodName,
@@ -7,18 +8,31 @@ import type {
   RPCResult,
 } from "./generated/rpc";
 
+export interface RestartingInfo {
+  attempt: number;
+  maxAttempts: number;
+  delayMs: number;
+}
+
+export interface RpcQueueState {
+  inFlight: { method: string; startedAt: number } | null;
+  queued: string[];
+}
+
 export interface ColrevAPI {
   start: () => Promise<{ success: boolean; error?: string }>;
   /**
    * Send a JSON-RPC call: ``params`` and the returned ``result`` are typed
-   * from the backend's Pydantic-derived schema. Renderer code should go
-   * through the backend store's `call`/`callUntyped` rather than using this
-   * directly.
+   * from the backend's Pydantic-derived schema. Resolves to an envelope; the
+   * backend store unwraps it and rethrows failures as ``RpcError``
+   * (structured errors don't survive Electron's IPC serialization as thrown
+   * Errors). Renderer code should go through the backend store's
+   * `call`/`callUntyped` rather than using this directly.
    */
   call: <M extends RPCMethodName>(
     method: M,
     params: RPCParams<M>,
-  ) => Promise<RPCResult<M>>;
+  ) => Promise<RpcCallEnvelope<RPCResult<M>>>;
   stop: () => Promise<{ success: boolean }>;
   onLog: (callback: (msg: string) => void) => () => void;
   onError: (callback: (msg: string) => void) => () => void;
@@ -28,6 +42,12 @@ export interface ColrevAPI {
    * (search, load, prep, etc.). Replaces regex-parsing of stderr logs.
    */
   onProgress: (callback: (event: ProgressEvent) => void) => () => void;
+  /** Supervised-restart lifecycle after an unexpected backend exit. */
+  onRestarting: (callback: (info: RestartingInfo) => void) => () => void;
+  onRestarted: (callback: () => void) => () => void;
+  onRestartFailed: (callback: () => void) => () => void;
+  /** Snapshots of the serial RPC queue (in-flight method + waiting list). */
+  onRpcQueue: (callback: (state: RpcQueueState) => void) => () => void;
 }
 
 export interface FileOpsAPI {

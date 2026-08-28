@@ -5,12 +5,13 @@ method flows through one code path:
 
 1. Look up MethodSpec by method name.
 2. Validate params against ``spec.request_model`` (Pydantic).
-3. If ``spec.requires_project``: construct ``ReviewManager(interactive_mode=True)``
-   rooted at the resolved project path, inject LazyWriteGitRepo.
+3. If ``spec.requires_project``: construct a ``ReviewManager`` rooted at the
+   resolved project path, apply ``spec.precondition`` (the engine's operation
+   preconditions apply unchanged unless the method is a per-record
+   manual-decision endpoint), inject LazyWriteGitRepo.
 4. Instantiate ``spec.handler_cls`` with a HandlerContext.
 5. Call the handler, serialize the response via ``model_dump``.
 """
-
 from __future__ import annotations
 
 import logging
@@ -101,7 +102,9 @@ class Dispatcher:
             return _retry_on_lock(
                 method, lambda: self._dispatch_project_scoped(spec, request_obj)
             )
-        return _retry_on_lock(method, lambda: self._dispatch_no_project(spec, request_obj))
+        return _retry_on_lock(
+            method, lambda: self._dispatch_no_project(spec, request_obj)
+        )
 
     def _dispatch_no_project(
         self,
@@ -131,8 +134,10 @@ class Dispatcher:
         original_cwd = os.getcwd()
 
         # OS-level fd 1 redirect so child processes (and Python-level prints)
-        # can't pollute stdout — stdout is the JSON-RPC transport, nothing
-        # else may write to it.
+        # can't pollute the JSON-RPC stream. Responses and progress events are
+        # written through the private wire handle captured at server startup
+        # (see colrev.ui_jsonrpc.transport), so this redirect only silences
+        # writers that were never supposed to touch the wire.
         saved_stdout_fd = os.dup(1)
         devnull_fd = os.open(os.devnull, os.O_WRONLY)
         os.dup2(devnull_fd, 1)
@@ -142,10 +147,14 @@ class Dispatcher:
             os.chdir(project_path)
             review_manager = colrev.review_manager.ReviewManager(
                 path_str=str(project_path),
-                interactive_mode=True,
                 verbose_mode=getattr(request_obj, "verbose", False),
                 high_level_operation=True,
             )
+            if spec.precondition == "manual_decision":
+                # Narrow engine relaxation (see colrev/PATCHES.md): per-record
+                # prescreen/screen decisions may run with only data/records.bib
+                # dirty, mirroring the engine's prep_man precedent.
+                review_manager.manual_decision_mode = True
             install_lazy_git_repo(review_manager, Path(project_path))
 
             ctx = HandlerContext(

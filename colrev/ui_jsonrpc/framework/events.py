@@ -11,17 +11,16 @@ A global emitter callback is set by the stdio server loop so handlers don't
 need to know about transport details. Tests override the emitter to capture
 events in-memory.
 """
-
 from __future__ import annotations
 
 import json
 import logging
-import sys
 import threading
 from typing import Callable
 from typing import List
 from typing import Optional
 
+from colrev.ui_jsonrpc import transport
 from colrev.ui_jsonrpc.framework.domain import ProgressEvent
 from colrev.ui_jsonrpc.framework.domain import ProgressEventKind
 
@@ -36,15 +35,18 @@ _emitter: Optional[EmitterFn] = None
 
 
 def _default_stdout_emitter(event: ProgressEvent) -> None:
-    """Emit as a JSON-RPC 2.0 notification on stdout (no ``id``)."""
+    """Emit as a JSON-RPC 2.0 notification on the wire (no ``id``).
+
+    Uses :mod:`colrev.ui_jsonrpc.transport` — the same private handle
+    responses go through — so the dispatcher's per-request fd 1 redirect
+    cannot drop progress events emitted mid-handler.
+    """
     notification = {
         "jsonrpc": "2.0",
         "method": "progress",
         "params": event.model_dump(mode="json"),
     }
-    # Transport is line-delimited JSON; stdout is the single wire.
-    sys.stdout.write(json.dumps(notification) + "\n")
-    sys.stdout.flush()
+    transport.write_line(json.dumps(notification))
 
 
 def set_emitter(fn: Optional[EmitterFn]) -> None:
@@ -77,7 +79,7 @@ def emit_progress(event: ProgressEvent) -> None:
 
 
 def make_progress_callback(
-    kind: "ProgressEventKind",
+    kind: ProgressEventKind,
     *,
     source: Optional[str] = None,
 ) -> Callable[[int, int, str], None]:

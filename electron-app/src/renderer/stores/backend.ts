@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { useDebugStore } from './debug';
+import { RpcError, type RpcCallEnvelope } from '@/lib/rpc-errors';
 import rpcSchemas from '@/types/generated/rpc-schemas.json';
 import type {
   ProgressEvent,
@@ -26,7 +27,7 @@ const WRITER_METHODS: ReadonlySet<string> = new Set(
     .map(([name]) => name),
 );
 
-export type BackendStatus = 'stopped' | 'starting' | 'running' | 'error';
+export type BackendStatus = 'stopped' | 'starting' | 'running' | 'restarting' | 'error';
 
 export interface SearchProgress {
   currentBatch: number;
@@ -52,6 +53,12 @@ export const useBackendStore = defineStore('backend', () => {
   const operationTotal = ref<number>(0);
   const operationDone = ref<number>(0);
 
+  // Serial RPC queue visibility: the Python backend handles one request at a
+  // time — this exposes what it is working on and what is waiting, so the UI
+  // can say "waiting on: search" instead of freezing silently.
+  const rpcInFlight = ref<string | null>(null);
+  const rpcQueued = ref<string[]>([]);
+
   // Request ID counter for tracking
   let requestIdCounter = 0;
 
@@ -60,6 +67,10 @@ export const useBackendStore = defineStore('backend', () => {
   let unsubError: (() => void) | null = null;
   let unsubClose: (() => void) | null = null;
   let unsubProgress: (() => void) | null = null;
+  let unsubRestarting: (() => void) | null = null;
+  let unsubRestarted: (() => void) | null = null;
+  let unsubRestartFailed: (() => void) | null = null;
+  let unsubRpcQueue: (() => void) | null = null;
 
   // Computed
   const isRunning = computed(() => status.value === 'running');
@@ -158,9 +169,34 @@ export const useBackendStore = defineStore('backend', () => {
       });
       unsubClose = window.colrev.onClose((code) => {
         addLog(`[close] Backend exited with code ${code}`);
+        // An unexpected exit is followed within ms by a 'restarting' event
+        // from the supervisor; 'stopped' is only the final state if no
+        // restart follows (deliberate stop, or supervisor gave up).
         status.value = 'stopped';
       });
       unsubProgress = window.colrev.onProgress(handleProgressEvent);
+      unsubRestarting = window.colrev.onRestarting((info) => {
+        status.value = 'restarting';
+        addLog(
+          `[supervisor] Backend crashed — restarting (attempt ${info.attempt}/${info.maxAttempts})`
+        );
+      });
+      unsubRestarted = window.colrev.onRestarted(() => {
+        status.value = 'running';
+        addLog('[supervisor] Backend restarted');
+        // The new process has no memory of prior in-flight work — treat all
+        // project state as stale and re-derive it.
+        void refreshAfterRestart();
+      });
+      unsubRestartFailed = window.colrev.onRestartFailed(() => {
+        status.value = 'error';
+        error.value = 'Backend crashed and could not be restarted';
+        addLog('[supervisor] Backend restart failed — giving up');
+      });
+      unsubRpcQueue = window.colrev.onRpcQueue((state) => {
+        rpcInFlight.value = state.inFlight?.method ?? null;
+        rpcQueued.value = state.queued;
+      });
 
       const result = await window.colrev.start();
 
@@ -204,7 +240,12 @@ export const useBackendStore = defineStore('backend', () => {
     unsubError?.();
     unsubClose?.();
     unsubProgress?.();
+    unsubRestarting?.();
+    unsubRestarted?.();
+    unsubRestartFailed?.();
+    unsubRpcQueue?.();
     unsubLog = unsubError = unsubClose = unsubProgress = null;
+    unsubRestarting = unsubRestarted = unsubRestartFailed = unsubRpcQueue = null;
 
     addLog('Backend stopped');
   }
@@ -216,7 +257,9 @@ export const useBackendStore = defineStore('backend', () => {
   async function callRaw<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
     const debug = useDebugStore();
 
-    if (!isRunning.value) {
+    // Calls during a supervised restart are accepted: the main process
+    // queues them and sends them once the new backend answers ping.
+    if (!isRunning.value && status.value !== 'restarting') {
       const err = new Error('Backend is not running');
       debug.logError(`Call to ${method} failed: backend not running`);
       throw err;
@@ -238,14 +281,21 @@ export const useBackendStore = defineStore('backend', () => {
       const bridgeCall = window.colrev.call as (
         method: string,
         params: Record<string, unknown>,
-      ) => Promise<unknown>;
-      const result = (await bridgeCall(method, paramsWithPath)) as T;
-      debug.logRpcResponse(requestId, result, false);
-      return result;
-    } catch (err) {
-      const errorData = err instanceof Error ? { message: err.message, stack: err.stack } : err;
-      debug.logRpcResponse(requestId, errorData, true);
-      throw err;
+      ) => Promise<RpcCallEnvelope<unknown>>;
+      const envelope = await bridgeCall(method, paramsWithPath);
+      if (!envelope.ok) {
+        // Rethrow the serialized failure as a typed RpcError so call sites
+        // can branch on `error.code` (never on message text).
+        const err = new RpcError(envelope.error);
+        debug.logRpcResponse(
+          requestId,
+          { code: err.code, message: err.message, data: err.data },
+          true,
+        );
+        throw err;
+      }
+      debug.logRpcResponse(requestId, envelope.result, false);
+      return envelope.result as T;
     } finally {
       // Refresh on the error path too: a handler can fail *after* mutating
       // disk (e.g. serialization raising post-commit), and the UI must not
@@ -276,6 +326,21 @@ export const useBackendStore = defineStore('backend', () => {
     } catch {
       // Post-write refresh is best-effort; swallow.
     }
+  }
+
+  /**
+   * After a supervised backend restart, all project state derived from the
+   * old process is stale — re-derive it. (WP-05 will replace this with a
+   * proper invalidation seam; until then, reuse the existing refreshes.)
+   */
+  async function refreshAfterRestart() {
+    try {
+      const mod = await import('./projects');
+      await mod.useProjectsStore().refreshCurrentProject();
+    } catch {
+      // Best-effort: a failed refresh must not take the restart path down.
+    }
+    void schedulePostWriteRefresh();
   }
 
   /**
@@ -323,6 +388,8 @@ export const useBackendStore = defineStore('backend', () => {
     basePath,
     searchProgress,
     operationProgress,
+    rpcInFlight,
+    rpcQueued,
     // Computed
     isRunning,
     isStarting,

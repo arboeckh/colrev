@@ -159,6 +159,7 @@ class DataHandler(BaseHandler):
         response=GetDataExtractionQueueResponse,
         operation_type=OperationsType.data,
         writes=True,
+        timeout_class="fast",
     )
     def get_data_extraction_queue(
         self, req: GetDataExtractionQueueRequest

@@ -171,12 +171,16 @@ class PrescreenHandler(BaseHandler):
 
     # -- prescreen_record ----------------------------------------------------
 
+    # manual_decision: a prescreen session stages one decision per RPC in
+    # data/records.bib and commits once at the end, so mid-session calls run
+    # against a records-only-dirty tree by design.
     @rpc_method(
         name="prescreen_record",
         request=PrescreenRecordRequest,
         response=PrescreenRecordResponse,
         operation_type=OperationsType.prescreen,
         writes=True,
+        precondition="manual_decision",
     )
     def prescreen_record(self, req: PrescreenRecordRequest) -> PrescreenRecordResponse:
         assert self.review_manager is not None
@@ -274,6 +278,7 @@ class PrescreenHandler(BaseHandler):
         request=GetPrescreenQueueRequest,
         response=GetPrescreenQueueResponse,
         operation_type=OperationsType.prescreen,
+        timeout_class="fast",
     )
     def get_prescreen_queue(
         self, req: GetPrescreenQueueRequest
@@ -305,12 +310,15 @@ class PrescreenHandler(BaseHandler):
 
     # -- update_prescreen_decisions ------------------------------------------
 
+    # manual_decision: revises decisions staged (but not yet committed) by
+    # prescreen_record, so records.bib is expected to be dirty.
     @rpc_method(
         name="update_prescreen_decisions",
         request=UpdatePrescreenDecisionsRequest,
         response=UpdatePrescreenDecisionsResponse,
         operation_type=OperationsType.prescreen,
         writes=True,
+        precondition="manual_decision",
     )
     def update_prescreen_decisions(
         self, req: UpdatePrescreenDecisionsRequest
@@ -384,7 +392,12 @@ class PrescreenHandler(BaseHandler):
         assert self.review_manager is not None
         logger.info("Enriching record %s in project %s", req.record_id, req.project_id)
 
-        prep_operation = self.review_manager.get_prep_operation()
+        # notify=False: the prep operation is only a connector parameter for
+        # prep_link_md, not an operation start — enrichment runs mid-session
+        # with records.bib legitimately dirty.
+        prep_operation = self.review_manager.get_prep_operation(
+            notify_state_transition_operation=False
+        )
         records_dict = self.review_manager.dataset.load_records_dict() or {}
         if req.record_id not in records_dict:
             raise ValueError(f"Record '{req.record_id}' not found")
@@ -435,7 +448,10 @@ class PrescreenHandler(BaseHandler):
         if not req.record_ids:
             raise ValueError("record_ids parameter is required and must not be empty")
 
-        prep_operation = self.review_manager.get_prep_operation()
+        # notify=False: see enrich_record_metadata.
+        prep_operation = self.review_manager.get_prep_operation(
+            notify_state_transition_operation=False
+        )
         records_dict = self.review_manager.dataset.load_records_dict() or {}
 
         enriched_count = 0

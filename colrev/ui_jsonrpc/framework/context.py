@@ -14,8 +14,9 @@ class HandlerContext:
     """Everything a handler might need beyond the request model itself.
 
     Constructed by the Dispatcher before calling the handler. Contains the
-    (already-validated) project path, the active ReviewManager (with
-    ``interactive_mode=True``), and the MethodSpec that describes this call.
+    (already-validated) project path, the active ReviewManager (configured
+    per the method's precondition policy), and the MethodSpec that describes
+    this call.
 
     For methods with ``requires_project=False``, ``project_path`` and
     ``review_manager`` are both ``None``.

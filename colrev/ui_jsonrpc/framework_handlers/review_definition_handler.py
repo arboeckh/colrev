@@ -150,6 +150,7 @@ class ReviewDefinitionHandler(BaseHandler):
         name="get_review_definition",
         request=GetReviewDefinitionRequest,
         response=GetReviewDefinitionResponse,
+        timeout_class="fast",
     )
     def get_review_definition(
         self, req: GetReviewDefinitionRequest
@@ -226,6 +227,7 @@ class ReviewDefinitionHandler(BaseHandler):
         name="get_screening_criteria",
         request=GetScreeningCriteriaRequest,
         response=GetScreeningCriteriaResponse,
+        timeout_class="fast",
     )
     def get_screening_criteria(
         self, req: GetScreeningCriteriaRequest

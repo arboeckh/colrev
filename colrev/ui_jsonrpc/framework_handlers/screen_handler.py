@@ -170,6 +170,7 @@ class ScreenHandler(BaseHandler):
         request=GetScreenQueueRequest,
         response=GetScreenQueueResponse,
         operation_type=OperationsType.screen,
+        timeout_class="fast",
     )
     def get_screen_queue(self, req: GetScreenQueueRequest) -> GetScreenQueueResponse:
         assert self.review_manager is not None
@@ -229,12 +230,16 @@ class ScreenHandler(BaseHandler):
 
     # -- screen_record ------------------------------------------------------
 
+    # manual_decision: a screen session stages one decision per RPC in
+    # data/records.bib and commits once at the end, so mid-session calls run
+    # against a records-only-dirty tree by design.
     @rpc_method(
         name="screen_record",
         request=ScreenRecordRequest,
         response=ScreenRecordResponse,
         operation_type=OperationsType.screen,
         writes=True,
+        precondition="manual_decision",
     )
     def screen_record(self, req: ScreenRecordRequest) -> ScreenRecordResponse:
         assert self.review_manager is not None
@@ -317,12 +322,15 @@ class ScreenHandler(BaseHandler):
 
     # -- update_screen_decisions --------------------------------------------
 
+    # manual_decision: revises decisions staged (but not yet committed) by
+    # screen_record, so records.bib is expected to be dirty.
     @rpc_method(
         name="update_screen_decisions",
         request=UpdateScreenDecisionsRequest,
         response=UpdateScreenDecisionsResponse,
         operation_type=OperationsType.screen,
         writes=True,
+        precondition="manual_decision",
     )
     def update_screen_decisions(
         self, req: UpdateScreenDecisionsRequest

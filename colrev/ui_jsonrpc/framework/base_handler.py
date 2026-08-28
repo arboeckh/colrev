@@ -4,7 +4,6 @@ Subclassing triggers registration: every method decorated with ``@rpc_method``
 on the class is inserted into the global ``registry`` when the class is
 declared. Subclasses only define methods — no boilerplate __init__ or routing.
 """
-
 from __future__ import annotations
 
 from typing import Optional
@@ -58,6 +57,8 @@ class BaseHandler:
                 operation_type=draft.operation_type,
                 requires_project=draft.requires_project,
                 writes=draft.writes,
+                timeout_class=draft.timeout_class,
+                precondition=draft.precondition,
             )
             registry.register(spec)
 
