@@ -1,7 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, net, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { ColrevBackend } from './colrev-backend';
+import {
+  ColrevBackend,
+  RpcError,
+  RPC_TRANSPORT_NOT_RUNNING,
+  serializeRpcError,
+} from './colrev-backend';
 import { setupGitEnvironment } from './git-env';
 import { AuthManager } from './auth-manager';
 import { AccountScopedProjectPaths } from './account-scoped-project-paths';
@@ -44,14 +49,17 @@ import {
 import { withGitLock, withLockRetry } from './gitMutex';
 
 /**
- * RPC methods that bypass the mutex.
+ * RPC methods exempt from the JS-side git mutex — and ONLY from that.
  *
- * Two categories:
+ * This is not a fast lane: the Python server is strictly serial (one request
+ * at a time — see docs/adr/0001-serial-python-rpc-backend.md), so every RPC
+ * still queues inside `ColrevBackend`'s FIFO behind whatever is in flight.
+ * The exemption only means these methods don't additionally wait for the
+ * mutex shared with dugite `git:*` handlers:
  *  - Truly git-free: `ping`, `init_project`, etc.
  *  - Read-only introspection: `get_git_status` creates a fresh `git.Repo`
  *    and reads state without acquiring `.git/index.lock`. Lock races are a
- *    writer↔writer problem; letting reads skip the queue stops UI refreshes
- *    from piling up behind long user operations.
+ *    writer↔writer problem.
  */
 const GIT_FREE_RPC_METHODS = new Set<string>([
   'ping',
@@ -216,33 +224,58 @@ function setupIPC() {
         mainWindow?.webContents.send('colrev:error', err.message);
       });
       backend.on('close', (code) => {
+        // Do NOT null the backend here: an unexpected exit triggers a
+        // supervised restart inside ColrevBackend. The backend is only
+        // discarded on explicit stop or when the supervisor gives up.
         mainWindow?.webContents.send('colrev:close', code);
-        backend = null;
       });
       backend.on('progress', (event) => {
         mainWindow?.webContents.send('colrev:progress', event);
+      });
+      backend.on('restarting', (info) => {
+        mainWindow?.webContents.send('colrev:restarting', info);
+      });
+      backend.on('restarted', () => {
+        mainWindow?.webContents.send('colrev:restarted');
+      });
+      backend.on('restart-failed', () => {
+        backend = null;
+        mainWindow?.webContents.send('colrev:restart-failed');
+      });
+      backend.on('rpc-queue', (state) => {
+        mainWindow?.webContents.send('colrev:rpc-queue', state);
       });
 
       await backend.start();
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
+      backend?.stop();
+      backend = null;
       return { success: false, error: message };
     }
   });
 
   // Make RPC call. Git-touching methods go through the shared git mutex so
   // they can't race with dugite handlers on `.git/index.lock`.
+  //
+  // Returns an envelope instead of throwing: Electron strips custom Error
+  // properties at the IPC boundary, and the renderer needs the structured
+  // {code, message, data, method} to branch on error codes.
   ipcMain.handle('colrev:call', async (_, method: string, params: Record<string, unknown>) => {
-    if (!backend) {
-      throw new Error('Backend not running');
+    try {
+      if (!backend) {
+        throw new RpcError('Backend not running', RPC_TRANSPORT_NOT_RUNNING, method);
+      }
+      const result = GIT_FREE_RPC_METHODS.has(method)
+        ? await backend.call(method, params)
+        : // Lock-retry lives in the Python dispatcher (see
+          // colrev/ui_jsonrpc/framework/dispatcher.py); don't double-retry here.
+          await withGitLock(`rpc:${method}`, () => backend!.call(method, params));
+      return { ok: true, result };
+    } catch (err) {
+      return { ok: false, error: serializeRpcError(err) };
     }
-    if (GIT_FREE_RPC_METHODS.has(method)) {
-      return backend.call(method, params);
-    }
-    // Lock-retry lives in the Python dispatcher (see
-    // colrev/ui_jsonrpc/framework/dispatcher.py); don't double-retry here.
-    return withGitLock(`rpc:${method}`, () => backend!.call(method, params));
   });
 
   // Stop backend

@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Types and model of CoLRev operations."""
+"""Types and model of CoLRev operations.
+
+Local modification (see colrev/PATCHES.md): ``check_precondition`` supports a
+narrow manual-decision relaxation for prescreen/screen, mirroring the existing
+prep_man precedent ("clean except data/records.bib"). It is activated by the
+JSON-RPC dispatcher setting ``review_manager.manual_decision_mode = True`` for
+per-record decision endpoints; stock behavior is unchanged otherwise.
+"""
 from __future__ import annotations
 
 import typing
@@ -119,9 +126,6 @@ class Operation:
         if self.review_manager.force_mode:
             return
 
-        if getattr(self.review_manager, "interactive_mode", False):
-            return
-
         if self.type == OperationsType.load:
             self._require_clean_repo_general(
                 ignored_files=[
@@ -132,6 +136,17 @@ class Operation:
             self._check_model_precondition()
 
         elif self.type == OperationsType.prep_man:  # pragma: no cover
+            self._require_clean_repo_general(
+                ignored_files=[self.review_manager.paths.RECORDS_FILE_GIT]
+            )
+            self._check_model_precondition()
+
+        elif self.type in [
+            OperationsType.prescreen,
+            OperationsType.screen,
+        ] and getattr(self.review_manager, "manual_decision_mode", False):
+            # Local modification (colrev/PATCHES.md): per-record manual
+            # decisions mirror prep_man — only data/records.bib may be dirty.
             self._require_clean_repo_general(
                 ignored_files=[self.review_manager.paths.RECORDS_FILE_GIT]
             )

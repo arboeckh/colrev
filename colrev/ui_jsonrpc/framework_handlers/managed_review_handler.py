@@ -20,7 +20,7 @@ from typing import Optional
 
 from pydantic import ConfigDict
 
-from colrev.managed_review import ManagedReviewService
+from colrev.ui_jsonrpc.managed_review import ManagedReviewService
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
@@ -126,6 +126,7 @@ class ManagedReviewHandler(BaseHandler):
         name="get_managed_review_task_readiness",
         request=GetManagedReviewTaskReadinessRequest,
         response=ManagedReviewResponse,
+        timeout_class="fast",
     )
     def get_managed_review_task_readiness(
         self, req: GetManagedReviewTaskReadinessRequest
@@ -138,6 +139,7 @@ class ManagedReviewHandler(BaseHandler):
         name="list_managed_review_tasks",
         request=ListManagedReviewTasksRequest,
         response=ManagedReviewResponse,
+        timeout_class="fast",
     )
     def list_managed_review_tasks(
         self, req: ListManagedReviewTasksRequest
@@ -150,6 +152,7 @@ class ManagedReviewHandler(BaseHandler):
         name="get_current_managed_review_task",
         request=GetCurrentManagedReviewTaskRequest,
         response=ManagedReviewResponse,
+        timeout_class="fast",
     )
     def get_current_managed_review_task(
         self, req: GetCurrentManagedReviewTaskRequest
@@ -203,6 +206,7 @@ class ManagedReviewHandler(BaseHandler):
         name="get_managed_review_task_queue",
         request=GetManagedReviewTaskQueueRequest,
         response=ManagedReviewResponse,
+        timeout_class="fast",
     )
     def get_managed_review_task_queue(
         self, req: GetManagedReviewTaskQueueRequest

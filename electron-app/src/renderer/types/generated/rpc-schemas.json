@@ -91,6 +91,7 @@
         "title": "AddScreeningCriterionResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "add_source": {
@@ -246,6 +247,7 @@
         "title": "AddSourceResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "analyze_merge": {
@@ -467,6 +469,7 @@
         "title": "AnalyzeMergeResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": false
     },
     "apply_merge": {
@@ -574,6 +577,7 @@
         "title": "ApplyMergeResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "apply_reconciliation": {
@@ -651,6 +655,7 @@
         "title": "ManagedReviewResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "batch_enrich_records": {
@@ -768,6 +773,7 @@
         "title": "BatchEnrichRecordsResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "cancel_managed_review_task": {
@@ -834,6 +840,7 @@
         "title": "ManagedReviewResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "commit_changes": {
@@ -924,6 +931,7 @@
         "title": "CommitChangesResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "configure_structured_endpoint": {
@@ -1051,6 +1059,7 @@
         "title": "ConfigureStructuredEndpointResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "create_managed_review_task": {
@@ -1125,6 +1134,7 @@
         "title": "ManagedReviewResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "data": {
@@ -1190,6 +1200,7 @@
         "title": "DataResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "dedupe": {
@@ -1255,6 +1266,7 @@
         "title": "DedupeResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "delete_project": {
@@ -1303,6 +1315,7 @@
         "title": "DeleteProjectResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "discard_changes": {
@@ -1385,6 +1398,7 @@
         "title": "DiscardChangesResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "enrich_record_metadata": {
@@ -1532,6 +1546,7 @@
         "title": "EnrichRecordMetadataResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "export_data_csv": {
@@ -1597,6 +1612,7 @@
         "title": "ExportDataCsvResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": false
     },
     "export_pdfs": {
@@ -1672,6 +1688,7 @@
         "title": "ExportPDFsResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": false
     },
     "export_reconciliation_audit": {
@@ -1738,6 +1755,7 @@
         "title": "ManagedReviewResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": false
     },
     "get_branch_delta": {
@@ -1856,6 +1874,7 @@
         "title": "GetBranchDeltaResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": false
     },
     "get_connector_api_key_status": {
@@ -1899,6 +1918,7 @@
         "title": "GetConnectorApiKeyStatusResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "get_csv_source_templates": {
@@ -1945,6 +1965,7 @@
         "title": "GetCSVSourceTemplatesResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "get_current_managed_review_task": {
@@ -2006,6 +2027,7 @@
         "title": "ManagedReviewResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "get_data_extraction_queue": {
@@ -2170,6 +2192,7 @@
         "title": "GetDataExtractionQueueResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "get_git_status": {
@@ -2387,6 +2410,7 @@
         "title": "GetGitStatusResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "get_managed_review_task_queue": {
@@ -2448,6 +2472,7 @@
         "title": "ManagedReviewResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "get_managed_review_task_readiness": {
@@ -2509,6 +2534,7 @@
         "title": "ManagedReviewResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "get_operation_info": {
@@ -2618,6 +2644,7 @@
         "title": "GetOperationInfoResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "get_preprocessing_summary": {
@@ -2700,6 +2727,7 @@
         "title": "GetPreprocessingSummaryResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": false
     },
     "get_prescreen_queue": {
@@ -2821,6 +2849,7 @@
         "title": "GetPrescreenQueueResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "get_reconciliation_preview": {
@@ -2882,6 +2911,7 @@
         "title": "ManagedReviewResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": false
     },
     "get_record": {
@@ -2962,6 +2992,7 @@
         "title": "GetRecordResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": false
     },
     "get_records": {
@@ -3250,6 +3281,7 @@
         "title": "GetRecordsResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": false
     },
     "get_review_definition": {
@@ -3374,6 +3406,7 @@
         "title": "GetReviewDefinitionResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "get_screen_queue": {
@@ -3520,6 +3553,7 @@
         "title": "GetScreenQueueResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "get_screening_criteria": {
@@ -3616,6 +3650,7 @@
         "title": "GetScreeningCriteriaResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "get_settings": {
@@ -3676,6 +3711,7 @@
         "title": "GetSettingsResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "get_source_records": {
@@ -3827,6 +3863,7 @@
         "title": "GetSourceRecordsResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": false
     },
     "get_sources": {
@@ -3898,6 +3935,7 @@
         "title": "GetSourcesResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "get_status": {
@@ -3964,6 +4002,7 @@
         "title": "GetStatusResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "import_pdfs": {
@@ -4073,6 +4112,7 @@
         "title": "ImportPDFsResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "include_all_screen": {
@@ -4138,6 +4178,7 @@
         "title": "IncludeAllScreenResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "init_project": {
@@ -4228,6 +4269,7 @@
         "title": "InitProjectResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "list_managed_review_tasks": {
@@ -4289,6 +4331,7 @@
         "title": "ManagedReviewResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "list_projects": {
@@ -4354,6 +4397,7 @@
         "title": "ListProjectsResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "load": {
@@ -4424,6 +4468,7 @@
         "title": "LoadResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "mark_pdf_not_available": {
@@ -4494,6 +4539,7 @@
         "title": "MarkPDFNotAvailableResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "match_pdf_to_records": {
@@ -4686,6 +4732,7 @@
         "title": "MatchPDFToRecordsResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": false
     },
     "pdf_get": {
@@ -4751,6 +4798,7 @@
         "title": "PDFGetResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "pdf_prep": {
@@ -4826,6 +4874,7 @@
         "title": "PDFPrepResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "ping": {
@@ -4869,6 +4918,7 @@
         "title": "PingResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "prep": {
@@ -4939,6 +4989,7 @@
         "title": "PrepResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "prep_man_update_record": {
@@ -5014,6 +5065,7 @@
         "title": "PrepManUpdateRecordResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "prescreen": {
@@ -5089,6 +5141,7 @@
         "title": "PrescreenBatchResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "prescreen_record": {
@@ -5214,6 +5267,7 @@
         "title": "PrescreenRecordResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "remove_screening_criterion": {
@@ -5284,6 +5338,7 @@
         "title": "RemoveScreeningCriterionResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "remove_source": {
@@ -5386,6 +5441,7 @@
         "title": "RemoveSourceResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "reset_to_remote": {
@@ -5473,6 +5529,7 @@
         "title": "ResetToRemoteResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "restore_pdf_file": {
@@ -5553,6 +5610,7 @@
         "title": "RestorePDFFileResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": false
     },
     "save_data_extraction": {
@@ -5633,6 +5691,7 @@
         "title": "SaveDataExtractionResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "screen": {
@@ -5703,6 +5762,7 @@
         "title": "ScreenBatchResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "screen_record": {
@@ -5854,6 +5914,7 @@
         "title": "ScreenRecordResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "search": {
@@ -5959,6 +6020,7 @@
         "title": "SearchResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "set_connector_api_key": {
@@ -6019,6 +6081,7 @@
         "title": "SetConnectorApiKeyResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "status": {
@@ -6085,6 +6148,7 @@
         "title": "GetStatusResponse",
         "type": "object"
       },
+      "timeout_class": "fast",
       "writes": false
     },
     "undo_pdf_not_available": {
@@ -6155,6 +6219,7 @@
         "title": "UndoPDFNotAvailableResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "update_prescreen_decisions": {
@@ -6290,6 +6355,7 @@
         "title": "UpdatePrescreenDecisionsResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "update_record": {
@@ -6379,6 +6445,7 @@
         "title": "UpdateRecordResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "update_review_definition": {
@@ -6483,6 +6550,7 @@
         "title": "UpdateReviewDefinitionResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "update_screen_decisions": {
@@ -6618,6 +6686,7 @@
         "title": "UpdateScreenDecisionsResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "update_screening_criterion": {
@@ -6724,6 +6793,7 @@
         "title": "UpdateScreeningCriterionResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "update_settings": {
@@ -6799,6 +6869,7 @@
         "title": "UpdateSettingsResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "update_source": {
@@ -6937,6 +7008,7 @@
         "title": "UpdateSourceResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "upload_pdf": {
@@ -7039,6 +7111,7 @@
         "title": "UploadPDFResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "upload_search_file": {
@@ -7150,6 +7223,7 @@
         "title": "UploadSearchFileResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": true
     },
     "validate": {
@@ -7230,6 +7304,7 @@
         "title": "ValidateResponse",
         "type": "object"
       },
+      "timeout_class": "slow",
       "writes": false
     }
   },

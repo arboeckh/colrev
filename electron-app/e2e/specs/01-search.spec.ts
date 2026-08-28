@@ -178,7 +178,7 @@ test.describe('search', () => {
     expect(fs.existsSync(bibPath), `missing ${bibPath}`).toBe(true);
     const bib = fs.readFileSync(bibPath, 'utf-8');
     // All 10 records present with titles (not empty @misc entries).
-    // Field names are padded by the bib writer — match with flexible spacing.
+    // Padding-tolerant: the bib writer aligns field keys.
     expect(bib).toMatch(/title\s+= \{Phase 3 Trial/);
     const doiLines = bib.match(/^\s*doi\s*=/gm) ?? [];
     expect(doiLines.length).toBe(10);

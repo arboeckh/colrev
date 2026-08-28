@@ -1,7 +1,9 @@
 """Parameter validation for JSON-RPC requests."""
-
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
+from typing import Dict
+
+from colrev.ui_jsonrpc.errors import NotFoundError
 
 
 def sanitize_project_id(project_id: str) -> str:
@@ -68,12 +70,12 @@ def validate_existing_project(params: Dict[str, Any]) -> Path:
         Absolute path to the existing project directory
 
     Raises:
-        ValueError: If project doesn't exist
+        NotFoundError: If project doesn't exist
     """
     target_path = validate_project_path(params)
 
     if not target_path.exists():
-        raise ValueError(
+        raise NotFoundError(
             f"Project {params['project_id']} does not exist at {target_path}"
         )
 

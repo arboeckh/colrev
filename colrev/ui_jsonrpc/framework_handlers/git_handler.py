@@ -125,6 +125,7 @@ class GitHandler(BaseHandler):
         name="get_git_status",
         request=GetGitStatusRequest,
         response=GetGitStatusResponse,
+        timeout_class="fast",
     )
     def get_git_status(self, req: GetGitStatusRequest) -> GetGitStatusResponse:
         assert self.review_manager is not None
