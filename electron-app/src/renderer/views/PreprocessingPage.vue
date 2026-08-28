@@ -22,7 +22,7 @@ import { useReadOnly } from '@/composables/useReadOnly';
 import PreprocessingResultsModal from '@/components/preprocessing/PreprocessingResultsModal.vue';
 import StepPageShell from '@/components/layout/StepPageShell.vue';
 import PreprocessingPageHelp from './PreprocessingPageHelp.vue';
-import type { GetSourcesResponse, SearchSource } from '@/types';
+import type { SearchSource } from '@/types';
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
@@ -164,11 +164,11 @@ async function loadSources() {
 
   isLoadingSources.value = true;
   try {
-    const response = await backend.call<GetSourcesResponse>('get_sources', {
+    const response = await backend.call('get_sources', {
       project_id: projects.currentProjectId,
     });
     if (response.success && response.sources) {
-      sources.value = response.sources;
+      sources.value = response.sources as unknown as SearchSource[];
     }
   } catch (err) {
     console.error('Failed to load sources:', err);
@@ -197,7 +197,7 @@ async function runStage(stageId: StageId): Promise<boolean> {
       params.use_minimal_prep = true;
     }
 
-    await backend.call(stageId, params);
+    await backend.callUntyped(stageId, params);
     completedStages.value.add(stageId);
     return true;
   } catch (err) {

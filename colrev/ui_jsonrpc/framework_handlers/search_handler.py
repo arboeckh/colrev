@@ -68,8 +68,19 @@ class GetSourcesRequest(ProjectScopedRequest):
 
 
 class SourceInfo(BaseModel):
-    # Nested SearchSource has many fields — allow arbitrary structure.
+    """The wire shape built in ``get_sources``: ``ExtendedSearchFile.model_dump()``
+    plus the staleness metadata. Extra fields ride along via ``extra="allow"``."""
+
     model_config = ConfigDict(extra="allow")
+
+    platform: Optional[str] = None
+    search_results_path: Optional[str] = None
+    search_string: Optional[str] = None
+    search_type: Optional[str] = None
+    record_count: Optional[int] = None
+    last_run_timestamp: Optional[str] = None
+    is_stale: Optional[bool] = None
+    stale_reason: Optional[str] = None
 
 
 class GetSourcesResponse(ProjectResponse):

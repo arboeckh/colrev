@@ -13,7 +13,7 @@ import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
-import type { GetSourcesResponse, SearchSource } from '@/types';
+import type { SearchSource } from '@/types';
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
@@ -103,16 +103,17 @@ async function loadSources() {
 
   isLoadingSources.value = true;
   try {
-    const response = await backend.call<GetSourcesResponse>('get_sources', {
+    const response = await backend.call('get_sources', {
       project_id: projects.currentProjectId,
     });
     if (response.success) {
-      sources.value = response.sources;
+      const loadedSources = response.sources as unknown as SearchSource[];
+      sources.value = loadedSources;
       // Update the store with stale status for sidebar to use
       // A source needs action if:
       // 1. It's explicitly marked as stale (needs re-run)
       // 2. It's an API source that has never been run (no records)
-      const hasSourcesNeedingAction = response.sources.some(s => {
+      const hasSourcesNeedingAction = loadedSources.some(s => {
         if (s.search_type === 'FILES') return false;
         // Explicitly stale
         if (s.is_stale) return true;

@@ -14,23 +14,6 @@ import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
 
-interface ExportResponse {
-  success: boolean;
-  file_count: number;
-  total_bytes: number;
-  path: string;
-}
-
-interface ImportResponse {
-  success: boolean;
-  imported_count: number;
-  skipped_count: number;
-  overwritten_count: number;
-  conflicts: string[];
-  manifest_project_id?: string | null;
-  manifest_mismatch?: boolean;
-}
-
 const props = withDefaults(
   defineProps<{
     variant?: 'default' | 'compact';
@@ -80,7 +63,7 @@ async function onExport() {
 
   isExporting.value = true;
   try {
-    const res = await backend.call<ExportResponse>('export_pdfs', {
+    const res = await backend.call('export_pdfs', {
       project_id: projectId,
       output_path: chosen.filePath,
     });
@@ -111,7 +94,7 @@ async function runImport(zipPath: string, onConflict: 'skip' | 'overwrite') {
 
   isImporting.value = true;
   try {
-    const res = await backend.call<ImportResponse>('import_pdfs', {
+    const res = await backend.call('import_pdfs', {
       project_id: projectId,
       zip_path: zipPath,
       on_conflict: onConflict,

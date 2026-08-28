@@ -65,6 +65,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -153,6 +154,7 @@
           "search_parameters": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -202,6 +204,7 @@
                 "type": "string"
               },
               "source": {
+                "additionalProperties": true,
                 "title": "Source",
                 "type": "object"
               }
@@ -553,6 +556,7 @@
           "statistics": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -636,23 +640,37 @@
       "requires_project": true,
       "response": {
         "additionalProperties": true,
-        "description": "All managed-review responses share the same envelope: success +\nproject_id plus an open dict of service-specific fields.",
         "properties": {
+          "commit_sha": {
+            "title": "Commit Sha",
+            "type": "string"
+          },
           "project_id": {
             "title": "Project Id",
             "type": "string"
+          },
+          "resolved_count": {
+            "title": "Resolved Count",
+            "type": "integer"
           },
           "success": {
             "const": true,
             "default": true,
             "title": "Success",
             "type": "boolean"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
           }
         },
         "required": [
-          "project_id"
+          "project_id",
+          "task_id",
+          "commit_sha",
+          "resolved_count"
         ],
-        "title": "ManagedReviewResponse",
+        "title": "ApplyReconciliationResponse",
         "type": "object"
       },
       "timeout_class": "slow",
@@ -719,9 +737,71 @@
           "BatchEnrichItem": {
             "additionalProperties": true,
             "properties": {
+              "enriched_fields": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Enriched Fields"
+              },
+              "error": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Error"
+              },
               "id": {
                 "title": "Id",
                 "type": "string"
+              },
+              "message": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Message"
+              },
+              "record": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PrescreenQueueRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "source": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Source"
               },
               "success": {
                 "title": "Success",
@@ -733,6 +813,100 @@
               "success"
             ],
             "title": "BatchEnrichItem",
+            "type": "object"
+          },
+          "PrescreenQueueRecord": {
+            "additionalProperties": true,
+            "properties": {
+              "abstract": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Abstract"
+              },
+              "author": {
+                "default": "",
+                "title": "Author",
+                "type": "string"
+              },
+              "booktitle": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Booktitle"
+              },
+              "can_enrich": {
+                "default": false,
+                "title": "Can Enrich",
+                "type": "boolean"
+              },
+              "doi": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Doi"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "journal": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Journal"
+              },
+              "pubmedid": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Pubmedid"
+              },
+              "title": {
+                "default": "",
+                "title": "Title",
+                "type": "string"
+              },
+              "year": {
+                "default": "",
+                "title": "Year",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "title": "PrescreenQueueRecord",
             "type": "object"
           }
         },
@@ -820,8 +994,290 @@
       },
       "requires_project": true,
       "response": {
+        "$defs": {
+          "ManagedReviewReconciliationSummary": {
+            "additionalProperties": true,
+            "properties": {
+              "auto_resolved_count": {
+                "title": "Auto Resolved Count",
+                "type": "integer"
+              },
+              "manual_conflict_count": {
+                "title": "Manual Conflict Count",
+                "type": "integer"
+              },
+              "record_count": {
+                "title": "Record Count",
+                "type": "integer"
+              },
+              "resolved_at": {
+                "title": "Resolved At",
+                "type": "string"
+              },
+              "resolved_by": {
+                "title": "Resolved By",
+                "type": "string"
+              }
+            },
+            "required": [
+              "resolved_by",
+              "resolved_at",
+              "auto_resolved_count",
+              "manual_conflict_count",
+              "record_count"
+            ],
+            "title": "ManagedReviewReconciliationSummary",
+            "type": "object"
+          },
+          "ManagedReviewReviewer": {
+            "additionalProperties": true,
+            "properties": {
+              "branch_name": {
+                "title": "Branch Name",
+                "type": "string"
+              },
+              "github_login": {
+                "title": "Github Login",
+                "type": "string"
+              },
+              "last_seen_commit": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Seen Commit"
+              },
+              "role": {
+                "enum": [
+                  "reviewer_a",
+                  "reviewer_b"
+                ],
+                "title": "Role",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "github_login",
+              "branch_name"
+            ],
+            "title": "ManagedReviewReviewer",
+            "type": "object"
+          },
+          "ManagedReviewReviewerProgress": {
+            "additionalProperties": true,
+            "properties": {
+              "available": {
+                "title": "Available",
+                "type": "boolean"
+              },
+              "branch_name": {
+                "title": "Branch Name",
+                "type": "string"
+              },
+              "branch_ref": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Branch Ref"
+              },
+              "completed_count": {
+                "title": "Completed Count",
+                "type": "integer"
+              },
+              "github_login": {
+                "title": "Github Login",
+                "type": "string"
+              },
+              "last_seen_commit": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Seen Commit"
+              },
+              "pending_count": {
+                "title": "Pending Count",
+                "type": "integer"
+              },
+              "role": {
+                "enum": [
+                  "reviewer_a",
+                  "reviewer_b"
+                ],
+                "title": "Role",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "github_login",
+              "branch_name",
+              "completed_count",
+              "pending_count",
+              "available"
+            ],
+            "title": "ManagedReviewReviewerProgress",
+            "type": "object"
+          },
+          "ManagedReviewTask": {
+            "additionalProperties": true,
+            "properties": {
+              "base_branch": {
+                "title": "Base Branch",
+                "type": "string"
+              },
+              "base_commit": {
+                "title": "Base Commit",
+                "type": "string"
+              },
+              "canceled_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Canceled At"
+              },
+              "canceled_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Canceled By"
+              },
+              "completed_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Completed At"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "created_by": {
+                "title": "Created By",
+                "type": "string"
+              },
+              "eligible_state": {
+                "title": "Eligible State",
+                "type": "string"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "prescreen",
+                  "screen"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "mode": {
+                "title": "Mode",
+                "type": "string"
+              },
+              "reconciliation_summary": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ManagedReviewReconciliationSummary"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "record_count": {
+                "title": "Record Count",
+                "type": "integer"
+              },
+              "record_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Record Ids",
+                "type": "array"
+              },
+              "reviewer_progress": {
+                "items": {
+                  "$ref": "#/$defs/ManagedReviewReviewerProgress"
+                },
+                "title": "Reviewer Progress",
+                "type": "array"
+              },
+              "reviewers": {
+                "items": {
+                  "$ref": "#/$defs/ManagedReviewReviewer"
+                },
+                "title": "Reviewers",
+                "type": "array"
+              },
+              "state": {
+                "enum": [
+                  "active",
+                  "reconciling",
+                  "completed",
+                  "aborted"
+                ],
+                "title": "State",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "mode",
+              "state",
+              "base_branch",
+              "base_commit",
+              "eligible_state",
+              "record_ids",
+              "reviewers",
+              "reviewer_progress",
+              "created_by",
+              "created_at",
+              "record_count"
+            ],
+            "title": "ManagedReviewTask",
+            "type": "object"
+          }
+        },
         "additionalProperties": true,
-        "description": "All managed-review responses share the same envelope: success +\nproject_id plus an open dict of service-specific fields.",
         "properties": {
           "project_id": {
             "title": "Project Id",
@@ -832,12 +1288,16 @@
             "default": true,
             "title": "Success",
             "type": "boolean"
+          },
+          "task": {
+            "$ref": "#/$defs/ManagedReviewTask"
           }
         },
         "required": [
-          "project_id"
+          "project_id",
+          "task"
         ],
-        "title": "ManagedReviewResponse",
+        "title": "CancelManagedReviewTaskResponse",
         "type": "object"
       },
       "timeout_class": "slow",
@@ -939,6 +1399,7 @@
         "$defs": {
           "StructuredFieldSpec": {
             "additionalProperties": true,
+            "description": "Field spec accepted by ``configure_structured_endpoint``. Mirrors\n``FieldDefinition`` (the read-side shape) so the renderer can round-trip\nfields from ``get_data_extraction_queue`` without casts.",
             "properties": {
               "data_type": {
                 "default": "str",
@@ -946,6 +1407,7 @@
                 "type": "string"
               },
               "explanation": {
+                "default": "",
                 "title": "Explanation",
                 "type": "string"
               },
@@ -980,8 +1442,7 @@
               }
             },
             "required": [
-              "name",
-              "explanation"
+              "name"
             ],
             "title": "StructuredFieldSpec",
             "type": "object"
@@ -1031,6 +1492,7 @@
         "properties": {
           "fields": {
             "items": {
+              "additionalProperties": true,
               "type": "object"
             },
             "title": "Fields",
@@ -1084,6 +1546,10 @@
             "type": "string"
           },
           "kind": {
+            "enum": [
+              "prescreen",
+              "screen"
+            ],
             "title": "Kind",
             "type": "string"
           },
@@ -1114,9 +1580,307 @@
       },
       "requires_project": true,
       "response": {
+        "$defs": {
+          "ManagedReviewReconciliationSummary": {
+            "additionalProperties": true,
+            "properties": {
+              "auto_resolved_count": {
+                "title": "Auto Resolved Count",
+                "type": "integer"
+              },
+              "manual_conflict_count": {
+                "title": "Manual Conflict Count",
+                "type": "integer"
+              },
+              "record_count": {
+                "title": "Record Count",
+                "type": "integer"
+              },
+              "resolved_at": {
+                "title": "Resolved At",
+                "type": "string"
+              },
+              "resolved_by": {
+                "title": "Resolved By",
+                "type": "string"
+              }
+            },
+            "required": [
+              "resolved_by",
+              "resolved_at",
+              "auto_resolved_count",
+              "manual_conflict_count",
+              "record_count"
+            ],
+            "title": "ManagedReviewReconciliationSummary",
+            "type": "object"
+          },
+          "ManagedReviewReviewer": {
+            "additionalProperties": true,
+            "properties": {
+              "branch_name": {
+                "title": "Branch Name",
+                "type": "string"
+              },
+              "github_login": {
+                "title": "Github Login",
+                "type": "string"
+              },
+              "last_seen_commit": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Seen Commit"
+              },
+              "role": {
+                "enum": [
+                  "reviewer_a",
+                  "reviewer_b"
+                ],
+                "title": "Role",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "github_login",
+              "branch_name"
+            ],
+            "title": "ManagedReviewReviewer",
+            "type": "object"
+          },
+          "ManagedReviewReviewerProgress": {
+            "additionalProperties": true,
+            "properties": {
+              "available": {
+                "title": "Available",
+                "type": "boolean"
+              },
+              "branch_name": {
+                "title": "Branch Name",
+                "type": "string"
+              },
+              "branch_ref": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Branch Ref"
+              },
+              "completed_count": {
+                "title": "Completed Count",
+                "type": "integer"
+              },
+              "github_login": {
+                "title": "Github Login",
+                "type": "string"
+              },
+              "last_seen_commit": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Seen Commit"
+              },
+              "pending_count": {
+                "title": "Pending Count",
+                "type": "integer"
+              },
+              "role": {
+                "enum": [
+                  "reviewer_a",
+                  "reviewer_b"
+                ],
+                "title": "Role",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "github_login",
+              "branch_name",
+              "completed_count",
+              "pending_count",
+              "available"
+            ],
+            "title": "ManagedReviewReviewerProgress",
+            "type": "object"
+          },
+          "ManagedReviewTask": {
+            "additionalProperties": true,
+            "properties": {
+              "base_branch": {
+                "title": "Base Branch",
+                "type": "string"
+              },
+              "base_commit": {
+                "title": "Base Commit",
+                "type": "string"
+              },
+              "canceled_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Canceled At"
+              },
+              "canceled_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Canceled By"
+              },
+              "completed_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Completed At"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "created_by": {
+                "title": "Created By",
+                "type": "string"
+              },
+              "eligible_state": {
+                "title": "Eligible State",
+                "type": "string"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "prescreen",
+                  "screen"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "mode": {
+                "title": "Mode",
+                "type": "string"
+              },
+              "reconciliation_summary": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ManagedReviewReconciliationSummary"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "record_count": {
+                "title": "Record Count",
+                "type": "integer"
+              },
+              "record_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Record Ids",
+                "type": "array"
+              },
+              "reviewer_progress": {
+                "items": {
+                  "$ref": "#/$defs/ManagedReviewReviewerProgress"
+                },
+                "title": "Reviewer Progress",
+                "type": "array"
+              },
+              "reviewers": {
+                "items": {
+                  "$ref": "#/$defs/ManagedReviewReviewer"
+                },
+                "title": "Reviewers",
+                "type": "array"
+              },
+              "state": {
+                "enum": [
+                  "active",
+                  "reconciling",
+                  "completed",
+                  "aborted"
+                ],
+                "title": "State",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "mode",
+              "state",
+              "base_branch",
+              "base_commit",
+              "eligible_state",
+              "record_ids",
+              "reviewers",
+              "reviewer_progress",
+              "created_by",
+              "created_at",
+              "record_count"
+            ],
+            "title": "ManagedReviewTask",
+            "type": "object"
+          }
+        },
         "additionalProperties": true,
-        "description": "All managed-review responses share the same envelope: success +\nproject_id plus an open dict of service-specific fields.",
         "properties": {
+          "enriched_count": {
+            "title": "Enriched Count",
+            "type": "integer"
+          },
+          "enrichment_failed_count": {
+            "title": "Enrichment Failed Count",
+            "type": "integer"
+          },
+          "enrichment_skipped_count": {
+            "title": "Enrichment Skipped Count",
+            "type": "integer"
+          },
+          "launch_ref": {
+            "title": "Launch Ref",
+            "type": "string"
+          },
           "project_id": {
             "title": "Project Id",
             "type": "string"
@@ -1126,12 +1890,20 @@
             "default": true,
             "title": "Success",
             "type": "boolean"
+          },
+          "task": {
+            "$ref": "#/$defs/ManagedReviewTask"
           }
         },
         "required": [
-          "project_id"
+          "project_id",
+          "task",
+          "launch_ref",
+          "enriched_count",
+          "enrichment_failed_count",
+          "enrichment_skipped_count"
         ],
-        "title": "ManagedReviewResponse",
+        "title": "CreateManagedReviewTaskResponse",
         "type": "object"
       },
       "timeout_class": "slow",
@@ -1174,6 +1946,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -1240,6 +2013,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -1456,22 +2230,82 @@
       "requires_project": true,
       "response": {
         "$defs": {
-          "EnrichedRecord": {
+          "PrescreenQueueRecord": {
             "additionalProperties": true,
             "properties": {
+              "abstract": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Abstract"
+              },
               "author": {
                 "default": "",
                 "title": "Author",
                 "type": "string"
+              },
+              "booktitle": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Booktitle"
               },
               "can_enrich": {
                 "default": false,
                 "title": "Can Enrich",
                 "type": "boolean"
               },
+              "doi": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Doi"
+              },
               "id": {
                 "title": "Id",
                 "type": "string"
+              },
+              "journal": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Journal"
+              },
+              "pubmedid": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Pubmedid"
               },
               "title": {
                 "default": "",
@@ -1487,7 +2321,7 @@
             "required": [
               "id"
             ],
-            "title": "EnrichedRecord",
+            "title": "PrescreenQueueRecord",
             "type": "object"
           }
         },
@@ -1517,7 +2351,7 @@
             "type": "string"
           },
           "record": {
-            "$ref": "#/$defs/EnrichedRecord"
+            "$ref": "#/$defs/PrescreenQueueRecord"
           },
           "source": {
             "anyOf": [
@@ -1736,8 +2570,15 @@
       "requires_project": true,
       "response": {
         "additionalProperties": true,
-        "description": "All managed-review responses share the same envelope: success +\nproject_id plus an open dict of service-specific fields.",
         "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
           "project_id": {
             "title": "Project Id",
             "type": "string"
@@ -1750,9 +2591,11 @@
           }
         },
         "required": [
-          "project_id"
+          "project_id",
+          "filename",
+          "content"
         ],
-        "title": "ManagedReviewResponse",
+        "title": "ExportReconciliationAuditResponse",
         "type": "object"
       },
       "timeout_class": "slow",
@@ -1953,6 +2796,7 @@
           },
           "templates": {
             "items": {
+              "additionalProperties": true,
               "type": "object"
             },
             "title": "Templates",
@@ -1985,6 +2829,10 @@
             "title": "Base Path"
           },
           "kind": {
+            "enum": [
+              "prescreen",
+              "screen"
+            ],
             "title": "Kind",
             "type": "string"
           },
@@ -2007,9 +2855,303 @@
       },
       "requires_project": true,
       "response": {
+        "$defs": {
+          "ManagedReviewReconciliationSummary": {
+            "additionalProperties": true,
+            "properties": {
+              "auto_resolved_count": {
+                "title": "Auto Resolved Count",
+                "type": "integer"
+              },
+              "manual_conflict_count": {
+                "title": "Manual Conflict Count",
+                "type": "integer"
+              },
+              "record_count": {
+                "title": "Record Count",
+                "type": "integer"
+              },
+              "resolved_at": {
+                "title": "Resolved At",
+                "type": "string"
+              },
+              "resolved_by": {
+                "title": "Resolved By",
+                "type": "string"
+              }
+            },
+            "required": [
+              "resolved_by",
+              "resolved_at",
+              "auto_resolved_count",
+              "manual_conflict_count",
+              "record_count"
+            ],
+            "title": "ManagedReviewReconciliationSummary",
+            "type": "object"
+          },
+          "ManagedReviewReviewer": {
+            "additionalProperties": true,
+            "properties": {
+              "branch_name": {
+                "title": "Branch Name",
+                "type": "string"
+              },
+              "github_login": {
+                "title": "Github Login",
+                "type": "string"
+              },
+              "last_seen_commit": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Seen Commit"
+              },
+              "role": {
+                "enum": [
+                  "reviewer_a",
+                  "reviewer_b"
+                ],
+                "title": "Role",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "github_login",
+              "branch_name"
+            ],
+            "title": "ManagedReviewReviewer",
+            "type": "object"
+          },
+          "ManagedReviewReviewerProgress": {
+            "additionalProperties": true,
+            "properties": {
+              "available": {
+                "title": "Available",
+                "type": "boolean"
+              },
+              "branch_name": {
+                "title": "Branch Name",
+                "type": "string"
+              },
+              "branch_ref": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Branch Ref"
+              },
+              "completed_count": {
+                "title": "Completed Count",
+                "type": "integer"
+              },
+              "github_login": {
+                "title": "Github Login",
+                "type": "string"
+              },
+              "last_seen_commit": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Seen Commit"
+              },
+              "pending_count": {
+                "title": "Pending Count",
+                "type": "integer"
+              },
+              "role": {
+                "enum": [
+                  "reviewer_a",
+                  "reviewer_b"
+                ],
+                "title": "Role",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "github_login",
+              "branch_name",
+              "completed_count",
+              "pending_count",
+              "available"
+            ],
+            "title": "ManagedReviewReviewerProgress",
+            "type": "object"
+          },
+          "ManagedReviewTask": {
+            "additionalProperties": true,
+            "properties": {
+              "base_branch": {
+                "title": "Base Branch",
+                "type": "string"
+              },
+              "base_commit": {
+                "title": "Base Commit",
+                "type": "string"
+              },
+              "canceled_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Canceled At"
+              },
+              "canceled_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Canceled By"
+              },
+              "completed_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Completed At"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "created_by": {
+                "title": "Created By",
+                "type": "string"
+              },
+              "eligible_state": {
+                "title": "Eligible State",
+                "type": "string"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "prescreen",
+                  "screen"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "mode": {
+                "title": "Mode",
+                "type": "string"
+              },
+              "reconciliation_summary": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ManagedReviewReconciliationSummary"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "record_count": {
+                "title": "Record Count",
+                "type": "integer"
+              },
+              "record_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Record Ids",
+                "type": "array"
+              },
+              "reviewer_progress": {
+                "items": {
+                  "$ref": "#/$defs/ManagedReviewReviewerProgress"
+                },
+                "title": "Reviewer Progress",
+                "type": "array"
+              },
+              "reviewers": {
+                "items": {
+                  "$ref": "#/$defs/ManagedReviewReviewer"
+                },
+                "title": "Reviewers",
+                "type": "array"
+              },
+              "state": {
+                "enum": [
+                  "active",
+                  "reconciling",
+                  "completed",
+                  "aborted"
+                ],
+                "title": "State",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "mode",
+              "state",
+              "base_branch",
+              "base_commit",
+              "eligible_state",
+              "record_ids",
+              "reviewers",
+              "reviewer_progress",
+              "created_by",
+              "created_at",
+              "record_count"
+            ],
+            "title": "ManagedReviewTask",
+            "type": "object"
+          }
+        },
         "additionalProperties": true,
-        "description": "All managed-review responses share the same envelope: success +\nproject_id plus an open dict of service-specific fields.",
         "properties": {
+          "current_branch": {
+            "title": "Current Branch",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "prescreen",
+              "screen"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "project_id": {
             "title": "Project Id",
             "type": "string"
@@ -2019,12 +3161,25 @@
             "default": true,
             "title": "Success",
             "type": "boolean"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ManagedReviewTask"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
-          "project_id"
+          "project_id",
+          "kind",
+          "current_branch"
         ],
-        "title": "ManagedReviewResponse",
+        "title": "GetCurrentManagedReviewTaskResponse",
         "type": "object"
       },
       "timeout_class": "fast",
@@ -2133,6 +3288,33 @@
               "name": {
                 "title": "Name",
                 "type": "string"
+              },
+              "optional": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Optional"
+              },
+              "options": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Options"
               }
             },
             "required": [
@@ -2193,7 +3375,7 @@
         "type": "object"
       },
       "timeout_class": "fast",
-      "writes": false
+      "writes": true
     },
     "get_git_status": {
       "request": {
@@ -2452,24 +3634,86 @@
       },
       "requires_project": true,
       "response": {
+        "$defs": {
+          "ManagedReviewQueueRecord": {
+            "additionalProperties": true,
+            "properties": {
+              "author": {
+                "title": "Author",
+                "type": "string"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "status": {
+                "title": "Status",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "year": {
+                "title": "Year",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "author",
+              "year",
+              "status"
+            ],
+            "title": "ManagedReviewQueueRecord",
+            "type": "object"
+          }
+        },
         "additionalProperties": true,
-        "description": "All managed-review responses share the same envelope: success +\nproject_id plus an open dict of service-specific fields.",
         "properties": {
+          "kind": {
+            "enum": [
+              "prescreen",
+              "screen"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "project_id": {
             "title": "Project Id",
             "type": "string"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/$defs/ManagedReviewQueueRecord"
+            },
+            "title": "Records",
+            "type": "array"
           },
           "success": {
             "const": true,
             "default": true,
             "title": "Success",
             "type": "boolean"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "total_count": {
+            "title": "Total Count",
+            "type": "integer"
           }
         },
         "required": [
-          "project_id"
+          "project_id",
+          "task_id",
+          "kind",
+          "records",
+          "total_count"
         ],
-        "title": "ManagedReviewResponse",
+        "title": "GetManagedReviewTaskQueueResponse",
         "type": "object"
       },
       "timeout_class": "fast",
@@ -2492,6 +3736,10 @@
             "title": "Base Path"
           },
           "kind": {
+            "enum": [
+              "prescreen",
+              "screen"
+            ],
             "title": "Kind",
             "type": "string"
           },
@@ -2514,24 +3762,110 @@
       },
       "requires_project": true,
       "response": {
+        "$defs": {
+          "ManagedReviewTracking": {
+            "additionalProperties": true,
+            "properties": {
+              "ahead": {
+                "title": "Ahead",
+                "type": "integer"
+              },
+              "behind": {
+                "title": "Behind",
+                "type": "integer"
+              },
+              "has_remote": {
+                "title": "Has Remote",
+                "type": "boolean"
+              },
+              "tracking_branch": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Tracking Branch"
+              }
+            },
+            "required": [
+              "has_remote",
+              "ahead",
+              "behind"
+            ],
+            "title": "ManagedReviewTracking",
+            "type": "object"
+          }
+        },
         "additionalProperties": true,
-        "description": "All managed-review responses share the same envelope: success +\nproject_id plus an open dict of service-specific fields.",
         "properties": {
+          "current_branch": {
+            "title": "Current Branch",
+            "type": "string"
+          },
+          "eligible_count": {
+            "title": "Eligible Count",
+            "type": "integer"
+          },
+          "eligible_record_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Eligible Record Ids",
+            "type": "array"
+          },
+          "eligible_state": {
+            "title": "Eligible State",
+            "type": "string"
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "prescreen",
+              "screen"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "project_id": {
             "title": "Project Id",
             "type": "string"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
           },
           "success": {
             "const": true,
             "default": true,
             "title": "Success",
             "type": "boolean"
+          },
+          "tracking": {
+            "$ref": "#/$defs/ManagedReviewTracking"
           }
         },
         "required": [
-          "project_id"
+          "project_id",
+          "kind",
+          "current_branch",
+          "eligible_state",
+          "eligible_record_ids",
+          "eligible_count",
+          "issues",
+          "ready",
+          "tracking"
         ],
-        "title": "ManagedReviewResponse",
+        "title": "GetManagedReviewTaskReadinessResponse",
         "type": "object"
       },
       "timeout_class": "fast",
@@ -2782,22 +4116,82 @@
       "requires_project": true,
       "response": {
         "$defs": {
-          "QueueRecord": {
+          "PrescreenQueueRecord": {
             "additionalProperties": true,
             "properties": {
+              "abstract": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Abstract"
+              },
               "author": {
                 "default": "",
                 "title": "Author",
                 "type": "string"
+              },
+              "booktitle": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Booktitle"
               },
               "can_enrich": {
                 "default": false,
                 "title": "Can Enrich",
                 "type": "boolean"
               },
+              "doi": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Doi"
+              },
               "id": {
                 "title": "Id",
                 "type": "string"
+              },
+              "journal": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Journal"
+              },
+              "pubmedid": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Pubmedid"
               },
               "title": {
                 "default": "",
@@ -2813,7 +4207,7 @@
             "required": [
               "id"
             ],
-            "title": "QueueRecord",
+            "title": "PrescreenQueueRecord",
             "type": "object"
           }
         },
@@ -2825,7 +4219,7 @@
           },
           "records": {
             "items": {
-              "$ref": "#/$defs/QueueRecord"
+              "$ref": "#/$defs/PrescreenQueueRecord"
             },
             "title": "Records",
             "type": "array"
@@ -2891,9 +4285,485 @@
       },
       "requires_project": true,
       "response": {
+        "$defs": {
+          "ManagedReviewReconciliationSummary": {
+            "additionalProperties": true,
+            "properties": {
+              "auto_resolved_count": {
+                "title": "Auto Resolved Count",
+                "type": "integer"
+              },
+              "manual_conflict_count": {
+                "title": "Manual Conflict Count",
+                "type": "integer"
+              },
+              "record_count": {
+                "title": "Record Count",
+                "type": "integer"
+              },
+              "resolved_at": {
+                "title": "Resolved At",
+                "type": "string"
+              },
+              "resolved_by": {
+                "title": "Resolved By",
+                "type": "string"
+              }
+            },
+            "required": [
+              "resolved_by",
+              "resolved_at",
+              "auto_resolved_count",
+              "manual_conflict_count",
+              "record_count"
+            ],
+            "title": "ManagedReviewReconciliationSummary",
+            "type": "object"
+          },
+          "ManagedReviewReviewer": {
+            "additionalProperties": true,
+            "properties": {
+              "branch_name": {
+                "title": "Branch Name",
+                "type": "string"
+              },
+              "github_login": {
+                "title": "Github Login",
+                "type": "string"
+              },
+              "last_seen_commit": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Seen Commit"
+              },
+              "role": {
+                "enum": [
+                  "reviewer_a",
+                  "reviewer_b"
+                ],
+                "title": "Role",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "github_login",
+              "branch_name"
+            ],
+            "title": "ManagedReviewReviewer",
+            "type": "object"
+          },
+          "ManagedReviewReviewerProgress": {
+            "additionalProperties": true,
+            "properties": {
+              "available": {
+                "title": "Available",
+                "type": "boolean"
+              },
+              "branch_name": {
+                "title": "Branch Name",
+                "type": "string"
+              },
+              "branch_ref": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Branch Ref"
+              },
+              "completed_count": {
+                "title": "Completed Count",
+                "type": "integer"
+              },
+              "github_login": {
+                "title": "Github Login",
+                "type": "string"
+              },
+              "last_seen_commit": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Seen Commit"
+              },
+              "pending_count": {
+                "title": "Pending Count",
+                "type": "integer"
+              },
+              "role": {
+                "enum": [
+                  "reviewer_a",
+                  "reviewer_b"
+                ],
+                "title": "Role",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "github_login",
+              "branch_name",
+              "completed_count",
+              "pending_count",
+              "available"
+            ],
+            "title": "ManagedReviewReviewerProgress",
+            "type": "object"
+          },
+          "ManagedReviewTask": {
+            "additionalProperties": true,
+            "properties": {
+              "base_branch": {
+                "title": "Base Branch",
+                "type": "string"
+              },
+              "base_commit": {
+                "title": "Base Commit",
+                "type": "string"
+              },
+              "canceled_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Canceled At"
+              },
+              "canceled_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Canceled By"
+              },
+              "completed_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Completed At"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "created_by": {
+                "title": "Created By",
+                "type": "string"
+              },
+              "eligible_state": {
+                "title": "Eligible State",
+                "type": "string"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "prescreen",
+                  "screen"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "mode": {
+                "title": "Mode",
+                "type": "string"
+              },
+              "reconciliation_summary": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ManagedReviewReconciliationSummary"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "record_count": {
+                "title": "Record Count",
+                "type": "integer"
+              },
+              "record_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Record Ids",
+                "type": "array"
+              },
+              "reviewer_progress": {
+                "items": {
+                  "$ref": "#/$defs/ManagedReviewReviewerProgress"
+                },
+                "title": "Reviewer Progress",
+                "type": "array"
+              },
+              "reviewers": {
+                "items": {
+                  "$ref": "#/$defs/ManagedReviewReviewer"
+                },
+                "title": "Reviewers",
+                "type": "array"
+              },
+              "state": {
+                "enum": [
+                  "active",
+                  "reconciling",
+                  "completed",
+                  "aborted"
+                ],
+                "title": "State",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "mode",
+              "state",
+              "base_branch",
+              "base_commit",
+              "eligible_state",
+              "record_ids",
+              "reviewers",
+              "reviewer_progress",
+              "created_by",
+              "created_at",
+              "record_count"
+            ],
+            "title": "ManagedReviewTask",
+            "type": "object"
+          },
+          "ReconciliationAutoResolution": {
+            "additionalProperties": true,
+            "properties": {
+              "criteria_string": {
+                "title": "Criteria String",
+                "type": "string"
+              },
+              "selected_reviewer": {
+                "enum": [
+                  "reviewer_a",
+                  "reviewer_b"
+                ],
+                "title": "Selected Reviewer",
+                "type": "string"
+              },
+              "status": {
+                "title": "Status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "selected_reviewer",
+              "status",
+              "criteria_string"
+            ],
+            "title": "ReconciliationAutoResolution",
+            "type": "object"
+          },
+          "ReconciliationPreviewItem": {
+            "additionalProperties": true,
+            "properties": {
+              "author": {
+                "title": "Author",
+                "type": "string"
+              },
+              "auto_resolution": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ReconciliationAutoResolution"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "blocked_reasons": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Blocked Reasons",
+                "type": "array"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "reviewers": {
+                "items": {
+                  "$ref": "#/$defs/ReconciliationReviewerEntry"
+                },
+                "title": "Reviewers",
+                "type": "array"
+              },
+              "status": {
+                "enum": [
+                  "auto",
+                  "conflict",
+                  "pending",
+                  "blocked"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "year": {
+                "title": "Year",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "author",
+              "year",
+              "status",
+              "blocked_reasons",
+              "reviewers"
+            ],
+            "title": "ReconciliationPreviewItem",
+            "type": "object"
+          },
+          "ReconciliationReviewerEntry": {
+            "additionalProperties": true,
+            "properties": {
+              "branch_name": {
+                "title": "Branch Name",
+                "type": "string"
+              },
+              "criteria": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "title": "Criteria",
+                "type": "object"
+              },
+              "criteria_string": {
+                "title": "Criteria String",
+                "type": "string"
+              },
+              "github_login": {
+                "title": "Github Login",
+                "type": "string"
+              },
+              "last_seen_commit": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Seen Commit"
+              },
+              "role": {
+                "enum": [
+                  "reviewer_a",
+                  "reviewer_b"
+                ],
+                "title": "Role",
+                "type": "string"
+              },
+              "status": {
+                "title": "Status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "github_login",
+              "branch_name",
+              "status",
+              "criteria_string",
+              "criteria"
+            ],
+            "title": "ReconciliationReviewerEntry",
+            "type": "object"
+          },
+          "ReconciliationSummaryCounts": {
+            "additionalProperties": true,
+            "properties": {
+              "auto_resolved_count": {
+                "title": "Auto Resolved Count",
+                "type": "integer"
+              },
+              "blocked_count": {
+                "title": "Blocked Count",
+                "type": "integer"
+              },
+              "manual_conflict_count": {
+                "title": "Manual Conflict Count",
+                "type": "integer"
+              },
+              "pending_count": {
+                "title": "Pending Count",
+                "type": "integer"
+              },
+              "total_count": {
+                "title": "Total Count",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "auto_resolved_count",
+              "manual_conflict_count",
+              "pending_count",
+              "blocked_count",
+              "total_count"
+            ],
+            "title": "ReconciliationSummaryCounts",
+            "type": "object"
+          }
+        },
         "additionalProperties": true,
-        "description": "All managed-review responses share the same envelope: success +\nproject_id plus an open dict of service-specific fields.",
         "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/ReconciliationPreviewItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
           "project_id": {
             "title": "Project Id",
             "type": "string"
@@ -2903,12 +4773,21 @@
             "default": true,
             "title": "Success",
             "type": "boolean"
+          },
+          "summary": {
+            "$ref": "#/$defs/ReconciliationSummaryCounts"
+          },
+          "task": {
+            "$ref": "#/$defs/ManagedReviewTask"
           }
         },
         "required": [
-          "project_id"
+          "project_id",
+          "task",
+          "summary",
+          "items"
         ],
-        "title": "ManagedReviewResponse",
+        "title": "GetReconciliationPreviewResponse",
         "type": "object"
       },
       "timeout_class": "slow",
@@ -2963,8 +4842,52 @@
         "$defs": {
           "FormattedRecord": {
             "additionalProperties": true,
-            "description": "A record dict formatted for the API.\n\nAccepts arbitrary bibliographic fields; identity/status are always present\nafter formatting.",
-            "properties": {},
+            "description": "A record dict formatted for the API.\n\nAccepts arbitrary bibliographic fields. ``_format_record`` always includes\nidentity/status (even under a ``fields`` projection), so those are\ndeclared; everything else rides along via ``extra=\"allow\"``.",
+            "properties": {
+              "ENTRYTYPE": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Entrytype"
+              },
+              "ID": {
+                "title": "Id",
+                "type": "string"
+              },
+              "colrev_status": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Colrev Status"
+              },
+              "file_on_disk": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "File On Disk"
+              }
+            },
+            "required": [
+              "ID"
+            ],
             "title": "FormattedRecord",
             "type": "object"
           }
@@ -3215,8 +5138,52 @@
         "$defs": {
           "FormattedRecord": {
             "additionalProperties": true,
-            "description": "A record dict formatted for the API.\n\nAccepts arbitrary bibliographic fields; identity/status are always present\nafter formatting.",
-            "properties": {},
+            "description": "A record dict formatted for the API.\n\nAccepts arbitrary bibliographic fields. ``_format_record`` always includes\nidentity/status (even under a ``fields`` projection), so those are\ndeclared; everything else rides along via ``extra=\"allow\"``.",
+            "properties": {
+              "ENTRYTYPE": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Entrytype"
+              },
+              "ID": {
+                "title": "Id",
+                "type": "string"
+              },
+              "colrev_status": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Colrev Status"
+              },
+              "file_on_disk": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "File On Disk"
+              }
+            },
+            "required": [
+              "ID"
+            ],
             "title": "FormattedRecord",
             "type": "object"
           },
@@ -3486,14 +5453,77 @@
           "ScreenQueueRecord": {
             "additionalProperties": true,
             "properties": {
+              "abstract": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Abstract"
+              },
               "author": {
                 "default": "",
                 "title": "Author",
                 "type": "string"
               },
+              "booktitle": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Booktitle"
+              },
+              "current_criteria": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Current Criteria"
+              },
               "id": {
                 "title": "Id",
                 "type": "string"
+              },
+              "journal": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Journal"
+              },
+              "pdf_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Pdf Path"
               },
               "title": {
                 "default": "",
@@ -3694,6 +5724,7 @@
             "type": "string"
           },
           "settings": {
+            "additionalProperties": true,
             "title": "Settings",
             "type": "object"
           },
@@ -3903,7 +5934,105 @@
         "$defs": {
           "SourceInfo": {
             "additionalProperties": true,
-            "properties": {},
+            "description": "The wire shape built in ``get_sources``: ``ExtendedSearchFile.model_dump()``\nplus the staleness metadata. Extra fields ride along via ``extra=\"allow\"``.",
+            "properties": {
+              "is_stale": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Is Stale"
+              },
+              "last_run_timestamp": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Run Timestamp"
+              },
+              "platform": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Platform"
+              },
+              "record_count": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Record Count"
+              },
+              "search_results_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Search Results Path"
+              },
+              "search_string": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Search String"
+              },
+              "search_type": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Search Type"
+              },
+              "stale_reason": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Stale Reason"
+              }
+            },
             "title": "SourceInfo",
             "type": "object"
           }
@@ -3984,6 +6113,7 @@
             "type": "string"
           },
           "status": {
+            "additionalProperties": true,
             "title": "Status",
             "type": "object"
           },
@@ -4289,6 +6419,10 @@
             "title": "Base Path"
           },
           "kind": {
+            "enum": [
+              "prescreen",
+              "screen"
+            ],
             "title": "Kind",
             "type": "string"
           },
@@ -4311,9 +6445,299 @@
       },
       "requires_project": true,
       "response": {
+        "$defs": {
+          "ManagedReviewReconciliationSummary": {
+            "additionalProperties": true,
+            "properties": {
+              "auto_resolved_count": {
+                "title": "Auto Resolved Count",
+                "type": "integer"
+              },
+              "manual_conflict_count": {
+                "title": "Manual Conflict Count",
+                "type": "integer"
+              },
+              "record_count": {
+                "title": "Record Count",
+                "type": "integer"
+              },
+              "resolved_at": {
+                "title": "Resolved At",
+                "type": "string"
+              },
+              "resolved_by": {
+                "title": "Resolved By",
+                "type": "string"
+              }
+            },
+            "required": [
+              "resolved_by",
+              "resolved_at",
+              "auto_resolved_count",
+              "manual_conflict_count",
+              "record_count"
+            ],
+            "title": "ManagedReviewReconciliationSummary",
+            "type": "object"
+          },
+          "ManagedReviewReviewer": {
+            "additionalProperties": true,
+            "properties": {
+              "branch_name": {
+                "title": "Branch Name",
+                "type": "string"
+              },
+              "github_login": {
+                "title": "Github Login",
+                "type": "string"
+              },
+              "last_seen_commit": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Seen Commit"
+              },
+              "role": {
+                "enum": [
+                  "reviewer_a",
+                  "reviewer_b"
+                ],
+                "title": "Role",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "github_login",
+              "branch_name"
+            ],
+            "title": "ManagedReviewReviewer",
+            "type": "object"
+          },
+          "ManagedReviewReviewerProgress": {
+            "additionalProperties": true,
+            "properties": {
+              "available": {
+                "title": "Available",
+                "type": "boolean"
+              },
+              "branch_name": {
+                "title": "Branch Name",
+                "type": "string"
+              },
+              "branch_ref": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Branch Ref"
+              },
+              "completed_count": {
+                "title": "Completed Count",
+                "type": "integer"
+              },
+              "github_login": {
+                "title": "Github Login",
+                "type": "string"
+              },
+              "last_seen_commit": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Last Seen Commit"
+              },
+              "pending_count": {
+                "title": "Pending Count",
+                "type": "integer"
+              },
+              "role": {
+                "enum": [
+                  "reviewer_a",
+                  "reviewer_b"
+                ],
+                "title": "Role",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "github_login",
+              "branch_name",
+              "completed_count",
+              "pending_count",
+              "available"
+            ],
+            "title": "ManagedReviewReviewerProgress",
+            "type": "object"
+          },
+          "ManagedReviewTask": {
+            "additionalProperties": true,
+            "properties": {
+              "base_branch": {
+                "title": "Base Branch",
+                "type": "string"
+              },
+              "base_commit": {
+                "title": "Base Commit",
+                "type": "string"
+              },
+              "canceled_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Canceled At"
+              },
+              "canceled_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Canceled By"
+              },
+              "completed_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Completed At"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "created_by": {
+                "title": "Created By",
+                "type": "string"
+              },
+              "eligible_state": {
+                "title": "Eligible State",
+                "type": "string"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "prescreen",
+                  "screen"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "mode": {
+                "title": "Mode",
+                "type": "string"
+              },
+              "reconciliation_summary": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ManagedReviewReconciliationSummary"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "record_count": {
+                "title": "Record Count",
+                "type": "integer"
+              },
+              "record_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Record Ids",
+                "type": "array"
+              },
+              "reviewer_progress": {
+                "items": {
+                  "$ref": "#/$defs/ManagedReviewReviewerProgress"
+                },
+                "title": "Reviewer Progress",
+                "type": "array"
+              },
+              "reviewers": {
+                "items": {
+                  "$ref": "#/$defs/ManagedReviewReviewer"
+                },
+                "title": "Reviewers",
+                "type": "array"
+              },
+              "state": {
+                "enum": [
+                  "active",
+                  "reconciling",
+                  "completed",
+                  "aborted"
+                ],
+                "title": "State",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "mode",
+              "state",
+              "base_branch",
+              "base_commit",
+              "eligible_state",
+              "record_ids",
+              "reviewers",
+              "reviewer_progress",
+              "created_by",
+              "created_at",
+              "record_count"
+            ],
+            "title": "ManagedReviewTask",
+            "type": "object"
+          }
+        },
         "additionalProperties": true,
-        "description": "All managed-review responses share the same envelope: success +\nproject_id plus an open dict of service-specific fields.",
         "properties": {
+          "kind": {
+            "enum": [
+              "prescreen",
+              "screen"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "project_id": {
             "title": "Project Id",
             "type": "string"
@@ -4323,12 +6747,21 @@
             "default": true,
             "title": "Success",
             "type": "boolean"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/$defs/ManagedReviewTask"
+            },
+            "title": "Tasks",
+            "type": "array"
           }
         },
         "required": [
-          "project_id"
+          "project_id",
+          "kind",
+          "tasks"
         ],
-        "title": "ManagedReviewResponse",
+        "title": "ListManagedReviewTasksResponse",
         "type": "object"
       },
       "timeout_class": "fast",
@@ -4442,6 +6875,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4772,6 +7206,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4848,6 +7283,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -4963,6 +7399,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -5009,6 +7446,7 @@
             "title": "Base Path"
           },
           "fields": {
+            "additionalProperties": true,
             "title": "Fields",
             "type": "object"
           },
@@ -5036,11 +7474,55 @@
       },
       "requires_project": true,
       "response": {
+        "$defs": {
+          "PrepManUpdateDetails": {
+            "additionalProperties": true,
+            "properties": {
+              "message": {
+                "title": "Message",
+                "type": "string"
+              },
+              "new_status": {
+                "title": "New Status",
+                "type": "string"
+              },
+              "record": {
+                "additionalProperties": true,
+                "title": "Record",
+                "type": "object"
+              },
+              "remaining_defects": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Remaining Defects"
+              }
+            },
+            "required": [
+              "record",
+              "new_status",
+              "message"
+            ],
+            "title": "PrepManUpdateDetails",
+            "type": "object"
+          }
+        },
         "additionalProperties": true,
         "properties": {
           "details": {
-            "title": "Details",
-            "type": "object"
+            "$ref": "#/$defs/PrepManUpdateDetails"
           },
           "operation": {
             "title": "Operation",
@@ -5312,6 +7794,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -5611,7 +8094,7 @@
         "type": "object"
       },
       "timeout_class": "slow",
-      "writes": false
+      "writes": true
     },
     "save_data_extraction": {
       "request": {
@@ -5638,6 +8121,7 @@
             "type": "string"
           },
           "values": {
+            "additionalProperties": true,
             "title": "Values",
             "type": "object"
           },
@@ -6130,6 +8614,7 @@
             "type": "string"
           },
           "status": {
+            "additionalProperties": true,
             "title": "Status",
             "type": "object"
           },
@@ -6377,6 +8862,7 @@
           "fields": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -6419,6 +8905,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -6524,6 +9011,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -6767,6 +9255,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -6817,6 +9306,7 @@
             "type": "string"
           },
           "settings": {
+            "additionalProperties": true,
             "title": "Settings",
             "type": "object"
           },
@@ -6838,6 +9328,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -6919,6 +9410,7 @@
           "search_parameters": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -6963,6 +9455,7 @@
                 "type": "string"
               },
               "source": {
+                "additionalProperties": true,
                 "title": "Source",
                 "type": "object"
               }
@@ -7273,6 +9766,7 @@
         "additionalProperties": true,
         "properties": {
           "details": {
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -7305,7 +9799,7 @@
         "type": "object"
       },
       "timeout_class": "slow",
-      "writes": false
+      "writes": true
     }
   },
   "shared": {

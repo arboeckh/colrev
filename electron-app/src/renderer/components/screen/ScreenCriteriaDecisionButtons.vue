@@ -7,11 +7,11 @@ import {
   canIncludeDecision,
   type CriterionDecision,
 } from '@/lib/screen-decision';
-import type { ScreenCriterionDefinition } from '@/types/api';
+import type { ScreenCriterionInfo } from '@/types/generated/rpc';
 
 const props = withDefaults(
   defineProps<{
-    criteria: Record<string, ScreenCriterionDefinition>;
+    criteria: Record<string, ScreenCriterionInfo>;
     decisions: Record<string, CriterionDecision>;
     confirmedDecision?: 'include' | 'exclude' | null;
     isSubmitting?: boolean;

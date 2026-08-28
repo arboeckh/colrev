@@ -65,6 +65,12 @@ class ScreenQueueRecord(BaseModel):
     title: str = ""
     author: str = ""
     year: str = ""
+    # Set by get_screen_queue only when present on the record.
+    abstract: Optional[str] = None
+    journal: Optional[str] = None
+    booktitle: Optional[str] = None
+    pdf_path: Optional[str] = None
+    current_criteria: Optional[Dict[str, str]] = None
 
 
 class GetScreenQueueResponse(ProjectResponse):

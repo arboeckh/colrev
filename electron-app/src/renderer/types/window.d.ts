@@ -22,22 +22,17 @@ export interface RpcQueueState {
 export interface ColrevAPI {
   start: () => Promise<{ success: boolean; error?: string }>;
   /**
-   * Typed overload: when ``method`` is a known RPC method name, both the
-   * ``params`` and the returned ``result`` are validated against the
-   * backend's Pydantic-derived schema.
-   *
-   * Resolves to an envelope; the backend store unwraps it and rethrows
-   * failures as ``RpcError`` (structured errors don't survive Electron's
-   * IPC serialization as thrown Errors).
-   *
-   * The generic fallback remains for legacy call sites that haven't been
-   * updated; once every caller is typed, we can drop it.
+   * Send a JSON-RPC call: ``params`` and the returned ``result`` are typed
+   * from the backend's Pydantic-derived schema. Resolves to an envelope; the
+   * backend store unwraps it and rethrows failures as ``RpcError``
+   * (structured errors don't survive Electron's IPC serialization as thrown
+   * Errors). Renderer code should go through the backend store's
+   * `call`/`callUntyped` rather than using this directly.
    */
-  call: (<M extends RPCMethodName>(
+  call: <M extends RPCMethodName>(
     method: M,
     params: RPCParams<M>,
-  ) => Promise<RpcCallEnvelope<RPCResult<M>>>) &
-    (<T>(method: string, params: Record<string, unknown>) => Promise<RpcCallEnvelope<T>>);
+  ) => Promise<RpcCallEnvelope<RPCResult<M>>>;
   stop: () => Promise<{ success: boolean }>;
   onLog: (callback: (msg: string) => void) => () => void;
   onError: (callback: (msg: string) => void) => () => void;

@@ -39,9 +39,10 @@
     "test:e2e:packaged:headed": "COLREV_TEST_MODE=packaged playwright test --headed",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
+    "typecheck": "vue-tsc --noEmit && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p e2e/tsconfig.json",
     "gen-types": "tsx scripts/gen-rpc-types.ts",
-    "gen-types:full": "cd .. && python scripts/export_rpc_schemas.py && cd electron-app && npm run gen-types"
+    "gen-types:full": "cd .. && python scripts/export_rpc_schemas.py && cd electron-app && npm run gen-types",
+    "gen-types:check": "npm run gen-types:full && bash scripts/check-generated-clean.sh"
   },
   "build": {
     "appId": "com.colrev.app",
@@ -106,7 +107,8 @@
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vitest": "^4.1.5",
-    "vue": "^3.5.27"
+    "vue": "^3.5.27",
+    "vue-tsc": "^3.3.11"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -116,10 +118,10 @@
     ]
   },
   "dependencies": {
-    "@internationalized/date": "^3.12.1",
     "@fontsource-variable/fraunces": "^5.2.9",
     "@fontsource-variable/inter-tight": "^5.2.7",
     "@fontsource/dm-mono": "^5.2.7",
+    "@internationalized/date": "^3.12.1",
     "@lucide/vue": "^1.17.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/vue-table": "^8.21.3",

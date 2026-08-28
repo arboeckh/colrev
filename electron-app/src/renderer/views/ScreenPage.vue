@@ -23,13 +23,11 @@ import { usePendingChangesStore } from '@/stores/pendingChanges';
 import { canIncludeDecision, canExcludeDecision } from '@/lib/screen-decision';
 import type {
   GetCurrentManagedReviewTaskResponse,
-  GetScreenQueueResponse,
   ListManagedReviewTasksResponse,
   ManagedReviewTask,
   ScreenQueueRecord,
-  ScreenRecordResponse,
-  ScreenCriterionDefinition,
-} from '@/types/api';
+  ScreenCriterionInfo,
+} from '@/types/generated/rpc';
 
 type DecisionState = 'undecided' | 'included' | 'excluded';
 type ScreenMode = 'screening' | 'edit' | 'complete';
@@ -63,7 +61,7 @@ const isPageReady = ref(false);
 
 const queue = ref<ScreenEnrichedRecord[]>([]);
 const decisionHistory = ref<ScreenEnrichedRecord[]>([]);
-const criteria = ref<Record<string, ScreenCriterionDefinition>>({});
+const criteria = ref<Record<string, ScreenCriterionInfo>>({});
 const totalCount = ref(0);
 const isLoading = ref(false);
 const loadError = ref<string | null>(null);
@@ -140,7 +138,7 @@ const managedAccessDescription = computed(() => {
 async function loadManagedTask() {
   if (!projects.currentProjectId || !backend.isRunning) return;
   try {
-    const response = await backend.call<GetCurrentManagedReviewTaskResponse>('get_current_managed_review_task', {
+    const response = await backend.call('get_current_managed_review_task', {
       project_id: projects.currentProjectId,
       kind: 'screen',
     });
@@ -166,7 +164,7 @@ async function ensureManagedTaskAccess(): Promise<boolean> {
 
   let tasksResponse: ListManagedReviewTasksResponse;
   try {
-    tasksResponse = await backend.call<ListManagedReviewTasksResponse>('list_managed_review_tasks', {
+    tasksResponse = await backend.call('list_managed_review_tasks', {
       project_id: projects.currentProjectId,
       kind: 'screen',
     });
@@ -218,7 +216,7 @@ async function loadQueue() {
   loadError.value = null;
   allDecisionsMade.value = false;
   try {
-    const response = await backend.call<GetScreenQueueResponse>('get_screen_queue', {
+    const response = await backend.call('get_screen_queue', {
       project_id: projects.currentProjectId,
       limit: 50,
       task_id: managedTask.value?.id,
@@ -262,7 +260,7 @@ async function makeDecision(decision: 'include' | 'exclude') {
       }
     }
 
-    const response = await backend.call<ScreenRecordResponse>('screen_record', {
+    const response = await backend.call('screen_record', {
       project_id: projects.currentProjectId,
       record_id: currentRecord.value.id,
       decision,
@@ -476,7 +474,7 @@ onUnmounted(() => {
     >
       <template #left>
         <PdfViewerPanel
-          :pdf-path="currentRecord.pdf_path"
+          :pdf-path="currentRecord.pdf_path ?? undefined"
           @imported="handlePdfsImported"
         />
       </template>

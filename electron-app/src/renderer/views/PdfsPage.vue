@@ -27,14 +27,6 @@ import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
-import type { GetRecordsResponse, UploadPdfResponse, MarkPdfNotAvailableResponse } from '@/types/api';
-
-interface RestorePdfFileResponse {
-  success: boolean;
-  record_id: string;
-  path: string;
-  bytes_written: number;
-}
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
@@ -208,7 +200,7 @@ async function loadRecords() {
 
   isLoading.value = true;
   try {
-    const response = await backend.call<GetRecordsResponse>('get_records', {
+    const response = await backend.call('get_records', {
       project_id: projects.currentProjectId,
       filters: {
         status: [
@@ -289,7 +281,7 @@ async function handlePdfFileSelected(event: Event) {
     const content = await readFileAsBase64(file);
 
     if (kind === 'missing-restore') {
-      await backend.call<RestorePdfFileResponse>('restore_pdf_file', {
+      await backend.call('restore_pdf_file', {
         project_id: projects.currentProjectId,
         record_id: recordId,
         content,
@@ -302,7 +294,7 @@ async function handlePdfFileSelected(event: Event) {
       return;
     }
 
-    const response = await backend.call<UploadPdfResponse>('upload_pdf', {
+    const response = await backend.call('upload_pdf', {
       project_id: projects.currentProjectId,
       record_id: recordId,
       filename: file.name,
@@ -353,7 +345,7 @@ async function markNotAvailable(recordId: string) {
 
   markingRecordId.value = recordId;
   try {
-    const response = await backend.call<MarkPdfNotAvailableResponse>('mark_pdf_not_available', {
+    const response = await backend.call('mark_pdf_not_available', {
       project_id: projects.currentProjectId,
       record_id: recordId,
     });
@@ -375,7 +367,9 @@ async function undoNotAvailable(recordId: string) {
 
   undoingRecordId.value = recordId;
   try {
-    const response = await backend.call<MarkPdfNotAvailableResponse>('undo_pdf_not_available', {
+    // Previously mistyped as MarkPdfNotAvailableResponse; the typed call
+    // returns UndoPdfNotAvailableResponse (same fields read here).
+    const response = await backend.call('undo_pdf_not_available', {
       project_id: projects.currentProjectId,
       record_id: recordId,
     });

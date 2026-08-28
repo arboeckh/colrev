@@ -18,9 +18,8 @@ import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
 import type {
   GetCurrentManagedReviewTaskResponse,
-  GetRecordsResponse,
-  UpdateScreenDecisionsResponse,
-} from '@/types/api';
+  RecordPayload,
+} from '@/types/generated/rpc';
 
 interface EditRecord {
   id: string;
@@ -81,7 +80,7 @@ async function loadEditRecords() {
   try {
     await projects.refreshCurrentProject();
 
-    const response = await backend.call<GetRecordsResponse>('get_records', {
+    const response = await backend.call('get_records', {
       project_id: projects.currentProjectId,
       filters: { status: ['rev_included', 'rev_excluded'] },
       pagination: { offset: 0, limit: 500 },
@@ -89,10 +88,13 @@ async function loadEditRecords() {
     });
 
     if (response.success) {
-      const taskRecordIds = props.managedTask?.record_ids;
+      const taskRecordIds = props.managedTask?.record_ids
+        ? new Set(props.managedTask.record_ids)
+        : null;
+      const allRecords = response.records as RecordPayload[];
       const editableRecords = taskRecordIds
-        ? response.records.filter((r) => taskRecordIds.includes(r.ID))
-        : response.records;
+        ? allRecords.filter((r) => taskRecordIds.has(r.ID))
+        : allRecords;
 
       editRecords.value = editableRecords.map((r) => {
         const decision = screenDecisionFromRecord(r);
@@ -129,7 +131,7 @@ async function saveEdits() {
 
   isSaving.value = true;
   try {
-    const response = await backend.call<UpdateScreenDecisionsResponse>(
+    const response = await backend.call(
       'update_screen_decisions',
       {
         project_id: projects.currentProjectId,

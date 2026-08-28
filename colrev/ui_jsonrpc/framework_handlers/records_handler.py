@@ -84,11 +84,17 @@ class GetRecordsRequest(ProjectScopedRequest):
 class FormattedRecord(BaseModel):
     """A record dict formatted for the API.
 
-    Accepts arbitrary bibliographic fields; identity/status are always present
-    after formatting.
+    Accepts arbitrary bibliographic fields. ``_format_record`` always includes
+    identity/status (even under a ``fields`` projection), so those are
+    declared; everything else rides along via ``extra="allow"``.
     """
 
     model_config = ConfigDict(extra="allow")
+
+    ID: str
+    ENTRYTYPE: Optional[str] = None
+    colrev_status: Optional[str] = None
+    file_on_disk: Optional[bool] = None
 
 
 class GetRecordsResponse(ProjectResponse):

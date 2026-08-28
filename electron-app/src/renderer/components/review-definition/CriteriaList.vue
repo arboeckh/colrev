@@ -3,10 +3,10 @@ import { ref } from 'vue';
 import { Plus } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import InlineCriterionEditor from './InlineCriterionEditor.vue';
-import type { ScreenCriterionDefinition } from '@/types/api';
+import type { CriterionInfo } from '@/types/generated/rpc';
 
 const props = defineProps<{
-  criteria: Record<string, ScreenCriterionDefinition>;
+  criteria: Record<string, CriterionInfo>;
   isSaving?: boolean;
   readOnly?: boolean;
 }>();

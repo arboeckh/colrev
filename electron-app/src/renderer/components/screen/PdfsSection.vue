@@ -22,7 +22,6 @@ import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
-import type { GetRecordsResponse, UploadPdfResponse, MarkPdfNotAvailableResponse, UndoPdfNotAvailableResponse } from '@/types/api';
 
 const props = defineProps<{
   projectId: string;
@@ -112,7 +111,7 @@ async function loadRecords() {
   if (!projects.currentProjectId || !backend.isRunning) return;
   isLoading.value = true;
   try {
-    const response = await backend.call<GetRecordsResponse>('get_records', {
+    const response = await backend.call('get_records', {
       project_id: projects.currentProjectId,
       filters: {
         status: [
@@ -165,7 +164,7 @@ async function handlePdfFileSelected(event: Event) {
   uploadingRecordId.value = recordId;
   try {
     const content = await readFileAsBase64(file);
-    const response = await backend.call<UploadPdfResponse>('upload_pdf', {
+    const response = await backend.call('upload_pdf', {
       project_id: projects.currentProjectId,
       record_id: recordId,
       filename: file.name,
@@ -207,7 +206,7 @@ async function markNotAvailable(recordId: string) {
   if (!projects.currentProjectId) return;
   markingRecordId.value = recordId;
   try {
-    const response = await backend.call<MarkPdfNotAvailableResponse>('mark_pdf_not_available', {
+    const response = await backend.call('mark_pdf_not_available', {
       project_id: projects.currentProjectId,
       record_id: recordId,
     });
@@ -227,7 +226,7 @@ async function undoNotAvailable(recordId: string) {
   if (!projects.currentProjectId) return;
   undoingRecordId.value = recordId;
   try {
-    const response = await backend.call<UndoPdfNotAvailableResponse>('undo_pdf_not_available', {
+    const response = await backend.call('undo_pdf_not_available', {
       project_id: projects.currentProjectId,
       record_id: recordId,
     });

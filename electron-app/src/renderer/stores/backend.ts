@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { useDebugStore } from './debug';
-import { RpcError } from '@/lib/rpc-errors';
+import { RpcError, type RpcCallEnvelope } from '@/lib/rpc-errors';
 import rpcSchemas from '@/types/generated/rpc-schemas.json';
 import type {
   ProgressEvent,
@@ -10,12 +10,20 @@ import type {
   RPCResult,
 } from '@/types/generated/rpc';
 
-// Methods flagged `writes: true` in the generated schema. Any successful call
-// to one of these leaves staged changes in the repo, so the pending-changes
-// store needs to re-check `get_git_status` after the response.
+// Methods flagged `writes: true` in the generated schema. Any call to one of
+// these may leave staged changes in the repo, so the pending-changes store
+// needs to re-check `get_git_status` after the response. Restricted to
+// project-scoped methods: `init_project`/`delete_project` also write, but the
+// refresh targets the *current* project, which a non-project method didn't
+// touch (and may have just deleted).
 const WRITER_METHODS: ReadonlySet<string> = new Set(
-  Object.entries(rpcSchemas.methods as Record<string, { writes?: boolean }>)
-    .filter(([, spec]) => spec?.writes === true)
+  Object.entries(
+    rpcSchemas.methods as Record<
+      string,
+      { writes?: boolean; requires_project?: boolean }
+    >,
+  )
+    .filter(([, spec]) => spec?.writes === true && spec?.requires_project === true)
     .map(([name]) => name),
 );
 
@@ -267,24 +275,35 @@ export const useBackendStore = defineStore('backend', () => {
     const requestId = `req-${++requestIdCounter}`;
     debug.logRpcRequest(method, paramsWithPath, requestId);
 
-    const envelope = await window.colrev.call<T>(method, paramsWithPath);
-    if (!envelope.ok) {
-      // Rethrow the serialized failure as a typed RpcError so call sites
-      // can branch on `error.code` (never on message text).
-      const err = new RpcError(envelope.error);
-      debug.logRpcResponse(
-        requestId,
-        { code: err.code, message: err.message, data: err.data },
-        true,
-      );
-      throw err;
+    try {
+      // The preload bridge is typed against known method names; callRaw is
+      // the single untyped funnel beneath the typed `call` wrapper.
+      const bridgeCall = window.colrev.call as (
+        method: string,
+        params: Record<string, unknown>,
+      ) => Promise<RpcCallEnvelope<unknown>>;
+      const envelope = await bridgeCall(method, paramsWithPath);
+      if (!envelope.ok) {
+        // Rethrow the serialized failure as a typed RpcError so call sites
+        // can branch on `error.code` (never on message text).
+        const err = new RpcError(envelope.error);
+        debug.logRpcResponse(
+          requestId,
+          { code: err.code, message: err.message, data: err.data },
+          true,
+        );
+        throw err;
+      }
+      debug.logRpcResponse(requestId, envelope.result, false);
+      return envelope.result as T;
+    } finally {
+      // Refresh on the error path too: a handler can fail *after* mutating
+      // disk (e.g. serialization raising post-commit), and the UI must not
+      // keep showing a clean git state.
+      if (WRITER_METHODS.has(method)) {
+        schedulePostWriteRefresh();
+      }
     }
-
-    debug.logRpcResponse(requestId, envelope.result, false);
-    if (WRITER_METHODS.has(method)) {
-      schedulePostWriteRefresh();
-    }
-    return envelope.result;
   }
 
   // Lazy imports to avoid circular `backend -> pendingChanges/git -> backend`
@@ -329,22 +348,32 @@ export const useBackendStore = defineStore('backend', () => {
    * operations (dugite + backend RPC) happens in the Electron main process
    * via the shared git mutex — the renderer just forwards the call.
    *
-   * Typed overload: when ``method`` is a known RPC method name, the params and
-   * return type are inferred from the generated schema. Generic ``<T>`` fallback
-   * remains so legacy call sites keep compiling during the typed migration.
+   * Only known method names are accepted; params and result types come from
+   * the generated schema (`types/generated/rpc.d.ts`). For dynamic method
+   * names (e.g. an operation id held in a variable) use {@link callUntyped}.
    */
   function call<M extends RPCMethodName>(
     method: M,
     params: Omit<RPCParams<M>, 'base_path'>,
-  ): Promise<RPCResult<M>>;
-  function call<T>(method: string, params?: Record<string, unknown>): Promise<T>;
-  function call(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+  ): Promise<RPCResult<M>> {
+    return callRaw(method, params as Record<string, unknown>);
+  }
+
+  /**
+   * Untyped escape hatch for dynamic method names. The result is `unknown`
+   * unless narrowed by the caller — do not use this where the method name is
+   * statically known.
+   */
+  function callUntyped<T = unknown>(
+    method: string,
+    params: Record<string, unknown> = {},
+  ): Promise<T> {
     return callRaw(method, params);
   }
 
   async function ping(): Promise<boolean> {
     try {
-      const result = await call<{ status: string }>('ping', {});
+      const result = await call('ping', {});
       return result.status === 'pong';
     } catch {
       return false;
@@ -369,6 +398,7 @@ export const useBackendStore = defineStore('backend', () => {
     start,
     stop,
     call,
+    callUntyped,
     ping,
     addLog,
     clearLogs,

@@ -18,12 +18,9 @@ import { useConnectionStore } from '@/stores/connection';
 import { useReadOnly } from '@/composables/useReadOnly';
 import { mapReadinessIssues, type MappedIssue } from './launch-readiness';
 import type {
-  CreateManagedReviewTaskResponse,
-  GetCurrentManagedReviewTaskResponse,
-  ListManagedReviewTasksResponse,
-  ManagedReviewReadinessResponse,
+  GetManagedReviewTaskReadinessResponse,
   ManagedReviewTask,
-} from '@/types/api';
+} from '@/types/generated/rpc';
 import type { GitHubCollaborator } from '@/types/window';
 
 const props = defineProps<{
@@ -48,7 +45,7 @@ const offlineTooltip = 'Requires internet';
 
 const isLoading = ref(false);
 const isCreating = ref(false);
-const readiness = ref<ManagedReviewReadinessResponse | null>(null);
+const readiness = ref<GetManagedReviewTaskReadinessResponse | null>(null);
 const tasks = ref<ManagedReviewTask[]>([]);
 const currentBranchTask = ref<ManagedReviewTask | null>(null);
 const collaborators = ref<GitHubCollaborator[]>([]);
@@ -127,15 +124,15 @@ async function refreshData() {
       await git.fetch();
     }
     const [readinessResponse, tasksResponse, currentTaskResponse] = await Promise.all([
-      backend.call<ManagedReviewReadinessResponse>('get_managed_review_task_readiness', {
+      backend.call('get_managed_review_task_readiness', {
         project_id: projects.currentProjectId,
         kind: props.kind,
       }),
-      backend.call<ListManagedReviewTasksResponse>('list_managed_review_tasks', {
+      backend.call('list_managed_review_tasks', {
         project_id: projects.currentProjectId,
         kind: props.kind,
       }),
-      backend.call<GetCurrentManagedReviewTaskResponse>('get_current_managed_review_task', {
+      backend.call('get_current_managed_review_task', {
         project_id: projects.currentProjectId,
         kind: props.kind,
       }),
@@ -143,7 +140,7 @@ async function refreshData() {
 
     readiness.value = readinessResponse;
     tasks.value = tasksResponse.tasks;
-    currentBranchTask.value = currentTaskResponse.task;
+    currentBranchTask.value = currentTaskResponse.task ?? null;
   } catch (err) {
     notifications.error(`${kindLabel.value} launch failed`, err instanceof Error ? err.message : 'Unknown error');
   } finally {
@@ -185,7 +182,7 @@ async function createTask() {
 
   isCreating.value = true;
   try {
-    const response = await backend.call<CreateManagedReviewTaskResponse>('create_managed_review_task', {
+    const response = await backend.call('create_managed_review_task', {
       project_id: projects.currentProjectId,
       kind: props.kind,
       reviewer_logins: [reviewerA.value, reviewerB.value],

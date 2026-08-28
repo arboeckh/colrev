@@ -15,10 +15,9 @@ import BlockedRecordsBanner from './BlockedRecordsBanner.vue';
 import { selectedReviewerFor, type ReconcileKind, type ReviewerRole } from './reconcile-utils';
 import type {
   ApplyReconciliationResponse,
-  GetRecordsResponse,
+  GetReconciliationPreviewResponse,
   ReconciliationPreviewItem,
-  ReconciliationPreviewResponse,
-} from '@/types/api';
+} from '@/types/generated/rpc';
 
 const props = defineProps<{
   taskId: string;
@@ -42,7 +41,7 @@ type StagedDecision = {
 
 const isLoading = ref(false);
 const isApplying = ref(false);
-const preview = ref<ReconciliationPreviewResponse | null>(null);
+const preview = ref<GetReconciliationPreviewResponse | null>(null);
 const recordDetails = ref<Record<string, DisplayRecord>>({});
 const stagedDecisions = ref<Record<string, StagedDecision>>({});
 
@@ -148,7 +147,7 @@ async function loadPreview() {
   if (!projects.currentProjectId) return;
   isLoading.value = true;
   try {
-    const response = await backend.call<ReconciliationPreviewResponse>(
+    const response = await backend.call(
       'get_reconciliation_preview',
       {
         project_id: projects.currentProjectId,
@@ -174,7 +173,7 @@ async function loadPreview() {
 async function loadRecordDetails(ids: string[]) {
   if (!projects.currentProjectId || ids.length === 0) return;
   try {
-    const response = await backend.call<GetRecordsResponse>('get_records', {
+    const response = await backend.call('get_records', {
       project_id: projects.currentProjectId,
       filters: {},
       pagination: { offset: 0, limit: 1000 },
@@ -259,7 +258,7 @@ async function applyReconciliation(opts: { overrideBlocks?: boolean } = {}) {
         selected_reviewer: staged.selected_reviewer,
       }),
     );
-    const response = await backend.call<ApplyReconciliationResponse>(
+    const response = await backend.call(
       'apply_reconciliation',
       {
         project_id: projects.currentProjectId,

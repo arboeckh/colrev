@@ -17,10 +17,8 @@ import ReconcileWalkthrough from './ReconcileWalkthrough.vue';
 import ScreenReconcileWalkthrough from './ScreenReconcileWalkthrough.vue';
 import type {
   ApplyReconciliationResponse,
-  ExportReconciliationAuditResponse,
-  ListManagedReviewTasksResponse,
   ManagedReviewTask,
-} from '@/types/api';
+} from '@/types/generated/rpc';
 
 const props = defineProps<{
   kind: 'prescreen' | 'screen';
@@ -81,7 +79,7 @@ async function refreshData() {
   isLoading.value = true;
   try {
     await git.refreshStatus();
-    const tasksResponse = await backend.call<ListManagedReviewTasksResponse>(
+    const tasksResponse = await backend.call(
       'list_managed_review_tasks',
       {
         project_id: projects.currentProjectId,
@@ -136,7 +134,7 @@ async function exportAudit(format: 'csv' | 'json') {
   if (!displayTask.value || !projects.currentProjectId) return;
   isExporting.value = true;
   try {
-    const response = await backend.call<ExportReconciliationAuditResponse>(
+    const response = await backend.call(
       'export_reconciliation_audit',
       {
         project_id: projects.currentProjectId,

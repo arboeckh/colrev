@@ -17,17 +17,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { DataField } from '@/types/api';
+import type { FieldDefinition } from '@/types/generated/rpc';
 
 const props = defineProps<{
   open: boolean;
-  existingFields: DataField[];
+  existingFields: FieldDefinition[];
   isSaving?: boolean;
 }>();
 
 const emit = defineEmits<{
   'update:open': [value: boolean];
-  configured: [fields: DataField[]];
+  configured: [fields: FieldDefinition[]];
 }>();
 
 interface FieldRow {
@@ -81,8 +81,8 @@ watch(
       if (props.existingFields.length > 0) {
         fields.value = props.existingFields.map((f) => ({
           name: f.name,
-          explanation: f.explanation,
-          data_type: f.data_type,
+          explanation: f.explanation ?? '',
+          data_type: (f.data_type ?? 'str') as FieldRow['data_type'],
           options: f.options ? [...f.options] : [],
           optional: f.optional ?? false,
         }));
@@ -163,8 +163,8 @@ function canSave() {
 
 function save() {
   if (!canSave()) return;
-  const result: DataField[] = fields.value.map((f) => {
-    const field: DataField = {
+  const result: FieldDefinition[] = fields.value.map((f) => {
+    const field: FieldDefinition = {
       name: f.name.trim(),
       explanation: f.explanation.trim(),
       data_type: f.data_type,

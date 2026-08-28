@@ -3,12 +3,12 @@ import { computed } from 'vue';
 import { Check, X } from 'lucide-vue-next';
 import ScreenCriteriaChecklist from '@/components/screen/ScreenCriteriaChecklist.vue';
 import ScreenCriteriaDecisionButtons from '@/components/screen/ScreenCriteriaDecisionButtons.vue';
-import type { ReconciliationPreviewItem, ScreenCriterionDefinition } from '@/types/api';
+import type { ReconciliationPreviewItem, ScreenCriterionInfo } from '@/types/generated/rpc';
 import type { CriterionDecision } from '@/lib/screen-decision';
 import { reviewerStatusToDecision } from './reconcile-utils';
 
 const props = defineProps<{
-  criteria: Record<string, ScreenCriterionDefinition>;
+  criteria: Record<string, ScreenCriterionInfo>;
   decisions: Record<string, CriterionDecision>;
   reviewers: ReconciliationPreviewItem['reviewers'];
   confirmedDecision: 'include' | 'exclude' | null;

@@ -175,13 +175,15 @@ class Dispatcher:
 
 
 def _serialize(spec: MethodSpec, response_obj) -> Dict[str, Any]:
-    """Produce the result dict. Accepts either a Pydantic model or a dict
-    (dict is a migration helper — real handlers return ``spec.response_model``)."""
-    if hasattr(response_obj, "model_dump"):
-        return response_obj.model_dump(mode="json", exclude_none=True)
-    if isinstance(response_obj, dict):
-        return response_obj
+    """Produce the result dict. Handlers must return ``spec.response_model``.
+
+    Nullable fields serialize as ``null`` (no ``exclude_none``) so the wire
+    shape matches the generated TypeScript types, where optional model fields
+    are ``field?: T | null``.
+    """
+    if isinstance(response_obj, spec.response_model):
+        return response_obj.model_dump(mode="json")
     raise TypeError(
         f"Handler for {spec.name!r} returned {type(response_obj).__name__}; "
-        "expected a Pydantic model or dict."
+        f"expected {spec.response_model.__name__}."
     )

@@ -4,10 +4,10 @@ Implements multi-user branching-workflow RPC methods atop the typed framework.
 These endpoints are UI-native (``operation_type=None``) — they wrap
 ``ManagedReviewService`` rather than a CoLRev operation lifecycle.
 
-The service returns arbitrary dict payloads that vary by method; the response
-models use ``ConfigDict(extra="allow")`` and spread the service result so
-existing clients continue to see their expected fields alongside the standard
-``success`` / ``project_id`` envelope.
+The service returns dict payloads; each method validates its payload into a
+typed response model so the exported schema (and the generated frontend
+types) carry the real wire shape. The nested models mirror the dicts built
+in ``colrev/ui_jsonrpc/managed_review.py`` — keep them in sync.
 """
 
 from __future__ import annotations
@@ -16,8 +16,10 @@ import logging
 from typing import Any
 from typing import Dict
 from typing import List
+from typing import Literal
 from typing import Optional
 
+from pydantic import BaseModel
 from pydantic import ConfigDict
 
 from colrev.ui_jsonrpc.managed_review import ManagedReviewService
@@ -29,13 +31,17 @@ from colrev.ui_jsonrpc.framework import rpc_method
 logger = logging.getLogger(__name__)
 
 
+ManagedReviewKind = Literal["prescreen", "screen"]
+ReviewerRole = Literal["reviewer_a", "reviewer_b"]
+
+
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
 
 
 class _KindRequest(ProjectScopedRequest):
-    kind: str
+    kind: ManagedReviewKind
 
 
 class GetManagedReviewTaskReadinessRequest(_KindRequest):
@@ -51,7 +57,7 @@ class GetCurrentManagedReviewTaskRequest(_KindRequest):
 
 
 class CreateManagedReviewTaskRequest(ProjectScopedRequest):
-    kind: str
+    kind: ManagedReviewKind
     reviewer_logins: List[str]
     created_by: str = "unknown"
 
@@ -82,15 +88,161 @@ class ExportReconciliationAuditRequest(ProjectScopedRequest):
 
 
 # ---------------------------------------------------------------------------
-# Response model
+# Response models — mirror the dict payloads built in colrev/ui_jsonrpc/managed_review.py
 # ---------------------------------------------------------------------------
 
 
-class ManagedReviewResponse(ProjectResponse):
-    """All managed-review responses share the same envelope: success +
-    project_id plus an open dict of service-specific fields."""
+class _ServiceModel(BaseModel):
+    """Nested payload models validate the service dicts; ``extra="allow"``
+    lets service-added fields ride along instead of failing the call."""
 
     model_config = ConfigDict(extra="allow")
+
+
+class ManagedReviewReviewer(_ServiceModel):
+    role: ReviewerRole
+    github_login: str
+    branch_name: str
+    last_seen_commit: Optional[str] = None
+
+
+class ManagedReviewReviewerProgress(ManagedReviewReviewer):
+    branch_ref: Optional[str] = None
+    completed_count: int
+    pending_count: int
+    available: bool
+
+
+class ManagedReviewReconciliationSummary(_ServiceModel):
+    resolved_by: str
+    resolved_at: str
+    auto_resolved_count: int
+    manual_conflict_count: int
+    record_count: int
+
+
+class ManagedReviewTask(_ServiceModel):
+    id: str
+    kind: ManagedReviewKind
+    mode: str
+    state: Literal["active", "reconciling", "completed", "aborted"]
+    base_branch: str
+    base_commit: str
+    eligible_state: str
+    record_ids: List[str]
+    reviewers: List[ManagedReviewReviewer]
+    reviewer_progress: List[ManagedReviewReviewerProgress]
+    created_by: str
+    created_at: str
+    completed_at: Optional[str] = None
+    canceled_at: Optional[str] = None
+    canceled_by: Optional[str] = None
+    reconciliation_summary: Optional[ManagedReviewReconciliationSummary] = None
+    record_count: int
+
+
+class ManagedReviewTracking(_ServiceModel):
+    has_remote: bool
+    tracking_branch: Optional[str] = None
+    ahead: int
+    behind: int
+
+
+class ManagedReviewQueueRecord(_ServiceModel):
+    id: str
+    title: str
+    author: str
+    year: str
+    status: str
+
+
+class ReconciliationReviewerEntry(ManagedReviewReviewer):
+    status: str
+    criteria_string: str
+    criteria: Dict[str, str]
+
+
+class ReconciliationAutoResolution(_ServiceModel):
+    selected_reviewer: ReviewerRole
+    status: str
+    criteria_string: str
+
+
+class ReconciliationSummaryCounts(_ServiceModel):
+    auto_resolved_count: int
+    manual_conflict_count: int
+    pending_count: int
+    blocked_count: int
+    total_count: int
+
+
+class ReconciliationPreviewItem(_ServiceModel):
+    id: str
+    title: str
+    author: str
+    year: str
+    status: Literal["auto", "conflict", "pending", "blocked"]
+    blocked_reasons: List[str]
+    reviewers: List[ReconciliationReviewerEntry]
+    auto_resolution: Optional[ReconciliationAutoResolution] = None
+
+
+class GetManagedReviewTaskReadinessResponse(ProjectResponse):
+    kind: ManagedReviewKind
+    current_branch: str
+    eligible_state: str
+    eligible_record_ids: List[str]
+    eligible_count: int
+    issues: List[str]
+    ready: bool
+    tracking: ManagedReviewTracking
+
+
+class ListManagedReviewTasksResponse(ProjectResponse):
+    kind: ManagedReviewKind
+    tasks: List[ManagedReviewTask]
+
+
+class GetCurrentManagedReviewTaskResponse(ProjectResponse):
+    kind: ManagedReviewKind
+    current_branch: str
+    task: Optional[ManagedReviewTask] = None
+
+
+class CreateManagedReviewTaskResponse(ProjectResponse):
+    task: ManagedReviewTask
+    launch_ref: str
+    enriched_count: int
+    enrichment_failed_count: int
+    enrichment_skipped_count: int
+
+
+class CancelManagedReviewTaskResponse(ProjectResponse):
+    task: ManagedReviewTask
+
+
+class GetManagedReviewTaskQueueResponse(ProjectResponse):
+    task_id: str
+    kind: ManagedReviewKind
+    records: List[ManagedReviewQueueRecord]
+    total_count: int
+
+
+class GetReconciliationPreviewResponse(ProjectResponse):
+    task: ManagedReviewTask
+    summary: ReconciliationSummaryCounts
+    items: List[ReconciliationPreviewItem]
+
+
+class ApplyReconciliationResponse(ProjectResponse):
+    task_id: str
+    commit_sha: str
+    resolved_count: int
+
+
+class ExportReconciliationAuditResponse(ProjectResponse):
+    filename: str
+    content: str
 
 
 # ---------------------------------------------------------------------------
@@ -105,32 +257,26 @@ class ManagedReviewHandler(BaseHandler):
         assert self.review_manager is not None
         return ManagedReviewService(review_manager=self.review_manager)
 
-    def _wrap(
-        self, req: ProjectScopedRequest, payload: Dict[str, Any]
-    ) -> ManagedReviewResponse:
-        # Spread the service's dict payload into the response envelope. Use
-        # model_construct to bypass extra='forbid' inherited from the base
-        # _FrameworkModel so arbitrary service fields pass through verbatim.
-        # Service payloads may already carry a ``success`` key — let the
-        # envelope defaults win and only merge fields the payload doesn't set.
-        merged: Dict[str, Any] = {
-            "success": True,
-            "project_id": req.project_id,
-        }
-        merged.update(payload)
-        return ManagedReviewResponse.model_construct(**merged)
+    def _wrap(self, req: ProjectScopedRequest, payload: Dict[str, Any]):
+        # Validate the service's dict payload into this method's declared
+        # response model (taken from the registry spec, so it can't drift from
+        # the @rpc_method registration). The envelope's project_id wins over
+        # anything in the payload; the service's ``success: True`` key matches
+        # the envelope's ``Literal[True]`` (a falsy success would fail loudly).
+        model = self._spec().response_model
+        return model.model_validate({**payload, "project_id": req.project_id})
 
     # -- get_managed_review_task_readiness ----------------------------------
 
     @rpc_method(
         name="get_managed_review_task_readiness",
         request=GetManagedReviewTaskReadinessRequest,
-        response=ManagedReviewResponse,
+        response=GetManagedReviewTaskReadinessResponse,
         timeout_class="fast",
     )
     def get_managed_review_task_readiness(
         self, req: GetManagedReviewTaskReadinessRequest
-    ) -> ManagedReviewResponse:
+    ) -> GetManagedReviewTaskReadinessResponse:
         return self._wrap(req, self._service().get_task_readiness(kind=req.kind))
 
     # -- list_managed_review_tasks ------------------------------------------
@@ -138,12 +284,12 @@ class ManagedReviewHandler(BaseHandler):
     @rpc_method(
         name="list_managed_review_tasks",
         request=ListManagedReviewTasksRequest,
-        response=ManagedReviewResponse,
+        response=ListManagedReviewTasksResponse,
         timeout_class="fast",
     )
     def list_managed_review_tasks(
         self, req: ListManagedReviewTasksRequest
-    ) -> ManagedReviewResponse:
+    ) -> ListManagedReviewTasksResponse:
         return self._wrap(req, self._service().list_tasks(kind=req.kind))
 
     # -- get_current_managed_review_task ------------------------------------
@@ -151,12 +297,12 @@ class ManagedReviewHandler(BaseHandler):
     @rpc_method(
         name="get_current_managed_review_task",
         request=GetCurrentManagedReviewTaskRequest,
-        response=ManagedReviewResponse,
+        response=GetCurrentManagedReviewTaskResponse,
         timeout_class="fast",
     )
     def get_current_managed_review_task(
         self, req: GetCurrentManagedReviewTaskRequest
-    ) -> ManagedReviewResponse:
+    ) -> GetCurrentManagedReviewTaskResponse:
         return self._wrap(
             req, self._service().get_current_branch_task(kind=req.kind)
         )
@@ -166,12 +312,12 @@ class ManagedReviewHandler(BaseHandler):
     @rpc_method(
         name="create_managed_review_task",
         request=CreateManagedReviewTaskRequest,
-        response=ManagedReviewResponse,
+        response=CreateManagedReviewTaskResponse,
         writes=True,
     )
     def create_managed_review_task(
         self, req: CreateManagedReviewTaskRequest
-    ) -> ManagedReviewResponse:
+    ) -> CreateManagedReviewTaskResponse:
         return self._wrap(
             req,
             self._service().create_task(
@@ -186,12 +332,12 @@ class ManagedReviewHandler(BaseHandler):
     @rpc_method(
         name="cancel_managed_review_task",
         request=CancelManagedReviewTaskRequest,
-        response=ManagedReviewResponse,
+        response=CancelManagedReviewTaskResponse,
         writes=True,
     )
     def cancel_managed_review_task(
         self, req: CancelManagedReviewTaskRequest
-    ) -> ManagedReviewResponse:
+    ) -> CancelManagedReviewTaskResponse:
         return self._wrap(
             req,
             self._service().cancel_task(
@@ -205,12 +351,12 @@ class ManagedReviewHandler(BaseHandler):
     @rpc_method(
         name="get_managed_review_task_queue",
         request=GetManagedReviewTaskQueueRequest,
-        response=ManagedReviewResponse,
+        response=GetManagedReviewTaskQueueResponse,
         timeout_class="fast",
     )
     def get_managed_review_task_queue(
         self, req: GetManagedReviewTaskQueueRequest
-    ) -> ManagedReviewResponse:
+    ) -> GetManagedReviewTaskQueueResponse:
         return self._wrap(
             req, self._service().get_task_queue(task_id=req.task_id)
         )
@@ -220,11 +366,11 @@ class ManagedReviewHandler(BaseHandler):
     @rpc_method(
         name="get_reconciliation_preview",
         request=GetReconciliationPreviewRequest,
-        response=ManagedReviewResponse,
+        response=GetReconciliationPreviewResponse,
     )
     def get_reconciliation_preview(
         self, req: GetReconciliationPreviewRequest
-    ) -> ManagedReviewResponse:
+    ) -> GetReconciliationPreviewResponse:
         return self._wrap(
             req,
             self._service().get_reconciliation_preview(task_id=req.task_id),
@@ -235,12 +381,12 @@ class ManagedReviewHandler(BaseHandler):
     @rpc_method(
         name="apply_reconciliation",
         request=ApplyReconciliationRequest,
-        response=ManagedReviewResponse,
+        response=ApplyReconciliationResponse,
         writes=True,
     )
     def apply_reconciliation(
         self, req: ApplyReconciliationRequest
-    ) -> ManagedReviewResponse:
+    ) -> ApplyReconciliationResponse:
         return self._wrap(
             req,
             self._service().apply_reconciliation(
@@ -256,11 +402,11 @@ class ManagedReviewHandler(BaseHandler):
     @rpc_method(
         name="export_reconciliation_audit",
         request=ExportReconciliationAuditRequest,
-        response=ManagedReviewResponse,
+        response=ExportReconciliationAuditResponse,
     )
     def export_reconciliation_audit(
         self, req: ExportReconciliationAuditRequest
-    ) -> ManagedReviewResponse:
+    ) -> ExportReconciliationAuditResponse:
         return self._wrap(
             req,
             self._service().export_reconciliation_audit(

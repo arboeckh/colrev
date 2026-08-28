@@ -13,12 +13,7 @@ import type {
   WorkflowStepInfo,
 } from '@/types/project';
 import { WORKFLOW_STEPS } from '@/types/project';
-import type {
-  GetStatusResponse,
-  GetGitStatusResponse,
-  GetSettingsResponse,
-  GetOperationInfoResponse,
-} from '@/types/api';
+import type { GetOperationInfoResponse } from '@/types/generated/rpc';
 import { stripUrlUserinfo } from '@/lib/utils';
 import { computeStepStatus, type StepStatus } from '@/lib/stepStatus';
 // Lazy use only — not called at store init time (circular dep safe via Vite ESM live bindings).
@@ -130,17 +125,18 @@ export const useProjectsStore = defineStore('projects', () => {
     }
 
     try {
-      const response = await backend.call<GetStatusResponse>('get_status', {
+      const response = await backend.call('get_status', {
         project_id: id,
       });
 
       if (response.success && response.status) {
+        const status = response.status as unknown as ProjectStatus;
         if (project) {
-          project.status = response.status;
+          project.status = status;
           project.path = response.path;
           project.loading = false;
         }
-        return response.status;
+        return status;
       }
       return null;
     } catch (err) {
@@ -155,12 +151,12 @@ export const useProjectsStore = defineStore('projects', () => {
 
   async function loadProjectGitStatus(id: string): Promise<GitStatus | null> {
     try {
-      const response = await backend.call<GetGitStatusResponse>('get_git_status', {
+      const response = await backend.call('get_git_status', {
         project_id: id,
       });
 
       if (response.success && response.git) {
-        const git = sanitizeGitStatus(response.git);
+        const git = sanitizeGitStatus(response.git as unknown as GitStatus);
         const project = projects.value.find((p) => p.id === id);
         if (project) {
           project.gitStatus = git;
@@ -175,12 +171,12 @@ export const useProjectsStore = defineStore('projects', () => {
 
   async function loadProjectSettings(id: string): Promise<ProjectSettings | null> {
     try {
-      const response = await backend.call<GetSettingsResponse>('get_settings', {
+      const response = await backend.call('get_settings', {
         project_id: id,
       });
 
       if (response.success && response.settings) {
-        return response.settings;
+        return response.settings as unknown as ProjectSettings;
       }
       return null;
     } catch {
@@ -300,7 +296,7 @@ export const useProjectsStore = defineStore('projects', () => {
     await Promise.all(
       operations.map(async (op) => {
         try {
-          const response = await backend.call<GetOperationInfoResponse>('get_operation_info', {
+          const response = await backend.call('get_operation_info', {
             project_id: id,
             operation: op,
           });

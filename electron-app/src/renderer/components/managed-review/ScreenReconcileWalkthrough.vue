@@ -16,12 +16,10 @@ import ReconcileApplyBar from './ReconcileApplyBar.vue';
 import { deriveScreenDecision, formatCriteriaString, canIncludeDecision, canExcludeDecision, type CriterionDecision } from '@/lib/screen-decision';
 import type {
   ApplyReconciliationResponse,
-  GetRecordsResponse,
-  GetScreenQueueResponse,
+  GetReconciliationPreviewResponse,
   ReconciliationPreviewItem,
-  ReconciliationPreviewResponse,
-  ScreenCriterionDefinition,
-} from '@/types/api';
+  ScreenCriterionInfo,
+} from '@/types/generated/rpc';
 
 const props = defineProps<{
   taskId: string;
@@ -44,8 +42,8 @@ type StagedRecord = {
 
 const isLoading = ref(false);
 const isApplying = ref(false);
-const preview = ref<ReconciliationPreviewResponse | null>(null);
-const criteriaDefs = ref<Record<string, ScreenCriterionDefinition>>({});
+const preview = ref<GetReconciliationPreviewResponse | null>(null);
+const criteriaDefs = ref<Record<string, ScreenCriterionInfo>>({});
 const pdfPaths = ref<Record<string, string>>({});
 const stagedRecords = ref<Record<string, StagedRecord>>({});
 
@@ -169,7 +167,7 @@ function buildDefaultDecisions(item: ReconciliationPreviewItem): Record<string, 
 async function loadCriteria() {
   if (!projects.currentProjectId) return;
   try {
-    const response = await backend.call<GetScreenQueueResponse>('get_screen_queue', {
+    const response = await backend.call('get_screen_queue', {
       project_id: projects.currentProjectId,
       limit: 1,
     });
@@ -185,7 +183,7 @@ async function loadCriteria() {
 async function loadPdfPaths(ids: string[]) {
   if (!projects.currentProjectId || ids.length === 0) return;
   try {
-    const response = await backend.call<GetRecordsResponse>('get_records', {
+    const response = await backend.call('get_records', {
       project_id: projects.currentProjectId,
       filters: {},
       pagination: { offset: 0, limit: 1000 },
@@ -210,7 +208,7 @@ async function loadPreview() {
   isLoading.value = true;
   try {
     await loadCriteria();
-    const response = await backend.call<ReconciliationPreviewResponse>(
+    const response = await backend.call(
       'get_reconciliation_preview',
       {
         project_id: projects.currentProjectId,
@@ -320,7 +318,7 @@ async function applyReconciliation() {
         resolved_criteria_string: formatCriteriaString(staged.criteria),
       };
     });
-    const response = await backend.call<ApplyReconciliationResponse>('apply_reconciliation', {
+    const response = await backend.call('apply_reconciliation', {
       project_id: projects.currentProjectId,
       task_id: props.taskId,
       resolutions,

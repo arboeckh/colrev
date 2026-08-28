@@ -15,7 +15,7 @@ import {
 import { NativeSelect } from '@/components/ui/native-select';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
-import type { GetRecordResponse, PrepManUpdateRecordResponse, Record } from '@/types';
+import type { Record } from '@/types';
 
 const props = defineProps<{
   open: boolean;
@@ -178,13 +178,13 @@ async function loadRecord() {
   saveError.value = null;
 
   try {
-    const response = await backend.call<GetRecordResponse>('get_record', {
+    const response = await backend.call('get_record', {
       project_id: props.projectId,
       record_id: props.recordId,
     });
 
     if (response.success && response.record) {
-      record.value = response.record;
+      record.value = response.record as Record;
 
       // Populate edit fields from record
       const fields: globalThis.Record<string, string> = {};
@@ -235,7 +235,7 @@ async function saveChanges() {
 
   try {
     const changedFields = getChangedFields();
-    const response = await backend.call<PrepManUpdateRecordResponse>('prep_man_update_record', {
+    const response = await backend.call('prep_man_update_record', {
       project_id: props.projectId,
       record_id: props.recordId,
       fields: changedFields,
@@ -254,10 +254,11 @@ async function saveChanges() {
           defects.value = details.remaining_defects;
         }
         if (details.record) {
-          record.value = details.record;
+          const savedRecord = details.record as Record;
+          record.value = savedRecord;
           // Update edit fields from the saved record
           for (const fieldDef of EDITABLE_FIELDS) {
-            const val = details.record[fieldDef.key];
+            const val = savedRecord[fieldDef.key];
             if (val != null) {
               editFields.value[fieldDef.key] = String(val);
             }

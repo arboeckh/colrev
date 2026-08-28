@@ -34,7 +34,7 @@ import {
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
-import type { UploadPdfResponse, MatchPdfToRecordsResponse, MatchCandidate } from '@/types/api';
+import type { PDFMatchCandidate } from '@/types/generated/rpc';
 import type { PdfRecord } from '@/components/pdf-get/PdfRecordTable.vue';
 
 const props = defineProps<{
@@ -64,7 +64,7 @@ interface FileAssignment {
     year?: string;
     doi?: string;
   } | null;
-  alternativeMatches: MatchCandidate[];
+  alternativeMatches: PDFMatchCandidate[];
   analysisStatus: 'pending' | 'analyzing' | 'done' | 'error';
   uploadStatus: 'pending' | 'uploading' | 'success' | 'error';
   uploadError?: string;
@@ -202,6 +202,8 @@ function readFileAsBase64(file: File): Promise<string> {
 }
 
 async function startAnalysis() {
+  if (!projects.currentProjectId) return;
+
   phase.value = 'ANALYZING';
   cancelAnalysis.value = false;
   analyzeIndex.value = 0;
@@ -215,7 +217,7 @@ async function startAnalysis() {
 
     try {
       const content = await readFileAsBase64(assignment.file);
-      const response = await backend.call<MatchPdfToRecordsResponse>(
+      const response = await backend.call(
         'match_pdf_to_records',
         {
           project_id: projects.currentProjectId,
@@ -309,7 +311,7 @@ function assignRecord(index: number, recordId: string | null) {
   }
 }
 
-function selectAlternative(index: number, candidate: MatchCandidate) {
+function selectAlternative(index: number, candidate: PDFMatchCandidate) {
   if (index >= 0 && index < assignments.value.length) {
     assignments.value[index].recordId = candidate.record_id;
     assignments.value[index].matchConfidence = candidate.similarity;
@@ -362,7 +364,7 @@ async function uploadAll() {
     assignment.uploadStatus = 'uploading';
     try {
       const content = await readFileAsBase64(assignment.file);
-      const response = await backend.call<UploadPdfResponse>('upload_pdf', {
+      const response = await backend.call('upload_pdf', {
         project_id: projects.currentProjectId,
         record_id: assignment.recordId,
         filename: assignment.file.name,

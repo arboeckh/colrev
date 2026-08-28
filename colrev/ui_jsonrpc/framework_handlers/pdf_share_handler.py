@@ -242,6 +242,7 @@ class PDFShareHandler(BaseHandler):
         name="restore_pdf_file",
         request=RestorePDFFileRequest,
         response=RestorePDFFileResponse,
+        writes=True,
     )
     def restore_pdf_file(
         self, req: RestorePDFFileRequest

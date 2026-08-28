@@ -8,18 +8,18 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { DataProgressBar } from '@/components/data';
-import type { DataField, DataExtractionRecord } from '@/types/api';
+import type { FieldDefinition, ExtractionRecord } from '@/types/generated/rpc';
 
 const props = defineProps<{
-  record: DataExtractionRecord;
-  fields: DataField[];
+  record: ExtractionRecord;
+  fields: FieldDefinition[];
   localValues: Record<string, string>;
   totalCount: number;
   completedCount: number;
   isSaving: boolean;
   canSave: boolean;
   incompleteFields: string[];
-  queueRecords: Array<DataExtractionRecord & { _completed: boolean }>;
+  queueRecords: Array<ExtractionRecord & { _completed: boolean }>;
   currentIndex: number;
 }>();
 
@@ -50,13 +50,13 @@ function toggleMultiSelect(fieldName: string, option: string) {
   emit('update-value', fieldName, current.join(';'));
 }
 
-function typeLabel(dt: string): string {
+function typeLabel(dt: string | undefined): string {
   switch (dt) {
     case 'int': return 'integer';
     case 'double': return 'decimal';
     case 'select': return 'single choice';
     case 'multi_select': return 'multi select';
-    default: return dt;
+    default: return dt ?? 'str';
   }
 }
 

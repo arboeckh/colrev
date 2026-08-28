@@ -63,10 +63,13 @@ class MethodSpec:
         requires_project: If True, the request must be a ProjectScopedRequest and the
             dispatcher will construct a ReviewManager. If False (``ping``, ``list_projects``,
             ``init_project``), no ReviewManager is built.
-        writes: Hint that this method mutates state (records.bib, settings, git).
-            Exported to the frontend schema so the renderer knows to refresh
-            git/pending-changes state after a successful call. Does NOT cause
-            auto-commit.
+        writes: True if the handler mutates on-disk project state (records.bib,
+            settings.json, search files, PDFs, git refs/index). Exported into
+            ``rpc-schemas.json`` and load-bearing in the renderer: the backend
+            store triggers its post-write git/pending-changes refresh off this
+            flag (``stores/backend.ts`` WRITER_METHODS). Any handler that
+            commits, saves, or stages files MUST set ``writes=True`` on its
+            ``@rpc_method`` registration. Does NOT trigger auto-commit.
         timeout_class: ``"fast"`` for cheap read/status methods the client may
             time out after ~10s of server processing; ``"slow"`` (default) for
             operations with no client-side cap — the client relies on progress

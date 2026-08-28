@@ -2,15 +2,17 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { useBackendStore } from './backend';
 import { useProjectsStore } from './projects';
-import type {
+import type { GetReviewDefinitionResponse } from '@/types/generated/rpc';
+
+/**
+ * The review definition minus the response envelope. Field types are derived
+ * from the generated response (Pick, not Omit — the envelope's index
+ * signature makes Omit collapse every property to `unknown`).
+ */
+export type ReviewDefinitionData = Pick<
   GetReviewDefinitionResponse,
-  UpdateReviewDefinitionResponse,
-  AddScreeningCriterionResponse,
-  UpdateScreeningCriterionResponse,
-  RemoveScreeningCriterionResponse,
-  ReviewDefinitionData,
-  ScreenCriterionDefinition,
-} from '@/types/api';
+  'review_type' | 'title' | 'protocol_url' | 'keywords' | 'objectives' | 'criteria'
+>;
 
 export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
   const backend = useBackendStore();
@@ -26,19 +28,13 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
 
     isLoading.value = true;
     try {
-      const response = await backend.call<GetReviewDefinitionResponse>(
+      const response = await backend.call(
         'get_review_definition',
         { project_id: projects.currentProjectId },
       );
       if (response.success) {
-        definition.value = {
-          review_type: response.review_type,
-          title: response.title,
-          protocol_url: response.protocol_url,
-          keywords: response.keywords,
-          objectives: response.objectives,
-          criteria: response.criteria,
-        };
+        const { success, project_id, ...data } = response;
+        definition.value = data;
       }
 
       // Load visited status from localStorage
@@ -75,7 +71,7 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
 
     isSaving.value = true;
     try {
-      const response = await backend.call<UpdateReviewDefinitionResponse>(
+      const response = await backend.call(
         'update_review_definition',
         {
           project_id: projects.currentProjectId,
@@ -113,7 +109,7 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
 
     isSaving.value = true;
     try {
-      const response = await backend.call<AddScreeningCriterionResponse>(
+      const response = await backend.call(
         'add_screening_criterion',
         {
           project_id: projects.currentProjectId,
@@ -150,7 +146,7 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
 
     isSaving.value = true;
     try {
-      const response = await backend.call<UpdateScreeningCriterionResponse>(
+      const response = await backend.call(
         'update_screening_criterion',
         {
           project_id: projects.currentProjectId,
@@ -182,7 +178,7 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
 
     isSaving.value = true;
     try {
-      const response = await backend.call<RemoveScreeningCriterionResponse>(
+      const response = await backend.call(
         'remove_screening_criterion',
         {
           project_id: projects.currentProjectId,

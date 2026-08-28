@@ -54,6 +54,9 @@ class FieldDefinition(BaseModel):
     name: str
     explanation: str = ""
     data_type: str = "str"
+    # Set only when configured on the endpoint (see get_data_extraction_queue).
+    options: Optional[List[str]] = None
+    optional: Optional[bool] = None
 
 
 class ExtractionRecord(BaseModel):
@@ -89,10 +92,14 @@ class SaveDataExtractionResponse(ProjectResponse):
 
 
 class StructuredFieldSpec(BaseModel):
+    """Field spec accepted by ``configure_structured_endpoint``. Mirrors
+    ``FieldDefinition`` (the read-side shape) so the renderer can round-trip
+    fields from ``get_data_extraction_queue`` without casts."""
+
     model_config = ConfigDict(extra="allow")
 
     name: str
-    explanation: str
+    explanation: str = ""
     data_type: str = "str"
     options: Optional[List[Any]] = None
     optional: Optional[bool] = None
@@ -151,6 +158,7 @@ class DataHandler(BaseHandler):
         request=GetDataExtractionQueueRequest,
         response=GetDataExtractionQueueResponse,
         operation_type=OperationsType.data,
+        writes=True,
         timeout_class="fast",
     )
     def get_data_extraction_queue(

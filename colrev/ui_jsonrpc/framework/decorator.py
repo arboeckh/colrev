@@ -37,8 +37,9 @@ def rpc_method(
         operation_type: If this wraps a CoLRev operation, the OperationsType.
             None for UI-native methods.
         requires_project: False for project-list / ping / init endpoints.
-        writes: True if the method mutates project state (staged changes).
-            Drives the renderer's post-write git/pending-changes refresh.
+        writes: True if the handler mutates on-disk project state. Load-bearing
+            in the renderer (post-write refresh keys off the exported schema) —
+            any handler that commits, saves, or stages files must set it.
         timeout_class: ``"fast"`` for cheap read/status methods (client caps
             server processing at ~10s); ``"slow"`` (default) for everything
             else — no client-side cap, liveness comes from progress events

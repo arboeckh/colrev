@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Check, X, Circle } from 'lucide-vue-next';
-import type { ReconciliationPreviewItem } from '@/types/api';
+import type { ReconciliationPreviewItem } from '@/types/generated/rpc';
 import { reviewerStatusToDecision, type ReconcileKind } from './reconcile-utils';
 
 defineProps<{
