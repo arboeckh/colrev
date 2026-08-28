@@ -25,7 +25,10 @@ and the `.report.log` truncation that any CoLRev operation constructor performs
 | `validate` | `false` | `true` | conservative: `filter_setting="dedupe"`/`"all"` (caller-controlled) writes `data/dedupe/merge_candidates_file.txt`; the UI's settings are pure reads, but a spurious refresh is cheaper than a stale UI |
 | `get_connector_api_key_status`, `set_connector_api_key` | absent | `false` | new methods; env-var only, nothing persisted |
 
-## Flags confirmed (writes=True, 44 methods)
+Post-merge addition (WP-04): `apply_merge` is a writer (merges, reconciles,
+and commits); `analyze_merge` stays read-only (analysis restores repo state).
+
+## Flags confirmed (writes=True, 45 methods)
 
 init_project, delete_project, commit_changes, discard_changes,
 reset_to_remote, load, prep, dedupe, pdf_prep, prep_man_update_record, data,
@@ -38,9 +41,9 @@ upload_pdf, mark_pdf_not_available, undo_pdf_not_available, import_pdfs,
 restore_pdf_file, update_review_definition, add_screening_criterion,
 update_screening_criterion, remove_screening_criterion, update_settings,
 create_managed_review_task, cancel_managed_review_task, apply_reconciliation,
-validate
+validate, apply_merge
 
-All remaining 29 methods are read-only (`writes=False`).
+All remaining 30 methods are read-only (`writes=False`).
 
 The audited set is pinned by `tests/4_jsonrpc/test_writes_flags.py` — a
 registry-walking golden test, so adding a method (or flipping a flag) forces a

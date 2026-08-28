@@ -138,6 +138,100 @@ export interface AddSourceDetails {
   [k: string]: unknown;
 }
 
+/**
+ * Request for analyze_merge.
+ */
+export interface AnalyzeMergeRequest {
+  base_path?: string | null;
+  /**
+   * Expected current branch; mismatch is an error.
+   */
+  ours?: string | null;
+  project_id: string;
+  /**
+   * Ref to merge (the branch's upstream tracking ref)
+   */
+  theirs: string;
+  verbose?: boolean;
+}
+
+/**
+ * Structured divergence report for the conflict-resolution dialog.
+ */
+export interface AnalyzeMergeResponse {
+  auto_mergeable: boolean;
+  blockers?: MergeBlockerItem[];
+  project_id: string;
+  settings_conflict?: boolean;
+  settings_conflicts?: SettingsConflictItem[];
+  status_conflicts?: StatusConflictItem[];
+  success?: true;
+  [k: string]: unknown;
+}
+/**
+ * A reason the merge cannot proceed through the app.
+ */
+
+export interface MergeBlockerItem {
+  id?: string | null;
+  reason: string;
+}
+/**
+ * A settings.json field changed differently on both sides.
+ */
+
+export interface SettingsConflictItem {
+  ours?: {
+    [k: string]: unknown;
+  };
+  path: string;
+  theirs?: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * A per-record colrev_status disagreement between the merge sides.
+ */
+
+export interface StatusConflictItem {
+  author?: string | null;
+  id: string;
+  ours: string;
+  theirs: string;
+  title?: string | null;
+  year?: string | null;
+}
+
+/**
+ * Request for apply_merge with the user's per-conflict decisions.
+ */
+export interface ApplyMergeRequest {
+  base_path?: string | null;
+  project_id: string;
+  resolutions?: {
+    [k: string]: "ours" | "theirs";
+  };
+  settings_resolutions?: {
+    [k: string]: "ours" | "theirs";
+  };
+  theirs: string;
+  verbose?: boolean;
+}
+
+/**
+ * Result of a completed merge commit.
+ */
+export interface ApplyMergeResponse {
+  commit_sha: string;
+  merged: boolean;
+  project_id: string;
+  statistics?: {
+    [k: string]: unknown;
+  } | null;
+  success?: true;
+  [k: string]: unknown;
+}
+
 export interface ApplyReconciliationRequest {
   base_path?: string | null;
   override_blocks?: boolean;
@@ -1757,6 +1851,14 @@ export interface RPCMethods {
   "add_source": {
     params: AddSourceRequest;
     result: AddSourceResponse;
+  };
+  "analyze_merge": {
+    params: AnalyzeMergeRequest;
+    result: AnalyzeMergeResponse;
+  };
+  "apply_merge": {
+    params: ApplyMergeRequest;
+    result: ApplyMergeResponse;
   };
   "apply_reconciliation": {
     params: ApplyReconciliationRequest;

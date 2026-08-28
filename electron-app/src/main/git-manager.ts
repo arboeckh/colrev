@@ -465,95 +465,34 @@ export async function gitRevListCount(
 
 // --- Merge conflict resolution helpers ---
 
-export async function gitMergeBase(
+/**
+ * Resolve the current branch and its upstream tracking ref. The
+ * divergence-merge flow merges against the actual upstream of whatever
+ * branch is checked out — never a hardcoded remote ref.
+ */
+export async function gitGetBranchAndUpstream(
   projectPath: string,
-  ref1: string,
-  ref2: string,
-): Promise<{ success: boolean; commitHash?: string; error?: string }> {
-  const { exec } = await import('dugite');
-  const result = await exec(['merge-base', ref1, ref2], projectPath);
-  if (result.exitCode !== 0) {
-    return { success: false, error: result.stderr || 'No common ancestor found' };
-  }
-  return { success: true, commitHash: result.stdout.trim() };
-}
-
-export async function gitShowFile(
-  projectPath: string,
-  ref: string,
-  filePath: string,
-): Promise<{ success: boolean; content?: string; error?: string }> {
-  const { exec } = await import('dugite');
-  const result = await exec(['show', `${ref}:${filePath}`], projectPath);
-  if (result.exitCode !== 0) {
-    return { success: false, error: result.stderr || `File not found at ${ref}:${filePath}` };
-  }
-  return { success: true, content: result.stdout };
-}
-
-export async function gitDiffNameOnly(
-  projectPath: string,
-  ref1: string,
-  ref2: string,
-): Promise<{ success: boolean; files: string[]; error?: string }> {
-  const { exec } = await import('dugite');
-  const result = await exec(['diff', '--name-only', ref1, ref2], projectPath);
-  if (result.exitCode !== 0) {
-    return { success: false, files: [], error: result.stderr || 'Diff failed' };
-  }
-  const files = result.stdout.trim().split('\n').filter(Boolean);
-  return { success: true, files };
-}
-
-export async function gitMergeNoCommit(
-  projectPath: string,
-  source: string,
-): Promise<{ success: boolean; hasConflicts?: boolean; conflictedFiles?: string[]; error?: string }> {
+): Promise<{ success: boolean; branch?: string; upstream?: string; error?: string }> {
   const { exec } = await import('dugite');
 
-  // Merge is a local operation — no token auth needed
-  const result = await exec(['merge', '--no-commit', '--no-ff', source], projectPath);
-
-  if (result.exitCode === 0) {
-    return { success: true, hasConflicts: false };
+  const headResult = await exec(['rev-parse', '--abbrev-ref', 'HEAD'], projectPath);
+  if (headResult.exitCode !== 0) {
+    return { success: false, error: headResult.stderr || 'Could not determine current branch' };
   }
+  const branch = headResult.stdout.trim();
 
-  // Check if it's a conflict (exit code 1 with unmerged paths)
-  const stderr = result.stderr || '';
-  const stdout = result.stdout || '';
-  if (stderr.includes('CONFLICT') || stdout.includes('CONFLICT') || stderr.includes('Automatic merge failed')) {
-    // Get list of conflicted files
-    const diffResult = await exec(['diff', '--name-only', '--diff-filter=U'], projectPath);
-    const conflictedFiles = diffResult.stdout.trim().split('\n').filter(Boolean);
-    return { success: true, hasConflicts: true, conflictedFiles };
+  const upstreamResult = await exec(
+    ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'],
+    projectPath,
+  );
+  if (upstreamResult.exitCode !== 0) {
+    return {
+      success: false,
+      branch,
+      error: `Branch '${branch}' has no upstream tracking branch`,
+    };
   }
-
-  return { success: false, error: stderr || 'Merge failed' };
-}
-
-export async function gitStageAndCommitMerge(
-  projectPath: string,
-  files: string[],
-  message: string,
-): Promise<GitResult> {
-  const { exec } = await import('dugite');
-
-  // Stage specified files
-  for (const file of files) {
-    const addResult = await exec(['add', file], projectPath);
-    if (addResult.exitCode !== 0) {
-      return { success: false, error: addResult.stderr || `Failed to stage ${file}` };
-    }
-  }
-
-  // Also stage any auto-merged files that git resolved
-  await exec(['add', '-u'], projectPath);
-
-  const commitResult = await exec(['commit', '-m', message], projectPath);
-  if (commitResult.exitCode !== 0) {
-    return { success: false, error: commitResult.stderr || 'Commit failed' };
-  }
-  return { success: true };
+  return { success: true, branch, upstream: upstreamResult.stdout.trim() };
 }
 
 export async function gitHasMergeConflict(

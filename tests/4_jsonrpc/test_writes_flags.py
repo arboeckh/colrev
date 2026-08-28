@@ -17,6 +17,9 @@ from colrev.ui_jsonrpc.framework import registry
 AUDITED_WRITERS = {
     "add_screening_criterion",
     "add_source",
+    # WP-04 engine-owned merge: commits with both merge parents.
+    # (analyze_merge stays read-only — it restores repo state after analysis.)
+    "apply_merge",
     "apply_reconciliation",
     "batch_enrich_records",
     "cancel_managed_review_task",

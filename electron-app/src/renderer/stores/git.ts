@@ -577,24 +577,36 @@ export const useGitStore = defineStore('git', () => {
   }
 
   /**
-   * Analyze divergence and either auto-merge or show conflict resolution dialog.
+   * Analyze divergence via the engine and either auto-merge, show the
+   * conflict resolution dialog, or report blockers.
    */
   async function startDivergenceResolution(): Promise<void> {
     const path = getProjectPath();
-    if (!path || isResolving.value) return;
+    if (!path || !projects.currentProjectId || isResolving.value) return;
 
     isResolving.value = true;
     try {
-      const result = await window.git.analyzeDivergence(path);
+      const result = await window.git.analyzeDivergence(path, projects.currentProjectId);
       if (!result.success || !result.analysis) {
         notifications.error('Sync failed', result.error || 'Could not analyze changes. Please try again.');
+        return;
+      }
+
+      if (result.analysis.blockers.length > 0) {
+        // The engine refuses to merge (non-status record drift, unmergeable
+        // files). Local state is untouched — surface why and stop.
+        const reasons = result.analysis.blockers.map((b) => b.reason).join('; ');
+        notifications.error(
+          'Cannot combine changes automatically',
+          `${reasons}. Your local changes are unchanged.`,
+        );
         return;
       }
 
       mergeAnalysis.value = result.analysis;
 
       if (!result.analysis.hasConflicts) {
-        // No conflicts — auto-merge silently
+        // No decisions needed — merge silently
         await applyMergeResolutions([]);
       } else {
         // Has conflicts — show dialog
@@ -614,23 +626,28 @@ export const useGitStore = defineStore('git', () => {
    */
   async function applyMergeResolutions(resolutions: MergeConflictResolution[]): Promise<boolean> {
     const path = getProjectPath();
-    if (!path || !mergeAnalysis.value) {
+    if (!path || !projects.currentProjectId || !mergeAnalysis.value) {
       console.error('[git] applyMergeResolutions: no path or analysis', { path, hasAnalysis: !!mergeAnalysis.value });
       return false;
     }
 
     isResolving.value = true;
     try {
-      // Deep-clone to strip Vue reactive proxies — IPC requires plain objects
-      const rawAnalysis = JSON.parse(JSON.stringify(toRaw(mergeAnalysis.value)));
-      console.log('[git] Calling applyMerge with', resolutions.length, 'resolutions');
-      const result = await window.git.applyMerge(path, resolutions, rawAnalysis);
-      console.log('[git] applyMerge result:', result);
+      // Strip Vue reactive proxies — IPC requires plain objects
+      const rawResolutions = JSON.parse(JSON.stringify(toRaw(resolutions)));
+      const result = await window.git.applyMerge(path, projects.currentProjectId, rawResolutions);
       if (result.success) {
-        const msg = result.pushFailed
-          ? 'Changes merged locally. Push will retry on next sync.'
-          : 'Your changes and your collaborator\'s changes have been combined.';
-        notifications.success('Synced successfully', msg);
+        if (result.pushed === false) {
+          notifications.info(
+            'Merged locally — upload pending',
+            'Your changes were combined, but uploading to the remote failed. Use Sync to upload when you are back online.',
+          );
+        } else {
+          notifications.success(
+            'Synced successfully',
+            'Your changes and your collaborator\'s changes have been combined.',
+          );
+        }
         showConflictDialog.value = false;
         mergeAnalysis.value = null;
         await refreshStatus();

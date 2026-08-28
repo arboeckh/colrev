@@ -12,6 +12,7 @@ from colrev.ui_jsonrpc.framework_handlers import git_handler  # noqa: F401
 from colrev.ui_jsonrpc.framework_handlers import init_handler  # noqa: F401
 from colrev.ui_jsonrpc.framework_handlers import load_handler  # noqa: F401
 from colrev.ui_jsonrpc.framework_handlers import managed_review_handler  # noqa: F401
+from colrev.ui_jsonrpc.framework_handlers import merge_handler  # noqa: F401
 from colrev.ui_jsonrpc.framework_handlers import pdf_get_handler  # noqa: F401
 from colrev.ui_jsonrpc.framework_handlers import pdf_prep_handler  # noqa: F401
 from colrev.ui_jsonrpc.framework_handlers import pdf_share_handler  # noqa: F401
