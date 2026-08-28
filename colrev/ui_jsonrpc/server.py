@@ -1,9 +1,11 @@
 """JSON-RPC server for CoLRev operations via stdio."""
-
 import json
 import logging
 import sys
-from typing import Any, Dict
+from typing import Any
+from typing import Dict
+
+from colrev.ui_jsonrpc import transport
 
 # Configure logging to stderr only (stdout is for JSON-RPC communication)
 logging.basicConfig(
@@ -32,12 +34,15 @@ def read_jsonrpc_request() -> Dict[str, Any]:
 
 def write_jsonrpc_response(response: Dict[str, Any]) -> None:
     """
-    Write a JSON-RPC response to stdout.
+    Write a JSON-RPC response to the wire (the original stdout).
+
+    Goes through :mod:`colrev.ui_jsonrpc.transport` so the dispatcher's
+    per-request fd 1 redirect cannot swallow responses.
 
     Args:
         response: JSON-RPC response dictionary
     """
-    print(json.dumps(response), flush=True)
+    transport.write_line(json.dumps(response))
 
 
 def run_stdio_server() -> None:
@@ -50,7 +55,13 @@ def run_stdio_server() -> None:
     logger.info("CoLRev JSON-RPC server starting (stdio mode)")
     logger.info("Ready to receive requests via stdin")
 
-    # Route ProgressEvent emissions onto the same stdout channel as responses,
+    # Capture fd 1 as the private JSON-RPC wire before anything can redirect
+    # it. The dispatcher redirects fd 1 to /dev/null around every
+    # project-scoped handler; responses and progress notifications written
+    # through the wire are unaffected.
+    transport.init_wire()
+
+    # Route ProgressEvent emissions onto the same wire as responses,
     # as JSON-RPC notifications (no ``id``). Frontend demultiplexes by the
     # presence of ``method`` / absence of ``id``.
     install_default_emitter()
@@ -130,6 +141,7 @@ def main() -> None:
     # E2E hook: install requests-level PubMed mock if env var is set.
     # No-op in production (env var unset).
     from colrev.ui_jsonrpc import _pubmed_mock
+
     _pubmed_mock.install_if_enabled()
 
     # Run stdio server

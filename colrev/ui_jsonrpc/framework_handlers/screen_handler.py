@@ -144,6 +144,7 @@ class ScreenHandler(BaseHandler):
         request=ScreenBatchRequest,
         response=ScreenBatchResponse,
         operation_type=OperationsType.screen,
+        writes=True,
     )
     def screen(self, req: ScreenBatchRequest) -> ScreenBatchResponse:
         assert self.review_manager is not None
@@ -163,6 +164,7 @@ class ScreenHandler(BaseHandler):
         request=GetScreenQueueRequest,
         response=GetScreenQueueResponse,
         operation_type=OperationsType.screen,
+        timeout_class="fast",
     )
     def get_screen_queue(self, req: GetScreenQueueRequest) -> GetScreenQueueResponse:
         assert self.review_manager is not None
@@ -230,6 +232,7 @@ class ScreenHandler(BaseHandler):
         request=ScreenRecordRequest,
         response=ScreenRecordResponse,
         operation_type=OperationsType.screen,
+        writes=True,
         precondition="manual_decision",
     )
     def screen_record(self, req: ScreenRecordRequest) -> ScreenRecordResponse:
@@ -320,6 +323,7 @@ class ScreenHandler(BaseHandler):
         request=UpdateScreenDecisionsRequest,
         response=UpdateScreenDecisionsResponse,
         operation_type=OperationsType.screen,
+        writes=True,
         precondition="manual_decision",
     )
     def update_screen_decisions(
@@ -392,6 +396,7 @@ class ScreenHandler(BaseHandler):
         request=IncludeAllScreenRequest,
         response=IncludeAllScreenResponse,
         operation_type=OperationsType.screen,
+        writes=True,
     )
     def include_all_screen(
         self, req: IncludeAllScreenRequest

@@ -1,5 +1,4 @@
 """Global method registry and MethodSpec definition."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,6 +11,7 @@ from typing import Type
 from pydantic import BaseModel
 
 from colrev.constants import OperationsType
+from colrev.ui_jsonrpc.errors import MethodNotFoundError
 
 # Precondition policy for a method's ReviewManager:
 # - "enforce": the engine's own operation preconditions apply unchanged
@@ -42,6 +42,8 @@ class MethodSpecDraft:
     response_model: Type[BaseModel]
     operation_type: Optional[OperationsType] = None
     requires_project: bool = True
+    writes: bool = False
+    timeout_class: str = "slow"
     precondition: PreconditionPolicy = "enforce"
 
 
@@ -61,6 +63,15 @@ class MethodSpec:
         requires_project: If True, the request must be a ProjectScopedRequest and the
             dispatcher will construct a ReviewManager. If False (``ping``, ``list_projects``,
             ``init_project``), no ReviewManager is built.
+        writes: Hint that this method mutates state (records.bib, settings, git).
+            Exported to the frontend schema so the renderer knows to refresh
+            git/pending-changes state after a successful call. Does NOT cause
+            auto-commit.
+        timeout_class: ``"fast"`` for cheap read/status methods the client may
+            time out after ~10s of server processing; ``"slow"`` (default) for
+            operations with no client-side cap — the client relies on progress
+            events and process liveness instead, so a long-running op can never
+            end in "timed out in the UI but committed on disk".
         precondition: How the engine's operation preconditions apply to this
             method (see :data:`PreconditionPolicy`). Defaults to "enforce".
     """
@@ -72,6 +83,8 @@ class MethodSpec:
     handler_cls: Type
     operation_type: Optional[OperationsType] = None
     requires_project: bool = True
+    writes: bool = False
+    timeout_class: str = "slow"
     precondition: PreconditionPolicy = "enforce"
 
 
@@ -93,7 +106,7 @@ class MethodRegistry:
         try:
             return self._methods[name]
         except KeyError as exc:
-            raise ValueError(f"Method {name!r} not found") from exc
+            raise MethodNotFoundError(f"Method {name!r} not found") from exc
 
     def has(self, name: str) -> bool:
         return name in self._methods
