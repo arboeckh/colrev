@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from colrev.constants import OperationsType
 from colrev.ui_jsonrpc.framework.registry import MethodSpecDraft
+from colrev.ui_jsonrpc.framework.registry import PreconditionPolicy
 
 
 def rpc_method(
@@ -24,6 +25,7 @@ def rpc_method(
     response: Type[BaseModel],
     operation_type: Optional[OperationsType] = None,
     requires_project: bool = True,
+    precondition: PreconditionPolicy = "enforce",
 ) -> Callable:
     """Mark a handler method as an RPC endpoint.
 
@@ -34,6 +36,10 @@ def rpc_method(
         operation_type: If this wraps a CoLRev operation, the OperationsType.
             None for UI-native methods.
         requires_project: False for project-list / ping / init endpoints.
+        precondition: Engine precondition policy (see
+            :data:`~colrev.ui_jsonrpc.framework.registry.PreconditionPolicy`).
+            "manual_decision" is reserved for per-record prescreen/screen
+            decision endpoints; everything else keeps the default "enforce".
     """
 
     draft = MethodSpecDraft(
@@ -42,6 +48,7 @@ def rpc_method(
         response_model=response,
         operation_type=operation_type,
         requires_project=requires_project,
+        precondition=precondition,
     )
 
     def decorator(fn: Callable) -> Callable:

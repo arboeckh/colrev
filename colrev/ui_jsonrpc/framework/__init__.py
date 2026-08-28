@@ -5,7 +5,8 @@ Every JSON-RPC method is defined as a triple:
 registered via the ``@rpc_method`` decorator. The dispatcher then owns:
 
 - param validation (Pydantic),
-- ReviewManager lifecycle (constructed with interactive_mode=True),
+- ReviewManager lifecycle (engine preconditions apply per the method's
+  ``precondition`` policy),
 - injection of the LazyWriteGitRepo,
 - response serialization.
 
