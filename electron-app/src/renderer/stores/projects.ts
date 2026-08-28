@@ -9,13 +9,17 @@ import type {
   ProjectSettings,
   WorkflowStep,
   RecordCounts,
-  OverallRecordCounts,
+  StatusStep,
   WorkflowStepInfo,
 } from '@/types/project';
 import { WORKFLOW_STEPS } from '@/types/project';
-import type { GetOperationInfoResponse } from '@/types/generated/rpc';
 import { stripUrlUserinfo } from '@/lib/utils';
-import { computeStepStatus, type StepStatus } from '@/lib/stepStatus';
+import {
+  computeStepStatus,
+  stepsByOperation,
+  type StepStatus,
+  type StepsByOperation,
+} from '@/lib/stepStatus';
 // Lazy use only — not called at store init time (circular dep safe via Vite ESM live bindings).
 import { useGitStore } from './git';
 import { useManagedReviewStore } from './managedReview';
@@ -45,30 +49,13 @@ export const useProjectsStore = defineStore('projects', () => {
   const projects = ref<ProjectListItem[]>([]);
   const currentProjectId = ref<string | null>(null);
   const currentProject = ref<Project | null>(null);
-  const operationInfo = ref<Record<WorkflowStep, GetOperationInfoResponse | null>>({
-    review_definition: null,
-    search: null,
-    preprocessing: null,
-    load: null,
-    prep: null,
-    dedupe: null,
-    prescreen: null,
-    pdf_get: null,
-    pdf_prep: null,
-    pdfs: null,
-    screen: null,
-    data: null,
-  });
-  // Track if any search sources are stale (need re-running)
-  const hasStaleSearchSources = ref(false);
   const isLoadingProject = ref(false);
   const projectError = ref<string | null>(null);
 
   // Freeze state: held during branch switches to prevent sidebar flicker.
   // Snapshotted before checkout; cleared after loadProject completes.
   const frozenRecordCounts = ref<(RecordCounts & { total: number }) | null>(null);
-  const frozenOverallCounts = ref<OverallRecordCounts | null>(null);
-  const frozenManagedStatuses = ref<Partial<Record<WorkflowStep, StepStatus | null>>>({});
+  const frozenStepStatuses = ref<Partial<Record<WorkflowStep, StepStatus>>>({});
   const isBranchSwitching = ref(false);
 
   // Computed
@@ -82,6 +69,34 @@ export const useProjectsStore = defineStore('projects', () => {
 
   const nextOperation = computed(() => {
     return currentStatus.value?.next_operation ?? null;
+  });
+
+  // Per-operation step payload from the engine (status.steps), keyed by
+  // operation name. The single source of truth for step status/runnability.
+  const payloadSteps = computed<StepsByOperation | null>(() =>
+    stepsByOperation(currentStatus.value?.steps),
+  );
+
+  // Search staleness comes from the status payload only — the renderer keeps
+  // no independent flag, so it can never go sticky (WP-06).
+  const hasStaleSearchSources = computed(
+    () => currentStatus.value?.search_stale ?? false,
+  );
+
+  // Runnability info per operation, straight from the status payload
+  // (replaces the old per-operation get_operation_info fan-out).
+  const operationInfo = computed<Partial<Record<WorkflowStep, StatusStep | null>>>(() => {
+    const map: Partial<Record<WorkflowStep, StatusStep | null>> = {};
+    for (const step of WORKFLOW_STEPS) {
+      map[step.id] = null;
+    }
+    const steps = payloadSteps.value;
+    if (steps) {
+      for (const [op, payload] of Object.entries(steps)) {
+        map[op as WorkflowStep] = payload;
+      }
+    }
+    return map;
   });
 
   // Actions
@@ -241,11 +256,6 @@ export const useProjectsStore = defineStore('projects', () => {
         settings,
       };
 
-      debug.logInfo('Loading operation info for all steps...');
-
-      // Load operation info for all steps
-      await loadAllOperationInfo(id);
-
       // Load managed review task state for sidebar status
       try {
         const { useManagedReviewStore } = await import('./managedReview');
@@ -283,63 +293,7 @@ export const useProjectsStore = defineStore('projects', () => {
     }
   }
 
-  // In-flight coalescing with a "dirty re-run": callers arriving while a
-  // request is in flight share ONE follow-up request that starts after the
-  // current one completes. A post-mutation refresh therefore never receives
-  // pre-mutation data (the old bug: returning the older in-flight promise).
-  let _opInfoInFlight: Promise<void> | null = null;
-  let _opInfoQueued: Promise<void> | null = null;
-
-  function loadAllOperationInfo(id: string): Promise<void> {
-    if (_opInfoInFlight) {
-      if (!_opInfoQueued) {
-        _opInfoQueued = _opInfoInFlight
-          .catch(() => {})
-          .then(() => {
-            _opInfoQueued = null;
-            return loadAllOperationInfo(id);
-          });
-      }
-      return _opInfoQueued;
-    }
-    _opInfoInFlight = _loadAllOperationInfoImpl(id).finally(() => {
-      _opInfoInFlight = null;
-    });
-    return _opInfoInFlight;
-  }
-
-  async function _loadAllOperationInfoImpl(id: string): Promise<void> {
-    const guard = useProjectDataStore().snapshot();
-    const operations: WorkflowStep[] = [
-      'search',
-      'load',
-      'prep',
-      'dedupe',
-      'prescreen',
-      'pdf_get',
-      'pdf_prep',
-      'screen',
-      'data',
-    ];
-
-    await Promise.all(
-      operations.map(async (op) => {
-        try {
-          const response = await backend.call('get_operation_info', {
-            project_id: id,
-            operation: op,
-          });
-          if (!guard.isCurrent()) return;
-          operationInfo.value[op] = response;
-        } catch {
-          if (!guard.isCurrent()) return;
-          operationInfo.value[op] = null;
-        }
-      })
-    );
-  }
-
-  // Same dirty re-run coalescing as loadAllOperationInfo: concurrent callers
+  // In-flight coalescing with a "dirty re-run": concurrent callers
   // share the in-flight refresh, and at most one follow-up is queued so a
   // refresh requested mid-flight (e.g. post-mutation) re-reads fresh data.
   let _refreshInFlight: Promise<void> | null = null;
@@ -396,15 +350,6 @@ export const useProjectsStore = defineStore('projects', () => {
       throw new Error('Failed to refresh project status');
     }
 
-    // Refresh operation info
-    await loadAllOperationInfo(id);
-    if (!guard.isCurrent()) return;
-
-    const searchOp = operationInfo.value.search;
-    if (searchOp?.needs_rerun) {
-      hasStaleSearchSources.value = true;
-    }
-
     // Refresh managed review task state for sidebar
     try {
       const { useManagedReviewStore } = await import('./managedReview');
@@ -439,7 +384,6 @@ export const useProjectsStore = defineStore('projects', () => {
     currentProjectId.value = null;
     currentProject.value = null;
     projectError.value = null;
-    hasStaleSearchSources.value = false;
     // Invalidate any in-flight project-scoped loads.
     useProjectDataStore().bumpEpoch();
 
@@ -452,27 +396,11 @@ export const useProjectsStore = defineStore('projects', () => {
     } catch {
       // Non-critical
     }
-    operationInfo.value = {
-      review_definition: null,
-      search: null,
-      preprocessing: null,
-      load: null,
-      prep: null,
-      dedupe: null,
-      prescreen: null,
-      pdf_get: null,
-      pdf_prep: null,
-      pdfs: null,
-      screen: null,
-      data: null,
-    };
   }
 
-  function setHasStaleSearchSources(value: boolean) {
-    hasStaleSearchSources.value = value;
-  }
-
-  // Resolve effective record counts: on a reviewer branch use dev's counts, else current.
+  // Resolve effective record counts for BADGE display: on a reviewer branch
+  // use dev's counts, else current. (Step *status* comes from the payload's
+  // per-operation steps, not from these counts.)
   function resolveEffectiveCounts(): (RecordCounts & { total: number }) | null {
     const git = useGitStore();
     const managedReview = useManagedReviewStore();
@@ -490,18 +418,13 @@ export const useProjectsStore = defineStore('projects', () => {
 
   // Snapshot sidebar data before a branch switch so it remains stable during reload.
   function snapshotSidebarState(): void {
-    const managedReview = useManagedReviewStore();
-
     frozenRecordCounts.value = resolveEffectiveCounts();
-    frozenOverallCounts.value = currentStatus.value?.overall ?? null;
 
-    const statuses: Partial<Record<WorkflowStep, StepStatus | null>> = {};
+    const statuses: Partial<Record<WorkflowStep, StepStatus>> = {};
     for (const step of WORKFLOW_STEPS) {
-      if (step.managedReviewKind) {
-        statuses[step.id] = managedReview.getStepStatus(step.id);
-      }
+      statuses[step.id] = getStepStatus(step.id);
     }
-    frozenManagedStatuses.value = statuses;
+    frozenStepStatuses.value = statuses;
     isBranchSwitching.value = true;
   }
 
@@ -512,22 +435,17 @@ export const useProjectsStore = defineStore('projects', () => {
   function getStepStatus(stepId: WorkflowStep): StepStatus {
     const stepIndex = WORKFLOW_STEPS.findIndex((s: WorkflowStepInfo) => s.id === stepId);
     if (stepIndex === -1) return 'pending';
+
+    if (isBranchSwitching.value) {
+      return frozenStepStatuses.value[stepId] ?? 'pending';
+    }
+
     const step = WORKFLOW_STEPS[stepIndex];
     const managedReview = useManagedReviewStore();
 
-    let counts: (RecordCounts & { total: number }) | null;
-    let overall: OverallRecordCounts | null;
-    let managedStatus: StepStatus | null;
-
-    if (isBranchSwitching.value) {
-      counts = frozenRecordCounts.value;
-      overall = frozenOverallCounts.value;
-      managedStatus = frozenManagedStatuses.value[stepId] ?? null;
-    } else {
-      counts = resolveEffectiveCounts();
-      overall = currentStatus.value?.overall ?? null;
-      managedStatus = step.managedReviewKind ? managedReview.getStepStatus(stepId) : null;
-    }
+    const managedStatus = step.managedReviewKind
+      ? managedReview.getStepStatus(stepId)
+      : null;
 
     let suppressCounts = false;
     if (managedReview.isOnReviewerBranch) {
@@ -543,9 +461,9 @@ export const useProjectsStore = defineStore('projects', () => {
     }
 
     return computeStepStatus(step, stepIndex, WORKFLOW_STEPS, {
-      counts,
-      overall,
-      hasStaleSearchSources: hasStaleSearchSources.value,
+      steps: payloadSteps.value,
+      searchStale: hasStaleSearchSources.value,
+      totalRecords: currentStatus.value?.total_records ?? 0,
       managedStepStatus: managedStatus,
       suppressCounts,
     });
@@ -556,8 +474,6 @@ export const useProjectsStore = defineStore('projects', () => {
     projects,
     currentProjectId,
     currentProject,
-    operationInfo,
-    hasStaleSearchSources,
     isLoadingProject,
     projectError,
     // Computed
@@ -566,6 +482,9 @@ export const useProjectsStore = defineStore('projects', () => {
     currentSettings,
     currentStatus,
     nextOperation,
+    payloadSteps,
+    operationInfo,
+    hasStaleSearchSources,
     // Actions
     addProject,
     removeProject,
@@ -573,11 +492,9 @@ export const useProjectsStore = defineStore('projects', () => {
     loadProjectGitStatus,
     loadProjectSettings,
     loadProject,
-    loadAllOperationInfo,
     refreshCurrentProject,
     refreshGitStatus,
     clearCurrentProject,
-    setHasStaleSearchSources,
     // Branch-switch stability
     frozenRecordCounts,
     isBranchSwitching,

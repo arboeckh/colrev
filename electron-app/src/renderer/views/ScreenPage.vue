@@ -11,6 +11,7 @@ import {
 } from '@/components/screen';
 import PdfShareActions from '@/components/shared/PdfShareActions.vue';
 import { useProjectsStore } from '@/stores/projects';
+import { isReviewStepComplete } from '@/lib/stepStatus';
 import { useAuthStore } from '@/stores/auth';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
@@ -110,9 +111,7 @@ const canExclude = computed(() => {
 });
 const isScreenComplete = computed(() => {
   if (allDecisionsMade.value) return true;
-  if (!statusCounts.value) return false;
-  const { pdf_prepared, rev_included, rev_excluded } = statusCounts.value;
-  return pdf_prepared === 0 && (rev_included > 0 || rev_excluded > 0);
+  return isReviewStepComplete(projects.payloadSteps?.screen);
 });
 const assignedReviewer = computed(() => {
   if (!activeManagedTask.value || !auth.user?.login) return null;

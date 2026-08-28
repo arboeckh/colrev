@@ -29,6 +29,7 @@ import RecordCard from '@/components/prescreen/RecordCard.vue';
 import ProgressTrack from '@/components/prescreen/ProgressTrack.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useProjectsStore } from '@/stores/projects';
+import { isReviewStepComplete } from '@/lib/stepStatus';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
 import { useManagedReviewStore } from '@/stores/managedReview';
@@ -212,14 +213,13 @@ const isCurrentDecided = computed(() => currentRecord.value !== null && currentR
 // branch and block reconciliation.
 const skipEnrichment = computed(() => props.embedded);
 
-// Completion detection from project status (for when user navigates back after finishing)
+// Completion detection from the shared status derivation (for when user
+// navigates back after finishing)
 const statusCounts = computed(() => projects.currentStatus?.currently ?? null);
 const isPrescreenComplete = computed(() => {
   // Local flag set immediately when the last decision is made — no refresh needed
   if (allDecisionsMade.value) return true;
-  if (!statusCounts.value) return false;
-  const { rev_prescreen_included, rev_prescreen_excluded, md_processed } = statusCounts.value;
-  return md_processed === 0 && (rev_prescreen_included > 0 || rev_prescreen_excluded > 0);
+  return isReviewStepComplete(projects.payloadSteps?.prescreen);
 });
 
 // Check if current record is ready to display (has abstract or enrichment complete/failed)

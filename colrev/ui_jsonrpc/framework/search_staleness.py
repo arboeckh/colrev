@@ -13,10 +13,16 @@ import logging
 from pathlib import Path
 from typing import Any
 from typing import Dict
+from typing import List
 from typing import Optional
 from typing import Tuple
 
 logger = logging.getLogger(__name__)
+
+# Source types whose staleness is never tracked: FILES sources are local
+# PDF/import buckets, MD sources are metadata-provider mirrors. Neither is
+# "run" by the user, so they can't be stale.
+_UNTRACKED_SEARCH_TYPES = {"FILES", "MD"}
 
 
 def run_config_snapshot(source: Any) -> Dict[str, Any]:
@@ -68,6 +74,36 @@ def check_source_staleness(source: Any, history_path: Path) -> Tuple[bool, Optio
     if reason is None:
         return False, None
     return True, reason
+
+
+def stale_source_entries(review_manager: Any) -> List[Dict[str, Optional[str]]]:
+    """THE staleness definition for a project's search sources.
+
+    Returns one entry per stale source. A source is stale when its search
+    has never been run (no history file / no ``last_run``) or its query or
+    parameters changed since the last run. FILES/MD sources are never stale.
+
+    Both the status payload (``get_status``) and ``get_sources`` derive
+    from this single definition — the renderer must not recompute it.
+    """
+    entries: List[Dict[str, Optional[str]]] = []
+    for source in review_manager.settings.sources:
+        search_type = getattr(
+            getattr(source, "search_type", None), "value", None
+        ) or str(getattr(source, "search_type", ""))
+        if search_type in _UNTRACKED_SEARCH_TYPES:
+            continue
+        history_path = review_manager.path / source.get_search_history_path()
+        is_stale, reason = check_source_staleness(source, history_path)
+        if is_stale:
+            entries.append(
+                {
+                    "platform": getattr(source, "platform", None),
+                    "filename": str(getattr(source, "search_results_path", "")),
+                    "reason": reason,
+                }
+            )
+    return entries
 
 
 def preserve_last_run_snapshot(history_path: Path) -> Tuple[Optional[dict], Optional[str]]:

@@ -9,13 +9,11 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import type { WorkflowStepInfo, RecordCounts } from '@/types/project';
-import type { GetOperationInfoResponse } from '@/types/generated/rpc';
 import { useProjectsStore } from '@/stores/projects';
 
 const props = defineProps<{
   step: WorkflowStepInfo;
   projectId: string;
-  operationInfo?: GetOperationInfoResponse | null;
   recordCounts?: RecordCounts | null;
   deltaByState?: globalThis.Record<string, number> | null;
   showDelta?: boolean;

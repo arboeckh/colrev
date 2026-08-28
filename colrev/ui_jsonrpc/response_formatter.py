@@ -1,7 +1,7 @@
 """Format operation results for JSON-RPC responses."""
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 def format_path(path: Path) -> str:
@@ -15,11 +15,15 @@ def format_comprehensive_status_response(
     status_stats: Any,
     next_operation: Optional[str],
     has_changes: bool,
+    steps: Optional[List[Dict[str, Any]]] = None,
+    stale_sources: Optional[List[Dict[str, Optional[str]]]] = None,
 ) -> Dict[str, Any]:
     """
     Format comprehensive response for get_status operation.
 
     Provides detailed breakdown of records by state for frontend display.
+    All counts come straight from the engine's StatusStats — this function
+    only reshapes, it never recomputes.
 
     Args:
         project_id: Project identifier
@@ -27,6 +31,8 @@ def format_comprehensive_status_response(
         status_stats: StatusStats object from ReviewManager
         next_operation: Recommended next operation (or None)
         has_changes: Whether there are uncommitted Git changes
+        steps: Per-step status payloads (operation_graph.build_step_payloads)
+        stale_sources: Stale search sources (search_staleness.stale_source_entries)
 
     Returns:
         Formatted response dictionary with comprehensive status
@@ -49,12 +55,9 @@ def format_comprehensive_status_response(
     }
 
     # Extract current counts (records currently in each state)
-    # Note: md_retrieved can be negative due to a bug in CoLRev's _get_currently_md_retrieved
-    # when records have multiple origins (it counts origins, not unique records)
-    # We clamp to 0 to prevent UI issues
     currently = status_stats.currently
     currently_dict = {
-        "md_retrieved": max(0, currently.md_retrieved),
+        "md_retrieved": currently.md_retrieved,
         "md_imported": currently.md_imported,
         "md_needs_manual_preparation": currently.md_needs_manual_preparation,
         "md_prepared": currently.md_prepared,
@@ -71,25 +74,12 @@ def format_comprehensive_status_response(
         "rev_synthesized": currently.rev_synthesized,
     }
 
-    # Calculate total records (all records in any state)
-    total_records = (
-        currently_dict["md_retrieved"]
-        + currently_dict["md_imported"]
-        + currently_dict["md_needs_manual_preparation"]
-        + currently_dict["md_prepared"]
-        + currently_dict["md_processed"]
-        + currently_dict["rev_prescreen_excluded"]
-        + currently_dict["rev_prescreen_included"]
-        + currently_dict["pdf_needs_manual_retrieval"]
-        + currently_dict["pdf_not_available"]
-        + currently_dict["pdf_imported"]
-        + currently_dict["pdf_needs_manual_preparation"]
-        + currently_dict["pdf_prepared"]
-        + currently_dict["rev_excluded"]
-        + currently_dict["rev_included"]
-        + currently_dict["rev_synthesized"]
-    )
+    # Total records = every record ever imported plus retrieved-but-not-yet-
+    # imported search results. Both terms are the engine's own numbers
+    # (overall.md_imported is len(records)).
+    total_records = overall.md_imported + currently.md_retrieved
 
+    stale_sources = stale_sources or []
     return {
         "success": True,
         "project_id": project_id,
@@ -99,6 +89,9 @@ def format_comprehensive_status_response(
             "currently": currently_dict,
             "total_records": total_records,
             "next_operation": next_operation,
+            "steps": steps or [],
+            "search_stale": len(stale_sources) > 0,
+            "stale_sources": stale_sources,
             "completeness_condition": status_stats.completeness_condition,
             "atomic_steps": status_stats.atomic_steps,
             "completed_atomic_steps": status_stats.completed_atomic_steps,

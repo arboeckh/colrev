@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useProjectsStore } from '@/stores/projects';
+import { computePreprocessingStages } from '@/lib/stepStatus';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
@@ -63,20 +64,10 @@ function getSourceDisplayName(source: SearchSource): string {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
-// Compute stage status based on record counts
-const stageStatus = computed(() => {
-  const status = projects.currentStatus;
-  if (!status?.currently) {
-    return { loadCompleted: false, prepCompleted: false, dedupeCompleted: false };
-  }
-
-  const currently = status.currently;
-  const loadCompleted = currently.md_retrieved === 0 && status.total_records > 0;
-  const prepCompleted = loadCompleted && currently.md_imported === 0;
-  const dedupeCompleted = prepCompleted && currently.md_prepared === 0;
-
-  return { loadCompleted, prepCompleted, dedupeCompleted };
-});
+// Stage completion from the shared status derivation
+const stageStatus = computed(() =>
+  computePreprocessingStages(projects.payloadSteps, projects.currentStatus?.total_records ?? 0),
+);
 
 // Final record count
 const finalRecordCount = computed(() => {
@@ -98,7 +89,7 @@ const canRunPreprocessing = computed(() => {
   const opLoad = projects.operationInfo.load;
   const opPrep = projects.operationInfo.prep;
   const opDedupe = projects.operationInfo.dedupe;
-  return opLoad?.can_run || opPrep?.can_run || opDedupe?.can_run;
+  return opLoad?.runnable || opPrep?.runnable || opDedupe?.runnable;
 });
 
 // Check if preprocessing is complete
@@ -161,11 +152,11 @@ async function runAllStages() {
   completedStages.value.clear();
 
   try {
-    await projects.loadAllOperationInfo(projects.currentProjectId);
+    await projects.refreshCurrentProject();
 
     for (const stage of stageDefinitions) {
       const opInfo = projects.operationInfo[stage.id];
-      if (opInfo?.can_run) {
+      if (opInfo?.runnable) {
         const success = await runStage(stage.id);
         if (!success) break;
         await projects.refreshCurrentProject();

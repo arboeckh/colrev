@@ -12,7 +12,6 @@ to avoid over-typing stable but verbose CoLRev internals.
 from __future__ import annotations
 
 import io
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -23,19 +22,20 @@ from typing import Tuple
 from pydantic import ConfigDict
 
 from colrev.constants import Fields
-from colrev.constants import RecordState
 from colrev.ui_jsonrpc import response_formatter
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
+from colrev.ui_jsonrpc.framework import operation_graph
 from colrev.ui_jsonrpc.framework import rpc_method
-from colrev.ui_jsonrpc.framework.search_staleness import stale_reason_for_source
+from colrev.ui_jsonrpc.framework.search_staleness import stale_source_entries
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Operation metadata (moved verbatim from legacy handler)
+# Operation metadata: display strings only. Ordering and operation→state
+# mappings are derived from core's ProcessModel in framework/operation_graph.
 # ---------------------------------------------------------------------------
 
 OPERATION_DESCRIPTIONS = {
@@ -59,18 +59,6 @@ OPERATION_ALIASES = {
     "prescreen_reconcile": "prescreen",
     "screen_launch": "screen",
     "screen_reconcile": "screen",
-}
-
-OPERATION_INPUT_STATES = {
-    "search": None,
-    "load": RecordState.md_retrieved,
-    "prep": RecordState.md_imported,
-    "dedupe": RecordState.md_prepared,
-    "prescreen": RecordState.md_processed,
-    "pdf_get": RecordState.rev_prescreen_included,
-    "pdf_prep": RecordState.pdf_imported,
-    "screen": RecordState.pdf_prepared,
-    "data": RecordState.rev_included,
 }
 
 
@@ -174,7 +162,18 @@ class StatusHandler(BaseHandler):
 
         status_stats = self.review_manager.get_status_stats()
         has_changes = self.review_manager.dataset.git_repo.has_changes(Path("."))
-        next_operation = self._determine_next_operation(status_stats)
+        next_operation = operation_graph.next_operation(status_stats.currently)
+
+        stale_sources = stale_source_entries(self.review_manager)
+        total_records = (
+            status_stats.overall.md_imported + status_stats.currently.md_retrieved
+        )
+        steps = operation_graph.build_step_payloads(
+            status_stats,
+            search_stale=len(stale_sources) > 0,
+            search_sources_configured=len(self.review_manager.settings.sources),
+            total_records=total_records,
+        )
 
         payload = response_formatter.format_comprehensive_status_response(
             project_id=req.project_id,
@@ -182,6 +181,8 @@ class StatusHandler(BaseHandler):
             status_stats=status_stats,
             next_operation=next_operation,
             has_changes=has_changes,
+            steps=steps,
+            stale_sources=stale_sources,
         )
         # format_comprehensive_status_response already returns the full dict
         # shape. Feed it through the response model so extras ride along.
@@ -338,12 +339,11 @@ class StatusHandler(BaseHandler):
         }
 
         stage_status = {
-            "load_completed": currently.md_retrieved == 0,
-            "prep_completed": (
-                currently.md_imported == 0
-                and currently.md_needs_manual_preparation == 0
+            "load_completed": operation_graph.pending_count("load", currently) == 0,
+            "prep_completed": operation_graph.pending_count("prep", currently) == 0,
+            "dedupe_completed": (
+                operation_graph.pending_count("dedupe", currently) == 0
             ),
-            "dedupe_completed": currently.md_prepared == 0,
         }
 
         return GetPreprocessingSummaryResponse(
@@ -435,91 +435,22 @@ class StatusHandler(BaseHandler):
 
     # -- helpers -------------------------------------------------------------
 
-    def _determine_next_operation(self, status_stats) -> Optional[str]:
-        currently = status_stats.currently
-
-        if currently.md_retrieved > 0:
-            return "load"
-        if currently.md_imported > 0 or currently.md_needs_manual_preparation > 0:
-            return "prep"
-        if currently.md_prepared > 0:
-            return "dedupe"
-        if currently.md_processed > 0:
-            return "prescreen"
-        if (
-            currently.rev_prescreen_included > 0
-            or currently.pdf_needs_manual_retrieval > 0
-        ):
-            return "pdf_get"
-        if currently.pdf_imported > 0 or currently.pdf_needs_manual_preparation > 0:
-            return "pdf_prep"
-        if currently.pdf_prepared > 0:
-            return "screen"
-        if currently.rev_included > 0:
-            return "data"
-        return None
-
     def _check_operation_runnable(
         self, operation: str, status_stats
     ) -> Tuple[bool, Optional[str], int]:
-        currently = status_stats.currently
-        affected_records = 0
-        reason: Optional[str] = None
-
+        assert self.review_manager is not None
         if operation == "search":
             sources = self.review_manager.settings.sources
             if not sources:
                 return False, "No search sources configured", 0
             return True, None, len(sources)
 
-        elif operation == "load":
-            affected_records = currently.md_retrieved
-            if affected_records == 0:
-                return False, "No records to load (run search first)", 0
-
-        elif operation == "prep":
-            affected_records = (
-                currently.md_imported + currently.md_needs_manual_preparation
-            )
-            if affected_records == 0:
-                return False, "No records to prepare (run load first)", 0
-
-        elif operation == "dedupe":
-            affected_records = currently.md_prepared
-            if affected_records == 0:
-                return False, "No records to deduplicate (run prep first)", 0
-
-        elif operation == "prescreen":
-            affected_records = currently.md_processed
-            if affected_records == 0:
-                return False, "No records to prescreen (run dedupe first)", 0
-
-        elif operation == "pdf_get":
-            affected_records = (
-                currently.rev_prescreen_included
-                + currently.pdf_needs_manual_retrieval
-            )
-            if affected_records == 0:
-                return False, "No records need PDF retrieval (run prescreen first)", 0
-
-        elif operation == "pdf_prep":
-            affected_records = (
-                currently.pdf_imported + currently.pdf_needs_manual_preparation
-            )
-            if affected_records == 0:
-                return False, "No PDFs to prepare (run pdf_get first)", 0
-
-        elif operation == "screen":
-            affected_records = currently.pdf_prepared
-            if affected_records == 0:
-                return False, "No records to screen (run pdf_prep first)", 0
-
-        elif operation == "data":
-            affected_records = currently.rev_included
-            if affected_records == 0:
-                return False, "No records for data extraction (run screen first)", 0
-
-        return True, reason, affected_records
+        pending = operation_graph.pending_count(operation, status_stats.currently)
+        if pending == 0:
+            prior = operation_graph.prior_operation(operation)
+            hint = f"run {prior} first" if prior else "run search first"
+            return False, f"No records ready for {operation} ({hint})", 0
+        return True, None, pending
 
     def _check_needs_rerun(
         self, operation: str, status_stats
@@ -527,69 +458,19 @@ class StatusHandler(BaseHandler):
         if operation == "search":
             return self._check_search_needs_rerun()
 
-        currently = status_stats.currently
-        input_state = OPERATION_INPUT_STATES.get(operation)
-        if input_state is None:
-            return False, None
-
-        state_counts = {
-            RecordState.md_retrieved: currently.md_retrieved,
-            RecordState.md_imported: (
-                currently.md_imported + currently.md_needs_manual_preparation
-            ),
-            RecordState.md_prepared: currently.md_prepared,
-            RecordState.md_processed: currently.md_processed,
-            RecordState.rev_prescreen_included: (
-                currently.rev_prescreen_included
-                + currently.pdf_needs_manual_retrieval
-            ),
-            RecordState.pdf_imported: (
-                currently.pdf_imported + currently.pdf_needs_manual_preparation
-            ),
-            RecordState.pdf_prepared: currently.pdf_prepared,
-            RecordState.rev_included: currently.rev_included,
-        }
-
-        count = state_counts.get(input_state, 0)
+        count = operation_graph.pending_count(operation, status_stats.currently)
         if count > 0:
             return True, f"{count} record(s) pending for {operation}"
         return False, None
 
     def _check_search_needs_rerun(self) -> Tuple[bool, Optional[str]]:
         assert self.review_manager is not None
-        sources = self.review_manager.settings.sources
-        if not sources:
+        stale = stale_source_entries(self.review_manager)
+        if not stale:
             return False, None
-
-        modified_sources = []
-        for source in sources:
-            history_path = (
-                self.review_manager.path / source.get_search_history_path()
-            )
-            if not history_path.is_file():
-                modified_sources.append(source.platform)
-                continue
-            try:
-                with open(history_path, "r", encoding="utf-8") as f:
-                    history = json.load(f)
-                if self._source_settings_changed(source, history):
-                    modified_sources.append(source.platform)
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning(
-                    "Error reading search history %s: %s", history_path, e
-                )
-                modified_sources.append(source.platform)
-
-        if modified_sources:
-            if len(modified_sources) == 1:
-                return True, f"{modified_sources[0]} settings modified since last run"
-            return True, f"{len(modified_sources)} sources modified since last run"
-        return False, None
-
-    def _source_settings_changed(self, source, history: dict) -> bool:
-        if not history.get("last_run"):
-            return False
-        return stale_reason_for_source(source, history) is not None
+        if len(stale) == 1:
+            return True, f"{stale[0]['platform']}: {stale[0]['reason']}"
+        return True, f"{len(stale)} sources need a search run"
 
     def _load_records_from_branch(
         self, git_repo, branch_name: str

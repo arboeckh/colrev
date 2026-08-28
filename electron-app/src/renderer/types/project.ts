@@ -80,6 +80,34 @@ export interface OverallRecordCounts {
   rev_synthesized: number;
 }
 
+// Server-derived per-step status (engine-owned; see Python
+// colrev/ui_jsonrpc/framework/operation_graph.py). One entry for `search`
+// plus one per pipeline operation (load, prep, dedupe, prescreen, pdf_get,
+// pdf_prep, screen, data).
+export type StatusStepState = 'locked' | 'ready' | 'in_progress' | 'complete';
+
+export interface StatusStep {
+  operation: string;
+  state: StatusStepState;
+  runnable: boolean;
+  reason: string | null;
+  needs_rerun: boolean;
+  needs_rerun_reason: string | null;
+  pending_records: number;
+  processed_records: number;
+  processed_ever: number;
+  input_states: string[];
+  output_states: string[];
+  // Current record count per state involved in this operation
+  state_counts: globalThis.Record<string, number>;
+}
+
+export interface StaleSource {
+  platform: string | null;
+  filename: string;
+  reason: string | null;
+}
+
 export interface ProjectStatus {
   project_id?: string;
   path?: string;
@@ -89,6 +117,13 @@ export interface ProjectStatus {
   currently: RecordCounts;
   total_records: number;
   next_operation: string | null;
+  // Engine-derived per-step status — the single source of truth for
+  // "is this step done / runnable / next" (WP-06).
+  steps: StatusStep[];
+  // Search staleness, derived server-side. The renderer keeps NO
+  // independent staleness flag.
+  search_stale: boolean;
+  stale_sources: StaleSource[];
   completeness_condition: boolean;
   atomic_steps: number;
   completed_atomic_steps: number;
@@ -241,6 +276,9 @@ export interface WorkflowStepInfo {
   stepKind?: 'gate' | 'processing';
   // Links this step to a managed review kind for status derivation
   managedReviewKind?: 'prescreen' | 'screen';
+  // Engine operations hosted by this UI step (keys into the status payload's
+  // `steps`). Grouped steps list several; defaults to [id] when omitted.
+  operations?: string[];
 }
 
 export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
@@ -259,6 +297,7 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     route: 'search',
     inputStates: [],
     outputStates: ['md_retrieved'],
+    operations: ['search'],
   },
   {
     id: 'preprocessing',
@@ -267,6 +306,7 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     route: 'preprocessing',
     inputStates: ['md_retrieved', 'md_imported', 'md_needs_manual_preparation', 'md_prepared'],
     outputStates: ['md_processed'],
+    operations: ['load', 'prep', 'dedupe'],
   },
   {
     id: 'prescreen',
@@ -277,6 +317,7 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     outputStates: ['rev_prescreen_included', 'rev_prescreen_excluded'],
     terminalOutputStates: ['rev_prescreen_excluded'],
     managedReviewKind: 'prescreen',
+    operations: ['prescreen'],
   },
   {
     id: 'pdfs',
@@ -291,6 +332,7 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     ],
     outputStates: ['pdf_prepared', 'pdf_not_available'],
     terminalOutputStates: ['pdf_not_available'],
+    operations: ['pdf_get', 'pdf_prep'],
   },
   {
     id: 'screen',
@@ -301,6 +343,7 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     outputStates: ['rev_included', 'rev_excluded'],
     terminalOutputStates: ['rev_excluded'],
     managedReviewKind: 'screen',
+    operations: ['screen'],
   },
   {
     id: 'data',
@@ -310,5 +353,6 @@ export const WORKFLOW_STEPS: WorkflowStepInfo[] = [
     inputStates: ['rev_included'],
     outputStates: ['rev_synthesized'],
     terminalOutputStates: ['rev_synthesized'],
+    operations: ['data'],
   },
 ];

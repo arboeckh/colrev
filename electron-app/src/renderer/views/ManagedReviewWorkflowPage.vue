@@ -14,8 +14,9 @@ import { useGitStore } from '@/stores/git';
 import { useAuthStore } from '@/stores/auth';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
+import { computeReviewPhaseStatus, type ReviewPhase } from '@/lib/stepStatus';
 
-type Phase = 'launch' | 'review' | 'reconcile';
+type Phase = ReviewPhase;
 
 const route = useRoute();
 const managedReview = useManagedReviewStore();
@@ -58,52 +59,32 @@ const phases: { id: Phase; label: string }[] = [
   { id: 'reconcile', label: 'Reconcile' },
 ];
 
+// Data collection only — the phase derivation lives in the shared status
+// module (lib/stepStatus.ts). reviewer_progress reads the branch HEAD
+// (committed state), but review decisions only update the working tree until
+// the user explicitly commits — so "on my reviewer branch + nothing eligible
+// left in the payload" also counts as done for the current user.
 function phaseStatus(phaseId: Phase): 'complete' | 'active' | 'pending' {
   const task = activeTask.value;
-  const completed = completedTask.value;
+  const login = auth.user?.login?.toLowerCase();
+  const myProgress =
+    task && login
+      ? task.reviewer_progress.find((r) => r.github_login.toLowerCase() === login) ?? null
+      : null;
+  const eligibleCount = projects.payloadSteps?.[kind.value]?.pending_records ?? null;
 
-  if (phaseId === 'launch') {
-    if (task || completed) return 'complete';
-    return currentPhase.value === 'launch' ? 'active' : 'pending';
-  }
-
-  if (phaseId === 'review') {
-    if (completed && !task) return 'complete';
-    if (task) {
-      const allDone = task.reviewer_progress.every((r) => r.pending_count === 0);
-      if (allDone) return 'complete';
-      // Show as complete for the current user if they finished their part.
-      // reviewer_progress reads the branch HEAD (committed state), but screen
-      // decisions only update the working tree until the user explicitly
-      // commits. So also treat "on my reviewer branch + no eligible records
-      // left in the working tree" as done.
-      const login = auth.user?.login?.toLowerCase();
-      if (login) {
-        const myProgress = task.reviewer_progress.find(
-          (r) => r.github_login.toLowerCase() === login,
-        );
-        if (myProgress && myProgress.pending_count === 0) return 'complete';
-        if (myProgress && git.currentBranch === myProgress.branch_name) {
-          const eligibleState = kind.value === 'prescreen' ? 'md_processed' : 'pdf_prepared';
-          const eligibleCount = projects.currentStatus?.currently?.[eligibleState] ?? null;
-          if (eligibleCount === 0) return 'complete';
-        }
-      }
-      return currentPhase.value === 'review' ? 'active' : 'pending';
-    }
-    return 'pending';
-  }
-
-  if (phaseId === 'reconcile') {
-    if (completed) return 'complete';
-    if (task) {
-      const allDone = task.reviewer_progress.every((r) => r.pending_count === 0);
-      if (allDone && currentPhase.value === 'reconcile') return 'active';
-    }
-    return 'pending';
-  }
-
-  return 'pending';
+  return computeReviewPhaseStatus(phaseId, {
+    currentPhase: currentPhase.value,
+    hasActiveTask: task != null,
+    hasCompletedTask: completedTask.value != null,
+    allReviewersDone:
+      task != null && task.reviewer_progress.every((r) => r.pending_count === 0),
+    myProgressDone: myProgress ? myProgress.pending_count === 0 : null,
+    onOwnBranchNothingEligible:
+      myProgress != null &&
+      git.currentBranch === myProgress.branch_name &&
+      eligibleCount === 0,
+  });
 }
 
 function canNavigateToPhase(phaseId: Phase): boolean {

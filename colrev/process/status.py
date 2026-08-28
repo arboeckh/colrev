@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import typing
+from pathlib import Path
 
 from pydantic import BaseModel
 
@@ -207,26 +208,46 @@ def _get_cumulative_freq(*, status_list: list, colrev_status: RecordState) -> in
     )
 
 
-def _get_md_retrieved(sources: list) -> int:
-    md_retrieved = 0
+def _get_md_retrieved_per_source(sources: list) -> dict:
+    """Number of records in each (non-md) search results file, keyed by the
+    file name (which is also the origin prefix)."""
+    per_source: dict = {}
     for source in sources:
         if not source.is_md_source():
             nr_in_file = colrev.loader.load_utils.get_nr_records(
                 source.search_results_path
             )
-            md_retrieved += nr_in_file
-    return md_retrieved
+            filename = Path(source.search_results_path).name
+            per_source[filename] = per_source.get(filename, 0) + nr_in_file
+    return per_source
 
 
-def _get_currently_md_retrieved(origin_states_dict: dict, md_retrieved: int) -> int:
+def _get_md_retrieved(md_retrieved_per_source: dict) -> int:
+    return sum(md_retrieved_per_source.values())
 
-    # select records that are not md_ records
-    # (origin_states_dict only has records beyond md_retrieved)
-    non_md_records = {
-        k: v for k, v in origin_states_dict.items() if not k.startswith("md_")
-    }
 
-    return md_retrieved - len(non_md_records)
+def _get_currently_md_retrieved(
+    origin_states_dict: dict, md_retrieved_per_source: dict
+) -> int:
+    """Records retrieved but not yet imported, accounted per source file.
+
+    Origins are ``<filename>/<id>``; each imported origin consumes one entry
+    of its own source file. Accounting per file (with a floor of zero per
+    file) keeps the total correct when a search file shrinks or a source is
+    removed after load — a global ``sum(files) - len(origins)`` would go
+    negative and bleed across sources in those cases.
+    """
+    imported_per_source: dict = {}
+    for origin in origin_states_dict:
+        if origin.startswith("md_"):
+            continue
+        filename = origin.split("/", maxsplit=1)[0]
+        imported_per_source[filename] = imported_per_source.get(filename, 0) + 1
+
+    return sum(
+        max(0, nr_in_file - imported_per_source.get(filename, 0))
+        for filename, nr_in_file in md_retrieved_per_source.items()
+    )
 
 
 def _get_status_stats_overall(
@@ -374,13 +395,14 @@ def get_status_stats(
     )
     status_list = [x[Fields.STATUS] for x in records.values()]
     sources = review_manager.settings.sources
-    md_retrieved = _get_md_retrieved(sources)
+    md_retrieved_per_source = _get_md_retrieved_per_source(sources)
+    md_retrieved = _get_md_retrieved(md_retrieved_per_source)
     currently = _get_status_stats_currently(
         status_list, records, screening_statistics, md_retrieved
     )
     overall = _get_status_stats_overall(status_list, records, md_retrieved)
     currently.md_retrieved = _get_currently_md_retrieved(
-        origin_states_dict, md_retrieved
+        origin_states_dict, md_retrieved_per_source
     )
     nr_curated_records = _get_nr_curated_records(
         records, review_manager.settings.is_curated_masterdata_repo(), overall

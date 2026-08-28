@@ -8,7 +8,7 @@ import { UserMenu } from '@/components/common';
 import { useProjectsStore } from '@/stores/projects';
 import { useGitStore } from '@/stores/git';
 import { useManagedReviewStore } from '@/stores/managedReview';
-import { type WorkflowStep, type RecordCounts } from '@/types/project';
+import { type RecordCounts } from '@/types/project';
 import { PIPELINE_STEPS } from '@/lib/sidebar';
 
 const props = defineProps<{
@@ -22,10 +22,6 @@ const managedReview = useManagedReviewStore();
 
 const isOverviewActive = computed(() => route.name === 'project-overview');
 const isDefinitionActive = computed(() => route.meta.step === 'review_definition');
-
-function getOperationInfo(stepId: WorkflowStep) {
-  return projects.operationInfo[stepId];
-}
 
 // Get record counts from the current project status
 const recordCounts = computed(() => {
@@ -141,7 +137,7 @@ const downstreamStatesPerStep = computed(() => {
       <!-- Pipeline steps with connecting lines -->
       <nav class="flex flex-col pl-2">
         <SidebarItem v-for="(step, index) in PIPELINE_STEPS" :key="step.id" :step="step" :project-id="projectId"
-          :operation-info="getOperationInfo(step.id)" :record-counts="stableRecordCounts"
+          :record-counts="stableRecordCounts"
           :delta-by-state="git.branchDelta?.delta_by_state ?? null" :show-delta="showDelta"
           :downstream-states="downstreamStatesPerStep[index]"
           :suppress-counts="suppressCountsForStep.has(step.id)"
