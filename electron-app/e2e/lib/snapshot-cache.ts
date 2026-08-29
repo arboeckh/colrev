@@ -4,15 +4,35 @@ import * as crypto from 'crypto';
 import { execFileSync, spawnSync } from 'child_process';
 
 // Prefer GNU tar (gtar on macOS via homebrew) for reproducible flag support;
-// fall back to whatever `tar` is on PATH. Determinism flags are skipped on BSD
-// tar because cache validity is keyed off computeHash() over source files,
-// not tarball bytes.
+// fall back to whatever `tar` is on PATH. On BSD tar the determinism flags are
+// skipped: archive member order follows directory order, which is stable for an
+// unchanged tree, and cache validity is keyed off computeHash() over source
+// files rather than tarball bytes.
+let tarResolution: { bin: string; gnu: boolean } | null = null;
 function resolveTar(): { bin: string; gnu: boolean } {
+  if (tarResolution) return tarResolution;
   const gtar = spawnSync('gtar', ['--version'], { stdio: 'ignore' });
-  if (gtar.status === 0) return { bin: 'gtar', gnu: true };
+  if (gtar.status === 0) {
+    tarResolution = { bin: 'gtar', gnu: true };
+    return tarResolution;
+  }
   const tarVersion = spawnSync('tar', ['--version'], { encoding: 'utf-8' });
   const isGnu = tarVersion.status === 0 && /GNU tar/.test(tarVersion.stdout);
-  return { bin: 'tar', gnu: isGnu };
+  tarResolution = { bin: 'tar', gnu: isGnu };
+  return tarResolution;
+}
+
+// `tar czf` delegates compression to gzip, and Apple/BSD gzip stamps the
+// current time into the gzip header when it reads from a pipe — so two
+// checkpoints of identical input taken either side of a second boundary differ
+// in bytes 4..7. Compressing as a separate `gzip -n` step (which omits both the
+// name and the timestamp) keeps the tarball byte-identical for unchanged input.
+let gzipAvailable: boolean | null = null;
+function hasGzip(): boolean {
+  if (gzipAvailable === null) {
+    gzipAvailable = spawnSync('gzip', ['--version'], { stdio: 'ignore' }).status === 0;
+  }
+  return gzipAvailable;
 }
 
 export interface SnapshotCacheOptions {
@@ -41,18 +61,37 @@ export class SnapshotCache {
     const metaPath = path.join(this.cacheDir, `${name}.meta.json`);
 
     const { bin, gnu } = resolveTar();
-    const args = ['czf', tarballPath];
-    if (gnu) {
-      args.push(
-        '--sort=name',
-        '--mtime=2025-01-01 00:00:00',
-        '--owner=0',
-        '--group=0',
-        '--numeric-owner',
+    const deterministicFlags = gnu
+      ? [
+          '--sort=name',
+          '--mtime=2025-01-01 00:00:00',
+          '--owner=0',
+          '--group=0',
+          '--numeric-owner',
+        ]
+      : [];
+
+    if (hasGzip()) {
+      // `gzip -n <name>.tar` writes exactly `<name>.tar.gz` and removes the
+      // uncompressed input, so the two steps land on tarballPath.
+      const uncompressedPath = path.join(this.cacheDir, `${name}.tar`);
+      try {
+        execFileSync(
+          bin,
+          ['cf', uncompressedPath, ...deterministicFlags, '-C', workspaceRoot, '.'],
+          { stdio: 'pipe' },
+        );
+        execFileSync('gzip', ['-n', '-f', uncompressedPath], { stdio: 'pipe' });
+      } finally {
+        fs.rmSync(uncompressedPath, { force: true });
+      }
+    } else {
+      execFileSync(
+        bin,
+        ['czf', tarballPath, ...deterministicFlags, '-C', workspaceRoot, '.'],
+        { stdio: 'pipe' },
       );
     }
-    args.push('-C', workspaceRoot, '.');
-    execFileSync(bin, args, { stdio: 'pipe' });
 
     const meta: SnapshotMeta = {
       hash: this.computeHash(),

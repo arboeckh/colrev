@@ -12,6 +12,10 @@ function uniqueName(): string {
   return `snap-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 describe('SnapshotCache', () => {
   let cache: SnapshotCache;
   let testName: string;
@@ -385,6 +389,11 @@ describe('SnapshotCache', () => {
 
       cache.checkpoint('L1', ws.root);
       const tarball1 = fs.readFileSync(path.join(CACHE_DIR, 'L1.tar.gz'));
+
+      // Cross a wall-clock second boundary: anything that stamps the current
+      // time into the archive (notably the gzip header) only diverges once the
+      // two checkpoints fall in different seconds.
+      sleepSync(1100);
 
       cache.checkpoint('L1', ws.root);
       const tarball2 = fs.readFileSync(path.join(CACHE_DIR, 'L1.tar.gz'));
