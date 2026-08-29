@@ -7,6 +7,7 @@ import type { GitBranchInfo, GitLogEntry, GitHubRelease, MergeAnalysis, MergeCon
 import type { BranchDelta } from '@/types/project';
 import { useBackendStore } from './backend';
 import { useProjectDataStore } from './projectData';
+import { describeGitFailure, type GitOperation } from '@/lib/gitFailure';
 
 // No interval polling. Remote state refreshes on: (a) window focus,
 // (b) explicit user action (Refresh / Fetch buttons), (c) after a write
@@ -113,6 +114,37 @@ export const useGitStore = defineStore('git', () => {
     return projects.currentProject?.path ?? null;
   }
 
+  /**
+   * Report a failed sync operation as an actionable message.
+   *
+   * `git-manager` classifies remote failures into codes (REJECTED_FETCH_FIRST,
+   * AUTH_FAILED, OFFLINE, …); this maps them to copy plus the single obvious
+   * recovery, so a non-fast-forward push offers "Pull first" rather than
+   * printing git's stderr.
+   */
+  function reportGitFailure(operation: GitOperation, error: string | undefined): void {
+    if (error === 'OFFLINE') connection.markOffline();
+
+    const copy = describeGitFailure(operation, error);
+    if (copy.remedy === 'pull') {
+      notifications.error(copy.title, copy.detail, {
+        label: 'Pull now',
+        onClick: () => void pull(),
+      });
+      return;
+    }
+    if (copy.remedy === 'signIn') {
+      notifications.error(copy.title, copy.detail, {
+        label: 'Sign in',
+        onClick: () => {
+          void import('./auth').then((m) => m.useAuthStore().login());
+        },
+      });
+      return;
+    }
+    notifications.error(copy.title, copy.detail);
+  }
+
   // Actions — serialization against concurrent git ops is handled by the
   // main-process git mutex (see `electron-app/src/main/gitMutex.ts`).
   async function fetch(): Promise<boolean> {
@@ -128,9 +160,9 @@ export const useGitStore = defineStore('git', () => {
         await refreshStatus();
         return true;
       } else {
-        if (result.error?.includes('Could not resolve') || result.error?.includes('unable to access')) {
-          connection.markOffline();
-        }
+        // Offline is classified in the main process (dugite's parseError plus
+        // the transport patterns in git-manager) — no stderr matching here.
+        if (result.error === 'OFFLINE') connection.markOffline();
         return false;
       }
     } catch {
@@ -163,7 +195,7 @@ export const useGitStore = defineStore('git', () => {
         showPullBlockedDialog.value = true;
         return false;
       } else {
-        notifications.error('Pull failed', result.error || 'Unknown error');
+        reportGitFailure('pull', result.error);
         return false;
       }
     } finally {
@@ -236,7 +268,7 @@ export const useGitStore = defineStore('git', () => {
         );
         return false;
       } else {
-        notifications.error('Update failed', result.error || 'Unknown error');
+        reportGitFailure('pull', result.error);
         return false;
       }
     } finally {
@@ -252,11 +284,12 @@ export const useGitStore = defineStore('git', () => {
     try {
       const result = await window.git.push(path);
       if (result.success) {
+        connection.markOnline();
         await refreshStatus();
         notifications.success('Changes saved to remote');
         return true;
       } else {
-        notifications.error('Push failed', result.error || 'Unknown error');
+        reportGitFailure('push', result.error);
         return false;
       }
     } finally {

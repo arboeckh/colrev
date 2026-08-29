@@ -5,9 +5,23 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  * function, so a module mock is enough to drive the exec results per test.
  */
 const exec = vi.fn();
-vi.mock('dugite', () => ({ exec: (...args: unknown[]) => exec(...args) }));
+vi.mock('dugite', async () => {
+  // Keep the real `parseError` / `GitError` — classification is exactly what
+  // the failure tests below are asserting.
+  const actual = await vi.importActual<typeof import('dugite')>('dugite');
+  return { ...actual, exec: (...args: unknown[]) => exec(...args) };
+});
 
-import { gitCheckout, DIRTY_WORKTREE } from './git-manager';
+import {
+  gitCheckout,
+  gitPush,
+  gitFetch,
+  classifyGitFailure,
+  DIRTY_WORKTREE,
+  REJECTED_FETCH_FIRST,
+  AUTH_FAILED,
+  OFFLINE,
+} from './git-manager';
 
 interface ExecResult {
   exitCode: number;
@@ -103,6 +117,77 @@ describe('gitCheckout', () => {
     expect(await gitCheckout(REPO, 'main')).toEqual({
       success: false,
       error: 'fatal: something else broke',
+    });
+  });
+});
+
+describe('classifyGitFailure', () => {
+  it('recognises a non-fast-forward push', async () => {
+    const stderr = [
+      'To https://github.com/acme/lit-review.git',
+      ' ! [rejected]        HEAD -> dev (fetch first)',
+      "error: failed to push some refs to 'https://github.com/acme/lit-review.git'",
+    ].join('\n');
+    expect(await classifyGitFailure(stderr)).toBe(REJECTED_FETCH_FIRST);
+  });
+
+  it('recognises rejected credentials', async () => {
+    expect(
+      await classifyGitFailure(
+        "fatal: Authentication failed for 'https://github.com/acme/lit-review.git/'",
+      ),
+    ).toBe(AUTH_FAILED);
+  });
+
+  it('recognises transport failures dugite does not classify itself', async () => {
+    expect(
+      await classifyGitFailure(
+        "fatal: unable to access 'https://github.com/acme/x.git/': Could not resolve host: github.com",
+      ),
+    ).toBe(OFFLINE);
+    expect(
+      await classifyGitFailure(
+        "fatal: unable to access 'https://github.com/acme/x.git/': Failed to connect to github.com port 443: Operation timed out",
+      ),
+    ).toBe(OFFLINE);
+  });
+
+  it('leaves unrecognised failures unclassified', async () => {
+    expect(await classifyGitFailure('fatal: something entirely new')).toBeNull();
+    expect(await classifyGitFailure('')).toBeNull();
+  });
+});
+
+describe('remote operation results', () => {
+  beforeEach(() => {
+    exec.mockReset();
+  });
+
+  it('gitPush returns a code, not stderr, for a non-fast-forward push', async () => {
+    exec.mockResolvedValue(
+      fail(
+        ' ! [rejected]        HEAD -> dev (fetch first)\n' +
+          "error: failed to push some refs to 'https://github.com/acme/x.git'",
+      ),
+    );
+    expect(await gitPush(REPO, 'tok')).toEqual({
+      success: false,
+      error: REJECTED_FETCH_FIRST,
+    });
+  });
+
+  it('gitFetch reports offline instead of raw stderr', async () => {
+    exec.mockResolvedValue(
+      fail("fatal: unable to access 'https://github.com/acme/x.git/': Could not resolve host: github.com"),
+    );
+    expect(await gitFetch(REPO, 'tok')).toEqual({ success: false, error: OFFLINE });
+  });
+
+  it('passes an unclassifiable push failure through verbatim', async () => {
+    exec.mockResolvedValue(fail('fatal: the remote hiccuped'));
+    expect(await gitPush(REPO, 'tok')).toEqual({
+      success: false,
+      error: 'fatal: the remote hiccuped',
     });
   });
 });

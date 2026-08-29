@@ -34,6 +34,74 @@ export interface GitResult {
  */
 export const DIRTY_WORKTREE = 'DIRTY_WORKTREE';
 export const DIVERGED = 'DIVERGED';
+/** Remote moved on: the push needs a pull/fetch first. */
+export const REJECTED_FETCH_FIRST = 'REJECTED_FETCH_FIRST';
+/** Credentials rejected — the stored token is expired or lacks scope. */
+export const AUTH_FAILED = 'AUTH_FAILED';
+/** The remote was unreachable (DNS, connect, or a dropped connection). */
+export const OFFLINE = 'OFFLINE';
+
+export type GitFailureCode =
+  | typeof DIRTY_WORKTREE
+  | typeof DIVERGED
+  | typeof REJECTED_FETCH_FIRST
+  | typeof AUTH_FAILED
+  | typeof OFFLINE;
+
+/**
+ * Offline shapes dugite's own `HostDown` regex misses — it only matches
+ * `Host is down` and clone's `Could not resolve host`, so every other
+ * transport failure would otherwise reach the user as raw stderr.
+ */
+const OFFLINE_STDERR_PATTERNS: RegExp[] = [
+  /Could not resolve host/i,
+  /Could not resolve proxy/i,
+  /Temporary failure in name resolution/i,
+  /unable to access '[^']*': (Failed to connect|Connection (refused|timed out|reset)|Could ?n[o']?t connect to server|Operation timed out|Network is unreachable|Empty reply from server|SSL connect error)/i,
+  /fatal: unable to look up/i,
+];
+
+/**
+ * Map a failed git invocation onto one of the structured codes above.
+ *
+ * dugite's `parseError` is the primary source — it recognises the exact
+ * wording git uses per version — with the pattern list above filling the gaps
+ * for transport failures. Returns null when the failure has no actionable
+ * classification; callers surface stderr in that case.
+ */
+export async function classifyGitFailure(
+  stderr: string,
+): Promise<GitFailureCode | null> {
+  if (!stderr) return null;
+  const { parseError, GitError } = await import('dugite');
+
+  switch (parseError(stderr)) {
+    case GitError.PushNotFastForward:
+      return REJECTED_FETCH_FIRST;
+    case GitError.HTTPSAuthenticationFailed:
+    case GitError.SSHAuthenticationFailed:
+    case GitError.SSHPermissionDenied:
+      return AUTH_FAILED;
+    case GitError.HostDown:
+    case GitError.RemoteDisconnection:
+      return OFFLINE;
+    default:
+      break;
+  }
+
+  if (OFFLINE_STDERR_PATTERNS.some((p) => p.test(stderr))) return OFFLINE;
+  return null;
+}
+
+/**
+ * Build the failure result for a command that talked to the remote: a
+ * structured code when the failure is one the UI can act on, raw stderr
+ * otherwise.
+ */
+async function remoteFailure(stderr: string, fallback: string): Promise<GitResult> {
+  const code = await classifyGitFailure(stderr);
+  return { success: false, error: code ?? stderr ?? fallback };
+}
 
 export interface GitCheckoutResult extends GitResult {
   /** Populated when `error === DIRTY_WORKTREE`. */
@@ -79,7 +147,7 @@ export async function gitFetch(
     projectPath,
   );
   if (result.exitCode !== 0) {
-    return { success: false, error: result.stderr || 'Fetch failed' };
+    return remoteFailure(result.stderr, 'Fetch failed');
   }
   return { success: true };
 }
@@ -105,7 +173,7 @@ export async function gitPull(
     ) {
       return { success: false, error: DIRTY_WORKTREE };
     }
-    return { success: false, error: stderr || 'Pull failed' };
+    return remoteFailure(stderr, 'Pull failed');
   }
   return { success: true };
 }
@@ -124,7 +192,9 @@ export async function gitPush(
     projectPath,
   );
   if (result.exitCode !== 0) {
-    return { success: false, error: result.stderr || 'Push failed' };
+    // Classified so the renderer can say "Pull first" / "Sign in again" /
+    // "You're offline" instead of pasting stderr into a toast.
+    return remoteFailure(result.stderr, 'Push failed');
   }
   return { success: true };
 }
@@ -141,7 +211,7 @@ export async function gitPushBranch(
     projectPath,
   );
   if (result.exitCode !== 0) {
-    return { success: false, error: result.stderr || `Failed to push ${branchName}` };
+    return remoteFailure(result.stderr, `Failed to push ${branchName}`);
   }
   return { success: true };
 }
@@ -448,7 +518,7 @@ export async function gitPushTags(
     projectPath,
   );
   if (result.exitCode !== 0) {
-    return { success: false, error: result.stderr || 'Failed to push tags' };
+    return remoteFailure(result.stderr, 'Failed to push tags');
   }
   return { success: true };
 }
@@ -525,7 +595,7 @@ export async function gitFastForwardMain(
     projectPath,
   );
   if (fetchRes.exitCode !== 0) {
-    return { success: false, error: fetchRes.stderr || 'Fetch failed' };
+    return remoteFailure(fetchRes.stderr, 'Fetch failed');
   }
 
   const ancestorRes = await exec(
@@ -586,7 +656,7 @@ export async function gitClone(
     parentDir,
   );
   if (result.exitCode !== 0) {
-    return { success: false, error: result.stderr || 'Clone failed' };
+    return remoteFailure(result.stderr, 'Clone failed');
   }
 
   return { success: true };

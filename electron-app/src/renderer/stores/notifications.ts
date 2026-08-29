@@ -4,6 +4,12 @@ import { toast } from 'vue-sonner';
 
 export type NotificationType = 'success' | 'error' | 'info' | 'warning';
 
+/** Optional one-click recovery rendered inside the toast. */
+export interface NotificationAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface Notification {
   id: string;
   type: NotificationType;
@@ -39,16 +45,18 @@ export const useNotificationsStore = defineStore('notifications', () => {
     addToHistory('success', title, message);
   }
 
-  function error(title: string, message?: string) {
+  function error(title: string, message?: string, action?: NotificationAction) {
     toast.error(title, {
       description: message,
+      ...(action ? { action } : {}),
     });
     addToHistory('error', title, message);
   }
 
-  function info(title: string, message?: string) {
+  function info(title: string, message?: string, action?: NotificationAction) {
     toast.info(title, {
       description: message,
+      ...(action ? { action } : {}),
     });
     addToHistory('info', title, message);
   }

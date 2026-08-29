@@ -94,7 +94,8 @@ export interface AuthSession {
 }
 
 export interface DeviceFlowStatus {
-  status: 'awaiting_code' | 'polling' | 'success' | 'error' | 'expired';
+  /** `network_error`: GitHub unreachable for several polls (see auth-manager). */
+  status: 'awaiting_code' | 'polling' | 'success' | 'error' | 'expired' | 'network_error';
   userCode?: string;
   verificationUri?: string;
   error?: string;
