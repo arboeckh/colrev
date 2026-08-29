@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, net, shell } from 'electron';
+import { app, BrowserWindow, dialog, protocol, net, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import {
@@ -17,87 +17,12 @@ if (process.env.COLREV_USER) {
   app.setPath('userData', path.join(app.getPath('userData') + '-' + process.env.COLREV_USER));
 }
 import { getGitHubClient } from './github-client-factory';
-import {
-  gitFetch,
-  gitPull,
-  gitPush,
-  gitPushBranch,
-  gitListBranches,
-  gitCreateBranch,
-  gitCreateLocalBranch,
-  gitDeleteLocalBranch,
-  gitCheckout,
-  gitMerge,
-  gitLog,
-  gitGetDirtyState,
-  gitAbortMerge,
-  gitHasMergeConflict,
-  gitFastForwardMain,
-  gitClone,
-  gitCreateTag,
-  gitPushTags,
-  gitRevListCount,
-  gitAddAndCommit,
-  gitGetBranchAndUpstream,
-} from './git-manager';
-import {
-  analyzeDivergenceFlow,
-  applyMergeFlow,
-  type MergeConflictResolution,
-  type MergeFlowDeps,
-} from './merge-flow';
-import { withGitLock, withLockRetry } from './gitMutex';
-
-/**
- * RPC methods exempt from the JS-side git mutex — and ONLY from that.
- *
- * This is not a fast lane: the Python server is strictly serial (one request
- * at a time — see docs/adr/0001-serial-python-rpc-backend.md), so every RPC
- * still queues inside `ColrevBackend`'s FIFO behind whatever is in flight.
- * The exemption only means these methods don't additionally wait for the
- * mutex shared with dugite `git:*` handlers:
- *  - Truly git-free: `ping`, `init_project`, etc.
- *  - Read-only introspection: `get_git_status` creates a fresh `git.Repo`
- *    and reads state without acquiring `.git/index.lock`. Lock races are a
- *    writer↔writer problem.
- */
-const GIT_FREE_RPC_METHODS = new Set<string>([
-  'ping',
-  'init_project',
-  'list_projects',
-  'delete_project',
-  'get_csv_source_templates',
-  'get_git_status',
-]);
-
-/**
- * Register a `git:*` IPC handler that acquires the shared git mutex before
- * running. Use for every handler that touches the repo via dugite so they
- * can't race with the Python backend's GitPython ops.
- */
-function registerGit<A extends unknown[], R>(
-  channel: string,
-  fn: (event: Electron.IpcMainInvokeEvent, ...args: A) => Promise<R>,
-): void {
-  ipcMain.handle(channel, async (event, ...args) => {
-    return withLockRetry(channel, () =>
-      withGitLock(channel, () => fn(event, ...(args as A))),
-    );
-  });
-}
-
-/**
- * Register a read-only `git:*` IPC handler that bypasses the mutex. Safe for
- * dugite calls that don't take `.git/index.lock` (status, log, rev-list,
- * show-ref). Concurrent reads during a write may return a stale-but-consistent
- * view — acceptable for UI display.
- */
-function registerGitRead<A extends unknown[], R>(
-  channel: string,
-  fn: (event: Electron.IpcMainInvokeEvent, ...args: A) => Promise<R>,
-): void {
-  ipcMain.handle(channel, fn);
-}
+import { resolveBackendLaunch } from './backend-launcher';
+import { createGitHandlers, realGitOps } from './ipc/git-handlers';
+import { createGitHubHandlers, realGitHubGitOps } from './ipc/github-handlers';
+import { createAppHandlers } from './ipc/app-handlers';
+import { isLockFreeRpcMethod, registerHandlers } from './ipc/registry';
+import { withGitLock } from './gitMutex';
 
 // Register custom protocol scheme before app is ready
 protocol.registerSchemesAsPrivileged([
@@ -153,222 +78,143 @@ function createWindow() {
   });
 }
 
-// Setup IPC handlers
-function setupIPC() {
-  // Start the CoLRev backend
-  ipcMain.handle('colrev:start', async () => {
-    if (backend) {
-      return { success: true, message: 'Already running' };
-    }
+// --- Backend lifecycle -----------------------------------------------------
 
-    try {
-      // Setup Git environment from dugite
-      const gitEnv = setupGitEnvironment();
-
-      // Determine colrev-jsonrpc path.
-      //   Dev: invoke `python -m colrev.ui_jsonrpc.server` against whatever
-      //   Python is on PATH (typically the conda colrev env).
-      //   Packaged: spawn the console-script shim from the python-build-standalone
-      //   bundle. Electron does not need to know about Python — the shim does.
-      const isDev = !app.isPackaged;
-
-      let colrevPath: string;
-      let colrevArgs: string[];
-      let bundleBinDir: string | null = null;
-
-      if (isDev) {
-        colrevPath = process.platform === 'win32' ? 'python.exe' : 'python';
-        colrevArgs = ['-m', 'colrev.ui_jsonrpc.server'];
-      } else {
-        const platformDir = process.platform === 'win32' ? 'python-win-x64' : 'python-mac-arm64';
-        const bundleRoot = path.join(process.resourcesPath, platformDir);
-        if (process.platform === 'win32') {
-          bundleBinDir = path.join(bundleRoot, 'Scripts');
-          colrevPath = path.join(bundleBinDir, 'colrev-jsonrpc.cmd');
-        } else {
-          bundleBinDir = path.join(bundleRoot, 'bin');
-          colrevPath = path.join(bundleBinDir, 'colrev-jsonrpc');
-        }
-        colrevArgs = [];
-      }
-
-      // Prepend the bundle's bin/Scripts dir to PATH so subprocess calls from
-      // inside colrev (e.g. subprocess.check_call(["pre-commit", ...])) resolve
-      // to the bundled shims rather than whatever happens to be on the host.
-      const spawnEnv: Record<string, string> = { ...gitEnv };
-      if (bundleBinDir) {
-        spawnEnv.PATH = `${bundleBinDir}${path.delimiter}${spawnEnv.PATH ?? process.env.PATH ?? ''}`;
-      }
-      if (process.env.COLREV_E2E_PINNED_DATES === '1') {
-        const pinnedDate = '2025-01-01T00:00:00+00:00';
-        spawnEnv.GIT_AUTHOR_DATE = pinnedDate;
-        spawnEnv.GIT_COMMITTER_DATE = pinnedDate;
-        spawnEnv.COLREV_E2E_PINNED_DATES = '1';
-      }
-
-      // E2E mode: redirect HOME to the userData dir so colrev's
-      // ~/.colrev/sqlite_index.db (LocalIndex) resolves inside the per-test
-      // workspace instead of the developer's real home. Gated on the fake
-      // GitHub registry env var so production is unaffected.
-      if (process.env.COLREV_FAKE_GITHUB_REGISTRY) {
-        spawnEnv.HOME = app.getPath('userData');
-      }
-
-      backend = new ColrevBackend(colrevPath, colrevArgs, spawnEnv);
-
-      // Forward events to renderer
-      backend.on('log', (msg) => {
-        mainWindow?.webContents.send('colrev:log', msg);
-      });
-      backend.on('error', (err) => {
-        mainWindow?.webContents.send('colrev:error', err.message);
-      });
-      backend.on('close', (code) => {
-        // Do NOT null the backend here: an unexpected exit triggers a
-        // supervised restart inside ColrevBackend. The backend is only
-        // discarded on explicit stop or when the supervisor gives up.
-        mainWindow?.webContents.send('colrev:close', code);
-      });
-      backend.on('progress', (event) => {
-        mainWindow?.webContents.send('colrev:progress', event);
-      });
-      backend.on('restarting', (info) => {
-        mainWindow?.webContents.send('colrev:restarting', info);
-      });
-      backend.on('restarted', () => {
-        mainWindow?.webContents.send('colrev:restarted');
-      });
-      backend.on('restart-failed', () => {
-        backend = null;
-        mainWindow?.webContents.send('colrev:restart-failed');
-      });
-      backend.on('rpc-queue', (state) => {
-        mainWindow?.webContents.send('colrev:rpc-queue', state);
-      });
-
-      await backend.start();
-      return { success: true };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      backend?.stop();
-      backend = null;
-      return { success: false, error: message };
-    }
+function forwardBackendEvents(b: ColrevBackend): void {
+  b.on('log', (msg) => mainWindow?.webContents.send('colrev:log', msg));
+  b.on('error', (err) => mainWindow?.webContents.send('colrev:error', err.message));
+  // Do NOT null the backend on 'close': an unexpected exit triggers a
+  // supervised restart inside ColrevBackend. It is only discarded on explicit
+  // stop or when the supervisor gives up.
+  b.on('close', (code) => mainWindow?.webContents.send('colrev:close', code));
+  b.on('progress', (event) => mainWindow?.webContents.send('colrev:progress', event));
+  b.on('restarting', (info) => mainWindow?.webContents.send('colrev:restarting', info));
+  b.on('restarted', () => mainWindow?.webContents.send('colrev:restarted'));
+  b.on('restart-failed', () => {
+    backend = null;
+    mainWindow?.webContents.send('colrev:restart-failed');
   });
+  b.on('rpc-queue', (state) => mainWindow?.webContents.send('colrev:rpc-queue', state));
+}
 
-  // Make RPC call. Git-touching methods go through the shared git mutex so
-  // they can't race with dugite handlers on `.git/index.lock`.
-  //
-  // Returns an envelope instead of throwing: Electron strips custom Error
-  // properties at the IPC boundary, and the renderer needs the structured
-  // {code, message, data, method} to branch on error codes.
-  ipcMain.handle('colrev:call', async (_, method: string, params: Record<string, unknown>) => {
-    try {
-      if (!backend) {
-        throw new RpcError('Backend not running', RPC_TRANSPORT_NOT_RUNNING, method);
-      }
-      const result = GIT_FREE_RPC_METHODS.has(method)
-        ? await backend.call(method, params)
-        : // Lock-retry lives in the Python dispatcher (see
-          // colrev/ui_jsonrpc/framework/dispatcher.py); don't double-retry here.
-          await withGitLock(`rpc:${method}`, () => backend!.call(method, params));
-      return { ok: true, result };
-    } catch (err) {
-      return { ok: false, error: serializeRpcError(err) };
-    }
-  });
+async function startBackend(): Promise<{ success: boolean; message?: string; error?: string }> {
+  if (backend) return { success: true, message: 'Already running' };
 
-  // Stop backend
-  ipcMain.handle('colrev:stop', async () => {
-    if (backend) {
-      backend.stop();
-      backend = null;
-    }
+  try {
+    const launch = resolveBackendLaunch({
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      resourcesPath: process.resourcesPath,
+      gitEnv: setupGitEnvironment(),
+      userDataDir: app.getPath('userData'),
+      env: process.env,
+    });
+
+    backend = new ColrevBackend(launch.command, launch.args, launch.env);
+    forwardBackendEvents(backend);
+    await backend.start();
     return { success: true };
+  } catch (err) {
+    backend?.stop();
+    backend = null;
+    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
+/**
+ * Forward one RPC to the Python backend.
+ *
+ * Returns an envelope instead of throwing: Electron strips custom Error
+ * properties at the IPC boundary, and the renderer needs the structured
+ * {code, message, data, method} to branch on error codes.
+ */
+async function callRpc(method: string, params: Record<string, unknown>) {
+  try {
+    if (!backend) {
+      throw new RpcError('Backend not running', RPC_TRANSPORT_NOT_RUNNING, method);
+    }
+    const result = isLockFreeRpcMethod(method)
+      ? await backend.call(method, params)
+      : // Lock-retry lives in the Python dispatcher (see
+        // colrev/ui_jsonrpc/framework/dispatcher.py); don't double-retry here.
+        await withGitLock(`rpc:${method}`, () => backend!.call(method, params));
+    return { ok: true, result };
+  } catch (err) {
+    return { ok: false, error: serializeRpcError(err) };
+  }
+}
+
+// --- Dialog + file handlers ------------------------------------------------
+
+interface DialogFilters {
+  filters?: { name: string; extensions: string[] }[];
+}
+
+async function chooseSavePath(options: DialogFilters & { defaultName?: string }) {
+  if (!mainWindow) return { success: false, error: 'No window' };
+  const result = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: options.defaultName,
+    filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
   });
+  if (result.canceled || !result.filePath) return { success: false, canceled: true };
+  return { success: true, filePath: result.filePath };
+}
 
-  // Save file dialog
-  ipcMain.handle(
-    'file:save-dialog',
-    async (_, options: { defaultName: string; content: string; filters?: { name: string; extensions: string[] }[] }) => {
-      if (!mainWindow) return { success: false, error: 'No window' };
+async function saveFileDialog(options: DialogFilters & { defaultName: string; content: string }) {
+  const chosen = await chooseSavePath(options);
+  if (!chosen.success || !chosen.filePath) return chosen;
+  fs.writeFileSync(chosen.filePath, options.content, 'utf-8');
+  return chosen;
+}
 
-      const result = await dialog.showSaveDialog(mainWindow, {
-        defaultPath: options.defaultName,
-        filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
-      });
+async function openFileDialog(options: DialogFilters & { title?: string }) {
+  if (!mainWindow) return { success: false, error: 'No window' };
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: options.title,
+    properties: ['openFile'],
+    filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return { success: false, canceled: true };
+  }
+  return { success: true, filePath: result.filePaths[0] };
+}
 
-      if (result.canceled || !result.filePath) {
-        return { success: false, canceled: true };
-      }
+/**
+ * Resolve a project-relative path inside the active account's projects root,
+ * refusing anything that escapes it. Shared by `pdf:exists` and the
+ * `colrev-pdf://` protocol handler.
+ */
+function resolveAccountFile(projectId: string, relativePath: string): string | null {
+  const login = authManager.getActiveLogin();
+  if (!login) return null;
+  const accountRoot = projectPaths.projectsRootForAccount(login);
+  const filePath = path.resolve(accountRoot, projectId, relativePath);
+  return filePath.startsWith(path.resolve(accountRoot)) ? filePath : null;
+}
 
-      fs.writeFileSync(result.filePath, options.content, 'utf-8');
-      return { success: true, filePath: result.filePath };
-    },
-  );
+function pdfExists(params: { projectId: string; relativePath: string }) {
+  if (!params?.projectId || !params?.relativePath) return { exists: false };
+  const filePath = resolveAccountFile(params.projectId, params.relativePath);
+  return { exists: filePath !== null && fs.existsSync(filePath) };
+}
 
-  // Choose save path (does NOT write a file — caller writes via RPC)
-  ipcMain.handle(
-    'file:choose-save-path',
-    async (_, options: { defaultName?: string; filters?: { name: string; extensions: string[] }[] }) => {
-      if (!mainWindow) return { success: false, error: 'No window' };
+function appInfo() {
+  const login = authManager.getActiveLogin();
+  return {
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+    version: app.getVersion(),
+    projectsPath: login
+      ? projectPaths.projectsRootForAccount(login)
+      : projectPaths.projectsRoot,
+  };
+}
 
-      const result = await dialog.showSaveDialog(mainWindow, {
-        defaultPath: options.defaultName,
-        filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
-      });
+// --- Registration ----------------------------------------------------------
 
-      if (result.canceled || !result.filePath) {
-        return { success: false, canceled: true };
-      }
-
-      return { success: true, filePath: result.filePath };
-    },
-  );
-
-  // Open file dialog
-  ipcMain.handle(
-    'file:open-dialog',
-    async (_, options: { filters?: { name: string; extensions: string[] }[]; title?: string }) => {
-      if (!mainWindow) return { success: false, error: 'No window' };
-
-      const result = await dialog.showOpenDialog(mainWindow, {
-        title: options.title,
-        properties: ['openFile'],
-        filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
-      });
-
-      if (result.canceled || result.filePaths.length === 0) {
-        return { success: false, canceled: true };
-      }
-
-      return { success: true, filePath: result.filePaths[0] };
-    },
-  );
-
-  // Check whether a PDF file exists at the resolved path the colrev-pdf://
-  // protocol handler would serve — lets the renderer show the import hint
-  // instead of an iframe that will 404.
-  ipcMain.handle(
-    'pdf:exists',
-    async (_, params: { projectId: string; relativePath: string }) => {
-      if (!params?.projectId || !params?.relativePath) {
-        return { exists: false };
-      }
-      const login = authManager.getActiveLogin();
-      if (!login) {
-        return { exists: false };
-      }
-      const accountRoot = projectPaths.projectsRootForAccount(login);
-      const filePath = path.resolve(accountRoot, params.projectId, params.relativePath);
-      if (!filePath.startsWith(path.resolve(accountRoot))) {
-        return { exists: false };
-      }
-      return { exists: fs.existsSync(filePath) };
-    },
-  );
-
-  // Auth handlers
+function setupIPC() {
   authManager.setAuthUpdateCallback((session) => {
     mainWindow?.webContents.send('auth:update', session);
   });
@@ -376,400 +222,40 @@ function setupIPC() {
     mainWindow?.webContents.send('auth:device-flow-status', status);
   });
 
-  ipcMain.handle('auth:get-session', () => authManager.getSession());
-  ipcMain.handle('auth:get-cached-session', () => authManager.getCachedSession());
-  ipcMain.handle('auth:login', () => authManager.startDeviceFlow());
-  ipcMain.handle('auth:logout', () => authManager.logout());
-  ipcMain.handle('auth:get-token', () => authManager.getToken());
-  ipcMain.handle('auth:list-accounts', () => authManager.listAccounts());
-  ipcMain.handle('auth:switch-account', (_, login: string) => authManager.switchAccount(login));
-  ipcMain.handle('auth:remove-account', (_, login: string) => {
-    authManager.removeAccount(login);
-    return { success: true };
-  });
-
-  // GitHub handlers
-  const gh = getGitHubClient();
-
-  registerGit(
-    'github:create-repo-and-push',
-    async (
-      _,
-      params: { repoName: string; projectPath: string; isPrivate: boolean; description?: string },
-    ) => {
-      const token = authManager.getToken();
-      if (!token) return { success: false, error: 'Not authenticated' };
-      return gh.createRepoAndPush({ token, ...params });
-    },
-  );
-
-  // GitHub: list CoLRev repos
-  ipcMain.handle('github:list-colrev-repos', async () => {
-    const token = authManager.getToken();
-    if (!token) return { success: false, error: 'Not authenticated', repos: [] };
-    try {
-      const repos = await gh.listColrevRepos(token);
-      return { success: true, repos };
-    } catch (err) {
-      return {
-        success: false,
-        repos: [],
-        error: err instanceof Error ? err.message : 'Failed to list repos',
-      };
-    }
-  });
-
-  // GitHub: clone a repo into the projects directory
-  registerGit(
-    'github:clone-repo',
-    async (_, params: { cloneUrl: string; projectId: string }) => {
-      const token = authManager.getToken();
-      const login = authManager.getActiveLogin();
-      if (!login) {
-        return { success: false, error: 'No active account' };
-      }
-      const accountRoot = projectPaths.projectsRootForAccount(login);
-
-      if (!fs.existsSync(accountRoot)) {
-        fs.mkdirSync(accountRoot, { recursive: true });
-      }
-
-      const targetPath = path.join(accountRoot, params.projectId);
-
-      if (fs.existsSync(targetPath)) {
-        return { success: false, error: 'Project directory already exists' };
-      }
-
-      return gitClone(params.cloneUrl, targetPath, token);
-    },
-  );
-
-  // Git operation handlers — every handler runs through the shared git mutex.
-  registerGit('git:fetch', async (_, projectPath: string) => {
-    const token = authManager.getToken();
-    return gitFetch(projectPath, token);
-  });
-
-  registerGit('git:pull', async (_, projectPath: string, ffOnly?: boolean) => {
-    const token = authManager.getToken();
-    return gitPull(projectPath, token, ffOnly ?? true);
-  });
-
-  registerGit('git:fast-forward-main', async (_, projectPath: string) => {
-    const token = authManager.getToken();
-    return gitFastForwardMain(projectPath, token);
-  });
-
-  registerGit('git:push', async (_, projectPath: string) => {
-    const token = authManager.getToken();
-    return gitPush(projectPath, token);
-  });
-
-  registerGit('git:push-branch', async (_, projectPath: string, branchName: string) => {
-    const token = authManager.getToken();
-    return gitPushBranch(projectPath, branchName, token);
-  });
-
-  registerGitRead('git:list-branches', async (_, projectPath: string) => {
-    return gitListBranches(projectPath);
-  });
-
-  registerGit('git:create-branch', async (_, projectPath: string, name: string, baseBranch?: string) => {
-    return gitCreateBranch(projectPath, name, baseBranch);
-  });
-
-  registerGit('git:create-local-branch', async (_, projectPath: string, name: string, baseRef: string) => {
-    return gitCreateLocalBranch(projectPath, name, baseRef);
-  });
-
-  registerGit('git:delete-local-branch', async (_, projectPath: string, name: string) => {
-    return gitDeleteLocalBranch(projectPath, name);
-  });
-
-  registerGit('git:checkout', async (_, projectPath: string, branchName: string) => {
-    return gitCheckout(projectPath, branchName);
-  });
-
-  registerGit('git:merge', async (_, projectPath: string, source: string, ffOnly?: boolean) => {
-    return gitMerge(projectPath, source, ffOnly ?? true);
-  });
-
-  registerGitRead('git:log', async (_, projectPath: string, count?: number) => {
-    return gitLog(projectPath, count);
-  });
-
-  registerGitRead('git:dirty-state', async (_, projectPath: string) => {
-    return gitGetDirtyState(projectPath);
-  });
-
-  registerGit('git:abort-merge', async (_, projectPath: string) => {
-    return gitAbortMerge(projectPath);
-  });
-
-  registerGitRead('git:has-merge-conflict', async (_, projectPath: string) => {
-    return gitHasMergeConflict(projectPath);
-  });
-
-  registerGit('git:add-and-commit', async (_, projectPath: string, message: string) => {
-    return gitAddAndCommit(projectPath, message);
-  });
-
-  registerGitRead('git:rev-list-count', async (_, projectPath: string, from: string, to: string) => {
-    return gitRevListCount(projectPath, from, to);
-  });
-
-  // --- Conflict resolution handlers ---
-  //
-  // Thin bridges into merge-flow.ts: fetch already happened (the pull that
-  // reported DIVERGED), the engine RPCs own all merge semantics, and dugite
-  // pushes the result. Both handlers hold the git mutex; the RPC is called
-  // directly (not via `colrev:call`) so the lock is not re-acquired.
-
-  const mergeFlowDeps = (projectPath: string): MergeFlowDeps => ({
-    getBranchAndUpstream: gitGetBranchAndUpstream,
-    callBackend: <T>(method: string, params: Record<string, unknown>) => {
-      if (!backend) {
-        return Promise.reject(new Error('Backend not running'));
-      }
-      // The RPC layer resolves projects as `<base_path>/<project_id>`.
-      return backend.call<T>(method, { base_path: path.dirname(projectPath), ...params });
-    },
-    push: (p: string) => gitPush(p, authManager.getToken()),
-  });
-
-  registerGit(
-    'git:analyze-divergence',
-    async (_, projectPath: string, projectId: string) => {
-      return analyzeDivergenceFlow(mergeFlowDeps(projectPath), { projectPath, projectId });
-    },
-  );
-
-  registerGit(
-    'git:apply-merge',
-    async (
-      _,
-      projectPath: string,
-      projectId: string,
-      resolutions: MergeConflictResolution[],
-    ) => {
-      return applyMergeFlow(mergeFlowDeps(projectPath), {
-        projectPath,
-        projectId,
-        resolutions,
-      });
-    },
-  );
-
-  // GitHub: list releases
-  ipcMain.handle('github:list-releases', async (_, params: { remoteUrl: string }) => {
-    const token = authManager.getToken();
-    if (!token) return { success: false, error: 'Not authenticated', releases: [] };
-    const parsed = gh.parseOwnerRepo(params.remoteUrl);
-    if (!parsed) return { success: false, error: 'Not a GitHub URL', releases: [] };
-    try {
-      const releases = await gh.listReleases(token, parsed.owner, parsed.repo);
-      return { success: true, releases };
-    } catch (err) {
-      return { success: false, releases: [], error: err instanceof Error ? err.message : 'Failed to list releases' };
-    }
-  });
-
-  ipcMain.handle('github:list-collaborators', async (_, params: { remoteUrl: string }) => {
-    const token = authManager.getToken();
-    if (!token) return { success: false, error: 'Not authenticated', collaborators: [] };
-    const parsed = gh.parseOwnerRepo(params.remoteUrl);
-    if (!parsed) return { success: false, error: 'Not a GitHub URL', collaborators: [] };
-    try {
-      const collaborators = await gh.listRepoCollaborators(token, parsed.owner, parsed.repo);
-      return { success: true, collaborators };
-    } catch (err) {
-      return {
-        success: false,
-        collaborators: [],
-        error: err instanceof Error ? err.message : 'Failed to list collaborators',
-      };
-    }
-  });
-
-  ipcMain.handle(
-    'github:add-collaborator',
-    async (_, params: { remoteUrl: string; username: string; permission?: 'pull' | 'push' | 'admin' }) => {
-      const token = authManager.getToken();
-      if (!token) return { success: false, error: 'Not authenticated' };
-      const parsed = gh.parseOwnerRepo(params.remoteUrl);
-      if (!parsed) return { success: false, error: 'Not a GitHub URL' };
-      try {
-        return await gh.addRepoCollaborator(
-          token,
-          parsed.owner,
-          parsed.repo,
-          params.username,
-          params.permission ?? 'push',
-        );
-      } catch (err) {
-        return {
-          success: false,
-          invited: false,
-          error: err instanceof Error ? err.message : 'Failed to add collaborator',
-        };
-      }
-    },
-  );
-
-  ipcMain.handle(
-    'github:invite-user-suggestions',
-    async (
-      _,
-      params: { remoteUrl: string; query: string; excludeLogins?: string[] },
-    ) => {
-      const token = authManager.getToken();
-      if (!token) return { success: false, error: 'Not authenticated', suggestions: [] };
-      if (!params.remoteUrl) return { success: false, error: 'Missing remote URL', suggestions: [] };
-      try {
-        const suggestions = await gh.getInviteUserSuggestions(
-          token,
-          params.remoteUrl,
-          params.query,
-          params.excludeLogins ?? [],
-        );
-        return { success: true, suggestions };
-      } catch (err) {
-        return {
-          success: false,
-          suggestions: [],
-          error: err instanceof Error ? err.message : 'Failed to load suggestions',
-        };
-      }
-    },
-  );
-
-  ipcMain.handle('github:list-pending-invitations', async (_, params: { remoteUrl: string }) => {
-    const token = authManager.getToken();
-    if (!token) return { success: false, error: 'Not authenticated', invitations: [] };
-    const parsed = gh.parseOwnerRepo(params.remoteUrl);
-    if (!parsed) return { success: false, error: 'Not a GitHub URL', invitations: [] };
-    try {
-      const invitations = await gh.listPendingRepoInvitations(token, parsed.owner, parsed.repo);
-      return { success: true, invitations };
-    } catch (err) {
-      return {
-        success: false,
-        invitations: [],
-        error: err instanceof Error ? err.message : 'Failed to list pending invitations',
-      };
-    }
-  });
-
-  ipcMain.handle('github:list-invitations', async () => {
-    const token = authManager.getToken();
-    if (!token) return { success: false, error: 'Not authenticated', invitations: [] };
-    try {
-      const invitations = await gh.listRepoInvitations(token);
-      return { success: true, invitations };
-    } catch (err) {
-      return {
-        success: false,
-        invitations: [],
-        error: err instanceof Error ? err.message : 'Failed to list invitations',
-      };
-    }
-  });
-
-  ipcMain.handle('github:accept-invitation', async (_, params: { invitationId: number }) => {
-    const token = authManager.getToken();
-    if (!token) return { success: false, error: 'Not authenticated' };
-    try {
-      return await gh.acceptRepoInvitation(token, params.invitationId);
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : 'Failed to accept invitation',
-      };
-    }
-  });
-
-  ipcMain.handle('github:decline-invitation', async (_, params: { invitationId: number }) => {
-    const token = authManager.getToken();
-    if (!token) return { success: false, error: 'Not authenticated' };
-    try {
-      return await gh.declineRepoInvitation(token, params.invitationId);
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : 'Failed to decline invitation',
-      };
-    }
-  });
-
-  // GitHub: delete a repository
-  ipcMain.handle('github:delete-repo', async (_, params: { remoteUrl: string }) => {
-    const token = authManager.getToken();
-    if (!token) return { success: false, error: 'Not authenticated' };
-    const parsed = gh.parseOwnerRepo(params.remoteUrl);
-    if (!parsed) return { success: false, error: 'Not a GitHub URL' };
-    try {
-      return await gh.deleteRepo(token, parsed.owner, parsed.repo);
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : 'Failed to delete repository',
-      };
-    }
-  });
-
-  // GitHub: create release (tag + push tags + GitHub release)
-  registerGit(
-    'github:create-release',
-    async (_, params: { remoteUrl: string; tagName: string; name: string; body: string; projectPath: string }) => {
-      const token = authManager.getToken();
-      if (!token) return { success: false, error: 'Not authenticated' };
-      const parsed = gh.parseOwnerRepo(params.remoteUrl);
-      if (!parsed) return { success: false, error: 'Not a GitHub URL' };
-
-      // 1. Create local tag
-      const tagResult = await gitCreateTag(params.projectPath, params.tagName, params.name);
-      if (!tagResult.success) return tagResult;
-
-      // 2. Push tags to remote
-      const pushResult = await gitPushTags(params.projectPath, token);
-      if (!pushResult.success) return pushResult;
-
-      // 3. Create GitHub release
-      const releaseResult = await gh.createRelease(token, parsed.owner, parsed.repo, {
-        tagName: params.tagName,
-        name: params.name,
-        body: params.body,
-      });
-      return releaseResult;
-    },
-  );
-
-  // Get app info
-  ipcMain.handle('app:info', () => {
-    const login = authManager.getActiveLogin();
-    const accountProjectsPath = login
-      ? projectPaths.projectsRootForAccount(login)
-      : projectPaths.projectsRoot;
-
-    return {
-      isPackaged: app.isPackaged,
-      resourcesPath: process.resourcesPath,
-      appPath: app.getAppPath(),
-      version: app.getVersion(),
-      projectsPath: accountProjectsPath,
-    };
-  });
-
-  // Test-only: switch account without network validation
-  if (process.env.COLREV_FAKE_GITHUB_REGISTRY) {
-    ipcMain.handle('__test/switchAccount', async (_, login: string) => {
-      const session = authManager.switchAccountLocal(login);
-      if (!session) {
-        return { success: false, error: `Account "${login}" not found` };
-      }
-      return { success: true, login: session.user.login };
-    });
-  }
+  registerHandlers([
+    ...createAppHandlers({
+      startBackend,
+      stopBackend: async () => {
+        backend?.stop();
+        backend = null;
+        return { success: true };
+      },
+      callRpc,
+      saveFileDialog,
+      chooseSavePath,
+      openFileDialog,
+      pdfExists,
+      appInfo,
+      auth: authManager,
+      includeTestHandlers: !!process.env.COLREV_FAKE_GITHUB_REGISTRY,
+    }),
+    ...createGitHandlers({
+      git: realGitOps,
+      getToken: () => authManager.getToken(),
+      callBackend: <T,>(method: string, params: Record<string, unknown>) => {
+        if (!backend) return Promise.reject(new Error('Backend not running'));
+        return backend.call<T>(method, params);
+      },
+    }),
+    ...createGitHubHandlers({
+      gh: getGitHubClient(),
+      getToken: () => authManager.getToken(),
+      getActiveLogin: () => authManager.getActiveLogin(),
+      projectsRootForAccount: (login) => projectPaths.projectsRootForAccount(login),
+      git: realGitHubGitOps,
+      fs,
+    }),
+  ]);
 }
 
 app.whenReady().then(() => {
@@ -792,20 +278,14 @@ app.whenReady().then(() => {
 
     const projectId = decodeURIComponent(parts[0]);
     const relativePath = parts.slice(1).map(decodeURIComponent).join('/');
-    const login = authManager.getActiveLogin();
-    if (!login) {
-      return new Response('No active account', { status: 403 });
-    }
-    const accountRoot = projectPaths.projectsRootForAccount(login);
-    const filePath = path.resolve(accountRoot, projectId, relativePath);
-
-    if (!filePath.startsWith(path.resolve(accountRoot))) {
+    const filePath = resolveAccountFile(projectId, relativePath);
+    if (!filePath) {
       return new Response('Access denied', { status: 403 });
     }
 
     if (!fs.existsSync(filePath)) {
       console.warn(
-        `[pdf-debug] 404 for ${request.url} -> resolved=${filePath} (projectId=${projectId}, relativePath=${relativePath}, accountRoot=${accountRoot})`,
+        `[pdf-debug] 404 for ${request.url} -> resolved=${filePath} (projectId=${projectId}, relativePath=${relativePath})`,
       );
       return new Response('PDF not found', { status: 404 });
     }
