@@ -44,6 +44,7 @@ import { useGitStore } from '@/stores/git';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useConnectionStore } from '@/stores/connection';
 import { WORKFLOW_STEPS } from '@/types/project';
+import { stepForOperation } from '@/lib/stepStatus';
 
 const projects = useProjectsStore();
 const auth = useAuthStore();
@@ -53,12 +54,9 @@ const connection = useConnectionStore();
 
 const offlineTooltip = 'Requires internet';
 
-const nextStep = computed(() => {
-  let next = projects.nextOperation;
-  if (!next) return null;
-  if (['load', 'prep', 'dedupe'].includes(next)) next = 'preprocessing';
-  return WORKFLOW_STEPS.find((s) => s.id === next) || null;
-});
+// next_operation is engine-derived; map it to the hosting UI step via the
+// shared status module.
+const nextStep = computed(() => stepForOperation(projects.nextOperation, WORKFLOW_STEPS));
 
 const nextStepRoute = computed(() => {
   if (!nextStep.value || !projects.currentProjectId) return undefined;

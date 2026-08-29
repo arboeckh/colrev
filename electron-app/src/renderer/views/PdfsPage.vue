@@ -29,6 +29,13 @@ import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectDataStore } from '@/stores/projectData';
 import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 import { useReadOnly } from '@/composables/useReadOnly';
+import {
+  computePdfStages,
+  derivePdfCounts,
+  pdfAnyActivity,
+  pdfsAllDone,
+  type PdfStageId,
+} from '@/lib/stepStatus';
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
@@ -36,8 +43,7 @@ const notifications = useNotificationsStore();
 const projectData = useProjectDataStore();
 const { isReadOnly } = useReadOnly();
 
-type StageId = 'retrieve' | 'upload' | 'prepare' | 'fix' | 'summary';
-type StageState = 'locked' | 'active' | 'complete';
+type StageId = PdfStageId;
 type PendingUploadKind = 'normal' | 'missing-restore';
 
 const records = ref<PdfRecord[]>([]);
@@ -54,60 +60,27 @@ const uploadResults = ref<Record<string, UploadResult>>({});
 
 const userSelectedStage = ref<StageId | null>(null);
 
-const counts = computed(() => projects.currentStatus?.currently ?? null);
-const prescreenIncludedCount = computed(() => counts.value?.rev_prescreen_included ?? 0);
-const needsRetrievalCount = computed(() => counts.value?.pdf_needs_manual_retrieval ?? 0);
-const importedCount = computed(() => counts.value?.pdf_imported ?? 0);
-const preparedCount = computed(() => counts.value?.pdf_prepared ?? 0);
-const needsPrepCount = computed(() => counts.value?.pdf_needs_manual_preparation ?? 0);
-const notAvailableCount = computed(() => counts.value?.pdf_not_available ?? 0);
+// All PDF stage counts come from the status payload's per-operation steps;
+// the stage machine itself lives in the shared status module.
+const pdfCounts = computed(() => derivePdfCounts(projects.payloadSteps));
+const prescreenIncludedCount = computed(() => pdfCounts.value.prescreenIncluded);
+const needsRetrievalCount = computed(() => pdfCounts.value.needsRetrieval);
+const importedCount = computed(() => pdfCounts.value.imported);
+const preparedCount = computed(() => pdfCounts.value.prepared);
+const needsPrepCount = computed(() => pdfCounts.value.needsPrep);
 const missingOnDiskCount = computed(
   () => records.value.filter((r) => r.file_on_disk === false).length,
 );
 
-const anyPdfActivity = computed(
-  () =>
-    needsRetrievalCount.value +
-      importedCount.value +
-      preparedCount.value +
-      needsPrepCount.value +
-      notAvailableCount.value >
-    0,
-);
+const anyPdfActivity = computed(() => pdfAnyActivity(pdfCounts.value));
 
 const pageBlocked = computed(
   () => !anyPdfActivity.value && prescreenIncludedCount.value === 0,
 );
 
-const stageStatus = computed<Record<StageId, StageState>>(() => {
-  if (!anyPdfActivity.value) {
-    return {
-      retrieve: 'active',
-      upload: 'locked',
-      prepare: 'locked',
-      fix: 'locked',
-      summary: 'locked',
-    };
-  }
-  const uploadDone = needsRetrievalCount.value === 0;
-  const prepareDone = uploadDone && importedCount.value === 0;
-  const fixDone = prepareDone && needsPrepCount.value === 0;
-  return {
-    retrieve: 'complete',
-    upload: uploadDone ? 'complete' : 'active',
-    prepare: !uploadDone ? 'locked' : importedCount.value === 0 ? 'complete' : 'active',
-    fix: !prepareDone
-      ? 'locked'
-      : needsPrepCount.value === 0
-        ? 'complete'
-        : 'active',
-    summary: !fixDone
-      ? 'locked'
-      : missingOnDiskCount.value === 0
-        ? 'complete'
-        : 'active',
-  };
-});
+const stageStatus = computed(() =>
+  computePdfStages(pdfCounts.value, missingOnDiskCount.value),
+);
 
 const firstActiveStage = computed<StageId>(() => {
   const order: StageId[] = ['retrieve', 'upload', 'prepare', 'fix', 'summary'];
@@ -122,18 +95,10 @@ watch(firstActiveStage, () => {
   userSelectedStage.value = null;
 });
 
-const allDone = computed(
-  () =>
-    anyPdfActivity.value &&
-    needsRetrievalCount.value === 0 &&
-    importedCount.value === 0 &&
-    needsPrepCount.value === 0 &&
-    missingOnDiskCount.value === 0 &&
-    preparedCount.value > 0,
-);
+const allDone = computed(() => pdfsAllDone(pdfCounts.value, missingOnDiskCount.value));
 
-const canRunPdfGet = computed(() => projects.operationInfo.pdf_get?.can_run ?? false);
-const canRunPdfPrep = computed(() => projects.operationInfo.pdf_prep?.can_run ?? false);
+const canRunPdfGet = computed(() => projects.operationInfo.pdf_get?.runnable ?? false);
+const canRunPdfPrep = computed(() => projects.operationInfo.pdf_prep?.runnable ?? false);
 
 const needsRetrievalRecords = computed(() =>
   records.value.filter((r) => r.colrev_status === 'pdf_needs_manual_retrieval'),

@@ -5,6 +5,7 @@ import { useProjectsStore } from './projects';
 import { useGitStore } from './git';
 import type { ManagedReviewTask } from '@/types/generated/rpc';
 import type { WorkflowStep } from '@/types/project';
+import { computeManagedStepStatus, type StepStatus } from '@/lib/stepStatus';
 
 const TASK_STATES_ACTIVE = new Set(['active', 'reconciling']);
 
@@ -45,9 +46,11 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
 
   /**
    * Derive sidebar step status for any managed review step.
-   * Returns the status to display, or null if this step has no managed review context.
+   * Returns the status to display, or null if this step has no managed
+   * review context. Data collection only — the derivation lives in the
+   * shared status module (lib/stepStatus.ts).
    */
-  function getStepStatus(stepId: WorkflowStep): 'pending' | 'active' | 'complete' | null {
+  function getStepStatus(stepId: WorkflowStep): StepStatus | null {
     const kind = stepId === 'prescreen' ? 'prescreen' : stepId === 'screen' ? 'screen' : null;
     if (!kind) return null;
 
@@ -56,20 +59,11 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
       ? latestCompletedPrescreenTask.value
       : latestCompletedScreenTask.value;
 
-    // Active task — step is in progress
-    if (activeTask) return 'active';
-
-    // New eligible records take precedence over a past completed task:
-    // if records are waiting to be screened, the step is active again.
-    const eligibleState = kind === 'prescreen' ? 'md_processed' : 'pdf_prepared';
-    const currently = projects.currentStatus?.currently;
-    const eligibleCount = currently?.[eligibleState] ?? 0;
-    if (eligibleCount > 0) return 'active';
-
-    // Completed task and no eligible records — step is done
-    if (completedTask) return 'complete';
-
-    return 'pending';
+    return computeManagedStepStatus({
+      hasActiveTask: activeTask != null,
+      hasCompletedTask: completedTask != null,
+      eligibleCount: projects.payloadSteps?.[kind]?.pending_records ?? 0,
+    });
   }
 
   async function refresh(): Promise<void> {

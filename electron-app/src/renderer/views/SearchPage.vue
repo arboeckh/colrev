@@ -116,21 +116,11 @@ async function loadSources() {
     // Project/branch switch mid-flight: discard the stale response.
     if (!guard.isCurrent()) return;
     if (response.success) {
-      const loadedSources = response.sources as unknown as SearchSource[];
-      sources.value = loadedSources;
-      // Update the store with stale status for sidebar to use
-      // A source needs action if:
-      // 1. It's explicitly marked as stale (needs re-run)
-      // 2. It's an API source that has never been run (no records)
-      const hasSourcesNeedingAction = loadedSources.some(s => {
-        if (s.search_type === 'FILES') return false;
-        // Explicitly stale
-        if (s.is_stale) return true;
-        // API source that has never been run
-        if (s.search_type === 'API' && !s.last_run_timestamp) return true;
-        return false;
-      });
-      projects.setHasStaleSearchSources(hasSourcesNeedingAction);
+      // Per-source staleness metadata (is_stale/stale_reason) is display
+      // detail for the cards below. The sidebar-level staleness flag comes
+      // from the status payload (projects.hasStaleSearchSources) — this
+      // page does not write it.
+      sources.value = response.sources as unknown as SearchSource[];
     }
   } catch (err) {
     if (guard.isCurrent()) {

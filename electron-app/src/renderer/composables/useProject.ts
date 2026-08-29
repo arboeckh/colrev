@@ -44,12 +44,12 @@ export function useProject() {
 
   // Check if an operation can run
   function canRunOperation(step: WorkflowStep): boolean {
-    return projects.operationInfo[step]?.can_run ?? false;
+    return projects.operationInfo[step]?.runnable ?? false;
   }
 
   // Get affected records count for an operation
   function getAffectedRecords(step: WorkflowStep): number {
-    return projects.operationInfo[step]?.affected_records ?? 0;
+    return projects.operationInfo[step]?.pending_records ?? 0;
   }
 
   // Navigate to a step page

@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { useProjectsStore } from '@/stores/projects';
+import { computePreprocessingStages } from '@/lib/stepStatus';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
@@ -97,30 +98,9 @@ function getSourceDisplayName(source: SearchSource): string {
 }
 
 // Compute stage status based on record counts
-const stageStatus = computed(() => {
-  const status = projects.currentStatus;
-  if (!status?.currently) {
-    return { loadCompleted: false, prepCompleted: false, dedupeCompleted: false };
-  }
-
-  const currently = status.currently;
-
-  // Load is completed when no records are in md_retrieved state
-  const loadCompleted = currently.md_retrieved === 0 && status.total_records > 0;
-
-  // Prep is completed when no records are in md_imported state.
-  // Records in md_needs_manual_preparation are a valid prep outcome
-  // (e.g. unknown_source records missing journal/volume/number) —
-  // the automated prep step has done its job.
-  const prepCompleted =
-    loadCompleted &&
-    currently.md_imported === 0;
-
-  // Dedupe is completed when no records are in md_prepared (all moved to md_processed)
-  const dedupeCompleted = prepCompleted && currently.md_prepared === 0;
-
-  return { loadCompleted, prepCompleted, dedupeCompleted };
-});
+const stageStatus = computed(() =>
+  computePreprocessingStages(projects.payloadSteps, projects.currentStatus?.total_records ?? 0),
+);
 
 // Total records from sources (before processing)
 const totalSourceRecords = computed(() => {
@@ -150,7 +130,7 @@ const canRunPreprocessing = computed(() => {
   const opLoad = projects.operationInfo.load;
   const opPrep = projects.operationInfo.prep;
   const opDedupe = projects.operationInfo.dedupe;
-  return opLoad?.can_run || opPrep?.can_run || opDedupe?.can_run;
+  return opLoad?.runnable || opPrep?.runnable || opDedupe?.runnable;
 });
 
 // Check if preprocessing is complete
