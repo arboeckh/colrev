@@ -29,20 +29,36 @@ function rpcGit(overrides: Record<string, unknown> = {}) {
 }
 
 function manager(opts: {
-  rpc?: () => Promise<unknown>;
+  rpc?: (method: string, params: Record<string, unknown>) => Promise<unknown>;
   hasMergeConflict?: () => Promise<boolean>;
 } = {}) {
   const emitted: GitStateSnapshot[] = [];
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  const rpc = opts.rpc ?? (async () => rpcGit());
   const mgr = new GitStateManager({
-    callBackend: (opts.rpc ?? (async () => rpcGit())) as never,
+    callBackend: ((method: string, params: Record<string, unknown>) => {
+      calls.push({ method, params });
+      return rpc(method, params);
+    }) as never,
     hasMergeConflict: opts.hasMergeConflict ?? (async () => false),
     emit: (s) => emitted.push(s),
     now: () => 1_700_000_000_000,
   });
-  return { mgr, emitted };
+  return { mgr, emitted, calls };
 }
 
 describe('GitStateManager', () => {
+  it('resolves the project the way the RPC layer expects', async () => {
+    // `<base_path>/<project_id>` — renderer calls get base_path injected by
+    // the backend store, so a main-process call has to supply it itself.
+    const { mgr, calls } = manager();
+    await mgr.refresh('lit-review', '/projects/alice/lit-review');
+    expect(calls[0]).toEqual({
+      method: 'get_git_status',
+      params: { base_path: '/projects/alice', project_id: 'lit-review' },
+    });
+  });
+
   it('builds one snapshot from the RPC plus the merge-conflict flag', async () => {
     const { mgr, emitted } = manager({ hasMergeConflict: async () => true });
 

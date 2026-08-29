@@ -9,6 +9,8 @@
  * mutex, and pushed to the renderer; every consumer subscribes to it.
  */
 
+import * as path from 'path';
+
 export interface StagedRecordChange {
   recordId: string;
   changeType: string;
@@ -108,6 +110,10 @@ export class GitStateManager {
   async refresh(projectId: string, projectPath: string): Promise<GitStateSnapshot> {
     const [response, hasMergeConflict] = await Promise.all([
       this.deps.callBackend<GitStatusRpcResponse>('get_git_status', {
+        // The RPC layer resolves projects as `<base_path>/<project_id>`.
+        // Renderer calls get this injected by the backend store; a
+        // main-process call has to supply it itself.
+        base_path: path.dirname(projectPath),
         project_id: projectId,
       }),
       // Best-effort: a repo mid-rebase can fail this read without invalidating
