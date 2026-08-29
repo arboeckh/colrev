@@ -41,6 +41,7 @@ import OverviewPageHelp from './OverviewPageHelp.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
 import { useGitStore } from '@/stores/git';
+import { ensureWorkingBranch } from '@/composables/useManagedTaskAccess';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useConnectionStore } from '@/stores/connection';
 import { WORKFLOW_STEPS } from '@/types/project';
@@ -79,7 +80,7 @@ async function publishVersion() {
     await git.mergeDevIntoMain();
     // After merge, switch back to dev automatically
     if (git.isOnMain) {
-      await git.switchBranch('dev');
+      await ensureWorkingBranch();
     }
   } finally {
     isPublishing.value = false;

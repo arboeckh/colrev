@@ -225,17 +225,13 @@ export const useProjectsStore = defineStore('projects', () => {
       }
 
       // Auto-switch to dev (the working branch) if currently on main.
-      // Reviewer branches (review/*) are handled by the router guard in
-      // router/index.ts — NOT here, because switchBranch calls loadProject
-      // which would create an infinite loop.
+      // Reviewer branches (review/*) are the router guard's business — NOT
+      // this function's, because switchBranch calls loadProject and would loop.
       try {
         const { useGitStore } = await import('./git');
-        const gitStore = useGitStore();
-        if (gitStore.isOnMain) {
-          await gitStore.ensureDevBranch();
-          if (gitStore.currentBranch !== 'dev') {
-            await gitStore.switchBranch('dev');
-          }
+        if (useGitStore().isOnMain) {
+          const { ensureWorkingBranch } = await import('../composables/useManagedTaskAccess');
+          await ensureWorkingBranch();
         }
       } catch {
         // Non-critical — user can still work on whatever branch they're on

@@ -11,6 +11,7 @@ import ScreenPageHelp from '@/views/ScreenPageHelp.vue';
 import { useReconcileGate } from '@/composables/useReconcileGate';
 import { useManagedReviewStore } from '@/stores/managedReview';
 import { useGitStore } from '@/stores/git';
+import { ensureWorkingBranch } from '@/composables/useManagedTaskAccess';
 import { useAuthStore } from '@/stores/auth';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
@@ -131,7 +132,7 @@ async function selectPhase(phaseId: Phase) {
   if ((phaseId === 'launch' || phaseId === 'reconcile') && !git.isOnDev) {
     isSwitchingPhase.value = true;
     try {
-      await git.switchBranch('dev');
+      await ensureWorkingBranch();
     } finally {
       isSwitchingPhase.value = false;
     }

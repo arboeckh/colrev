@@ -216,6 +216,34 @@ export async function gitPushBranch(
   return { success: true };
 }
 
+/**
+ * Delete a branch on the remote.
+ *
+ * Used to retire reviewer branches once their decisions are reconciled into
+ * dev. A branch that is already gone is success, not failure — cleanup runs
+ * after every reconciliation and must be idempotent.
+ */
+export async function gitDeleteRemoteBranch(
+  projectPath: string,
+  branchName: string,
+  token: string | null = null,
+): Promise<GitResult> {
+  const { exec } = await import('dugite');
+
+  const result = await exec(
+    [...gitAuthArgs(token), 'push', '--no-verify', 'origin', '--delete', branchName],
+    projectPath,
+  );
+  if (result.exitCode !== 0) {
+    const stderr = result.stderr || '';
+    if (/remote ref does not exist|unable to delete '[^']*': remote ref does not exist/i.test(stderr)) {
+      return { success: true };
+    }
+    return remoteFailure(stderr, `Failed to delete ${branchName} on the remote`);
+  }
+  return { success: true };
+}
+
 export async function gitListBranches(
   projectPath: string,
 ): Promise<GitBranchListResult> {
@@ -324,7 +352,14 @@ export async function gitDeleteLocalBranch(
   const { exec } = await import('dugite');
   const result = await exec(['branch', '-D', name], projectPath);
   if (result.exitCode !== 0) {
-    return { success: false, error: result.stderr || `Failed to delete branch ${name}` };
+    const stderr = result.stderr || '';
+    // Idempotent: retiring reviewer branches runs after every reconciliation,
+    // and a branch that was never fetched locally is already in the state we
+    // want.
+    if (/not found|branch .* not found/i.test(stderr)) {
+      return { success: true };
+    }
+    return { success: false, error: stderr || `Failed to delete branch ${name}` };
   }
   return { success: true };
 }

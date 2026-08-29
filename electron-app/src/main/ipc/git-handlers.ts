@@ -13,6 +13,7 @@ import {
   gitCreateBranch,
   gitCreateLocalBranch,
   gitDeleteLocalBranch,
+  gitDeleteRemoteBranch,
   gitFastForwardMain,
   gitFetch,
   gitGetBranchAndUpstream,
@@ -50,6 +51,11 @@ export interface GitOps {
   createBranch(projectPath: string, name: string, baseBranch?: string): Promise<GitResult>;
   createLocalBranch(projectPath: string, name: string, baseRef: string): Promise<GitResult>;
   deleteLocalBranch(projectPath: string, name: string): Promise<GitResult>;
+  deleteRemoteBranch(
+    projectPath: string,
+    name: string,
+    token: string | null,
+  ): Promise<GitResult>;
   checkout(projectPath: string, branchName: string): Promise<GitCheckoutResult>;
   merge(projectPath: string, source: string, ffOnly: boolean): Promise<GitResult>;
   log(projectPath: string, count?: number): Promise<GitLogResult>;
@@ -76,6 +82,7 @@ export const realGitOps: GitOps = {
   createBranch: gitCreateBranch,
   createLocalBranch: gitCreateLocalBranch,
   deleteLocalBranch: gitDeleteLocalBranch,
+  deleteRemoteBranch: gitDeleteRemoteBranch,
   checkout: gitCheckout,
   merge: gitMerge,
   log: gitLog,
@@ -179,6 +186,9 @@ export function createGitHandlers(deps: GitHandlerDeps): IpcHandlerSpec[] {
     ),
     mutating('git:delete-local-branch', (projectPath: string, name: string) =>
       git.deleteLocalBranch(projectPath, name),
+    ),
+    mutating('git:delete-remote-branch', (projectPath: string, name: string) =>
+      git.deleteRemoteBranch(projectPath, name, getToken()),
     ),
     mutating('git:checkout', (projectPath: string, branchName: string) =>
       git.checkout(projectPath, branchName),

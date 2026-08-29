@@ -1,6 +1,6 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
-import { useGitStore } from '@/stores/git';
+import { leaveReviewerBranch } from '@/composables/useManagedTaskAccess';
 
 // Lazy load views for better performance
 const LandingPage = () => import('@/views/LandingPage.vue');
@@ -202,13 +202,12 @@ router.beforeEach(async (to, _from) => {
     return '/login';
   }
 
-  // Review branch guard: reviewer branches (review/*) should only be active
-  // on pages with managedReviewKind in their route meta. Auto-switch to dev
-  // when navigating anywhere else. Future review steps just need to add
-  // managedReviewKind to their route meta.
-  const git = useGitStore();
-  if (git.currentBranch.startsWith('review/') && !to.meta.managedReviewKind) {
-    await git.switchBranch('dev');
+  // Review branch guard: reviewer branches (review/*) should only be active on
+  // pages with managedReviewKind in their route meta. Leaving one is the
+  // composable's job — it owns the reviewer-branch invariant (WP-07 §6), so
+  // this guard no longer competes with the pages for the switch.
+  if (!to.meta.managedReviewKind) {
+    await leaveReviewerBranch();
   }
 });
 

@@ -14,6 +14,8 @@ vi.mock('dugite', async () => {
 
 import {
   gitCheckout,
+  gitDeleteLocalBranch,
+  gitDeleteRemoteBranch,
   gitPush,
   gitFetch,
   classifyGitFailure,
@@ -188,6 +190,44 @@ describe('remote operation results', () => {
     expect(await gitPush(REPO, 'tok')).toEqual({
       success: false,
       error: 'fatal: the remote hiccuped',
+    });
+  });
+});
+
+describe('branch retirement', () => {
+  beforeEach(() => {
+    exec.mockReset();
+  });
+
+  it('deletes the branch on the remote', async () => {
+    exec.mockResolvedValue(ok());
+    expect(await gitDeleteRemoteBranch(REPO, 'review/prescreen/t1/alice', 'tok')).toEqual({
+      success: true,
+    });
+    const args = exec.mock.calls[0][0] as string[];
+    expect(args.slice(-3)).toEqual(['origin', '--delete', 'review/prescreen/t1/alice']);
+  });
+
+  it('treats an already-deleted remote branch as success', async () => {
+    // Cleanup runs after every reconciliation, so it has to be idempotent.
+    exec.mockResolvedValue(
+      fail("error: unable to delete 'review/x': remote ref does not exist"),
+    );
+    expect(await gitDeleteRemoteBranch(REPO, 'review/x', 'tok')).toEqual({ success: true });
+  });
+
+  it('treats a missing local branch as success', async () => {
+    exec.mockResolvedValue(fail("error: branch 'review/x' not found."));
+    expect(await gitDeleteLocalBranch(REPO, 'review/x')).toEqual({ success: true });
+  });
+
+  it('classifies a remote delete that failed for a real reason', async () => {
+    exec.mockResolvedValue(
+      fail("fatal: Authentication failed for 'https://github.com/acme/x.git/'"),
+    );
+    expect(await gitDeleteRemoteBranch(REPO, 'review/x', 'tok')).toEqual({
+      success: false,
+      error: AUTH_FAILED,
     });
   });
 });

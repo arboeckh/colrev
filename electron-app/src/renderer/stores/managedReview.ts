@@ -6,7 +6,7 @@ import { useGitStore } from './git';
 import type { ManagedReviewTask } from '@/types/generated/rpc';
 import type { WorkflowStep } from '@/types/project';
 
-const TASK_STATES_ACTIVE = new Set(['active', 'reconciling']);
+const TASK_STATES_ACTIVE = new Set(['active']);
 
 export const useManagedReviewStore = defineStore('managedReview', () => {
   const backend = useBackendStore();
