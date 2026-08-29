@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections import defaultdict
 from pathlib import Path
 from typing import Generator
 
@@ -79,3 +80,65 @@ def make_request(
         "id": request_id,
     }
     return handler.handle_request(request)
+
+
+# ---------------------------------------------------------------------------
+# RPC method coverage recording (WP-08 §3)
+#
+# Every test in this package drives the backend through
+# ``JSONRPCHandler.handle_request``. Wrapping it here records, per method,
+# whether a test ever produced a successful result and whether one ever
+# produced an error — which ``test_zz_method_coverage.py`` then checks against
+# the live registry. That keeps the coverage claim honest without a
+# hand-maintained list of "methods we have tests for".
+# ---------------------------------------------------------------------------
+
+OUTCOME_HAPPY = "happy"
+OUTCOME_FAILURE = "failure"
+
+#: method name -> set of observed outcomes ({"happy", "failure"}).
+RPC_OUTCOMES: dict[str, set[str]] = defaultdict(set)
+
+#: Basenames of the test modules collected from this package this run. The
+#: coverage assertion only means something when the whole package ran.
+COLLECTED_MODULES: set[str] = set()
+
+
+def pytest_collection_modifyitems(items) -> None:  # noqa: D103
+    package_dir = Path(__file__).parent
+    for item in items:
+        path = Path(str(item.fspath))
+        if path.parent == package_dir:
+            COLLECTED_MODULES.add(path.name)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _record_rpc_outcomes() -> Generator[None, None, None]:
+    """Record every dispatched method and whether it succeeded or errored."""
+    original = JSONRPCHandler.handle_request
+
+    def recording(self, request: dict) -> dict:
+        response = original(self, request)
+        method = request.get("method")
+        if isinstance(method, str):
+            outcome = OUTCOME_FAILURE if "error" in response else OUTCOME_HAPPY
+            RPC_OUTCOMES[method].add(outcome)
+        return response
+
+    JSONRPCHandler.handle_request = recording  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        JSONRPCHandler.handle_request = original  # type: ignore[method-assign]
+
+
+@pytest.fixture(scope="session")
+def rpc_outcomes() -> dict[str, set[str]]:
+    """Observed outcomes per RPC method (see ``test_zz_method_coverage.py``)."""
+    return RPC_OUTCOMES
+
+
+@pytest.fixture(scope="session")
+def collected_test_modules() -> set[str]:
+    """Test module basenames collected from this package this run."""
+    return COLLECTED_MODULES

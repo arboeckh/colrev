@@ -1,0 +1,233 @@
+name: App CI
+
+# The desktop app's test ladder, cheapest first (WP-08 §5).
+#
+#   contract  →  schema drift + vue-tsc/tsc. Seconds. Catches the class of
+#                break that makes everything downstream meaningless: a backend
+#                model changed without regenerating rpc-schemas.json / rpc.d.ts.
+#   unit      →  vitest, both projects (node: main/preload/e2e libs;
+#                dom: renderer stores + components) plus the GitHub client
+#                contract suite. ~1 minute.
+#   jsonrpc   →  tests/4_jsonrpc, the RPC handler tests, on one Python
+#                version. ~8 minutes. Includes the registry-driven coverage
+#                gate, so a newly registered RPC method fails here until it
+#                has tests.
+#   e2e       →  the Playwright pipeline. Opt-in (see the job's comment).
+#
+# `jsonrpc` waits on `contract` and `unit` so a schema or typecheck break
+# doesn't burn eight minutes before reporting.
+#
+# Overlap with `tests.yml` is deliberate: that workflow runs the whole
+# `tests/` tree across a Python matrix for the colrev package. This one gives
+# the app's own layers fast, single-version feedback.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  # Job name kept as `rpc-contract` (it moved here from rpc_contract.yml) so
+  # any required-status-check configuration keeps matching.
+  rpc-contract:
+    name: rpc-contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install Python dependencies
+        run: |
+          uv sync --all-extras --dev
+          # gen-types:full invokes plain `python`; point it at the uv venv.
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: electron-app/package-lock.json
+
+      - name: Install npm dependencies
+        working-directory: electron-app
+        run: npm ci
+
+      - name: Regenerate schema + types and fail if committed copies are stale
+        working-directory: electron-app
+        run: npm run gen-types:check
+
+      - name: Typecheck renderer, node processes, and e2e against generated types
+        working-directory: electron-app
+        run: npm run typecheck
+
+  unit:
+    name: unit (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: electron-app/package-lock.json
+
+      - name: Install npm dependencies
+        working-directory: electron-app
+        run: npm ci
+
+      # Covers both vitest projects plus the GitHub client contract suite.
+      # Some tests shell out to `git` (the fake client's bare remotes), so the
+      # runner needs an identity.
+      - name: Configure git identity for tests
+        run: |
+          git config --global user.name "CoLRev CI"
+          git config --global user.email "actions@users.noreply.github.com"
+          git config --global init.defaultBranch main
+
+      - name: Run vitest (node + dom)
+        working-directory: electron-app
+        run: npm test
+
+  jsonrpc:
+    name: jsonrpc handlers
+    needs: [rpc-contract, unit]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install dependencies
+        run: |
+          uv sync --all-extras --dev
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install the packages the handler tests initialize projects with
+        run: |
+          colrev install --uv \
+            colrev.literature_review \
+            colrev.files_dir \
+            colrev.unknown_source \
+            colrev.source_specific_prep \
+            colrev.colrev_cli_prescreen \
+            colrev.colrev_cli_screen \
+            colrev.colrev_cli_pdf_get_man \
+            colrev.colrev_cli_pdf_prep_man \
+            colrev.export_man_prep \
+            colrev.dedupe \
+            colrev.local_index \
+            colrev.paper_md
+
+      - name: Setup git
+        run: |
+          git config --global user.name "CoLRev update"
+          git config --global user.email "actions@users.noreply.github.com"
+          git config --global url.https://github.com/.insteadOf git://github.com/
+
+      # The whole package, in one run: the coverage gate in
+      # test_zz_method_coverage.py reads a session-wide recording and skips
+      # itself on a partial run, so splitting this would silently disable it.
+      - name: Run RPC handler tests
+        run: pytest tests/4_jsonrpc/ -vv
+
+  e2e:
+    name: e2e (opt-in)
+    # NOT yet proven green on a GitHub runner: the Playwright suite needs a
+    # built app, an Electron-capable display (xvfb), the colrev Python
+    # environment, and a warm snapshot cache — a cold run rebuilds the whole
+    # fixture chain. Until that is brought up it runs only on request, so it
+    # can be iterated on without blocking PRs:
+    #
+    #   * manually, via "Run workflow" (workflow_dispatch), or
+    #   * by putting the `run-e2e` label on a pull request.
+    #
+    # When it is reliably green, drop the `if:` and let it gate merges.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'run-e2e')
+    needs: [rpc-contract, unit]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install Python dependencies
+        run: |
+          uv sync --all-extras --dev
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: electron-app/package-lock.json
+
+      - name: Install npm dependencies
+        working-directory: electron-app
+        run: npm ci
+
+      - name: Setup git
+        run: |
+          git config --global user.name "CoLRev CI"
+          git config --global user.email "actions@users.noreply.github.com"
+          git config --global init.defaultBranch main
+
+      - name: Build the app
+        working-directory: electron-app
+        run: npm run build
+
+      # BUILD_FIXTURES=1: CI has no ~/.cache/colrev-test-fixtures, so the
+      # snapshot chain is built from scratch by the pipeline specs themselves.
+      - name: Run e2e
+        working-directory: electron-app
+        env:
+          BUILD_FIXTURES: "1"
+        run: xvfb-run --auto-servernum npx playwright test
+
+      - name: Upload the Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: electron-app/playwright-report/
+          retention-days: 7
+
+      # The failing workspace is the whole debugging story (rpc.jsonl,
+      # renderer.log, backend.log) — see e2e/README.md.
+      - name: Upload e2e workspaces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-workspaces
+          path: /tmp/colrev-e2e/
+          retention-days: 7

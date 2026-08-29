@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { createPinia, setActivePinia } from 'pinia';
 import {
   ensureWorkingBranch,
   isReviewerBranch,
@@ -8,8 +7,11 @@ import {
   WORKING_BRANCH,
 } from './useManagedTaskAccess';
 import { useGitStore } from '@/stores/git';
-import { useProjectsStore } from '@/stores/projects';
 import type { GitStateSnapshot } from '@/types/window';
+import { setupRendererTest, type RendererTestContext } from '@/test/harness';
+import type { WindowMock } from '@/test/window-mock';
+
+let ctx: RendererTestContext;
 
 function snapshot(branch: string): GitStateSnapshot {
   return {
@@ -42,15 +44,8 @@ function standOn(branch: string, opts: { hasDev?: boolean } = {}) {
 
 describe('reviewer-branch invariant (WP-07 §6)', () => {
   beforeEach(() => {
-    setActivePinia(createPinia());
-    const projects = useProjectsStore();
-    projects.currentProjectId = 'lit-review';
-    projects.currentProject = {
-      id: 'lit-review',
-      path: '/projects/lit-review',
-      status: null,
-      settings: null,
-    };
+    ctx = setupRendererTest();
+    ctx.openProject({ path: '/projects/lit-review' });
   });
 
   afterEach(() => {
@@ -101,33 +96,14 @@ describe('reviewer-branch invariant (WP-07 §6)', () => {
 });
 
 describe('retireReviewerBranches', () => {
-  let deleteRemoteBranch: ReturnType<typeof vi.fn>;
-  let deleteLocalBranch: ReturnType<typeof vi.fn>;
+  let deleteRemoteBranch: WindowMock['git']['deleteRemoteBranch'];
+  let deleteLocalBranch: WindowMock['git']['deleteLocalBranch'];
 
   beforeEach(() => {
-    setActivePinia(createPinia());
-    const projects = useProjectsStore();
-    projects.currentProjectId = 'lit-review';
-    projects.currentProject = {
-      id: 'lit-review',
-      path: '/projects/lit-review',
-      status: null,
-      settings: null,
-    };
-
-    deleteRemoteBranch = vi.fn(async () => ({ success: true }));
-    deleteLocalBranch = vi.fn(async () => ({ success: true }));
-    // Minimal preload bridge: the git store also registers online/offline
-    // listeners when it is created.
-    (globalThis as unknown as { window: unknown }).window = {
-      addEventListener: () => undefined,
-      removeEventListener: () => undefined,
-      git: { deleteRemoteBranch, deleteLocalBranch, listBranches: async () => ({ success: false }) },
-    };
-  });
-
-  afterEach(() => {
-    delete (globalThis as unknown as { window?: unknown }).window;
+    ctx = setupRendererTest();
+    ctx.openProject({ path: '/projects/lit-review' });
+    deleteRemoteBranch = ctx.mock.git.deleteRemoteBranch;
+    deleteLocalBranch = ctx.mock.git.deleteLocalBranch;
   });
 
   it('deletes both copies of every retired branch', async () => {
@@ -164,7 +140,7 @@ describe('retireReviewerBranches', () => {
 
   it('reports the branches it could not delete without failing the rest', async () => {
     standOn('dev');
-    deleteRemoteBranch.mockImplementation(async (_p: string, name: string) =>
+    deleteRemoteBranch.mockImplementation(async (_p, name) =>
       name.endsWith('bob') ? { success: false, error: 'AUTH_FAILED' } : { success: true },
     );
 
