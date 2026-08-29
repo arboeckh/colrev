@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
+import { ensureWorkingBranch, retireReviewerBranches } from '@/composables/useManagedTaskAccess';
 import { useManagedReviewStore } from '@/stores/managedReview';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
@@ -38,7 +39,7 @@ const showWalkthrough = ref(false);
 const kindLabel = computed(() => (props.kind === 'screen' ? 'Screen' : 'Prescreen'));
 const activeTask = computed(
   () =>
-    tasks.value.find((task) => ['active', 'reconciling'].includes(task.state)) ?? null,
+    tasks.value.find((task) => task.state === 'active') ?? null,
 );
 const displayTask = computed(() => activeTask.value ?? tasks.value[0] ?? null);
 const isOnDev = computed(() => git.currentBranch === 'dev');
@@ -98,7 +99,7 @@ async function refreshData() {
 }
 
 async function switchToDev() {
-  const switched = await git.switchBranch('dev');
+  const switched = await ensureWorkingBranch();
   if (switched) {
     notifications.success('Switched to dev', 'Reconciliation runs from the dev branch.');
     await refreshData();
@@ -121,8 +122,28 @@ function onWalkthroughClose() {
   showWalkthrough.value = false;
 }
 
-async function onWalkthroughApplied(_: ApplyReconciliationResponse) {
+async function onWalkthroughApplied(response: ApplyReconciliationResponse) {
   showWalkthrough.value = false;
+
+  // The reviewer branches have done their job: their decisions are in dev and
+  // the audit trail records what they contained. Left alone they accumulate on
+  // origin, one pair per completed task.
+  const retired = await retireReviewerBranches(response.retired_branches ?? []);
+  if (retired.deleted.length > 0) {
+    notifications.success(
+      'Review branches cleaned up',
+      `Removed ${retired.deleted.length} finished reviewer branch${
+        retired.deleted.length === 1 ? '' : 'es'
+      }.`,
+    );
+  }
+  if (retired.failed.length > 0) {
+    notifications.info(
+      'Some review branches remain',
+      `${retired.failed.join(', ')} could not be deleted. Reconciliation itself succeeded.`,
+    );
+  }
+
   // Store-level state (status, managed review tasks) refreshes via the
   // invalidation seam; reload the panel-owned reconciliation data here.
   await refreshData();
@@ -157,7 +178,7 @@ async function exportAudit(format: 'csv' | 'json') {
 
 onMounted(async () => {
   if (!isOnDev.value) {
-    await git.switchBranch('dev');
+    await ensureWorkingBranch();
   }
   await refreshData();
 });

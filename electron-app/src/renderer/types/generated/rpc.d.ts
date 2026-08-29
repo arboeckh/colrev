@@ -246,6 +246,7 @@ export interface ApplyReconciliationResponse {
   commit_sha: string;
   project_id: string;
   resolved_count: number;
+  retired_branches?: string[];
   success?: true;
   task_id: string;
   [k: string]: unknown;
@@ -325,7 +326,7 @@ export interface ManagedReviewTask {
   record_ids: string[];
   reviewer_progress: ManagedReviewReviewerProgress[];
   reviewers: ManagedReviewReviewer[];
-  state: "active" | "reconciling" | "completed" | "aborted";
+  state: "active" | "completed" | "aborted";
   [k: string]: unknown;
 }
 

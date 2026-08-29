@@ -205,6 +205,8 @@ contextBridge.exposeInMainWorld('git', {
     ipcRenderer.invoke('git:create-local-branch', projectPath, name, baseRef),
   deleteLocalBranch: (projectPath: string, name: string) =>
     ipcRenderer.invoke('git:delete-local-branch', projectPath, name),
+  deleteRemoteBranch: (projectPath: string, name: string) =>
+    ipcRenderer.invoke('git:delete-remote-branch', projectPath, name),
   checkout: (projectPath: string, branchName: string) =>
     ipcRenderer.invoke('git:checkout', projectPath, branchName),
   merge: (projectPath: string, source: string, ffOnly?: boolean) =>
@@ -221,6 +223,22 @@ contextBridge.exposeInMainWorld('git', {
     ipcRenderer.invoke('git:analyze-divergence', projectPath, projectId),
   applyMerge: (projectPath: string, projectId: string, resolutions: unknown[]) =>
     ipcRenderer.invoke('git:apply-merge', projectPath, projectId, resolutions),
+});
+
+/**
+ * Expose the single git snapshot (WP-07 §2). `refresh` rebuilds it under the
+ * git mutex; `onChanged` receives it whenever any main-process git operation
+ * rebuilds it, so the renderer never has to re-derive git facts itself.
+ */
+contextBridge.exposeInMainWorld('gitState', {
+  refresh: (projectId: string, projectPath: string) =>
+    ipcRenderer.invoke('git-state:refresh', projectId, projectPath),
+  get: (projectId: string) => ipcRenderer.invoke('git-state:get', projectId),
+  onChanged: (callback: (snapshot: unknown) => void) => {
+    const handler = (_e: unknown, snapshot: unknown) => callback(snapshot);
+    ipcRenderer.on('git-state-changed', handler);
+    return () => ipcRenderer.removeListener('git-state-changed', handler);
+  },
 });
 
 /**

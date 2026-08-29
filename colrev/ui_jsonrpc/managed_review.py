@@ -62,7 +62,11 @@ INCLUSION_STATE_NAMES = {
     RecordState.rev_prescreen_included.name,
     RecordState.rev_included.name,
 }
-TASK_STATES_ACTIVE = {"active", "reconciling"}
+# A task is in flight until reconciliation is applied (or it is aborted).
+# There is no separate "reconciling" state: applying a reconciliation is a
+# single RPC, so an intermediate state would only ever be observable if that
+# RPC failed halfway — leaving the task wedged in a state nothing clears.
+TASK_STATES_ACTIVE = {"active"}
 REVIEWER_ROLES = ("reviewer_a", "reviewer_b")
 
 
@@ -988,11 +992,18 @@ class ManagedReviewService:
             msg=f"Managed {manifest_task['kind']} reconciliation: {task_id}",
         )
         commit_sha = self.review_manager.dataset.git_repo.repo.head.commit.hexsha
+        # The reviewer branches have served their purpose: their decisions are
+        # now in dev and preserved in `reconciliation_audit`. Deleting them is
+        # the caller's job — removing the remote copy needs the GitHub token,
+        # which only the desktop app holds.
         return {
             "success": True,
             "task_id": task_id,
             "commit_sha": commit_sha,
             "resolved_count": len(audit_rows),
+            "retired_branches": [
+                reviewer["branch_name"] for reviewer in manifest_task["reviewers"]
+            ],
         }
 
     def export_reconciliation_audit(

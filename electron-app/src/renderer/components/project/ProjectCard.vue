@@ -18,6 +18,7 @@ import { useProjectsStore, type ProjectListItem } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useConnectionStore } from '@/stores/connection';
+import { useGitStore } from '@/stores/git';
 
 const props = defineProps<{
   project: ProjectListItem;
@@ -32,6 +33,7 @@ const projects = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
 const connection = useConnectionStore();
+const git = useGitStore();
 
 const showDeleteDialog = ref(false);
 const isDeleting = ref(false);
@@ -60,8 +62,11 @@ function openProject() {
   }
 }
 
+// Git facts come from the one snapshot (WP-07 §2), keyed by project id.
+const gitState = computed(() => git.snapshotFor(props.project.id));
+
 function hasGitHubRemote(): boolean {
-  const url = props.project.gitStatus?.remote_url;
+  const url = gitState.value?.remoteUrl;
   return !!url && url.includes('github.com');
 }
 
@@ -76,10 +81,9 @@ async function confirmDelete() {
 
   try {
     // Delete GitHub repo first if requested
-    if (deleteGithubToo.value && props.project.gitStatus?.remote_url) {
-      const ghResult = await window.github.deleteRepo({
-        remoteUrl: props.project.gitStatus.remote_url,
-      });
+    const remoteUrl = gitState.value?.remoteUrl;
+    if (deleteGithubToo.value && remoteUrl) {
+      const ghResult = await window.github.deleteRepo({ remoteUrl });
       if (!ghResult.success) {
         notifications.error('Failed to delete GitHub repository', ghResult.error ?? 'Unknown error');
         isDeleting.value = false;

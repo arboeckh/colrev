@@ -131,3 +131,73 @@ describe('AuthManager — offline behavior', () => {
     expect(new NetworkError('x')).not.toBeInstanceOf(AuthError);
   });
 });
+
+
+describe('AuthManager — device flow network failures', () => {
+  let originalFetch: typeof fetch;
+
+  beforeEach(() => {
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'colrev-auth-devflow-'));
+    originalFetch = global.fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    fs.rmSync(userDataDir, { recursive: true, force: true });
+  });
+
+  /**
+   * Device-code handshake succeeds; every token poll then fails at the
+   * transport. `interval`/`expires_in` are tiny so the poll loop runs to its
+   * deadline within the test.
+   */
+  function mockOfflinePolling(expiresInSeconds: number): void {
+    global.fetch = vi.fn(async (url: string | URL | Request) => {
+      const href = typeof url === 'string' ? url : url.toString();
+      if (href.includes('device/code')) {
+        return {
+          ok: true,
+          json: async () => ({
+            device_code: 'dc-1',
+            user_code: 'ABCD-1234',
+            verification_uri: 'https://github.com/login/device',
+            interval: 0.01,
+            expires_in: expiresInSeconds,
+          }),
+        } as unknown as Response;
+      }
+      throw new TypeError('fetch failed');
+    }) as unknown as typeof fetch;
+  }
+
+  it('reports network_error while polling instead of silently retrying', async () => {
+    const manager = new AuthManager();
+    const statuses: string[] = [];
+    let userCodeAtNetworkError: string | undefined;
+    manager.setDeviceFlowCallback((status) => {
+      statuses.push(status.status);
+      if (status.status === 'network_error' && userCodeAtNetworkError === undefined) {
+        userCodeAtNetworkError = status.userCode;
+      }
+    });
+
+    mockOfflinePolling(0.2);
+    await manager.startDeviceFlow();
+
+    expect(statuses).toContain('network_error');
+    // The code is still valid while polling continues — the UI keeps showing it.
+    expect(userCodeAtNetworkError).toBe('ABCD-1234');
+  });
+
+  it('ends on network_error rather than expired when the window closes offline', async () => {
+    const manager = new AuthManager();
+    const statuses: string[] = [];
+    manager.setDeviceFlowCallback((status) => statuses.push(status.status));
+
+    mockOfflinePolling(0.2);
+    await manager.startDeviceFlow();
+
+    expect(statuses[statuses.length - 1]).toBe('network_error');
+    expect(statuses).not.toContain('expired');
+  });
+});

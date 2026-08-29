@@ -139,7 +139,6 @@ export interface Project {
   id: string;
   path: string;
   status: ProjectStatus | null;
-  gitStatus: GitStatus | null;
   settings: ProjectSettings | null;
 }
 

@@ -3,10 +3,18 @@ import { ref, computed, toRaw } from 'vue';
 import { useProjectsStore } from './projects';
 import { useNotificationsStore } from './notifications';
 import { useConnectionStore } from './connection';
-import type { GitBranchInfo, GitLogEntry, GitHubRelease, MergeAnalysis, MergeConflictResolution } from '@/types/window';
+import type {
+  GitBranchInfo,
+  GitLogEntry,
+  GitHubRelease,
+  GitStateSnapshot,
+  MergeAnalysis,
+  MergeConflictResolution,
+} from '@/types/window';
 import type { BranchDelta } from '@/types/project';
 import { useBackendStore } from './backend';
 import { useProjectDataStore } from './projectData';
+import { describeGitFailure, type GitOperation } from '@/lib/gitFailure';
 
 // No interval polling. Remote state refreshes on: (a) window focus,
 // (b) explicit user action (Refresh / Fetch buttons), (c) after a write
@@ -17,24 +25,41 @@ export const useGitStore = defineStore('git', () => {
   const notifications = useNotificationsStore();
   const connection = useConnectionStore();
 
-  // State
-  const currentBranch = ref('main');
-  const branches = ref<GitBranchInfo[]>([]);
-  const ahead = ref(0);
-  const behind = ref(0);
+  // The one git snapshot, owned by the main process (WP-07 §2). Nothing in
+  // this store writes git facts: every field below is derived from `snapshot`,
+  // which is only ever replaced by `applySnapshot`.
+  // Keyed by project id: the landing page lists branch/cleanliness for projects
+  // that have been opened, and the current project's entry is `snapshot`.
+  const snapshots = ref<Record<string, GitStateSnapshot>>({});
+  const lastRefreshError = ref<string | null>(null);
+
+  const snapshot = computed<GitStateSnapshot | null>(() =>
+    projects.currentProjectId ? snapshots.value[projects.currentProjectId] ?? null : null,
+  );
+
+  function snapshotFor(projectId: string): GitStateSnapshot | null {
+    return snapshots.value[projectId] ?? null;
+  }
+
+  const currentBranch = computed(() => snapshot.value?.branch ?? 'main');
+  const ahead = computed(() => snapshot.value?.ahead ?? 0);
+  const behind = computed(() => snapshot.value?.behind ?? 0);
   // main-vs-origin/main counts — independent of current branch so the
   // "collaborator pushed" banner can appear while on dev.
-  const mainAhead = ref(0);
-  const mainBehind = ref(0);
-  const isClean = ref(true);
-  const remoteUrl = ref<string | null>(null);
+  const mainAhead = computed(() => snapshot.value?.mainAhead ?? 0);
+  const mainBehind = computed(() => snapshot.value?.mainBehind ?? 0);
+  const isClean = computed(() => snapshot.value?.isClean ?? true);
+  const remoteUrl = computed(() => snapshot.value?.remoteUrl ?? null);
+  const hasMergeConflict = computed(() => snapshot.value?.hasMergeConflict ?? false);
+  const lastCommit = computed(() => snapshot.value?.lastCommit ?? null);
+
+  const branches = ref<GitBranchInfo[]>([]);
   const isFetching = ref(false);
   const isPulling = ref(false);
   const isPushing = ref(false);
   const isSwitchingBranch = ref(false);
   const lastFetchTime = ref<number | null>(null);
   const recentCommits = ref<GitLogEntry[]>([]);
-  const hasMergeConflict = ref(false);
   const isOffline = computed(() => !connection.isOnline);
 
   // Conflict resolution state
@@ -51,6 +76,18 @@ export const useGitStore = defineStore('git', () => {
   // from PullBlockedDialog as a last-resort escape hatch.
   const showResetToRemoteDialog = ref(false);
   const isResettingToRemote = ref(false);
+
+  // Branch switch blocked by a dirty working tree. `git:checkout` refuses to
+  // move HEAD while there are uncommitted changes (see gitCheckout) so the
+  // user chooses save-or-discard instead of having decisions silently stashed
+  // or carried onto the wrong branch.
+  const showBranchSwitchBlockedDialog = ref(false);
+  const blockedSwitchTarget = ref<string | null>(null);
+  const blockedSwitchDirty = ref<{ uncommittedCount: number; untrackedCount: number } | null>(null);
+  // Optional continuation for callers whose switch was only the first step of
+  // a larger operation (e.g. publishing dev into main). Run once, after the
+  // user resolved the dirty tree and the switch went through.
+  const blockedSwitchResume = ref<null | (() => void | Promise<void>)>(null);
 
   // New state for dev/release model
   const releases = ref<GitHubRelease[]>([]);
@@ -101,6 +138,37 @@ export const useGitStore = defineStore('git', () => {
     return projects.currentProject?.path ?? null;
   }
 
+  /**
+   * Report a failed sync operation as an actionable message.
+   *
+   * `git-manager` classifies remote failures into codes (REJECTED_FETCH_FIRST,
+   * AUTH_FAILED, OFFLINE, …); this maps them to copy plus the single obvious
+   * recovery, so a non-fast-forward push offers "Pull first" rather than
+   * printing git's stderr.
+   */
+  function reportGitFailure(operation: GitOperation, error: string | undefined): void {
+    if (error === 'OFFLINE') connection.markOffline();
+
+    const copy = describeGitFailure(operation, error);
+    if (copy.remedy === 'pull') {
+      notifications.error(copy.title, copy.detail, {
+        label: 'Pull now',
+        onClick: () => void pull(),
+      });
+      return;
+    }
+    if (copy.remedy === 'signIn') {
+      notifications.error(copy.title, copy.detail, {
+        label: 'Sign in',
+        onClick: () => {
+          void import('./auth').then((m) => m.useAuthStore().login());
+        },
+      });
+      return;
+    }
+    notifications.error(copy.title, copy.detail);
+  }
+
   // Actions — serialization against concurrent git ops is handled by the
   // main-process git mutex (see `electron-app/src/main/gitMutex.ts`).
   async function fetch(): Promise<boolean> {
@@ -116,9 +184,9 @@ export const useGitStore = defineStore('git', () => {
         await refreshStatus();
         return true;
       } else {
-        if (result.error?.includes('Could not resolve') || result.error?.includes('unable to access')) {
-          connection.markOffline();
-        }
+        // Offline is classified in the main process (dugite's parseError plus
+        // the transport patterns in git-manager) — no stderr matching here.
+        if (result.error === 'OFFLINE') connection.markOffline();
         return false;
       }
     } catch {
@@ -151,7 +219,7 @@ export const useGitStore = defineStore('git', () => {
         showPullBlockedDialog.value = true;
         return false;
       } else {
-        notifications.error('Pull failed', result.error || 'Unknown error');
+        reportGitFailure('pull', result.error);
         return false;
       }
     } finally {
@@ -224,7 +292,7 @@ export const useGitStore = defineStore('git', () => {
         );
         return false;
       } else {
-        notifications.error('Update failed', result.error || 'Unknown error');
+        reportGitFailure('pull', result.error);
         return false;
       }
     } finally {
@@ -240,11 +308,12 @@ export const useGitStore = defineStore('git', () => {
     try {
       const result = await window.git.push(path);
       if (result.success) {
+        connection.markOnline();
         await refreshStatus();
         notifications.success('Changes saved to remote');
         return true;
       } else {
-        notifications.error('Push failed', result.error || 'Unknown error');
+        reportGitFailure('push', result.error);
         return false;
       }
     } finally {
@@ -252,34 +321,47 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  async function refreshStatus(): Promise<void> {
-    const path = getProjectPath();
-    if (!path) return;
-
-    // Pure read — mutex-bypassing on the main side. No auto-commit, no
-    // hasMergeConflict roundtrip. Callers that mutate repo state call
-    // refreshMergeConflictState() explicitly.
-    await projects.refreshGitStatus();
-
-    const status = projects.currentGitStatus;
-    if (status) {
-      currentBranch.value = status.branch;
-      ahead.value = status.ahead;
-      behind.value = status.behind;
-      mainAhead.value = status.main_ahead ?? 0;
-      mainBehind.value = status.main_behind ?? 0;
-      isClean.value = status.is_clean;
-      remoteUrl.value = status.remote_url;
-    }
+  /**
+   * Adopt a snapshot from the main process — the only writer of git facts in
+   * the renderer. Stored per project, so a late arrival for a project we just
+   * left updates that project's entry instead of painting over the current one.
+   */
+  function applySnapshot(next: GitStateSnapshot | null): void {
+    if (!next) return;
+    snapshots.value = { ...snapshots.value, [next.projectId]: next };
   }
 
-  async function refreshMergeConflictState(): Promise<void> {
+  // Every main-process git operation rebuilds the snapshot while it still
+  // holds the mutex and pushes it here, so the store cannot lag a repo write.
+  // Absent in store unit tests, which drive `applySnapshot` directly.
+  if (typeof window !== 'undefined' && window.gitState) {
+    window.gitState.onChanged(applySnapshot);
+  }
+
+  /**
+   * Ask the main process to rebuild the snapshot. This is the only path in the
+   * app that reads `get_git_status`.
+   *
+   * Never throws — a failed refresh leaves the previous snapshot in place and
+   * records `lastRefreshError`, so a transient backend hiccup can't blank the
+   * header or reject the caller's own operation. The invalidation seam reads
+   * the return value to decide whether to flag the UI as stale.
+   */
+  async function refreshStatus(): Promise<boolean> {
     const path = getProjectPath();
-    if (!path) return;
+    const projectId = projects.currentProjectId;
+    if (!path || !projectId) return false;
+
     try {
-      hasMergeConflict.value = await window.git.hasMergeConflict(path);
-    } catch {
-      hasMergeConflict.value = false;
+      const result = await window.gitState.refresh(projectId, path);
+      applySnapshot(result.state);
+      lastRefreshError.value = result.success
+        ? null
+        : result.error ?? 'Failed to read git state';
+      return result.success;
+    } catch (err) {
+      lastRefreshError.value = err instanceof Error ? err.message : 'Failed to read git state';
+      return false;
     }
   }
 
@@ -289,12 +371,24 @@ export const useGitStore = defineStore('git', () => {
 
     const result = await window.git.listBranches(path);
     if (result.success) {
+      // `result.currentBranch` is deliberately ignored: the branch comes from
+      // the snapshot, which has exactly one writer.
       branches.value = result.branches;
-      currentBranch.value = result.currentBranch;
     }
   }
 
-  async function switchBranch(branchName: string): Promise<boolean> {
+  /**
+   * Check out ``branchName``.
+   *
+   * A dirty working tree blocks the switch (main-process `gitCheckout` refuses
+   * to move HEAD). By default that opens BranchSwitchBlockedDialog so the user
+   * explicitly saves or discards; pass ``promptOnDirty: false`` for callers
+   * that render their own recovery UI.
+   */
+  async function switchBranch(
+    branchName: string,
+    options: { promptOnDirty?: boolean } = {},
+  ): Promise<boolean> {
     const path = getProjectPath();
     if (!path) return false;
     // Skip if already on the target branch
@@ -308,36 +402,34 @@ export const useGitStore = defineStore('git', () => {
 
       const result = await window.git.checkout(path, branchName);
       if (!result.success) {
+        if (result.error === 'DIRTY_WORKTREE') {
+          blockedSwitchTarget.value = branchName;
+          blockedSwitchDirty.value = result.dirty ?? null;
+          blockedSwitchResume.value = null;
+          if (options.promptOnDirty !== false) {
+            showBranchSwitchBlockedDialog.value = true;
+          }
+          return false;
+        }
         notifications.error('Branch switch failed', result.error || 'Unknown error');
         return false;
       }
 
-      if (result.recovered) {
-        notifications.info(
-          'Switched with auto-recovery',
-          result.recoveryMessage ?? 'Local changes were stashed so the switch could complete.',
-        );
-      }
-
-      currentBranch.value = branchName;
+      // No optimistic branch write: `git:checkout` rebuilt the snapshot under
+      // the mutex before returning, so the store already reflects the switch.
 
       // Reload all project data since branch content differs
       if (projects.currentProjectId) {
         await projects.loadProject(projects.currentProjectId);
       }
 
-      // Sync git store + pending-changes from the new branch. refreshStatus()
-      // before checkout still reflects the old branch and causes UI flicker
-      // (e.g. unsaved-hint on prescreen/screen) until something refreshes again.
-      await refreshStatus();
-      try {
-        const { usePendingChangesStore } = await import('./pendingChanges');
-        await usePendingChangesStore().refresh();
-      } catch {
-        // Pending refresh is best-effort; branch switch still succeeded.
-      }
-
       await refreshBranches();
+      // A branch switch replaces the working tree wholesale, so it goes
+      // through the same seam as pull/reset/merge: every store re-derives and
+      // mounted pages reload against the new branch. Without this, a page that
+      // triggered the switch itself (managed-review access check) would keep
+      // rendering the pre-switch view.
+      await useProjectDataStore().invalidateAll();
       refreshBranchDelta(); // Fire and forget
       return true;
     } finally {
@@ -370,8 +462,6 @@ export const useGitStore = defineStore('git', () => {
       return false;
     }
 
-    currentBranch.value = 'dev';
-
     // Push new branch to remote if available
     if (hasRemote.value) {
       await window.git.push(path);
@@ -389,9 +479,18 @@ export const useGitStore = defineStore('git', () => {
     const path = getProjectPath();
     if (!path) return false;
 
-    // Switch to main first
+    // Switch to main first. A dirty tree refuses the checkout (see
+    // gitCheckout) — surface it as the same save-or-discard choice the rest
+    // of the app offers instead of leaking the error code into a toast.
     const checkoutResult = await window.git.checkout(path, 'main');
     if (!checkoutResult.success) {
+      if (checkoutResult.error === 'DIRTY_WORKTREE') {
+        blockedSwitchTarget.value = 'main';
+        blockedSwitchDirty.value = checkoutResult.dirty ?? null;
+        blockedSwitchResume.value = () => void mergeDevIntoMain();
+        showBranchSwitchBlockedDialog.value = true;
+        return false;
+      }
       notifications.error('Failed to switch to main', checkoutResult.error);
       return false;
     }
@@ -411,8 +510,6 @@ export const useGitStore = defineStore('git', () => {
     if (hasRemote.value) {
       await window.git.push(path);
     }
-
-    currentBranch.value = 'main';
 
     // Reload project data + branches
     if (projects.currentProjectId) {
@@ -500,7 +597,7 @@ export const useGitStore = defineStore('git', () => {
    * Load GitHub releases for the current project.
    */
   async function loadReleases(): Promise<void> {
-    const remote = remoteUrl.value || projects.currentGitStatus?.remote_url || null;
+    const remote = remoteUrl.value;
     if (!remote || !remote.includes('github.com')) {
       releases.value = [];
       return;
@@ -529,7 +626,7 @@ export const useGitStore = defineStore('git', () => {
       notifications.error('Release failed', 'No project selected');
       return false;
     }
-    const remote = remoteUrl.value || projects.currentGitStatus?.remote_url || null;
+    const remote = remoteUrl.value;
     if (!remote) {
       notifications.error('Release failed', 'No remote repository configured. Push to GitHub first.');
       return false;
@@ -679,9 +776,7 @@ export const useGitStore = defineStore('git', () => {
 
     const result = await window.git.abortMerge(path);
     if (result.success) {
-      hasMergeConflict.value = false;
-      await refreshStatus();
-      await refreshMergeConflictState();
+      // `git:abort-merge` refreshed the snapshot; hasMergeConflict follows it.
       notifications.success('Merge aborted');
       return true;
     }
@@ -698,7 +793,6 @@ export const useGitStore = defineStore('git', () => {
    */
   async function initialize(): Promise<void> {
     await refreshStatus();
-    await refreshMergeConflictState();
     await refreshBranches();
     await refreshBranchDiff();
     refreshBranchDelta(); // Fire and forget
@@ -721,22 +815,23 @@ export const useGitStore = defineStore('git', () => {
   });
 
   function cleanup(): void {
+    // `snapshots` deliberately survives: the landing page shows branch and
+    // cleanliness for projects that have been opened this session.
+    lastRefreshError.value = null;
     branches.value = [];
     recentCommits.value = [];
     releases.value = [];
     releasesLoaded.value = false;
-    ahead.value = 0;
-    behind.value = 0;
-    mainAhead.value = 0;
-    mainBehind.value = 0;
-    isClean.value = true;
-    hasMergeConflict.value = false;
     isResolving.value = false;
     mergeAnalysis.value = null;
     showConflictDialog.value = false;
     showPullBlockedDialog.value = false;
     showResetToRemoteDialog.value = false;
     isResettingToRemote.value = false;
+    showBranchSwitchBlockedDialog.value = false;
+    blockedSwitchTarget.value = null;
+    blockedSwitchDirty.value = null;
+    blockedSwitchResume.value = null;
     devAheadOfMain.value = 0;
     mainAheadOfDev.value = 0;
     branchDelta.value = null;
@@ -745,6 +840,11 @@ export const useGitStore = defineStore('git', () => {
 
   return {
     // State
+    snapshots,
+    snapshot,
+    snapshotFor,
+    lastRefreshError,
+    lastCommit,
     currentBranch,
     branches,
     ahead,
@@ -767,6 +867,10 @@ export const useGitStore = defineStore('git', () => {
     showPullBlockedDialog,
     showResetToRemoteDialog,
     isResettingToRemote,
+    showBranchSwitchBlockedDialog,
+    blockedSwitchTarget,
+    blockedSwitchDirty,
+    blockedSwitchResume,
     releases,
     isLoadingReleases,
     releasesLoaded,
@@ -787,13 +891,13 @@ export const useGitStore = defineStore('git', () => {
     isOnDev,
     latestRelease,
     // Actions
+    applySnapshot,
     nextReleaseVersion,
     fetch,
     pull,
     fastForwardMain,
     push,
     refreshStatus,
-    refreshMergeConflictState,
     refreshBranches,
     switchBranch,
     ensureDevBranch,

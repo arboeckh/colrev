@@ -7,6 +7,7 @@ import AppLayout from '@/components/layout/AppLayout.vue';
 import DebugPanel from '@/components/common/DebugPanel.vue';
 import ConflictResolutionDialog from '@/components/common/ConflictResolutionDialog.vue';
 import PullBlockedDialog from '@/components/common/PullBlockedDialog.vue';
+import BranchSwitchBlockedDialog from '@/components/common/BranchSwitchBlockedDialog.vue';
 import ResetToRemoteDialog from '@/components/common/ResetToRemoteDialog.vue';
 import KeychainExplainerDialog from '@/components/common/KeychainExplainerDialog.vue';
 import { useBackendStore } from '@/stores/backend';
@@ -93,6 +94,9 @@ watch(
 
     <!-- Pull blocked by local changes — recovery dialog -->
     <PullBlockedDialog />
+
+    <!-- Dirty-tree branch switch: explicit save-or-discard, never a silent stash -->
+    <BranchSwitchBlockedDialog />
 
     <!-- Last-resort reset-to-remote dialog -->
     <ResetToRemoteDialog />

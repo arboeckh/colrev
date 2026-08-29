@@ -37,14 +37,30 @@ onMounted(() => {
   }
 });
 
+// `network_error` while the code is still on screen means polling continues
+// and may recover; without a code it is terminal (the window closed offline).
+const isRecoverableNetworkError = computed(
+  () =>
+    auth.deviceFlowStatus?.status === 'network_error' &&
+    !!auth.deviceFlowStatus?.userCode,
+);
 const isPolling = computed(
-  () => auth.deviceFlowStatus?.status === 'polling' || auth.deviceFlowStatus?.status === 'awaiting_code'
+  () =>
+    auth.deviceFlowStatus?.status === 'polling' ||
+    auth.deviceFlowStatus?.status === 'awaiting_code' ||
+    isRecoverableNetworkError.value,
 );
 const hasError = computed(
-  () => auth.deviceFlowStatus?.status === 'error' || auth.deviceFlowStatus?.status === 'expired'
+  () =>
+    auth.deviceFlowStatus?.status === 'error' ||
+    auth.deviceFlowStatus?.status === 'expired' ||
+    (auth.deviceFlowStatus?.status === 'network_error' && !isRecoverableNetworkError.value),
 );
 const errorMessage = computed(() => {
   if (auth.deviceFlowStatus?.status === 'expired') return 'The code expired. Please try again.';
+  if (auth.deviceFlowStatus?.status === 'network_error') {
+    return "Couldn't reach GitHub. Check your connection, then try again.";
+  }
   return auth.deviceFlowStatus?.error || 'Something went wrong. Please try again.';
 });
 
@@ -80,6 +96,14 @@ function openGitHub() {
         <!-- Device Flow: Show code and polling state -->
         <template v-if="isPolling && auth.deviceFlowStatus?.userCode">
           <div class="space-y-5">
+            <div
+              v-if="isRecoverableNetworkError"
+              class="rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-sm text-orange-500"
+              data-testid="device-flow-network-warning"
+            >
+              Can't reach GitHub right now — still trying. Your code is still valid.
+            </div>
+
             <!-- Step 1: Copy the code -->
             <div class="space-y-2">
               <div class="flex items-center gap-2 text-sm font-medium">

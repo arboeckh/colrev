@@ -3,34 +3,31 @@ import { ref, computed } from 'vue';
 import { useBackendStore } from './backend';
 import { useProjectsStore } from './projects';
 import { useNotificationsStore } from './notifications';
-import type {
-  GetGitStatusResponse,
-  StagedRecordChange,
-} from '@/types/generated/rpc';
-import { stripUrlUserinfo } from '@/lib/utils';
+import { useGitStore } from './git';
 
-type GitStatusPayload = GetGitStatusResponse['git'];
-
+/**
+ * Uncommitted work, read off the one git snapshot (WP-07 §2).
+ *
+ * This store used to call `get_git_status` itself, which meant the header's
+ * "unsaved changes" count and the git store's cleanliness flag could disagree
+ * whenever one refreshed and the other didn't. It now derives everything from
+ * `git.snapshot` and owns only the write actions (commit / discard).
+ */
 export const usePendingChangesStore = defineStore('pendingChanges', () => {
   const backend = useBackendStore();
   const projects = useProjectsStore();
   const notifications = useNotificationsStore();
+  const git = useGitStore();
 
-  const gitStatus = ref<GitStatusPayload | null>(null);
   const isCommitting = ref(false);
   const isDiscarding = ref(false);
-  const lastRefreshError = ref<string | null>(null);
 
-  let inFlightRefresh: Promise<void> | null = null;
-
-  const stagedRecordChanges = computed<StagedRecordChange[]>(
-    () => gitStatus.value?.staged_record_changes ?? [],
-  );
+  const stagedRecordChanges = computed(() => git.snapshot?.stagedRecordChanges ?? []);
 
   const pendingCount = computed(() => {
-    const status = gitStatus.value;
+    const status = git.snapshot;
     if (!status) return 0;
-    return status.uncommitted_changes + status.untracked_files.length;
+    return status.uncommittedChanges + status.untrackedFiles.length;
   });
 
   const hasPending = computed(() => pendingCount.value > 0);
@@ -38,34 +35,10 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
   const stagedRecordCountsByType = computed(() => {
     const counts: Record<string, number> = {};
     for (const change of stagedRecordChanges.value) {
-      counts[change.change_type] = (counts[change.change_type] ?? 0) + 1;
+      counts[change.changeType] = (counts[change.changeType] ?? 0) + 1;
     }
     return counts;
   });
-
-  async function refresh(): Promise<void> {
-    if (!projects.currentProjectId || !backend.isRunning) return;
-    // Coalesce concurrent refreshes triggered by write-RPC hooks + polling
-    if (inFlightRefresh) return inFlightRefresh;
-
-    inFlightRefresh = (async () => {
-      try {
-        const response = await backend.call('get_git_status', {
-          project_id: projects.currentProjectId!,
-        });
-        gitStatus.value = response.git
-          ? { ...response.git, remote_url: response.git.remote_url ? stripUrlUserinfo(response.git.remote_url) : response.git.remote_url }
-          : response.git;
-        lastRefreshError.value = null;
-      } catch (err) {
-        lastRefreshError.value = err instanceof Error ? err.message : 'unknown error';
-      } finally {
-        inFlightRefresh = null;
-      }
-    })();
-
-    return inFlightRefresh;
-  }
 
   async function commit(message: string): Promise<boolean> {
     if (!projects.currentProjectId || !backend.isRunning) return false;
@@ -81,12 +54,12 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
 
       if (!response.committed) {
         notifications.info('Nothing to commit', response.message);
-        await refresh();
+        await git.refreshStatus();
         return false;
       }
 
       notifications.success('Saved');
-      await refresh();
+      await git.refreshStatus();
       return true;
     } catch (err) {
       notifications.error(
@@ -114,7 +87,7 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
         'Discarded',
         `${discardedCount} file(s) reverted`,
       );
-      await refresh();
+      await git.refreshStatus();
       return true;
     } catch (err) {
       notifications.error(
@@ -127,26 +100,17 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
     }
   }
 
-  function reset() {
-    gitStatus.value = null;
-    lastRefreshError.value = null;
-  }
-
   return {
     // state
-    gitStatus,
     isCommitting,
     isDiscarding,
-    lastRefreshError,
     // getters
     pendingCount,
     hasPending,
     stagedRecordChanges,
     stagedRecordCountsByType,
     // actions
-    refresh,
     commit,
     discardAll,
-    reset,
   };
 });

@@ -125,7 +125,7 @@ class ManagedReviewTask(_ServiceModel):
     id: str
     kind: ManagedReviewKind
     mode: str
-    state: Literal["active", "reconciling", "completed", "aborted"]
+    state: Literal["active", "completed", "aborted"]
     base_branch: str
     base_commit: str
     eligible_state: str
@@ -238,6 +238,8 @@ class ApplyReconciliationResponse(ProjectResponse):
     task_id: str
     commit_sha: str
     resolved_count: int
+    #: Reviewer branches that are now redundant and safe to delete.
+    retired_branches: List[str] = []
 
 
 class ExportReconciliationAuditResponse(ProjectResponse):

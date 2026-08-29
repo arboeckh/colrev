@@ -94,7 +94,8 @@ export interface AuthSession {
 }
 
 export interface DeviceFlowStatus {
-  status: 'awaiting_code' | 'polling' | 'success' | 'error' | 'expired';
+  /** `network_error`: GitHub unreachable for several polls (see auth-manager). */
+  status: 'awaiting_code' | 'polling' | 'success' | 'error' | 'expired' | 'network_error';
   userCode?: string;
   verificationUri?: string;
   error?: string;
@@ -236,11 +237,56 @@ export interface GitLogEntry {
   date: string;
 }
 
+/**
+ * The single git snapshot owned by the main process (WP-07 §2).
+ * Mirrors `GitStateSnapshot` in `electron-app/src/main/git-state.ts`.
+ */
+export interface GitStateSnapshot {
+  projectId: string;
+  branch: string;
+  ahead: number;
+  behind: number;
+  mainAhead: number;
+  mainBehind: number;
+  isClean: boolean;
+  remoteUrl: string | null;
+  hasMergeConflict: boolean;
+  uncommittedChanges: number;
+  modifiedFiles: string[];
+  stagedFiles: string[];
+  untrackedFiles: string[];
+  stagedRecordChanges: { recordId: string; changeType: string }[];
+  lastCommit: {
+    hash: string;
+    shortHash: string;
+    message: string;
+    author: string;
+    timestamp: string;
+  } | null;
+  refreshedAt: number;
+}
+
+export interface GitStateRefreshResult {
+  success: boolean;
+  error?: string;
+  /** On failure this is the last good snapshot, if there is one. */
+  state: GitStateSnapshot | null;
+}
+
+export interface GitStateAPI {
+  refresh: (projectId: string, projectPath: string) => Promise<GitStateRefreshResult>;
+  get: (projectId: string) => Promise<GitStateSnapshot | null>;
+  onChanged: (callback: (snapshot: GitStateSnapshot) => void) => () => void;
+}
+
 export interface GitOperationResult {
   success: boolean;
   error?: string;
-  recovered?: boolean;
-  recoveryMessage?: string;
+}
+
+export interface GitCheckoutResult extends GitOperationResult {
+  /** Populated when `error === 'DIRTY_WORKTREE'`. */
+  dirty?: { uncommittedCount: number; untrackedCount: number };
 }
 
 export interface GitBranchListResult extends GitOperationResult {
@@ -300,7 +346,8 @@ export interface GitAPI {
   createBranch: (projectPath: string, name: string, baseBranch?: string) => Promise<GitOperationResult>;
   createLocalBranch: (projectPath: string, name: string, baseRef: string) => Promise<GitOperationResult>;
   deleteLocalBranch: (projectPath: string, name: string) => Promise<GitOperationResult>;
-  checkout: (projectPath: string, branchName: string) => Promise<GitOperationResult>;
+  deleteRemoteBranch: (projectPath: string, name: string) => Promise<GitOperationResult>;
+  checkout: (projectPath: string, branchName: string) => Promise<GitCheckoutResult>;
   merge: (projectPath: string, source: string, ffOnly?: boolean) => Promise<GitOperationResult>;
   log: (projectPath: string, count?: number) => Promise<GitLogResult>;
   dirtyState: (projectPath: string) => Promise<GitDirtyState>;
@@ -326,6 +373,7 @@ declare global {
     pdfFiles: PdfFilesAPI;
     appInfo: AppInfoAPI;
     auth: AuthAPI;
+    gitState: GitStateAPI;
     github: GitHubAPI;
     git: GitAPI;
   }

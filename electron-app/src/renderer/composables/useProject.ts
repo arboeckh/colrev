@@ -2,6 +2,7 @@ import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
+import { useGitStore } from '@/stores/git';
 import type { WorkflowStep } from '@/types/project';
 
 /**
@@ -25,8 +26,8 @@ export function useProject() {
   // Project status
   const status = computed(() => projects.currentStatus);
 
-  // Git status
-  const gitStatus = computed(() => projects.currentGitStatus);
+  // Git status — the one snapshot, owned by the git store (WP-07 §2).
+  const gitStatus = computed(() => useGitStore().snapshot);
 
   // Settings
   const settings = computed(() => projects.currentSettings);

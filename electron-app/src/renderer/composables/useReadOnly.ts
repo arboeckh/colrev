@@ -1,5 +1,6 @@
 import { computed } from 'vue';
 import { useGitStore } from '@/stores/git';
+import { ensureWorkingBranch } from '@/composables/useManagedTaskAccess';
 
 /**
  * Composable providing read-only state when on the main branch.
@@ -14,11 +15,7 @@ export function useReadOnly() {
   );
 
   async function switchToDev() {
-    if (git.hasDevBranch) {
-      await git.switchBranch('dev');
-    } else {
-      await git.ensureDevBranch();
-    }
+    await ensureWorkingBranch();
   }
 
   return { isReadOnly, readOnlyReason, switchToDev };

@@ -206,7 +206,7 @@ async function createProject() {
         notifications.success('Review created', `Created ${title}`);
       }
 
-      await projects.loadProjectGitStatus(result.project_id);
+      await window.gitState.refresh(result.project_id, result.path);
 
       // Create dev branch and switch to it so user starts working there
       try {

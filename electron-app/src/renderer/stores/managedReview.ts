@@ -7,7 +7,7 @@ import type { ManagedReviewTask } from '@/types/generated/rpc';
 import type { WorkflowStep } from '@/types/project';
 import { computeManagedStepStatus, type StepStatus } from '@/lib/stepStatus';
 
-const TASK_STATES_ACTIVE = new Set(['active', 'reconciling']);
+const TASK_STATES_ACTIVE = new Set(['active']);
 
 export const useManagedReviewStore = defineStore('managedReview', () => {
   const backend = useBackendStore();

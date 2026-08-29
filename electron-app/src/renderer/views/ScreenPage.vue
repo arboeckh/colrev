@@ -19,14 +19,12 @@ import { useManagedReviewStore } from '@/stores/managedReview';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
 import { useProjectDataStore } from '@/stores/projectData';
+import { useManagedTaskAccess } from '@/composables/useManagedTaskAccess';
 import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 import { useReadOnly } from '@/composables/useReadOnly';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
 import { canIncludeDecision, canExcludeDecision } from '@/lib/screen-decision';
 import type {
-  GetCurrentManagedReviewTaskResponse,
-  ListManagedReviewTasksResponse,
-  ManagedReviewTask,
   ScreenQueueRecord,
   ScreenCriterionInfo,
 } from '@/types/generated/rpc';
@@ -72,10 +70,18 @@ const currentIndex = ref(0);
 const isDeciding = ref(false);
 const mode = ref<ScreenMode>('screening');
 const allDecisionsMade = ref(false);
-const managedTask = ref<GetCurrentManagedReviewTaskResponse['task']>(null);
-const accessState = ref<'loading' | 'switching' | 'ready' | 'blocked'>('loading');
-const activeManagedTask = ref<ManagedReviewTask | null>(null);
-const assignedReviewerBranch = ref<string | null>(null);
+// One implementation of the reviewer-branch invariant, shared with ScreenPage
+// and the router guard (WP-07 §6).
+const {
+  managedTask,
+  activeManagedTask,
+  assignedReviewerBranch,
+  assignedReviewer,
+  accessState,
+  isManagedAccessBlocked,
+  loadManagedTask,
+  ensureAccess: ensureManagedTaskAccess,
+} = useManagedTaskAccess('screen');
 
 const statusCounts = computed(() => projects.currentStatus?.currently ?? null);
 const completeIncludedCount = computed(() => statusCounts.value?.rev_included ?? 0);
@@ -113,14 +119,6 @@ const isScreenComplete = computed(() => {
   if (allDecisionsMade.value) return true;
   return isReviewStepComplete(projects.payloadSteps?.screen);
 });
-const assignedReviewer = computed(() => {
-  if (!activeManagedTask.value || !auth.user?.login) return null;
-  const login = auth.user.login.toLowerCase();
-  return activeManagedTask.value.reviewers.find(
-    (reviewer) => reviewer.github_login.toLowerCase() === login,
-  ) ?? null;
-});
-const isManagedAccessBlocked = computed(() => accessState.value === 'blocked');
 const managedAccessTitle = computed(() => {
   if (!activeManagedTask.value) return 'Screening is unavailable';
   if (assignedReviewer.value) return 'Switching to your screening branch failed';
@@ -136,80 +134,6 @@ const managedAccessDescription = computed(() => {
   return `Task ${activeManagedTask.value.id} is currently assigned to ${activeManagedTask.value.reviewers.map((reviewer) => reviewer.github_login).join(' and ')}. Full-text screening decisions should only be made from reviewer branches.`;
 });
 
-async function loadManagedTask() {
-  if (!projects.currentProjectId || !backend.isRunning) return;
-  try {
-    const response = await backend.call('get_current_managed_review_task', {
-      project_id: projects.currentProjectId,
-      kind: 'screen',
-    });
-    managedTask.value = response.task;
-  } catch {
-    managedTask.value = null;
-  }
-}
-
-async function ensureManagedTaskAccess(): Promise<boolean> {
-  if (!projects.currentProjectId || !backend.isRunning) return false;
-
-  accessState.value = 'loading';
-  activeManagedTask.value = null;
-  assignedReviewerBranch.value = null;
-
-  await loadManagedTask();
-  if (managedTask.value) {
-    activeManagedTask.value = managedTask.value;
-    accessState.value = 'ready';
-    return true;
-  }
-
-  let tasksResponse: ListManagedReviewTasksResponse;
-  try {
-    tasksResponse = await backend.call('list_managed_review_tasks', {
-      project_id: projects.currentProjectId,
-      kind: 'screen',
-    });
-  } catch {
-    accessState.value = 'ready';
-    return true;
-  }
-
-  const activeTask = tasksResponse.tasks.find((task) => ['active', 'reconciling'].includes(task.state)) ?? null;
-  activeManagedTask.value = activeTask;
-  if (!activeTask) {
-    accessState.value = 'ready';
-    return true;
-  }
-
-  const login = auth.user?.login?.toLowerCase();
-  const assignedReviewerEntry = login
-    ? activeTask.reviewers.find((reviewer) => reviewer.github_login.toLowerCase() === login) ?? null
-    : null;
-
-  if (!assignedReviewerEntry) {
-    accessState.value = 'blocked';
-    return false;
-  }
-
-  assignedReviewerBranch.value = assignedReviewerEntry.branch_name;
-  if (git.currentBranch !== assignedReviewerEntry.branch_name) {
-    accessState.value = 'switching';
-    // Fetch remote refs first so the reviewer branch is available locally
-    if (git.hasRemote) {
-      await git.fetch();
-    }
-    const switched = await git.switchBranch(assignedReviewerEntry.branch_name);
-    if (!switched) {
-      accessState.value = 'blocked';
-      return false;
-    }
-  }
-
-  await loadManagedTask();
-  activeManagedTask.value = managedTask.value ?? activeTask;
-  accessState.value = managedTask.value ? 'ready' : 'blocked';
-  return managedTask.value !== null;
-}
 
 async function loadQueue() {
   if (!projects.currentProjectId || !backend.isRunning) return;
@@ -376,7 +300,7 @@ onMounted(async () => {
       totalCount.value = 0;
     }
   } finally {
-    await Promise.all([git.refreshStatus(), pending.refresh()]);
+    await git.refreshStatus();
     isPageReady.value = true;
   }
   window.addEventListener('keydown', handleKeydown);

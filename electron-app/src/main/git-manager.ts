@@ -25,8 +25,87 @@ export interface GitLogEntry {
 export interface GitResult {
   success: boolean;
   error?: string;
-  recovered?: boolean;
-  recoveryMessage?: string;
+}
+
+/**
+ * Structured `error` values. Callers branch on these instead of matching
+ * stderr strings, so the renderer can offer a specific recovery instead of
+ * surfacing raw git output.
+ */
+export const DIRTY_WORKTREE = 'DIRTY_WORKTREE';
+export const DIVERGED = 'DIVERGED';
+/** Remote moved on: the push needs a pull/fetch first. */
+export const REJECTED_FETCH_FIRST = 'REJECTED_FETCH_FIRST';
+/** Credentials rejected — the stored token is expired or lacks scope. */
+export const AUTH_FAILED = 'AUTH_FAILED';
+/** The remote was unreachable (DNS, connect, or a dropped connection). */
+export const OFFLINE = 'OFFLINE';
+
+export type GitFailureCode =
+  | typeof DIRTY_WORKTREE
+  | typeof DIVERGED
+  | typeof REJECTED_FETCH_FIRST
+  | typeof AUTH_FAILED
+  | typeof OFFLINE;
+
+/**
+ * Offline shapes dugite's own `HostDown` regex misses — it only matches
+ * `Host is down` and clone's `Could not resolve host`, so every other
+ * transport failure would otherwise reach the user as raw stderr.
+ */
+const OFFLINE_STDERR_PATTERNS: RegExp[] = [
+  /Could not resolve host/i,
+  /Could not resolve proxy/i,
+  /Temporary failure in name resolution/i,
+  /unable to access '[^']*': (Failed to connect|Connection (refused|timed out|reset)|Could ?n[o']?t connect to server|Operation timed out|Network is unreachable|Empty reply from server|SSL connect error)/i,
+  /fatal: unable to look up/i,
+];
+
+/**
+ * Map a failed git invocation onto one of the structured codes above.
+ *
+ * dugite's `parseError` is the primary source — it recognises the exact
+ * wording git uses per version — with the pattern list above filling the gaps
+ * for transport failures. Returns null when the failure has no actionable
+ * classification; callers surface stderr in that case.
+ */
+export async function classifyGitFailure(
+  stderr: string,
+): Promise<GitFailureCode | null> {
+  if (!stderr) return null;
+  const { parseError, GitError } = await import('dugite');
+
+  switch (parseError(stderr)) {
+    case GitError.PushNotFastForward:
+      return REJECTED_FETCH_FIRST;
+    case GitError.HTTPSAuthenticationFailed:
+    case GitError.SSHAuthenticationFailed:
+    case GitError.SSHPermissionDenied:
+      return AUTH_FAILED;
+    case GitError.HostDown:
+    case GitError.RemoteDisconnection:
+      return OFFLINE;
+    default:
+      break;
+  }
+
+  if (OFFLINE_STDERR_PATTERNS.some((p) => p.test(stderr))) return OFFLINE;
+  return null;
+}
+
+/**
+ * Build the failure result for a command that talked to the remote: a
+ * structured code when the failure is one the UI can act on, raw stderr
+ * otherwise.
+ */
+async function remoteFailure(stderr: string, fallback: string): Promise<GitResult> {
+  const code = await classifyGitFailure(stderr);
+  return { success: false, error: code ?? stderr ?? fallback };
+}
+
+export interface GitCheckoutResult extends GitResult {
+  /** Populated when `error === DIRTY_WORKTREE`. */
+  dirty?: { uncommittedCount: number; untrackedCount: number };
 }
 
 export interface GitBranchListResult extends GitResult {
@@ -68,7 +147,7 @@ export async function gitFetch(
     projectPath,
   );
   if (result.exitCode !== 0) {
-    return { success: false, error: result.stderr || 'Fetch failed' };
+    return remoteFailure(result.stderr, 'Fetch failed');
   }
   return { success: true };
 }
@@ -86,15 +165,15 @@ export async function gitPull(
   if (result.exitCode !== 0) {
     const stderr = result.stderr || '';
     if (stderr.includes('Not possible to fast-forward') || stderr.includes('fatal: Not possible')) {
-      return { success: false, error: 'DIVERGED' };
+      return { success: false, error: DIVERGED };
     }
     if (
       stderr.includes('would be overwritten by merge') ||
       stderr.includes('Please commit your changes or stash them')
     ) {
-      return { success: false, error: 'DIRTY_WORKTREE' };
+      return { success: false, error: DIRTY_WORKTREE };
     }
-    return { success: false, error: stderr || 'Pull failed' };
+    return remoteFailure(stderr, 'Pull failed');
   }
   return { success: true };
 }
@@ -113,7 +192,9 @@ export async function gitPush(
     projectPath,
   );
   if (result.exitCode !== 0) {
-    return { success: false, error: result.stderr || 'Push failed' };
+    // Classified so the renderer can say "Pull first" / "Sign in again" /
+    // "You're offline" instead of pasting stderr into a toast.
+    return remoteFailure(result.stderr, 'Push failed');
   }
   return { success: true };
 }
@@ -130,7 +211,35 @@ export async function gitPushBranch(
     projectPath,
   );
   if (result.exitCode !== 0) {
-    return { success: false, error: result.stderr || `Failed to push ${branchName}` };
+    return remoteFailure(result.stderr, `Failed to push ${branchName}`);
+  }
+  return { success: true };
+}
+
+/**
+ * Delete a branch on the remote.
+ *
+ * Used to retire reviewer branches once their decisions are reconciled into
+ * dev. A branch that is already gone is success, not failure — cleanup runs
+ * after every reconciliation and must be idempotent.
+ */
+export async function gitDeleteRemoteBranch(
+  projectPath: string,
+  branchName: string,
+  token: string | null = null,
+): Promise<GitResult> {
+  const { exec } = await import('dugite');
+
+  const result = await exec(
+    [...gitAuthArgs(token), 'push', '--no-verify', 'origin', '--delete', branchName],
+    projectPath,
+  );
+  if (result.exitCode !== 0) {
+    const stderr = result.stderr || '';
+    if (/remote ref does not exist|unable to delete '[^']*': remote ref does not exist/i.test(stderr)) {
+      return { success: true };
+    }
+    return remoteFailure(stderr, `Failed to delete ${branchName} on the remote`);
   }
   return { success: true };
 }
@@ -243,79 +352,78 @@ export async function gitDeleteLocalBranch(
   const { exec } = await import('dugite');
   const result = await exec(['branch', '-D', name], projectPath);
   if (result.exitCode !== 0) {
-    return { success: false, error: result.stderr || `Failed to delete branch ${name}` };
+    const stderr = result.stderr || '';
+    // Idempotent: retiring reviewer branches runs after every reconciliation,
+    // and a branch that was never fetched locally is already in the state we
+    // want.
+    if (/not found|branch .* not found/i.test(stderr)) {
+      return { success: true };
+    }
+    return { success: false, error: stderr || `Failed to delete branch ${name}` };
   }
   return { success: true };
 }
 
+/**
+ * Check out ``branchName``.
+ *
+ * Refuses outright when the working tree is dirty: returns
+ * ``{ success: false, error: 'DIRTY_WORKTREE', dirty: {...} }`` so the
+ * renderer can offer an explicit save-or-discard choice.
+ *
+ * There is deliberately no stash fallback. The managed-review decision flow
+ * keeps `records.bib` dirty between decisions by design, and an auto-stash
+ * that is never popped silently strands those decisions. Letting git carry
+ * the changes across instead is no better — reviewer decisions would land on
+ * whichever branch the user switched to. Both outcomes are data loss from the
+ * user's point of view, so the switch is the user's call to make.
+ *
+ * A checkout of the branch already in HEAD is a no-op and stays allowed even
+ * when dirty — nothing moves, so nothing can be lost.
+ */
 export async function gitCheckout(
   projectPath: string,
   branchName: string,
-): Promise<GitResult> {
+): Promise<GitCheckoutResult> {
   const { exec } = await import('dugite');
 
-  const tryCheckout = async (args: string[]) => exec(args, projectPath);
+  const head = await exec(['rev-parse', '--abbrev-ref', 'HEAD'], projectPath);
+  if (head.exitCode === 0 && head.stdout.trim() === branchName) {
+    return { success: true };
+  }
 
-  const isDirtyTreeError = (stderr: string) =>
-    stderr.includes('would be overwritten by checkout') ||
-    stderr.includes('would be overwritten by merge') ||
-    stderr.includes('Please commit your changes or stash them');
-
-  // Stash the dirty/untracked tree, retry the checkout, and report whether
-  // the recovery succeeded. The stash is intentionally left in place so the
-  // user can recover anything they care about with `git stash list/pop` —
-  // auto-popping would just re-trigger the same conflict on the new branch.
-  const recoverViaStash = async (
-    checkoutArgs: string[],
-    originalError: string,
-  ): Promise<GitResult> => {
-    const stashMessage = `colrev: auto-stash before switching to ${branchName} (${new Date().toISOString()})`;
-    const stashResult = await exec(
-      ['stash', 'push', '--include-untracked', '-m', stashMessage],
-      projectPath,
-    );
-    if (stashResult.exitCode !== 0) {
-      // Stash itself failed — surface the original checkout error, not the stash error.
-      return { success: false, error: originalError };
-    }
-
-    const retry = await tryCheckout(checkoutArgs);
-    if (retry.exitCode !== 0) {
-      return { success: false, error: retry.stderr || originalError };
-    }
-
+  const dirty = await gitGetDirtyState(projectPath);
+  if (dirty.success && dirty.isDirty) {
     return {
-      success: true,
-      recovered: true,
-      recoveryMessage:
-        'Local changes were saved to a stash so the branch switch could complete.',
+      success: false,
+      error: DIRTY_WORKTREE,
+      dirty: {
+        uncommittedCount: dirty.uncommittedCount,
+        untrackedCount: dirty.untrackedCount,
+      },
     };
-  };
+  }
 
   // Check for local branch first, then try remote tracking
   const localCheck = await exec(['rev-parse', '--verify', branchName], projectPath);
   if (localCheck.exitCode !== 0) {
     // Try to create local tracking branch from remote
-    const trackArgs = ['checkout', '-b', branchName, `origin/${branchName}`];
-    const trackResult = await tryCheckout(trackArgs);
+    const trackResult = await exec(
+      ['checkout', '-b', branchName, `origin/${branchName}`],
+      projectPath,
+    );
     if (trackResult.exitCode !== 0) {
-      const trackErr = trackResult.stderr || `Branch ${branchName} not found`;
-      if (isDirtyTreeError(trackResult.stderr)) {
-        return recoverViaStash(trackArgs, trackErr);
-      }
-      return { success: false, error: trackErr };
+      return {
+        success: false,
+        error: trackResult.stderr || `Branch ${branchName} not found`,
+      };
     }
     return { success: true };
   }
 
-  const checkoutArgs = ['checkout', branchName];
-  const result = await tryCheckout(checkoutArgs);
+  const result = await exec(['checkout', branchName], projectPath);
   if (result.exitCode !== 0) {
-    const err = result.stderr || `Failed to checkout ${branchName}`;
-    if (isDirtyTreeError(result.stderr)) {
-      return recoverViaStash(checkoutArgs, err);
-    }
-    return { success: false, error: err };
+    return { success: false, error: result.stderr || `Failed to checkout ${branchName}` };
   }
   return { success: true };
 }
@@ -445,7 +553,7 @@ export async function gitPushTags(
     projectPath,
   );
   if (result.exitCode !== 0) {
-    return { success: false, error: result.stderr || 'Failed to push tags' };
+    return remoteFailure(result.stderr, 'Failed to push tags');
   }
   return { success: true };
 }
@@ -522,7 +630,7 @@ export async function gitFastForwardMain(
     projectPath,
   );
   if (fetchRes.exitCode !== 0) {
-    return { success: false, error: fetchRes.stderr || 'Fetch failed' };
+    return remoteFailure(fetchRes.stderr, 'Fetch failed');
   }
 
   const ancestorRes = await exec(
@@ -531,7 +639,7 @@ export async function gitFastForwardMain(
   );
   if (ancestorRes.exitCode !== 0) {
     // Exit code 1 means "not an ancestor" → local main has diverged.
-    return { success: false, error: 'DIVERGED' };
+    return { success: false, error: DIVERGED };
   }
 
   // Check current branch — if on main, use a plain pull-equivalent so
@@ -583,7 +691,7 @@ export async function gitClone(
     parentDir,
   );
   if (result.exitCode !== 0) {
-    return { success: false, error: result.stderr || 'Clone failed' };
+    return remoteFailure(result.stderr, 'Clone failed');
   }
 
   return { success: true };

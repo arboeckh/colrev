@@ -67,9 +67,9 @@ const launchButtonLabel = computed(() => {
   if (pct !== null && pct < 100) return `Fetching abstracts… ${pct}%`;
   return 'Launching…';
 });
-const activeTask = computed(() => tasks.value.find((task) => ['active', 'reconciling'].includes(task.state)) ?? null);
+const activeTask = computed(() => tasks.value.find((task) => task.state === 'active') ?? null);
 const displayTask = computed(() => activeTask.value ?? tasks.value[0] ?? null);
-const remoteUrl = computed(() => projects.currentGitStatus?.remote_url ?? null);
+const remoteUrl = computed(() => git.remoteUrl);
 
 // Screen-only: criteria are required to launch and editable only on dev
 const showCriteria = computed(() => props.kind === 'screen');

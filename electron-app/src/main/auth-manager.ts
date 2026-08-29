@@ -53,11 +53,20 @@ export interface AccountInfo {
 }
 
 export interface DeviceFlowStatus {
-  status: 'awaiting_code' | 'polling' | 'success' | 'error' | 'expired';
+  /**
+   * `network_error` is distinct from `expired`: GitHub was unreachable for
+   * several polls in a row. Polling continues (it recovers to `polling` on the
+   * next successful request), but the user is told the connection is the
+   * problem instead of watching the code silently time out.
+   */
+  status: 'awaiting_code' | 'polling' | 'success' | 'error' | 'expired' | 'network_error';
   userCode?: string;
   verificationUri?: string;
   error?: string;
 }
+
+/** Consecutive failed polls before the UI is told the network is the problem. */
+const DEVICE_FLOW_NETWORK_FAILURE_THRESHOLD = 3;
 
 /** Thrown when a request to GitHub fails because the network is unreachable
  * or the server returned an unexpected non-auth status. Callers should treat
@@ -313,7 +322,10 @@ export class AuthManager {
         verificationUri: verification_uri,
       });
 
-      await this.pollForToken(device_code, interval || 5, expires_in || 900);
+      await this.pollForToken(device_code, interval || 5, expires_in || 900, {
+        userCode: user_code,
+        verificationUri: verification_uri,
+      });
     } catch (err) {
       this.emitDeviceFlowStatus({
         status: 'error',
@@ -322,11 +334,21 @@ export class AuthManager {
     }
   }
 
-  private async pollForToken(deviceCode: string, interval: number, expiresIn: number): Promise<void> {
+  private async pollForToken(
+    deviceCode: string,
+    interval: number,
+    expiresIn: number,
+    display: { userCode?: string; verificationUri?: string } = {},
+  ): Promise<void> {
     this.pollingAbort = new AbortController();
     const { signal } = this.pollingAbort;
     const deadline = Date.now() + expiresIn * 1000;
     let pollInterval = interval;
+    // Swallowing network errors until the code expires reports "expired" for
+    // what is really "you're offline". Count them instead and say so.
+    let consecutiveNetworkFailures = 0;
+    let lastNetworkError: string | null = null;
+    let networkErrorReported = false;
 
     while (Date.now() < deadline) {
       if (signal.aborted) return;
@@ -349,6 +371,14 @@ export class AuthManager {
         });
 
         const data = await res.json();
+
+        if (networkErrorReported) {
+          // Reachable again — put the code back on screen.
+          this.emitDeviceFlowStatus({ status: 'polling', ...display });
+          networkErrorReported = false;
+        }
+        consecutiveNetworkFailures = 0;
+        lastNetworkError = null;
 
         if (data.access_token) {
           let user: GitHubUser;
@@ -403,11 +433,34 @@ export class AuthManager {
           this.emitDeviceFlowStatus({ status: 'error', error: data.error_description || data.error });
           return;
         }
-      } catch {
-        // Network error — continue polling
+      } catch (err) {
+        // Transient by assumption: keep polling, but stop pretending nothing
+        // is wrong once the failures pile up.
+        consecutiveNetworkFailures += 1;
+        lastNetworkError = err instanceof Error ? err.message : 'Could not reach GitHub';
+        if (
+          !networkErrorReported &&
+          consecutiveNetworkFailures >= DEVICE_FLOW_NETWORK_FAILURE_THRESHOLD
+        ) {
+          networkErrorReported = true;
+          this.emitDeviceFlowStatus({
+            status: 'network_error',
+            ...display,
+            error: lastNetworkError,
+          });
+        }
       }
     }
 
+    if (consecutiveNetworkFailures >= DEVICE_FLOW_NETWORK_FAILURE_THRESHOLD) {
+      // The window closed while offline — "expired" would send the user off to
+      // request another code that will fail the same way.
+      this.emitDeviceFlowStatus({
+        status: 'network_error',
+        error: lastNetworkError ?? 'Could not reach GitHub',
+      });
+      return;
+    }
     this.emitDeviceFlowStatus({ status: 'expired' });
   }
 

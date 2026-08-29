@@ -41,6 +41,7 @@ import OverviewPageHelp from './OverviewPageHelp.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useAuthStore } from '@/stores/auth';
 import { useGitStore } from '@/stores/git';
+import { ensureWorkingBranch } from '@/composables/useManagedTaskAccess';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useConnectionStore } from '@/stores/connection';
 import { WORKFLOW_STEPS } from '@/types/project';
@@ -77,7 +78,7 @@ async function publishVersion() {
     await git.mergeDevIntoMain();
     // After merge, switch back to dev automatically
     if (git.isOnMain) {
-      await git.switchBranch('dev');
+      await ensureWorkingBranch();
     }
   } finally {
     isPublishing.value = false;
@@ -124,7 +125,7 @@ const isPushPrivate = ref(true);
 const isPushing = ref(false);
 
 // Remote status helpers
-const remoteUrl = computed(() => projects.currentGitStatus?.remote_url ?? null);
+const remoteUrl = computed(() => git.remoteUrl);
 const isGitHubRemote = computed(() => !!remoteUrl.value);
 const gitHubUrl = computed(() => {
   if (!remoteUrl.value || !isGitHubRemote.value) return null;
@@ -151,7 +152,7 @@ async function pushToGitHub() {
     if (result.success) {
       notifications.success('Pushed to GitHub', `Repository created at ${result.htmlUrl}`);
       showPushDialog.value = false;
-      await projects.refreshGitStatus();
+      await git.refreshStatus();
     } else {
       notifications.error('Push failed', result.error || 'Unknown error');
     }
