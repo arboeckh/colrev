@@ -5,7 +5,6 @@ import { useDebugStore } from './debug';
 import type {
   Project,
   ProjectStatus,
-  GitStatus,
   ProjectSettings,
   WorkflowStep,
   RecordCounts,
@@ -21,19 +20,11 @@ import { useGitStore } from './git';
 import { useManagedReviewStore } from './managedReview';
 import { useProjectDataStore } from './projectData';
 
-function sanitizeGitStatus(git: GitStatus): GitStatus {
-  if (git.remote_url) {
-    return { ...git, remote_url: stripUrlUserinfo(git.remote_url) };
-  }
-  return git;
-}
-
 export interface ProjectListItem {
   id: string;
   title: string;
   path: string;
   status: ProjectStatus | null;
-  gitStatus: GitStatus | null;
   loading: boolean;
   error: string | null;
 }
@@ -74,7 +65,6 @@ export const useProjectsStore = defineStore('projects', () => {
   // Computed
   const hasProjects = computed(() => projects.value.length > 0);
 
-  const currentGitStatus = computed(() => currentProject.value?.gitStatus ?? null);
 
   const currentSettings = computed(() => currentProject.value?.settings ?? null);
 
@@ -93,7 +83,6 @@ export const useProjectsStore = defineStore('projects', () => {
         title: title || id,
         path: path || `${backend.basePath}/${id}`,
         status: null,
-        gitStatus: null,
         loading: false,
         error: null,
       };
@@ -148,26 +137,6 @@ export const useProjectsStore = defineStore('projects', () => {
     }
   }
 
-  async function loadProjectGitStatus(id: string): Promise<GitStatus | null> {
-    try {
-      const response = await backend.call('get_git_status', {
-        project_id: id,
-      });
-
-      if (response.success && response.git) {
-        const git = sanitizeGitStatus(response.git as unknown as GitStatus);
-        const project = projects.value.find((p) => p.id === id);
-        if (project) {
-          project.gitStatus = git;
-        }
-        return git;
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
   async function loadProjectSettings(id: string): Promise<ProjectSettings | null> {
     try {
       const response = await backend.call('get_settings', {
@@ -210,13 +179,14 @@ export const useProjectsStore = defineStore('projects', () => {
       debug.logInfo('Starting parallel load of status, git status, settings...');
 
       // Load all project data in parallel
-      const [status, gitStatus, settings] = await Promise.all([
+      // Git facts are not loaded here: the git store owns the one snapshot
+      // (WP-07 §2) and refreshes it through `git-state:refresh`.
+      const [status, settings] = await Promise.all([
         loadProjectStatus(id),
-        loadProjectGitStatus(id),
         loadProjectSettings(id),
       ]);
 
-      debug.logInfo(`Parallel load complete. Status: ${!!status}, Git: ${!!gitStatus}, Settings: ${!!settings}`);
+      debug.logInfo(`Parallel load complete. Status: ${!!status}, Settings: ${!!settings}`);
 
       if (!guard.isCurrent()) {
         // Another loadProject (project or branch switch) superseded this one
@@ -237,7 +207,6 @@ export const useProjectsStore = defineStore('projects', () => {
         id,
         path: projectItem?.path || `${backend.basePath}/${id}`,
         status,
-        gitStatus,
         settings,
       };
 
@@ -376,9 +345,8 @@ export const useProjectsStore = defineStore('projects', () => {
     const guard = useProjectDataStore().snapshot();
 
     // Load all project data in parallel
-    const [status, gitStatus, settings] = await Promise.all([
+    const [status, settings] = await Promise.all([
       loadProjectStatus(id),
-      loadProjectGitStatus(id),
       loadProjectSettings(id),
     ]);
 
@@ -389,7 +357,6 @@ export const useProjectsStore = defineStore('projects', () => {
       currentProject.value = {
         ...currentProject.value,
         status,
-        gitStatus: gitStatus ?? currentProject.value.gitStatus,
         settings: settings ?? currentProject.value.settings,
       };
     } else {
@@ -423,15 +390,6 @@ export const useProjectsStore = defineStore('projects', () => {
       }
     } catch {
       // Non-critical
-    }
-  }
-
-  async function refreshGitStatus(): Promise<void> {
-    if (currentProjectId.value) {
-      const gitStatus = await loadProjectGitStatus(currentProjectId.value);
-      if (currentProject.value && gitStatus) {
-        currentProject.value.gitStatus = gitStatus;
-      }
     }
   }
 
@@ -562,7 +520,6 @@ export const useProjectsStore = defineStore('projects', () => {
     projectError,
     // Computed
     hasProjects,
-    currentGitStatus,
     currentSettings,
     currentStatus,
     nextOperation,
@@ -570,12 +527,10 @@ export const useProjectsStore = defineStore('projects', () => {
     addProject,
     removeProject,
     loadProjectStatus,
-    loadProjectGitStatus,
     loadProjectSettings,
     loadProject,
     loadAllOperationInfo,
     refreshCurrentProject,
-    refreshGitStatus,
     clearCurrentProject,
     setHasStaleSearchSources,
     // Branch-switch stability

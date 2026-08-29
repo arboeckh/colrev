@@ -124,12 +124,16 @@ export const useProjectDataStore = defineStore('projectData', () => {
     const tasks: Promise<unknown>[] = [
       // Covers status, settings, operation info, managed review, branch delta.
       projects.refreshCurrentProject(),
-      git.refreshStatus(),
-      pending.refresh(),
+      // One snapshot refresh covers branch, ahead/behind, cleanliness, pending
+      // changes and the merge-conflict flag — `pending` reads the same one.
+      // It reports failure rather than throwing, so surface it as a rejection
+      // for the staleness check below.
+      git.refreshStatus().then((ok) => {
+        if (!ok) throw new Error(git.lastRefreshError ?? 'Git refresh failed');
+      }),
     ];
     if (full) {
       tasks.push(git.refreshBranches());
-      tasks.push(git.refreshMergeConflictState());
       const reviewDef = useReviewDefinitionStore();
       if (reviewDef.definition) {
         tasks.push(reviewDef.loadDefinition());
@@ -175,18 +179,15 @@ export const useProjectDataStore = defineStore('projectData', () => {
   }
 
   /**
-   * Cheap, latency-critical refresh fired immediately after every write:
-   * pending changes + git cleanliness gate commit buttons and launch
-   * readiness, and must never lag behind a mutation (a debounce here would
-   * open a window where the tree is dirty but the UI still claims clean).
+   * Cheap, latency-critical refresh fired immediately after every write: the
+   * git snapshot gates commit buttons and launch readiness, and must never lag
+   * behind a mutation (a debounce here would open a window where the tree is
+   * dirty but the UI still claims clean).
    */
   async function lightRefresh(): Promise<void> {
     if (!useProjectsStore().currentProjectId) return;
     try {
-      await Promise.all([
-        usePendingChangesStore().refresh(),
-        useGitStore().refreshStatus(),
-      ]);
+      await useGitStore().refreshStatus();
     } catch {
       // The debounced full refresh surfaces staleness if this keeps failing.
     }

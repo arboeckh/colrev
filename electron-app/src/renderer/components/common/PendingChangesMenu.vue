@@ -30,12 +30,12 @@ const recordSummary = computed(() => {
 });
 
 const fileCounts = computed(() => {
-  const status = pending.gitStatus;
+  const status = git.snapshot;
   if (!status) return null;
   return {
-    modified: status.modified_files.length,
-    staged: status.staged_files.length,
-    untracked: status.untracked_files.length,
+    modified: status.modifiedFiles.length,
+    staged: status.stagedFiles.length,
+    untracked: status.untrackedFiles.length,
   };
 });
 
@@ -106,8 +106,8 @@ function openRecover() {
             </div>
           </div>
 
-          <div v-if="pending.lastRefreshError" class="text-xs text-destructive">
-            {{ pending.lastRefreshError }}
+          <div v-if="git.lastRefreshError" class="text-xs text-destructive">
+            {{ git.lastRefreshError }}
           </div>
 
           <div class="flex gap-2">
@@ -138,7 +138,7 @@ function openRecover() {
             size="sm"
             variant="ghost"
             class="w-full gap-2"
-            @click="pending.refresh"
+            @click="git.refreshStatus"
           >
             <RefreshCw class="h-3.5 w-3.5" />
             Refresh

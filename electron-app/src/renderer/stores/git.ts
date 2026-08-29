@@ -3,7 +3,14 @@ import { ref, computed, toRaw } from 'vue';
 import { useProjectsStore } from './projects';
 import { useNotificationsStore } from './notifications';
 import { useConnectionStore } from './connection';
-import type { GitBranchInfo, GitLogEntry, GitHubRelease, MergeAnalysis, MergeConflictResolution } from '@/types/window';
+import type {
+  GitBranchInfo,
+  GitLogEntry,
+  GitHubRelease,
+  GitStateSnapshot,
+  MergeAnalysis,
+  MergeConflictResolution,
+} from '@/types/window';
 import type { BranchDelta } from '@/types/project';
 import { useBackendStore } from './backend';
 import { useProjectDataStore } from './projectData';
@@ -18,24 +25,41 @@ export const useGitStore = defineStore('git', () => {
   const notifications = useNotificationsStore();
   const connection = useConnectionStore();
 
-  // State
-  const currentBranch = ref('main');
-  const branches = ref<GitBranchInfo[]>([]);
-  const ahead = ref(0);
-  const behind = ref(0);
+  // The one git snapshot, owned by the main process (WP-07 §2). Nothing in
+  // this store writes git facts: every field below is derived from `snapshot`,
+  // which is only ever replaced by `applySnapshot`.
+  // Keyed by project id: the landing page lists branch/cleanliness for projects
+  // that have been opened, and the current project's entry is `snapshot`.
+  const snapshots = ref<Record<string, GitStateSnapshot>>({});
+  const lastRefreshError = ref<string | null>(null);
+
+  const snapshot = computed<GitStateSnapshot | null>(() =>
+    projects.currentProjectId ? snapshots.value[projects.currentProjectId] ?? null : null,
+  );
+
+  function snapshotFor(projectId: string): GitStateSnapshot | null {
+    return snapshots.value[projectId] ?? null;
+  }
+
+  const currentBranch = computed(() => snapshot.value?.branch ?? 'main');
+  const ahead = computed(() => snapshot.value?.ahead ?? 0);
+  const behind = computed(() => snapshot.value?.behind ?? 0);
   // main-vs-origin/main counts — independent of current branch so the
   // "collaborator pushed" banner can appear while on dev.
-  const mainAhead = ref(0);
-  const mainBehind = ref(0);
-  const isClean = ref(true);
-  const remoteUrl = ref<string | null>(null);
+  const mainAhead = computed(() => snapshot.value?.mainAhead ?? 0);
+  const mainBehind = computed(() => snapshot.value?.mainBehind ?? 0);
+  const isClean = computed(() => snapshot.value?.isClean ?? true);
+  const remoteUrl = computed(() => snapshot.value?.remoteUrl ?? null);
+  const hasMergeConflict = computed(() => snapshot.value?.hasMergeConflict ?? false);
+  const lastCommit = computed(() => snapshot.value?.lastCommit ?? null);
+
+  const branches = ref<GitBranchInfo[]>([]);
   const isFetching = ref(false);
   const isPulling = ref(false);
   const isPushing = ref(false);
   const isSwitchingBranch = ref(false);
   const lastFetchTime = ref<number | null>(null);
   const recentCommits = ref<GitLogEntry[]>([]);
-  const hasMergeConflict = ref(false);
   const isOffline = computed(() => !connection.isOnline);
 
   // Conflict resolution state
@@ -297,34 +321,47 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  async function refreshStatus(): Promise<void> {
-    const path = getProjectPath();
-    if (!path) return;
-
-    // Pure read — mutex-bypassing on the main side. No auto-commit, no
-    // hasMergeConflict roundtrip. Callers that mutate repo state call
-    // refreshMergeConflictState() explicitly.
-    await projects.refreshGitStatus();
-
-    const status = projects.currentGitStatus;
-    if (status) {
-      currentBranch.value = status.branch;
-      ahead.value = status.ahead;
-      behind.value = status.behind;
-      mainAhead.value = status.main_ahead ?? 0;
-      mainBehind.value = status.main_behind ?? 0;
-      isClean.value = status.is_clean;
-      remoteUrl.value = status.remote_url;
-    }
+  /**
+   * Adopt a snapshot from the main process — the only writer of git facts in
+   * the renderer. Stored per project, so a late arrival for a project we just
+   * left updates that project's entry instead of painting over the current one.
+   */
+  function applySnapshot(next: GitStateSnapshot | null): void {
+    if (!next) return;
+    snapshots.value = { ...snapshots.value, [next.projectId]: next };
   }
 
-  async function refreshMergeConflictState(): Promise<void> {
+  // Every main-process git operation rebuilds the snapshot while it still
+  // holds the mutex and pushes it here, so the store cannot lag a repo write.
+  // Absent in store unit tests, which drive `applySnapshot` directly.
+  if (typeof window !== 'undefined' && window.gitState) {
+    window.gitState.onChanged(applySnapshot);
+  }
+
+  /**
+   * Ask the main process to rebuild the snapshot. This is the only path in the
+   * app that reads `get_git_status`.
+   *
+   * Never throws — a failed refresh leaves the previous snapshot in place and
+   * records `lastRefreshError`, so a transient backend hiccup can't blank the
+   * header or reject the caller's own operation. The invalidation seam reads
+   * the return value to decide whether to flag the UI as stale.
+   */
+  async function refreshStatus(): Promise<boolean> {
     const path = getProjectPath();
-    if (!path) return;
+    const projectId = projects.currentProjectId;
+    if (!path || !projectId) return false;
+
     try {
-      hasMergeConflict.value = await window.git.hasMergeConflict(path);
-    } catch {
-      hasMergeConflict.value = false;
+      const result = await window.gitState.refresh(projectId, path);
+      applySnapshot(result.state);
+      lastRefreshError.value = result.success
+        ? null
+        : result.error ?? 'Failed to read git state';
+      return result.success;
+    } catch (err) {
+      lastRefreshError.value = err instanceof Error ? err.message : 'Failed to read git state';
+      return false;
     }
   }
 
@@ -334,8 +371,9 @@ export const useGitStore = defineStore('git', () => {
 
     const result = await window.git.listBranches(path);
     if (result.success) {
+      // `result.currentBranch` is deliberately ignored: the branch comes from
+      // the snapshot, which has exactly one writer.
       branches.value = result.branches;
-      currentBranch.value = result.currentBranch;
     }
   }
 
@@ -377,7 +415,8 @@ export const useGitStore = defineStore('git', () => {
         return false;
       }
 
-      currentBranch.value = branchName;
+      // No optimistic branch write: `git:checkout` rebuilt the snapshot under
+      // the mutex before returning, so the store already reflects the switch.
 
       // Reload all project data since branch content differs
       if (projects.currentProjectId) {
@@ -422,8 +461,6 @@ export const useGitStore = defineStore('git', () => {
       notifications.error('Failed to create dev branch', result.error || 'Unknown error');
       return false;
     }
-
-    currentBranch.value = 'dev';
 
     // Push new branch to remote if available
     if (hasRemote.value) {
@@ -473,8 +510,6 @@ export const useGitStore = defineStore('git', () => {
     if (hasRemote.value) {
       await window.git.push(path);
     }
-
-    currentBranch.value = 'main';
 
     // Reload project data + branches
     if (projects.currentProjectId) {
@@ -562,7 +597,7 @@ export const useGitStore = defineStore('git', () => {
    * Load GitHub releases for the current project.
    */
   async function loadReleases(): Promise<void> {
-    const remote = remoteUrl.value || projects.currentGitStatus?.remote_url || null;
+    const remote = remoteUrl.value;
     if (!remote || !remote.includes('github.com')) {
       releases.value = [];
       return;
@@ -591,7 +626,7 @@ export const useGitStore = defineStore('git', () => {
       notifications.error('Release failed', 'No project selected');
       return false;
     }
-    const remote = remoteUrl.value || projects.currentGitStatus?.remote_url || null;
+    const remote = remoteUrl.value;
     if (!remote) {
       notifications.error('Release failed', 'No remote repository configured. Push to GitHub first.');
       return false;
@@ -741,9 +776,7 @@ export const useGitStore = defineStore('git', () => {
 
     const result = await window.git.abortMerge(path);
     if (result.success) {
-      hasMergeConflict.value = false;
-      await refreshStatus();
-      await refreshMergeConflictState();
+      // `git:abort-merge` refreshed the snapshot; hasMergeConflict follows it.
       notifications.success('Merge aborted');
       return true;
     }
@@ -760,7 +793,6 @@ export const useGitStore = defineStore('git', () => {
    */
   async function initialize(): Promise<void> {
     await refreshStatus();
-    await refreshMergeConflictState();
     await refreshBranches();
     await refreshBranchDiff();
     refreshBranchDelta(); // Fire and forget
@@ -783,16 +815,13 @@ export const useGitStore = defineStore('git', () => {
   });
 
   function cleanup(): void {
+    // `snapshots` deliberately survives: the landing page shows branch and
+    // cleanliness for projects that have been opened this session.
+    lastRefreshError.value = null;
     branches.value = [];
     recentCommits.value = [];
     releases.value = [];
     releasesLoaded.value = false;
-    ahead.value = 0;
-    behind.value = 0;
-    mainAhead.value = 0;
-    mainBehind.value = 0;
-    isClean.value = true;
-    hasMergeConflict.value = false;
     isResolving.value = false;
     mergeAnalysis.value = null;
     showConflictDialog.value = false;
@@ -811,6 +840,11 @@ export const useGitStore = defineStore('git', () => {
 
   return {
     // State
+    snapshots,
+    snapshot,
+    snapshotFor,
+    lastRefreshError,
+    lastCommit,
     currentBranch,
     branches,
     ahead,
@@ -857,13 +891,13 @@ export const useGitStore = defineStore('git', () => {
     isOnDev,
     latestRelease,
     // Actions
+    applySnapshot,
     nextReleaseVersion,
     fetch,
     pull,
     fastForwardMain,
     push,
     refreshStatus,
-    refreshMergeConflictState,
     refreshBranches,
     switchBranch,
     ensureDevBranch,

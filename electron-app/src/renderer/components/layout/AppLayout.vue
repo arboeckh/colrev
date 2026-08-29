@@ -38,7 +38,6 @@ async function loadProjectFromRoute() {
       // One-shot initialization — no intervals. Freshness is driven by window
       // focus, explicit Refresh / Fetch buttons, and post-write hooks.
       await git.initialize();
-      await pending.refresh();
     }
   }
 }
@@ -53,7 +52,7 @@ async function handleWindowFocus() {
   focusRefreshInFlight = true;
   try {
     await Promise.all([
-      pending.refresh(),
+      // One snapshot refresh: git facts and pending changes come from it.
       git.refreshStatus(),
       git.hasRemote ? git.fetch() : Promise.resolve(),
     ]);
@@ -94,7 +93,6 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('focus', handleWindowFocus);
   git.cleanup();
-  pending.reset();
 });
 </script>
 

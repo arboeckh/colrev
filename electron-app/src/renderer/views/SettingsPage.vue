@@ -6,10 +6,13 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useProjectsStore } from '@/stores/projects';
+import { useGitStore } from '@/stores/git';
 
 const projects = useProjectsStore();
+const git = useGitStore();
 
 const settings = computed(() => projects.currentSettings);
+const gitState = computed(() => git.snapshot);
 </script>
 
 <template>
@@ -101,7 +104,7 @@ const settings = computed(() => projects.currentSettings);
     </Card>
 
     <!-- Git info -->
-    <Card v-if="projects.currentGitStatus">
+    <Card v-if="gitState">
       <CardHeader>
         <CardTitle class="flex items-center gap-2">
           <GitBranch class="h-5 w-5" />
@@ -113,26 +116,26 @@ const settings = computed(() => projects.currentSettings);
         <div class="space-y-3">
           <div class="flex items-center justify-between">
             <span class="text-muted-foreground">Branch</span>
-            <Badge variant="secondary" class="font-mono">{{ projects.currentGitStatus.branch }}</Badge>
+            <Badge variant="secondary" class="font-mono">{{ gitState.branch }}</Badge>
           </div>
 
-          <div v-if="projects.currentGitStatus.remote_url" class="flex items-center justify-between">
+          <div v-if="gitState.remoteUrl" class="flex items-center justify-between">
             <span class="text-muted-foreground">Remote</span>
             <span class="text-sm font-mono truncate max-w-[300px]">
-              {{ projects.currentGitStatus.remote_url }}
+              {{ gitState.remoteUrl }}
             </span>
           </div>
 
-          <div v-if="projects.currentGitStatus.last_commit" class="pt-3 border-t">
+          <div v-if="gitState.lastCommit" class="pt-3 border-t">
             <span class="text-sm font-medium">Last Commit</span>
             <div class="mt-2 p-3 bg-muted rounded-md text-sm">
               <div class="font-mono text-xs text-muted-foreground mb-1">
-                {{ projects.currentGitStatus.last_commit.hash.slice(0, 8) }}
+                {{ gitState.lastCommit.hash.slice(0, 8) }}
               </div>
-              <div>{{ projects.currentGitStatus.last_commit.message }}</div>
+              <div>{{ gitState.lastCommit.message }}</div>
               <div class="text-muted-foreground text-xs mt-1">
-                {{ projects.currentGitStatus.last_commit.author }} &middot;
-                {{ new Date(projects.currentGitStatus.last_commit.date).toLocaleDateString() }}
+                {{ gitState.lastCommit.author }} &middot;
+                {{ new Date(gitState.lastCommit.timestamp).toLocaleDateString() }}
               </div>
             </div>
           </div>

@@ -224,6 +224,22 @@ contextBridge.exposeInMainWorld('git', {
 });
 
 /**
+ * Expose the single git snapshot (WP-07 §2). `refresh` rebuilds it under the
+ * git mutex; `onChanged` receives it whenever any main-process git operation
+ * rebuilds it, so the renderer never has to re-derive git facts itself.
+ */
+contextBridge.exposeInMainWorld('gitState', {
+  refresh: (projectId: string, projectPath: string) =>
+    ipcRenderer.invoke('git-state:refresh', projectId, projectPath),
+  get: (projectId: string) => ipcRenderer.invoke('git-state:get', projectId),
+  onChanged: (callback: (snapshot: unknown) => void) => {
+    const handler = (_e: unknown, snapshot: unknown) => callback(snapshot);
+    ipcRenderer.on('git-state-changed', handler);
+    return () => ipcRenderer.removeListener('git-state-changed', handler);
+  },
+});
+
+/**
  * Expose app info API.
  */
 contextBridge.exposeInMainWorld('appInfo', {

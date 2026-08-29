@@ -21,6 +21,8 @@ import { resolveBackendLaunch } from './backend-launcher';
 import { createGitHandlers, realGitOps } from './ipc/git-handlers';
 import { createGitHubHandlers, realGitHubGitOps } from './ipc/github-handlers';
 import { createAppHandlers } from './ipc/app-handlers';
+import { GitStateManager } from './git-state';
+import { gitHasMergeConflict } from './git-manager';
 import { isLockFreeRpcMethod, registerHandlers } from './ipc/registry';
 import { withGitLock } from './gitMutex';
 
@@ -41,6 +43,20 @@ let mainWindow: BrowserWindow | null = null;
 let backend: ColrevBackend | null = null;
 const authManager = new AuthManager();
 const projectPaths = new AccountScopedProjectPaths(app.getPath('userData'));
+
+/**
+ * The single owner of git facts (WP-07 §2). Refreshed under the git mutex by
+ * the `git:*` handlers and the `git-state:refresh` channel; broadcast to the
+ * renderer, which subscribes rather than keeping its own copies.
+ */
+const gitState = new GitStateManager({
+  callBackend: <T,>(method: string, params: Record<string, unknown>) => {
+    if (!backend) return Promise.reject(new Error('Backend not running'));
+    return backend.call<T>(method, params);
+  },
+  hasMergeConflict: gitHasMergeConflict,
+  emit: (snapshot) => mainWindow?.webContents.send('git-state-changed', snapshot),
+});
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -246,6 +262,8 @@ function setupIPC() {
         if (!backend) return Promise.reject(new Error('Backend not running'));
         return backend.call<T>(method, params);
       },
+      refreshGitState: (projectId, projectPath) => gitState.refresh(projectId, projectPath),
+      getGitState: (projectId) => gitState.get(projectId),
     }),
     ...createGitHubHandlers({
       gh: getGitHubClient(),

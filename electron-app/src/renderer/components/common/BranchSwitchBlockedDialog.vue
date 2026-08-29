@@ -54,7 +54,7 @@ async function saveAndSwitch() {
   if (busy.value) return;
   busy.value = 'save';
   try {
-    await pending.refresh();
+    await git.refreshStatus();
     if (pending.hasPending) {
       const committed = await pending.commit(`Save before switching to ${target.value}`);
       if (!committed) return;
@@ -69,7 +69,7 @@ async function discardAndSwitch() {
   if (busy.value) return;
   busy.value = 'discard';
   try {
-    await pending.refresh();
+    await git.refreshStatus();
     if (pending.hasPending) {
       const ok = await pending.discardAll();
       if (!ok) return;

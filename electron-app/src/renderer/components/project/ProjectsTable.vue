@@ -25,6 +25,7 @@ import { useProjectsStore, type ProjectListItem } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useConnectionStore } from '@/stores/connection';
+import { useGitStore } from '@/stores/git';
 
 defineProps<{
   projects: ProjectListItem[];
@@ -35,6 +36,7 @@ const projectsStore = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
 const connection = useConnectionStore();
+const git = useGitStore();
 
 const showDeleteDialog = ref(false);
 const projectToDelete = ref<ProjectListItem | null>(null);
@@ -47,8 +49,13 @@ function openProject(project: ProjectListItem) {
   }
 }
 
+// Git facts come from the one snapshot (WP-07 §2), keyed by project id.
+function gitStateOf(project: { id: string }) {
+  return git.snapshotFor(project.id);
+}
+
 function hasGitHubRemote(project: ProjectListItem): boolean {
-  const url = project.gitStatus?.remote_url;
+  const url = gitStateOf(project)?.remoteUrl;
   return !!url && url.includes('github.com');
 }
 
@@ -66,9 +73,10 @@ async function confirmDelete() {
 
   try {
     // Delete GitHub repo first if requested
-    if (deleteGithubToo.value && projectToDelete.value.gitStatus?.remote_url) {
+    const remoteUrl = git.snapshotFor(projectToDelete.value.id)?.remoteUrl;
+    if (deleteGithubToo.value && remoteUrl) {
       const ghResult = await window.github.deleteRepo({
-        remoteUrl: projectToDelete.value.gitStatus.remote_url,
+        remoteUrl,
       });
       if (!ghResult.success) {
         notifications.error('Failed to delete GitHub repository', ghResult.error ?? 'Unknown error');
@@ -114,15 +122,15 @@ function formatNextOperation(op: string): string {
 }
 
 function getBranchName(project: ProjectListItem): string {
-  return project.gitStatus?.branch ?? '-';
+  return gitStateOf(project)?.branch ?? '-';
 }
 
 function isGitClean(project: ProjectListItem): boolean {
-  return project.gitStatus?.is_clean ?? true;
+  return gitStateOf(project)?.isClean ?? true;
 }
 
 function getUncommittedCount(project: ProjectListItem): number {
-  return project.gitStatus?.uncommitted_changes ?? 0;
+  return gitStateOf(project)?.uncommittedChanges ?? 0;
 }
 </script>
 
@@ -176,7 +184,7 @@ function getUncommittedCount(project: ProjectListItem): number {
 
           <!-- Git status -->
           <TableCell>
-            <div v-if="project.gitStatus" class="flex items-center gap-2 text-sm">
+            <div v-if="gitStateOf(project)" class="flex items-center gap-2 text-sm">
               <GitBranch class="h-3 w-3 text-muted-foreground" />
               <span class="truncate max-w-[80px]">{{ getBranchName(project) }}</span>
               <Badge

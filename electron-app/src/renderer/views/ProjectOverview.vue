@@ -126,7 +126,7 @@ const isPushPrivate = ref(true);
 const isPushing = ref(false);
 
 // Remote status helpers
-const remoteUrl = computed(() => projects.currentGitStatus?.remote_url ?? null);
+const remoteUrl = computed(() => git.remoteUrl);
 const isGitHubRemote = computed(() => !!remoteUrl.value);
 const gitHubUrl = computed(() => {
   if (!remoteUrl.value || !isGitHubRemote.value) return null;
@@ -153,7 +153,7 @@ async function pushToGitHub() {
     if (result.success) {
       notifications.success('Pushed to GitHub', `Repository created at ${result.htmlUrl}`);
       showPushDialog.value = false;
-      await projects.refreshGitStatus();
+      await git.refreshStatus();
     } else {
       notifications.error('Push failed', result.error || 'Unknown error');
     }

@@ -636,7 +636,7 @@ onMounted(async () => {
       totalCount.value = 0;
     }
   } finally {
-    await Promise.all([git.refreshStatus(), pending.refresh()]);
+    await git.refreshStatus();
     isPageReady.value = true;
   }
 });

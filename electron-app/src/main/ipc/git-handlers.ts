@@ -32,6 +32,7 @@ import {
   type MergeConflictResolution,
   type MergeFlowDeps,
 } from '../merge-flow';
+import type { GitStateSnapshot } from '../git-state';
 import { defineHandler, type IpcHandlerSpec } from './registry';
 
 /**
@@ -90,6 +91,14 @@ export interface GitHandlerDeps {
   git: GitOps;
   getToken(): string | null;
   /**
+   * Rebuild and broadcast the project's git snapshot. Called after every
+   * mutating handler, while the mutex is still held, so the renderer's view of
+   * branch/ahead/behind/cleanliness can never lag a repo write.
+   */
+  refreshGitState(projectId: string, projectPath: string): Promise<GitStateSnapshot | null>;
+  /** Last snapshot built for this project, if any. Pure cache read. */
+  getGitState(projectId: string): GitStateSnapshot | null;
+  /**
    * Call a backend RPC directly, bypassing `colrev:call`. The handler already
    * holds the git mutex, so going through `colrev:call` would deadlock.
    */
@@ -114,6 +123,7 @@ export function createGitHandlers(deps: GitHandlerDeps): IpcHandlerSpec[] {
     push: (p: string) => git.push(p, getToken()),
   });
 
+  /** Read-only handler: leaves the snapshot alone. */
   const handler = (
     channel: string,
     fn: (...args: never[]) => Promise<unknown>,
@@ -123,39 +133,64 @@ export function createGitHandlers(deps: GitHandlerDeps): IpcHandlerSpec[] {
       handler: (_event, ...args) => fn(...(args as never[])),
     });
 
+  /**
+   * Mutating handler: refreshes the git snapshot afterwards, still under the
+   * mutex. The project id is the directory name — the same convention the RPC
+   * layer uses to resolve `<base_path>/<project_id>`.
+   */
+  const mutating = (
+    channel: string,
+    fn: (...args: never[]) => Promise<unknown>,
+  ): IpcHandlerSpec =>
+    defineHandler({
+      channel,
+      handler: async (_event, ...args) => {
+        const result = await fn(...(args as never[]));
+        const projectPath = args[0];
+        if (typeof projectPath === 'string') {
+          // Never let a snapshot refresh turn a successful git op into a
+          // failure; staleness is reported through the seam instead.
+          await deps
+            .refreshGitState(path.basename(projectPath), projectPath)
+            .catch(() => null);
+        }
+        return result;
+      },
+    });
+
   return [
-    handler('git:fetch', (projectPath: string) => git.fetch(projectPath, getToken())),
-    handler('git:pull', (projectPath: string, ffOnly?: boolean) =>
+    mutating('git:fetch', (projectPath: string) => git.fetch(projectPath, getToken())),
+    mutating('git:pull', (projectPath: string, ffOnly?: boolean) =>
       git.pull(projectPath, getToken(), ffOnly ?? true),
     ),
-    handler('git:fast-forward-main', (projectPath: string) =>
+    mutating('git:fast-forward-main', (projectPath: string) =>
       git.fastForwardMain(projectPath, getToken()),
     ),
-    handler('git:push', (projectPath: string) => git.push(projectPath, getToken())),
-    handler('git:push-branch', (projectPath: string, branchName: string) =>
+    mutating('git:push', (projectPath: string) => git.push(projectPath, getToken())),
+    mutating('git:push-branch', (projectPath: string, branchName: string) =>
       git.pushBranch(projectPath, branchName, getToken()),
     ),
     handler('git:list-branches', (projectPath: string) => git.listBranches(projectPath)),
-    handler('git:create-branch', (projectPath: string, name: string, baseBranch?: string) =>
+    mutating('git:create-branch', (projectPath: string, name: string, baseBranch?: string) =>
       git.createBranch(projectPath, name, baseBranch),
     ),
-    handler('git:create-local-branch', (projectPath: string, name: string, baseRef: string) =>
+    mutating('git:create-local-branch', (projectPath: string, name: string, baseRef: string) =>
       git.createLocalBranch(projectPath, name, baseRef),
     ),
-    handler('git:delete-local-branch', (projectPath: string, name: string) =>
+    mutating('git:delete-local-branch', (projectPath: string, name: string) =>
       git.deleteLocalBranch(projectPath, name),
     ),
-    handler('git:checkout', (projectPath: string, branchName: string) =>
+    mutating('git:checkout', (projectPath: string, branchName: string) =>
       git.checkout(projectPath, branchName),
     ),
-    handler('git:merge', (projectPath: string, source: string, ffOnly?: boolean) =>
+    mutating('git:merge', (projectPath: string, source: string, ffOnly?: boolean) =>
       git.merge(projectPath, source, ffOnly ?? true),
     ),
     handler('git:log', (projectPath: string, count?: number) => git.log(projectPath, count)),
     handler('git:dirty-state', (projectPath: string) => git.dirtyState(projectPath)),
-    handler('git:abort-merge', (projectPath: string) => git.abortMerge(projectPath)),
+    mutating('git:abort-merge', (projectPath: string) => git.abortMerge(projectPath)),
     handler('git:has-merge-conflict', (projectPath: string) => git.hasMergeConflict(projectPath)),
-    handler('git:add-and-commit', (projectPath: string, message: string) =>
+    mutating('git:add-and-commit', (projectPath: string, message: string) =>
       git.addAndCommit(projectPath, message),
     ),
     handler('git:rev-list-count', (projectPath: string, from: string, to: string) =>
@@ -167,10 +202,36 @@ export function createGitHandlers(deps: GitHandlerDeps): IpcHandlerSpec[] {
     handler('git:analyze-divergence', (projectPath: string, projectId: string) =>
       analyzeDivergenceFlow(mergeFlowDeps(projectPath), { projectPath, projectId }),
     ),
-    handler(
+    mutating(
       'git:apply-merge',
       (projectPath: string, projectId: string, resolutions: MergeConflictResolution[]) =>
         applyMergeFlow(mergeFlowDeps(projectPath), { projectPath, projectId, resolutions }),
     ),
+
+    // --- The one git snapshot (WP-07 §2) ---
+    //
+    // The single path that reads `get_git_status`. Everything in the renderer
+    // that used to hold its own copy of branch / ahead / behind / cleanliness
+    // now subscribes to what this produces.
+    defineHandler({
+      channel: 'git-state:refresh',
+      handler: async (_event, projectId: string, projectPath: string) => {
+        try {
+          return { success: true, state: await deps.refreshGitState(projectId, projectPath) };
+        } catch (err) {
+          return {
+            success: false,
+            error: err instanceof Error ? err.message : 'Failed to read git state',
+            state: deps.getGitState(projectId),
+          };
+        }
+      },
+    }),
+    defineHandler({
+      channel: 'git-state:get',
+      handler: async (_event, projectId: string) => deps.getGitState(projectId),
+      lockFree: true,
+      lockFreeReason: 'returns the last snapshot from memory; performs no repo access',
+    }),
   ];
 }

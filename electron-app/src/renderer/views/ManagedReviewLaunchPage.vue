@@ -52,7 +52,7 @@ const kind = computed<'prescreen' | 'screen'>(() =>
 const kindLabel = computed(() => (kind.value === 'screen' ? 'Screen' : 'Prescreen'));
 const activeTask = computed(() => tasks.value.find((task) => ['active', 'reconciling'].includes(task.state)) ?? null);
 const displayTask = computed(() => activeTask.value ?? tasks.value[0] ?? null);
-const remoteUrl = computed(() => projects.currentGitStatus?.remote_url ?? null);
+const remoteUrl = computed(() => git.remoteUrl);
 
 const isResolvingIssue = ref(false);
 

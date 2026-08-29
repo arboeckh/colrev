@@ -108,6 +108,8 @@ function allSpecs(): IpcHandlerSpec[] {
       git: fakeGitOps(),
       getToken: () => 'tok',
       callBackend: async () => ({}) as never,
+      refreshGitState: async () => null,
+      getGitState: () => null,
     }),
     ...createGitHubHandlers(githubDeps()),
   ];
@@ -143,6 +145,7 @@ describe('lock classification', () => {
       'file:choose-save-path',
       'file:open-dialog',
       'file:save-dialog',
+      'git-state:get',
       'github:accept-invitation',
       'github:add-collaborator',
       'github:decline-invitation',
@@ -269,6 +272,8 @@ describe('git handlers', () => {
       git,
       getToken: () => 'tok',
       callBackend: async () => ({}) as never,
+      refreshGitState: async () => null,
+      getGitState: () => null,
     });
     return new Map(specs.map((s) => [s.channel, s.handler]));
   }
