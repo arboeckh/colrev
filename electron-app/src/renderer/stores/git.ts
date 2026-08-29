@@ -52,6 +52,18 @@ export const useGitStore = defineStore('git', () => {
   const showResetToRemoteDialog = ref(false);
   const isResettingToRemote = ref(false);
 
+  // Branch switch blocked by a dirty working tree. `git:checkout` refuses to
+  // move HEAD while there are uncommitted changes (see gitCheckout) so the
+  // user chooses save-or-discard instead of having decisions silently stashed
+  // or carried onto the wrong branch.
+  const showBranchSwitchBlockedDialog = ref(false);
+  const blockedSwitchTarget = ref<string | null>(null);
+  const blockedSwitchDirty = ref<{ uncommittedCount: number; untrackedCount: number } | null>(null);
+  // Optional continuation for callers whose switch was only the first step of
+  // a larger operation (e.g. publishing dev into main). Run once, after the
+  // user resolved the dirty tree and the switch went through.
+  const blockedSwitchResume = ref<null | (() => void | Promise<void>)>(null);
+
   // New state for dev/release model
   const releases = ref<GitHubRelease[]>([]);
   const isLoadingReleases = ref(false);
@@ -294,7 +306,18 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  async function switchBranch(branchName: string): Promise<boolean> {
+  /**
+   * Check out ``branchName``.
+   *
+   * A dirty working tree blocks the switch (main-process `gitCheckout` refuses
+   * to move HEAD). By default that opens BranchSwitchBlockedDialog so the user
+   * explicitly saves or discards; pass ``promptOnDirty: false`` for callers
+   * that render their own recovery UI.
+   */
+  async function switchBranch(
+    branchName: string,
+    options: { promptOnDirty?: boolean } = {},
+  ): Promise<boolean> {
     const path = getProjectPath();
     if (!path) return false;
     // Skip if already on the target branch
@@ -308,15 +331,17 @@ export const useGitStore = defineStore('git', () => {
 
       const result = await window.git.checkout(path, branchName);
       if (!result.success) {
+        if (result.error === 'DIRTY_WORKTREE') {
+          blockedSwitchTarget.value = branchName;
+          blockedSwitchDirty.value = result.dirty ?? null;
+          blockedSwitchResume.value = null;
+          if (options.promptOnDirty !== false) {
+            showBranchSwitchBlockedDialog.value = true;
+          }
+          return false;
+        }
         notifications.error('Branch switch failed', result.error || 'Unknown error');
         return false;
-      }
-
-      if (result.recovered) {
-        notifications.info(
-          'Switched with auto-recovery',
-          result.recoveryMessage ?? 'Local changes were stashed so the switch could complete.',
-        );
       }
 
       currentBranch.value = branchName;
@@ -326,18 +351,13 @@ export const useGitStore = defineStore('git', () => {
         await projects.loadProject(projects.currentProjectId);
       }
 
-      // Sync git store + pending-changes from the new branch. refreshStatus()
-      // before checkout still reflects the old branch and causes UI flicker
-      // (e.g. unsaved-hint on prescreen/screen) until something refreshes again.
-      await refreshStatus();
-      try {
-        const { usePendingChangesStore } = await import('./pendingChanges');
-        await usePendingChangesStore().refresh();
-      } catch {
-        // Pending refresh is best-effort; branch switch still succeeded.
-      }
-
       await refreshBranches();
+      // A branch switch replaces the working tree wholesale, so it goes
+      // through the same seam as pull/reset/merge: every store re-derives and
+      // mounted pages reload against the new branch. Without this, a page that
+      // triggered the switch itself (managed-review access check) would keep
+      // rendering the pre-switch view.
+      await useProjectDataStore().invalidateAll();
       refreshBranchDelta(); // Fire and forget
       return true;
     } finally {
@@ -389,9 +409,18 @@ export const useGitStore = defineStore('git', () => {
     const path = getProjectPath();
     if (!path) return false;
 
-    // Switch to main first
+    // Switch to main first. A dirty tree refuses the checkout (see
+    // gitCheckout) — surface it as the same save-or-discard choice the rest
+    // of the app offers instead of leaking the error code into a toast.
     const checkoutResult = await window.git.checkout(path, 'main');
     if (!checkoutResult.success) {
+      if (checkoutResult.error === 'DIRTY_WORKTREE') {
+        blockedSwitchTarget.value = 'main';
+        blockedSwitchDirty.value = checkoutResult.dirty ?? null;
+        blockedSwitchResume.value = () => void mergeDevIntoMain();
+        showBranchSwitchBlockedDialog.value = true;
+        return false;
+      }
       notifications.error('Failed to switch to main', checkoutResult.error);
       return false;
     }
@@ -737,6 +766,10 @@ export const useGitStore = defineStore('git', () => {
     showPullBlockedDialog.value = false;
     showResetToRemoteDialog.value = false;
     isResettingToRemote.value = false;
+    showBranchSwitchBlockedDialog.value = false;
+    blockedSwitchTarget.value = null;
+    blockedSwitchDirty.value = null;
+    blockedSwitchResume.value = null;
     devAheadOfMain.value = 0;
     mainAheadOfDev.value = 0;
     branchDelta.value = null;
@@ -767,6 +800,10 @@ export const useGitStore = defineStore('git', () => {
     showPullBlockedDialog,
     showResetToRemoteDialog,
     isResettingToRemote,
+    showBranchSwitchBlockedDialog,
+    blockedSwitchTarget,
+    blockedSwitchDirty,
+    blockedSwitchResume,
     releases,
     isLoadingReleases,
     releasesLoaded,

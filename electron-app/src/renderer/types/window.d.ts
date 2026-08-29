@@ -239,8 +239,11 @@ export interface GitLogEntry {
 export interface GitOperationResult {
   success: boolean;
   error?: string;
-  recovered?: boolean;
-  recoveryMessage?: string;
+}
+
+export interface GitCheckoutResult extends GitOperationResult {
+  /** Populated when `error === 'DIRTY_WORKTREE'`. */
+  dirty?: { uncommittedCount: number; untrackedCount: number };
 }
 
 export interface GitBranchListResult extends GitOperationResult {
@@ -300,7 +303,7 @@ export interface GitAPI {
   createBranch: (projectPath: string, name: string, baseBranch?: string) => Promise<GitOperationResult>;
   createLocalBranch: (projectPath: string, name: string, baseRef: string) => Promise<GitOperationResult>;
   deleteLocalBranch: (projectPath: string, name: string) => Promise<GitOperationResult>;
-  checkout: (projectPath: string, branchName: string) => Promise<GitOperationResult>;
+  checkout: (projectPath: string, branchName: string) => Promise<GitCheckoutResult>;
   merge: (projectPath: string, source: string, ffOnly?: boolean) => Promise<GitOperationResult>;
   log: (projectPath: string, count?: number) => Promise<GitLogResult>;
   dirtyState: (projectPath: string) => Promise<GitDirtyState>;

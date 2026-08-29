@@ -25,8 +25,19 @@ export interface GitLogEntry {
 export interface GitResult {
   success: boolean;
   error?: string;
-  recovered?: boolean;
-  recoveryMessage?: string;
+}
+
+/**
+ * Structured `error` values. Callers branch on these instead of matching
+ * stderr strings, so the renderer can offer a specific recovery instead of
+ * surfacing raw git output.
+ */
+export const DIRTY_WORKTREE = 'DIRTY_WORKTREE';
+export const DIVERGED = 'DIVERGED';
+
+export interface GitCheckoutResult extends GitResult {
+  /** Populated when `error === DIRTY_WORKTREE`. */
+  dirty?: { uncommittedCount: number; untrackedCount: number };
 }
 
 export interface GitBranchListResult extends GitResult {
@@ -86,13 +97,13 @@ export async function gitPull(
   if (result.exitCode !== 0) {
     const stderr = result.stderr || '';
     if (stderr.includes('Not possible to fast-forward') || stderr.includes('fatal: Not possible')) {
-      return { success: false, error: 'DIVERGED' };
+      return { success: false, error: DIVERGED };
     }
     if (
       stderr.includes('would be overwritten by merge') ||
       stderr.includes('Please commit your changes or stash them')
     ) {
-      return { success: false, error: 'DIRTY_WORKTREE' };
+      return { success: false, error: DIRTY_WORKTREE };
     }
     return { success: false, error: stderr || 'Pull failed' };
   }
@@ -248,74 +259,66 @@ export async function gitDeleteLocalBranch(
   return { success: true };
 }
 
+/**
+ * Check out ``branchName``.
+ *
+ * Refuses outright when the working tree is dirty: returns
+ * ``{ success: false, error: 'DIRTY_WORKTREE', dirty: {...} }`` so the
+ * renderer can offer an explicit save-or-discard choice.
+ *
+ * There is deliberately no stash fallback. The managed-review decision flow
+ * keeps `records.bib` dirty between decisions by design, and an auto-stash
+ * that is never popped silently strands those decisions. Letting git carry
+ * the changes across instead is no better — reviewer decisions would land on
+ * whichever branch the user switched to. Both outcomes are data loss from the
+ * user's point of view, so the switch is the user's call to make.
+ *
+ * A checkout of the branch already in HEAD is a no-op and stays allowed even
+ * when dirty — nothing moves, so nothing can be lost.
+ */
 export async function gitCheckout(
   projectPath: string,
   branchName: string,
-): Promise<GitResult> {
+): Promise<GitCheckoutResult> {
   const { exec } = await import('dugite');
 
-  const tryCheckout = async (args: string[]) => exec(args, projectPath);
+  const head = await exec(['rev-parse', '--abbrev-ref', 'HEAD'], projectPath);
+  if (head.exitCode === 0 && head.stdout.trim() === branchName) {
+    return { success: true };
+  }
 
-  const isDirtyTreeError = (stderr: string) =>
-    stderr.includes('would be overwritten by checkout') ||
-    stderr.includes('would be overwritten by merge') ||
-    stderr.includes('Please commit your changes or stash them');
-
-  // Stash the dirty/untracked tree, retry the checkout, and report whether
-  // the recovery succeeded. The stash is intentionally left in place so the
-  // user can recover anything they care about with `git stash list/pop` —
-  // auto-popping would just re-trigger the same conflict on the new branch.
-  const recoverViaStash = async (
-    checkoutArgs: string[],
-    originalError: string,
-  ): Promise<GitResult> => {
-    const stashMessage = `colrev: auto-stash before switching to ${branchName} (${new Date().toISOString()})`;
-    const stashResult = await exec(
-      ['stash', 'push', '--include-untracked', '-m', stashMessage],
-      projectPath,
-    );
-    if (stashResult.exitCode !== 0) {
-      // Stash itself failed — surface the original checkout error, not the stash error.
-      return { success: false, error: originalError };
-    }
-
-    const retry = await tryCheckout(checkoutArgs);
-    if (retry.exitCode !== 0) {
-      return { success: false, error: retry.stderr || originalError };
-    }
-
+  const dirty = await gitGetDirtyState(projectPath);
+  if (dirty.success && dirty.isDirty) {
     return {
-      success: true,
-      recovered: true,
-      recoveryMessage:
-        'Local changes were saved to a stash so the branch switch could complete.',
+      success: false,
+      error: DIRTY_WORKTREE,
+      dirty: {
+        uncommittedCount: dirty.uncommittedCount,
+        untrackedCount: dirty.untrackedCount,
+      },
     };
-  };
+  }
 
   // Check for local branch first, then try remote tracking
   const localCheck = await exec(['rev-parse', '--verify', branchName], projectPath);
   if (localCheck.exitCode !== 0) {
     // Try to create local tracking branch from remote
-    const trackArgs = ['checkout', '-b', branchName, `origin/${branchName}`];
-    const trackResult = await tryCheckout(trackArgs);
+    const trackResult = await exec(
+      ['checkout', '-b', branchName, `origin/${branchName}`],
+      projectPath,
+    );
     if (trackResult.exitCode !== 0) {
-      const trackErr = trackResult.stderr || `Branch ${branchName} not found`;
-      if (isDirtyTreeError(trackResult.stderr)) {
-        return recoverViaStash(trackArgs, trackErr);
-      }
-      return { success: false, error: trackErr };
+      return {
+        success: false,
+        error: trackResult.stderr || `Branch ${branchName} not found`,
+      };
     }
     return { success: true };
   }
 
-  const checkoutArgs = ['checkout', branchName];
-  const result = await tryCheckout(checkoutArgs);
+  const result = await exec(['checkout', branchName], projectPath);
   if (result.exitCode !== 0) {
-    const err = result.stderr || `Failed to checkout ${branchName}`;
-    if (isDirtyTreeError(result.stderr)) {
-      return recoverViaStash(checkoutArgs, err);
-    }
-    return { success: false, error: err };
+    return { success: false, error: result.stderr || `Failed to checkout ${branchName}` };
   }
   return { success: true };
 }
@@ -531,7 +534,7 @@ export async function gitFastForwardMain(
   );
   if (ancestorRes.exitCode !== 0) {
     // Exit code 1 means "not an ancestor" → local main has diverged.
-    return { success: false, error: 'DIVERGED' };
+    return { success: false, error: DIVERGED };
   }
 
   // Check current branch — if on main, use a plain pull-equivalent so
