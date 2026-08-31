@@ -1,0 +1,8 @@
+# pnpm ≥ 11 reads dependency build-script approvals from here, not from the
+# "pnpm" field in package.json (which is kept for older pnpm versions).
+allowBuilds:
+  dugite: true
+  electron: true
+  electron-winstaller: true
+  esbuild: true
+  vue-demi: false
