@@ -1,0 +1,19 @@
+# Extra Python dependencies for the packaged app (mac + win bundles).
+#
+# Why this file exists: the bundle's requirements.txt is compiled ONLY from the
+# root pyproject.toml, which does not depend on the internal packages under
+# colrev/packages/*/. Those packages declare their own third-party deps in their
+# own pyproject.toml, so those deps never reach the bundle (which installs with
+# --no-deps). List here the top-level distributions the app actually needs; uv
+# resolves their transitive deps automatically.
+#
+# Workflow when the app raises `ModuleNotFoundError: No module named 'X'`:
+#   1. Map X to its PyPI distribution (e.g. bs4 -> beautifulsoup4).
+#   2. Add the distribution name as one line below.
+#   3. Regenerate + commit requirements.txt (see scripts/BUNDLE_DEPS.md).
+#   4. Rebuild.
+#
+# Keep this minimal — only add what the app uses, to avoid bloating the bundle.
+
+pyalex
+beautifulsoup4
