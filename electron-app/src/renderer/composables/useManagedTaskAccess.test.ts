@@ -72,12 +72,22 @@ describe('reviewer-branch invariant (WP-07 §6)', () => {
     expect(switchBranch).toHaveBeenCalledWith(WORKING_BRANCH);
   });
 
-  it('creates the working branch when the project has never had one', async () => {
+  it('creates the working branch and checks it out when the project has never had one', async () => {
     const git = standOn('main', { hasDev: false });
     const ensureDev = vi.spyOn(git, 'ensureDevBranch').mockResolvedValue(true);
-    const switchBranch = vi.spyOn(git, 'switchBranch');
+    const switchBranch = vi.spyOn(git, 'switchBranch').mockResolvedValue(true);
     expect(await ensureWorkingBranch()).toBe(true);
     expect(ensureDev).toHaveBeenCalled();
+    // ensureDevBranch may satisfy hasDevBranch via the remote (collaborator's
+    // fresh clone) — the checkout must still happen or the user stays on main.
+    expect(switchBranch).toHaveBeenCalledWith(WORKING_BRANCH);
+  });
+
+  it('reports failure when the working branch cannot be created', async () => {
+    const git = standOn('main', { hasDev: false });
+    vi.spyOn(git, 'ensureDevBranch').mockResolvedValue(false);
+    const switchBranch = vi.spyOn(git, 'switchBranch');
+    expect(await ensureWorkingBranch()).toBe(false);
     expect(switchBranch).not.toHaveBeenCalled();
   });
 

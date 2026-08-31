@@ -160,7 +160,7 @@ export interface GitHubAPI {
   cloneRepo: (params: {
     cloneUrl: string;
     projectId: string;
-  }) => Promise<{ success: boolean; error?: string }>;
+  }) => Promise<{ success: boolean; path?: string; error?: string }>;
   listReleases: (params: {
     remoteUrl: string;
   }) => Promise<{ success: boolean; releases: GitHubRelease[]; error?: string }>;

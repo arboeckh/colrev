@@ -212,24 +212,44 @@ export async function switchAccount(
   login: string,
 ): Promise<void> {
   const page = await electronApp.firstWindow();
-  const result = await page.evaluate(async (l) => {
-    const testApi = (window as unknown as TestWindow).__test;
-    if (!testApi) {
-      throw new Error('window.__test not available (is COLREV_FAKE_GITHUB_REGISTRY set?)');
-    }
-    return testApi.switchAccount(l);
-  }, login);
-  if (!result.success) {
+
+  // Mark the pre-switch document. The app reloads itself when the active
+  // login changes mid-session (App.vue), which replaces the document — the
+  // marker vanishing is how we know the reload landed.
+  await page.evaluate(() => {
+    (window as unknown as { __preSwitchMarker?: boolean }).__preSwitchMarker = true;
+  });
+
+  let result: { success: boolean; error?: string } | undefined;
+  try {
+    result = await page.evaluate(async (l) => {
+      const testApi = (window as unknown as TestWindow).__test;
+      if (!testApi) {
+        throw new Error('window.__test not available (is COLREV_FAKE_GITHUB_REGISTRY set?)');
+      }
+      return testApi.switchAccount(l);
+    }, login);
+  } catch (err) {
+    // The app's own reload can tear down the context before this evaluate
+    // resolves — that means the switch landed, not that it failed.
+    if (!String(err).includes('Execution context was destroyed')) throw err;
+  }
+  if (result && !result.success) {
     throw new Error(`switchAccount failed: ${result.error}`);
   }
-  // Mirror the UserMenu flow: route to landing, then reload so stores rebind
-  // to the new account. Without this, callers stay on whatever page the
-  // previous account was on.
-  await page.evaluate(() => {
-    location.hash = '#/';
-    location.reload();
-  });
-  await page.waitForLoadState('domcontentloaded');
+
+  // Wait for the app's reload: new document (marker gone) with the new
+  // account bound in the auth store.
+  await page.waitForFunction(
+    (l) => {
+      if ((window as unknown as { __preSwitchMarker?: boolean }).__preSwitchMarker) return false;
+      // @ts-expect-error pinia on window
+      const pinia = window.__pinia__;
+      return pinia?._s.get('auth')?.user?.login === l;
+    },
+    login,
+    { timeout: 30_000 },
+  );
 }
 
 export { expect } from '@playwright/test';

@@ -62,7 +62,7 @@ export const useGithubReposStore = defineStore('github-repos', () => {
 
       if (result.success) {
         // Add to local projects store
-        projects.addProject(repo.name, undefined, repo.name);
+        projects.addProject(repo.name, result.path, repo.name);
         notifications.success('Project cloned', `${repo.name} is now available locally`);
       } else {
         notifications.error('Clone failed', result.error || 'Unknown error');

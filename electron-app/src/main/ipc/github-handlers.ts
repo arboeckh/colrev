@@ -123,7 +123,10 @@ export function createGitHubHandlers(deps: GitHubHandlerDeps): IpcHandlerSpec[] 
       if (fs.existsSync(targetPath)) {
         return { success: false, error: 'Project directory already exists' };
       }
-      return git.clone(params.cloneUrl, targetPath, deps.getToken());
+      const result = await git.clone(params.cloneUrl, targetPath, deps.getToken());
+      // Return where the clone landed: the renderer must register the project
+      // at this path, not re-derive it from a basePath it captured earlier.
+      return { ...result, path: targetPath };
     }),
 
     repoTouching(
