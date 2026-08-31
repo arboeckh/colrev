@@ -89,7 +89,7 @@ async function acceptInvitation(inv: RepoInvitation) {
       try {
         const cloneResult = await window.github.cloneRepo({ cloneUrl, projectId });
         if (cloneResult.success) {
-          projects.addProject(projectId, undefined, projectId, true);
+          projects.addProject(projectId, cloneResult.path, projectId, true);
           notifications.success('Review added', `${inv.repoFullName} has been added locally`);
         } else {
           notifications.warning('Invitation accepted', `Accepted ${inv.repoFullName} but clone failed: ${cloneResult.error || 'Unknown error'}. You can add it from GitHub Reviews.`);

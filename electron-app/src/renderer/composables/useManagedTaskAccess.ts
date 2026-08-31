@@ -159,7 +159,10 @@ export function useManagedTaskAccess(kind: ManagedReviewKind) {
 export async function ensureWorkingBranch(): Promise<boolean> {
   const git = useGitStore();
   if (git.currentBranch === WORKING_BRANCH) return true;
-  if (!git.hasDevBranch) return git.ensureDevBranch();
+  // ensureDevBranch only guarantees the branch exists (it may find it on the
+  // remote, e.g. a collaborator's fresh clone of the default branch) — the
+  // checkout still has to happen, or the user is left on an empty `main`.
+  if (!git.hasDevBranch && !(await git.ensureDevBranch())) return false;
   return git.switchBranch(WORKING_BRANCH);
 }
 

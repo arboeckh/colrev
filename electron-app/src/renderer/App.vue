@@ -26,10 +26,15 @@ const useProjectLayout = computed(() => {
   return route.meta.layout === 'project' || route.matched.some((r) => r.meta.layout === 'project');
 });
 
+// The login the account-scoped state (backend.basePath, the project list,
+// clone paths) was built against. `undefined` until startup binds it.
+let boundLogin: string | null | undefined = undefined;
+
 // Auto-start backend and discover projects on mount
 onMounted(async () => {
   // Initialize auth first (checks for stored session)
   await auth.initialize();
+  boundLogin = auth.user?.login ?? null;
 
   if (backend.canStart) {
     const started = await backend.start();
@@ -67,6 +72,28 @@ watch(
     if (isAuth && backend.isRunning) {
       githubRepos.fetchRepos();
     }
+  },
+);
+
+// Account identity is baked into state captured at startup: backend.basePath
+// (the per-account projects root), the discovered project list, and every
+// clone path derived from them. Logging in as a different account mid-session
+// (sign out → device-flow login) must rebind all of it, same as the
+// switch-account menu already does: land on home, then reload.
+watch(
+  () => auth.user?.login ?? null,
+  (login) => {
+    if (boundLogin === undefined) return; // startup restore, not a change
+    if (login === boundLogin) return;
+    if (login === null) {
+      // Logged out — nothing account-scoped is shown on the login page.
+      // boundLogin deliberately keeps the old value: logging back into the
+      // SAME account needs no rebind, a different one reloads below.
+      return;
+    }
+    boundLogin = login;
+    window.location.hash = '#/';
+    window.location.reload();
   },
 );
 
