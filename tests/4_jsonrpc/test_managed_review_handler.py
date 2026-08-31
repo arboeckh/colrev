@@ -695,3 +695,171 @@ class TestManagedReviewJSONRPC:
         records = review_manager.dataset.load_records_dict()
         assert records["R1"]["colrev_status"].name == "rev_excluded"
         assert "offtopic=out" in records["R1"]["screening_criteria"]
+
+    def test_task_queue_lists_the_tasks_records_with_current_statuses(self):
+        self._commit_records(
+            [
+                {
+                    "ID": "R1",
+                    "origin": "import.bib/R1",
+                    "status": "md_processed",
+                    "title": "Alpha",
+                    "author": "Doe, Jane",
+                    "year": "2021",
+                    "journal": "Journal A",
+                },
+                {
+                    "ID": "R2",
+                    "origin": "import.bib/R2",
+                    "status": "md_processed",
+                    "title": "Beta",
+                    "author": "Doe, John",
+                    "year": "2022",
+                    "journal": "Journal B",
+                },
+            ],
+            "Add prescreen records",
+        )
+        create_response = _request(
+            "create_managed_review_task",
+            self.project_id,
+            self.base_path,
+            kind="prescreen",
+            reviewer_logins=["alice", "bob"],
+            created_by="owner",
+        )
+        assert "error" not in create_response
+        task = create_response["result"]["task"]
+
+        queue_response = _request(
+            "get_managed_review_task_queue",
+            self.project_id,
+            self.base_path,
+            task_id=task["id"],
+        )
+
+        assert "error" not in queue_response
+        queue = queue_response["result"]
+        assert queue["task_id"] == task["id"]
+        assert queue["kind"] == "prescreen"
+        assert queue["total_count"] == 2
+        by_id = {record["id"]: record for record in queue["records"]}
+        assert set(by_id) == {"R1", "R2"}
+        assert by_id["R1"]["status"] == "md_processed"
+        assert by_id["R1"]["title"] == "Alpha"
+
+    def test_cancel_task_aborts_it_and_frees_its_record_set(self):
+        self._commit_records(
+            [
+                {
+                    "ID": "R1",
+                    "origin": "import.bib/R1",
+                    "status": "md_processed",
+                    "title": "Alpha",
+                    "author": "Doe, Jane",
+                    "year": "2021",
+                    "journal": "Journal A",
+                },
+            ],
+            "Add prescreen record",
+        )
+        create_response = _request(
+            "create_managed_review_task",
+            self.project_id,
+            self.base_path,
+            kind="prescreen",
+            reviewer_logins=["alice", "bob"],
+            created_by="owner",
+        )
+        assert "error" not in create_response
+        task = create_response["result"]["task"]
+        launch_ref = create_response["result"]["launch_ref"]
+        self._create_local_review_branches(task, launch_ref)
+
+        # While the task is active it blocks a relaunch over the same records
+        # and is the current task on its reviewer branches.
+        readiness = _request(
+            "get_managed_review_task_readiness",
+            self.project_id,
+            self.base_path,
+            kind="prescreen",
+        )["result"]
+        assert readiness["ready"] is False
+        assert any(task["id"] in issue for issue in readiness["issues"])
+
+        self.repo.git.checkout(task["reviewers"][0]["branch_name"])
+        current = _request(
+            "get_current_managed_review_task",
+            self.project_id,
+            self.base_path,
+            kind="prescreen",
+        )["result"]
+        assert current["task"]["id"] == task["id"]
+        self.repo.git.checkout("dev")
+
+        cancel_response = _request(
+            "cancel_managed_review_task",
+            self.project_id,
+            self.base_path,
+            task_id=task["id"],
+            canceled_by="owner",
+        )
+        assert "error" not in cancel_response
+        canceled = cancel_response["result"]["task"]
+        assert canceled["state"] == "aborted"
+        assert canceled["canceled_at"] is not None
+        # The cancellation is committed to the manifest on disk.
+        self.repo.git.push()
+
+        listed = _request(
+            "list_managed_review_tasks",
+            self.project_id,
+            self.base_path,
+            kind="prescreen",
+        )["result"]["tasks"]
+        assert [t["state"] for t in listed if t["id"] == task["id"]] == ["aborted"]
+
+        # The manifest (colrev_app.json) is committed per branch: dev sees the
+        # abortion immediately, while a reviewer branch keeps its launch-time
+        # copy — the reviewer keeps seeing the task as current until their
+        # branch syncs. Documented behavior, not a bug in this test's scope.
+        self.repo.git.checkout(task["reviewers"][0]["branch_name"])
+        current_after = _request(
+            "get_current_managed_review_task",
+            self.project_id,
+            self.base_path,
+            kind="prescreen",
+        )["result"]
+        assert current_after["task"]["id"] == task["id"]
+        assert current_after["task"]["state"] == "active"
+        self.repo.git.checkout("dev")
+
+        # On dev, the record set is free for a new launch.
+        readiness_after = _request(
+            "get_managed_review_task_readiness",
+            self.project_id,
+            self.base_path,
+            kind="prescreen",
+        )["result"]
+        assert readiness_after["ready"] is True
+
+        # Canceling an already-aborted task is an idempotent no-op.
+        again = _request(
+            "cancel_managed_review_task",
+            self.project_id,
+            self.base_path,
+            task_id=task["id"],
+            canceled_by="owner",
+        )
+        assert "error" not in again
+        assert again["result"]["task"]["state"] == "aborted"
+
+    def test_task_queue_for_an_unknown_task_is_an_error(self):
+        response = _request(
+            "get_managed_review_task_queue",
+            self.project_id,
+            self.base_path,
+            task_id="prescreen-00000000000000",
+        )
+        assert "error" in response
+        assert "not found" in response["error"]["message"].lower()

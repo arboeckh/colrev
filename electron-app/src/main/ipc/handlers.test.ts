@@ -345,6 +345,76 @@ describe('github handlers', () => {
     ).toEqual({ success: false, error: 'rate limited', collaborators: [] });
   });
 
+  it('clones into the active account projects root and returns the resolved path', async () => {
+    const clone = vi.fn(async () => ({ success: true }));
+    const mkdirSync = vi.fn();
+    const existsSync = vi.fn(() => false); // neither account root nor target exist
+    const handlers = handlersFor(
+      githubDeps({
+        fs: { existsSync, mkdirSync },
+        git: { clone, createTag: vi.fn(), pushTags: vi.fn() } as never,
+      }),
+    );
+
+    const result = await handlers.get('github:clone-repo')!(noEvent, {
+      cloneUrl: 'https://github.com/acme/lit-review.git',
+      projectId: 'lit-review',
+    });
+
+    const expectedPath = path.join('/projects/alice', 'lit-review');
+    // The missing account root is created before cloning.
+    expect(mkdirSync).toHaveBeenCalledWith('/projects/alice', { recursive: true });
+    // The clone lands under the active account's root, with the auth token.
+    expect(clone).toHaveBeenCalledWith(
+      'https://github.com/acme/lit-review.git',
+      expectedPath,
+      'tok',
+    );
+    // The renderer must register the project at the returned path.
+    expect(result).toEqual({ success: true, path: expectedPath });
+  });
+
+  it('does not recreate the account root when it already exists', async () => {
+    const clone = vi.fn(async () => ({ success: true }));
+    const mkdirSync = vi.fn();
+    const handlers = handlersFor(
+      githubDeps({
+        // Root exists, target does not.
+        fs: { existsSync: (p: string) => p === '/projects/alice', mkdirSync },
+        git: { clone, createTag: vi.fn(), pushTags: vi.fn() } as never,
+      }),
+    );
+
+    const result = await handlers.get('github:clone-repo')!(noEvent, {
+      cloneUrl: 'https://github.com/acme/lit-review.git',
+      projectId: 'lit-review',
+    });
+
+    expect(mkdirSync).not.toHaveBeenCalled();
+    expect(result).toEqual({ success: true, path: path.join('/projects/alice', 'lit-review') });
+  });
+
+  it('refuses to clone when there is no active account', async () => {
+    const clone = vi.fn();
+    const mkdirSync = vi.fn();
+    const handlers = handlersFor(
+      githubDeps({
+        getActiveLogin: () => null,
+        fs: { existsSync: vi.fn(() => false), mkdirSync },
+        git: { clone, createTag: vi.fn(), pushTags: vi.fn() } as never,
+      }),
+    );
+
+    expect(
+      await handlers.get('github:clone-repo')!(noEvent, {
+        cloneUrl: 'https://github.com/acme/lit-review.git',
+        projectId: 'lit-review',
+      }),
+    ).toEqual({ success: false, error: 'No active account' });
+    expect(clone).not.toHaveBeenCalled();
+    expect(mkdirSync).not.toHaveBeenCalled();
+  });
+
   it('refuses to clone over an existing project directory', async () => {
     const clone = vi.fn(async () => ({ success: true }));
     const handlers = handlersFor(

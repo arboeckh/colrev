@@ -87,7 +87,7 @@ function formatValue(value: unknown, formatted?: string): string {
 
 <template>
   <Dialog :open="git.showConflictDialog" @update:open="handleOpenChange">
-    <DialogScrollContent class="sm:max-w-[700px]">
+    <DialogScrollContent class="sm:max-w-[700px]" data-testid="conflict-resolution-dialog">
       <DialogHeader>
         <DialogTitle>Resolve Conflicting Changes</DialogTitle>
         <DialogDescription>
@@ -113,6 +113,7 @@ function formatValue(value: unknown, formatted?: string): string {
           v-for="conflict in git.mergeAnalysis.conflicts"
           :key="conflict.id"
           class="border-orange-500/30"
+          data-testid="conflict-card"
         >
           <CardHeader class="pb-2">
             <CardTitle class="text-base">
@@ -130,6 +131,7 @@ function formatValue(value: unknown, formatted?: string): string {
                 :class="choices[conflict.id] === 'local'
                   ? 'ring-2 ring-primary border-primary bg-primary/5'
                   : 'border-border'"
+                data-testid="conflict-choice-local"
                 @click="selectChoice(conflict.id, 'local')"
               >
                 <div class="flex items-center gap-1.5">
@@ -151,6 +153,7 @@ function formatValue(value: unknown, formatted?: string): string {
                 :class="choices[conflict.id] === 'remote'
                   ? 'ring-2 ring-primary border-primary bg-primary/5'
                   : 'border-border'"
+                data-testid="conflict-choice-remote"
                 @click="selectChoice(conflict.id, 'remote')"
               >
                 <div class="flex items-center gap-1.5">
@@ -175,10 +178,10 @@ function formatValue(value: unknown, formatted?: string): string {
       </div>
 
       <DialogFooter class="gap-2">
-        <Button variant="outline" :disabled="isApplying" @click="cancel">
+        <Button variant="outline" :disabled="isApplying" data-testid="conflict-cancel-btn" @click="cancel">
           Cancel
         </Button>
-        <Button :disabled="!allResolved || isApplying" @click="applyResolutions">
+        <Button :disabled="!allResolved || isApplying" data-testid="conflict-apply-btn" @click="applyResolutions">
           <template v-if="isApplying">Applying...</template>
           <template v-else>Apply</template>
         </Button>

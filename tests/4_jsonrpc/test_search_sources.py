@@ -5,10 +5,15 @@ Tests cover the following endpoints:
     - get_sources: List all configured search sources
     - add_source: Add a new search source
     - upload_search_file: Upload a search results file
+    - update_source: Edit a registered source's query
+    - remove_source: Unregister a source
 """
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
+from typing import Generator
 
 import pytest
 
@@ -389,3 +394,168 @@ ER  -
         response = self.handler.handle_request(request)
 
         assert "error" in response
+
+
+# ---------------------------------------------------------------------------
+# update_source / remove_source — module-scoped project (WP-08 §3).
+#
+# Sources persist as data/search/*_search_history.json files (settings.json
+# never stores them — colrev.settings.load_settings rebuilds the source list
+# by scanning those files), so the on-disk assertions target the history file.
+# One project for both tests: colrev init dominates runtime, and update runs
+# before remove by definition order.
+# ---------------------------------------------------------------------------
+
+SOURCE_PROJECT_ID = "source_edit_project"
+SOURCE_FILENAME = "data/search/manual.bib"
+SOURCE_BIB = """@article{S1,
+  title = {Alpha study},
+  author = {Doe, Jane},
+  year = {2021},
+  journal = {Journal A},
+}
+"""
+
+
+def _source_request(handler: JSONRPCHandler, method: str, params: dict) -> dict:
+    return handler.handle_request(
+        {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
+    )
+
+
+@pytest.fixture(scope="module")
+def source_handler() -> JSONRPCHandler:
+    return JSONRPCHandler()
+
+
+@pytest.fixture(scope="module")
+def source_project(
+    tmp_path_factory, session_mocker, source_handler
+) -> Generator[Path, None, None]:
+    root = tmp_path_factory.mktemp("source_edit_projects")
+    session_mocker.patch(
+        "colrev.env.environment_manager.EnvironmentManager.get_name_mail_from_git",
+        return_value=("Test User", "test@example.com"),
+    )
+    session_mocker.patch.object(
+        colrev.constants.Filepaths, "REGISTRY_FILE", root / "reg.json"
+    )
+
+    project_path = root / SOURCE_PROJECT_ID
+    project_path.mkdir()
+    original_cwd = os.getcwd()
+    os.chdir(project_path)
+    try:
+        colrev.ops.init.Initializer(
+            review_type="literature_review", target_path=project_path, light=True
+        )
+    finally:
+        os.chdir(original_cwd)
+
+    params = {"project_id": SOURCE_PROJECT_ID, "base_path": str(root)}
+    uploaded = _source_request(
+        source_handler,
+        "upload_search_file",
+        {**params, "filename": "manual.bib", "content": SOURCE_BIB},
+    )
+    assert "error" not in uploaded, uploaded.get("error")
+
+    added = _source_request(
+        source_handler,
+        "add_source",
+        {
+            **params,
+            "endpoint": "colrev.unknown_source",
+            "search_type": "DB",
+            "filename": SOURCE_FILENAME,
+            "search_string": "initial query",
+        },
+    )
+    assert "error" not in added, added.get("error")
+
+    yield root
+
+
+@pytest.fixture
+def source_params(source_project: Path) -> dict:
+    return {"project_id": SOURCE_PROJECT_ID, "base_path": str(source_project)}
+
+
+def _history_path(source_project: Path) -> Path:
+    return (
+        source_project
+        / SOURCE_PROJECT_ID
+        / "data"
+        / "search"
+        / "manual_search_history.json"
+    )
+
+
+class TestUpdateSource:
+    def test_query_edit_persists_and_clears_stale_results(
+        self, source_handler, source_params, source_project
+    ) -> None:
+        results_file = source_project / SOURCE_PROJECT_ID / SOURCE_FILENAME
+        assert results_file.read_text(encoding="utf-8")  # has results before
+
+        response = _source_request(
+            source_handler,
+            "update_source",
+            {
+                **source_params,
+                "filename": SOURCE_FILENAME,
+                "search_string": "revised query",
+            },
+        )
+        assert "error" not in response, response.get("error")
+        assert response["result"]["details"]["source"]["search_string"] == "revised query"
+
+        # The source of truth on disk is the search-history file.
+        history = json.loads(_history_path(source_project).read_text(encoding="utf-8"))
+        assert history["search_string"] == "revised query"
+
+        # A changed query invalidates old results: the file is emptied so the
+        # next search starts fresh.
+        assert results_file.exists()
+        assert results_file.read_text(encoding="utf-8") == ""
+
+        # A fresh settings load (get_sources builds a new ReviewManager)
+        # reflects the edit.
+        sources = _source_request(source_handler, "get_sources", source_params)[
+            "result"
+        ]["sources"]
+        by_path = {s["search_results_path"]: s for s in sources}
+        assert by_path[SOURCE_FILENAME]["search_string"] == "revised query"
+
+
+class TestRemoveSource:
+    def test_removes_the_source_its_history_and_optionally_its_file(
+        self, source_handler, source_params, source_project
+    ) -> None:
+        response = _source_request(
+            source_handler,
+            "remove_source",
+            {**source_params, "filename": SOURCE_FILENAME, "delete_file": True},
+        )
+        assert "error" not in response, response.get("error")
+
+        # The history file is what makes a source exist across reloads;
+        # removal must delete it, or the source resurrects on the next load.
+        assert not _history_path(source_project).exists()
+        assert not (source_project / SOURCE_PROJECT_ID / SOURCE_FILENAME).exists()
+
+        sources = _source_request(source_handler, "get_sources", source_params)[
+            "result"
+        ]["sources"]
+        assert SOURCE_FILENAME not in {s["search_results_path"] for s in sources}
+
+    def test_removing_an_unknown_source_is_an_error(
+        self, source_handler, source_params
+    ) -> None:
+        response = _source_request(
+            source_handler,
+            "remove_source",
+            {**source_params, "filename": "data/search/never_added.bib"},
+        )
+        assert "error" in response
+        assert "not found" in response["error"]["message"].lower()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Generator
@@ -12,6 +13,26 @@ import pytest
 import colrev.ops.init
 import colrev.review_manager
 from colrev.ui_jsonrpc.handler import JSONRPCHandler
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _venv_bin_on_path() -> Generator[None, None, None]:
+    """Make the running interpreter's bin directory resolvable via PATH.
+
+    ``colrev init`` shells out to ``pre-commit`` by bare name. When pytest is
+    invoked by absolute path (``.venv-test/bin/pytest ...``) without activating
+    the venv, that binary is not on PATH and every project-initializing test
+    errors with FileNotFoundError. Prepending the interpreter's own bin dir
+    resolves it from whichever venv is actually running the tests.
+    """
+    bin_dir = str(Path(sys.executable).parent)
+    original = os.environ.get("PATH", "")
+    if bin_dir not in original.split(os.pathsep):
+        os.environ["PATH"] = bin_dir + os.pathsep + original
+    try:
+        yield
+    finally:
+        os.environ["PATH"] = original
 
 
 @pytest.fixture(scope="module")

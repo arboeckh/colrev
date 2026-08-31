@@ -50,22 +50,11 @@ HAPPY_PATH_GAPS: dict[str, str] = {
     # --- need a project carried far down the pipeline ----------------------
     "export_data_csv": "needs a populated data/data.csv — covered by e2e 07-data",
     "save_data_extraction": "runs the data operation on rev_included records — e2e 07-data",
-    "include_all_screen": "needs records at pdf_prepared — covered by e2e 06-screen",
     "prescreen": "batch prescreen over a loaded dataset — covered by e2e 03-prescreen",
     "screen": "batch screen over a loaded dataset — covered by e2e 06-screen",
     "screen_record": "needs records at pdf_prepared — covered by e2e 06-screen",
-    "update_screen_decisions": "needs records at pdf_prepared — covered by e2e 06-screen",
-    "update_prescreen_decisions": "needs records at md_processed in a queue — e2e 03-prescreen",
     "enrich_record_metadata": "enriches from external metadata APIs — e2e 03-prescreen",
     "restore_pdf_file": "needs a record whose metadata already references a file — e2e 04",
-    # --- managed review: multi-account / multi-branch flows ----------------
-    "cancel_managed_review_task": "needs a live task with reviewer branches — e2e 03",
-    "get_managed_review_task_queue": "needs a live task with reviewer branches — e2e 03",
-    # --- need a configured remote -----------------------------------------
-    "reset_to_remote": "needs an origin to reset onto — covered by e2e 08-branch-switch",
-    # --- source edits on a registered, non-stale source --------------------
-    "remove_source": "removing a source rewrites search history — covered by e2e 01-search",
-    "update_source": "editing a source re-runs staleness derivation — e2e 01-search",
 }
 
 #: Methods with no reachable failure mode: no required params, no lookup that
