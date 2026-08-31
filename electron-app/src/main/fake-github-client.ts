@@ -1,7 +1,25 @@
+/**
+ * A protocol-level stand-in for GitHub, used by the e2e suite (WP-08 §2).
+ *
+ * Scope, deliberately narrow: it implements `GitHubClient` against a JSON
+ * registry on disk plus local bare repositories, so collaboration flows
+ * (invite, accept, publish, release) can run with no network and no tokens.
+ * It is NOT a GitHub simulator — it models only the states the UI branches
+ * on.
+ *
+ * Where its observable behaviour must match the real client — accepted remote
+ * URL formats, the invited/already-a-collaborator distinction, returning
+ * failures rather than throwing — that is pinned by the shared contract suite
+ * in `github-client.contract.test.ts`. Its one sanctioned divergence is
+ * `parseOwnerRepo` also accepting a local bare-repo path (see
+ * `github-url.parseFakeRemote`). Add behaviour here only alongside a contract
+ * test, or the fake starts making e2e green for the wrong reasons.
+ */
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 import type { GitHubClient } from './github-client';
+import { parseFakeRemote } from './github-url';
 import type {
   GitHubRepo,
   GitHubCollaborator,
@@ -75,7 +93,21 @@ export class FakeGitHubClient implements GitHubClient {
     username: string,
     permission: 'pull' | 'push' | 'admin' = 'push',
   ): Promise<{ success: boolean; invited: boolean; error?: string }> {
-    this.registry.addInvitation(owner, repo, username, permission);
+    // GitHub answers 204 (`invited: false`) when the user is already a
+    // collaborator and 201 (`invited: true`) when an invitation was created.
+    // The caller renders "Invited" vs "Added" off this, so the fake has to
+    // make the same distinction (see github-client.contract.ts).
+    const existing = this.registry
+      .getCollaborators(owner, repo)
+      .some((c) => c.login.toLowerCase() === username.toLowerCase());
+    if (existing) return { success: true, invited: false };
+
+    const pending = this.registry
+      .getPendingInvitations(owner, repo)
+      .some((i) => i.inviteeLogin.toLowerCase() === username.toLowerCase());
+    if (!pending) {
+      this.registry.addInvitation(owner, repo, username, permission);
+    }
     return { success: true, invited: true };
   }
 
@@ -189,32 +221,17 @@ export class FakeGitHubClient implements GitHubClient {
     let cloneUrl: string | undefined;
 
     if (this.bareRemoteDir) {
-      const barePath = path.join(this.bareRemoteDir, account.login, `${params.repoName}.git`);
-      fs.mkdirSync(barePath, { recursive: true });
-      execFileSync('git', ['init', '--bare'], { cwd: barePath, stdio: 'pipe' });
-
-      const remotes = execFileSync('git', ['remote'], { cwd: params.projectPath, encoding: 'utf-8' })
-        .trim()
-        .split('\n')
-        .filter(Boolean);
-
-      if (remotes.includes('origin')) {
-        execFileSync('git', ['remote', 'set-url', 'origin', barePath], { cwd: params.projectPath, stdio: 'pipe' });
-      } else {
-        execFileSync('git', ['remote', 'add', 'origin', barePath], { cwd: params.projectPath, stdio: 'pipe' });
+      try {
+        cloneUrl = this.initBareRemoteAndPush(account.login, params.repoName, params.projectPath);
+      } catch (err) {
+        // The real client returns push failures as a result, never throws
+        // (see github-manager.createRepoAndPush). Match that, or the UI's
+        // publish flow behaves differently under test than in production.
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to publish repository',
+        };
       }
-
-      const branch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
-        cwd: params.projectPath,
-        encoding: 'utf-8',
-      }).trim();
-
-      execFileSync('git', ['push', '--no-verify', '-u', 'origin', branch], {
-        cwd: params.projectPath,
-        stdio: 'pipe',
-      });
-
-      cloneUrl = barePath;
     }
 
     const repo = this.registry.createRepo(
@@ -232,6 +249,47 @@ export class FakeGitHubClient implements GitHubClient {
     };
   }
 
+  /** Create the bare stand-in remote and push the project's current branch. */
+  private initBareRemoteAndPush(login: string, repoName: string, projectPath: string): string {
+    const barePath = path.join(this.bareRemoteDir!, login, `${repoName}.git`);
+    fs.mkdirSync(barePath, { recursive: true });
+    execFileSync('git', ['init', '--bare'], { cwd: barePath, stdio: 'pipe' });
+
+    const remotes = execFileSync('git', ['remote'], {
+      cwd: projectPath,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+
+    if (remotes.includes('origin')) {
+      execFileSync('git', ['remote', 'set-url', 'origin', barePath], {
+        cwd: projectPath,
+        stdio: 'pipe',
+      });
+    } else {
+      execFileSync('git', ['remote', 'add', 'origin', barePath], {
+        cwd: projectPath,
+        stdio: 'pipe',
+      });
+    }
+
+    const branch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+      cwd: projectPath,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+
+    execFileSync('git', ['push', '--no-verify', '-u', 'origin', branch], {
+      cwd: projectPath,
+      stdio: 'pipe',
+    });
+
+    return barePath;
+  }
+
   async deleteRepo(
     token: string,
     owner: string,
@@ -242,18 +300,12 @@ export class FakeGitHubClient implements GitHubClient {
     return { success: true };
   }
 
+  /**
+   * The shared parser, plus the fake's one documented extension: its remotes
+   * are local bare repositories, not github.com URLs. See `github-url.ts`.
+   */
   parseOwnerRepo(remoteUrl: string): { owner: string; repo: string } | null {
-    const httpsMatch = remoteUrl.match(/github\.com[/:]([^/]+)\/([^/.]+?)(?:\.git)?$/);
-    if (httpsMatch) {
-      return { owner: httpsMatch[1], repo: httpsMatch[2] };
-    }
-    if (remoteUrl.startsWith('/')) {
-      const filePathMatch = remoteUrl.match(/\/([^/]+)\/([^/]+?)\.git$/);
-      if (filePathMatch) {
-        return { owner: filePathMatch[1], repo: filePathMatch[2] };
-      }
-    }
-    return null;
+    return parseFakeRemote(remoteUrl);
   }
 }
 
