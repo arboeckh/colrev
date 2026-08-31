@@ -85,6 +85,27 @@ Each test's workspace is at `/tmp/colrev-e2e/<safe-test-title>/`. The directory 
 | `COLREV_FAKE_GITHUB_REGISTRY` | Path to a JSON file. When set, the app uses `FakeGitHubClient` instead of real GitHub REST calls and registers the `__test/switchAccount` IPC method. The fixture sets this automatically. |
 | `COLREV_E2E_PINNED_DATES` | When `1`, the JSON-RPC bridge pins `GIT_AUTHOR_DATE` / `GIT_COMMITTER_DATE` for snapshot determinism during fixture builds. |
 
+## Reliability and parallelism
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| `retries` | `1` in CI, `0` locally | A single flake at `retries: 0` reds the whole suite, which teaches people to ignore it. With one retry a flake is still visible — Playwright reports the test as **flaky** and the HTML report keeps the retry attempt with its trace — while a real regression still fails the run. Locally we keep `0` so a flake is felt immediately, while the workspace that produced it is still on disk. |
+| `workers` | `1` | Each spec launches its own Electron process and Python backend. Running them concurrently on one machine oversubscribes CPU badly enough that the 90s per-test timeout starts firing on slow steps, which reads as a flake. The units of parallelism here are **CI jobs, not workers**: specs already own isolated workspaces, so a matrix of one job per spec file cuts wall-clock without sharing a machine. |
+
+When a test is reported flaky, treat it as a bug with a workspace attached:
+`/tmp/colrev-e2e/<test>/` holds the failing attempt's `rpc.jsonl`,
+`renderer.log` and `backend.log`, and the retained trace is in
+`playwright-report/`.
+
+### The snapshot cache is a real cost
+
+Most specs load a pre-built snapshot instead of walking the UI from scratch,
+and any change under `SNAPSHOT_SOURCE_ROOTS` invalidates the whole chain — so
+an innocuous edit to `e2e/lib/seeders.ts` means rebuilding **every** snapshot
+before the suite can run again (see "Snapshot loading" above for the command).
+Budget for it: the rebuild runs the full pipeline end to end. If you are about
+to touch a hash input, do it in one change rather than several.
+
 ## Running tests
 
 ```bash

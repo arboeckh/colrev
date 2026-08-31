@@ -157,11 +157,42 @@ test.describe('search', () => {
         { timeout: 60_000 },
       );
 
+    // WP-02 regression (WP-08 §4): structured progress events must reach the
+    // renderer while the search RPC is still in flight. Before WP-02 the UI
+    // regex-parsed stderr for this; if the notification channel silently
+    // stops delivering, every long operation goes back to looking frozen and
+    // nothing else in the suite would notice. Collect from the preload bridge
+    // (the wire), not from a store getter.
+    await window.evaluate(() => {
+      const w = window as unknown as {
+        __progressEvents?: unknown[];
+        colrev: { onProgress: (cb: (e: unknown) => void) => () => void };
+      };
+      w.__progressEvents = [];
+      w.colrev.onProgress((event) => {
+        w.__progressEvents!.push(event);
+      });
+    });
+
     await clickWhenEnabled(window, '[data-testid="run-search-open_alex"]', 10_000);
     await waitForRecords('open_alex');
 
     await clickWhenEnabled(window, '[data-testid="run-search-pubmed"]', 10_000);
     await waitForRecords('pubmed');
+
+    const progressEvents = await window.evaluate(
+      () =>
+        (window as unknown as { __progressEvents: { kind: string; message: string }[] })
+          .__progressEvents,
+    );
+    const searchProgress = progressEvents.filter((e) => e.kind === 'search_progress');
+    expect(
+      searchProgress.length,
+      `no search_progress events reached the renderer (saw kinds: ${[
+        ...new Set(progressEvents.map((e) => e.kind)),
+      ].join(', ') || 'none'})`,
+    ).toBeGreaterThan(0);
+    expect(searchProgress[0].message).toContain('Searching');
 
     await workspace.markPhase(electronApp, 'searches-run');
 

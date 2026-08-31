@@ -2,6 +2,7 @@
  * GitHub repository management using the GitHub API and dugite for git operations.
  * Handles creating repos, pushing local projects, listing CoLRev repos, and cloning.
  */
+import { parseOwnerRepo } from './github-url';
 
 export interface GitHubRepo {
   name: string;
@@ -126,17 +127,10 @@ export interface GitHubRelease {
   author: string;
 }
 
-/**
- * Parse owner/repo from a GitHub HTTPS or SSH URL.
- */
-export function parseOwnerRepo(remoteUrl: string): { owner: string; repo: string } | null {
-  // HTTPS: https://github.com/owner/repo.git
-  const httpsMatch = remoteUrl.match(/github\.com[/:]([^/]+)\/([^/.]+?)(?:\.git)?$/);
-  if (httpsMatch) {
-    return { owner: httpsMatch[1], repo: httpsMatch[2] };
-  }
-  return null;
-}
+// The one remote-URL parser (WP-08 §2). Re-exported here so existing
+// importers of `github-manager` keep working; the implementation lives in
+// `github-url.ts` so both clients — and the contract suite — share it.
+export { parseOwnerRepo };
 
 /**
  * List releases for a GitHub repository.
