@@ -10,14 +10,73 @@ e2e/
 │   ├── test-workspace.fixture.ts # Playwright fixture: workspace + Electron + window
 │   └── data/                     # Test data: RIS files, PDFs, sample records
 ├── helpers/
+│   ├── launch-target.ts          # dev vs packaged: what binary the fixture launches
 │   └── test-utils.ts             # clickWhenEnabled
-├── lib/
+├── lib/                          # NOTE: hashed into snapshot cache keys — adding
+│   │                             # files here invalidates all cached snapshots
 │   ├── seeders.ts                # seedAccounts / seedAliceProject / seedRecords / ...
 │   ├── snapshot-cache.ts         # tarball-backed snapshot cache (post-search, post-preprocessing, …)
 │   └── test-workspace.ts         # /tmp/colrev-e2e/<test>/ harness
-├── specs/                        # *.spec.ts files
+├── smoke/                        # packaged-app smoke suite (--project=smoke)
+├── specs/                        # full pipeline suite (--project=e2e)
 ├── tsconfig.json
 └── README.md
+```
+
+## Dev vs packaged mode
+
+Every fixture-launched test can run against two targets, selected by
+`COLREV_TEST_MODE`:
+
+| Mode | What launches | Python backend | Git |
+|------|---------------|----------------|-----|
+| `dev` (default) | `node_modules` electron + `dist/main/index.js` | host conda env `~/miniforge3/envs/colrev` | host |
+| `packaged` | `release/mac-arm64/ColRev.app` (or `COLREV_PACKAGED_APP`) | bundled python-build-standalone inside the app | bundled dugite git |
+
+In packaged mode the fixture deliberately does **not** inject the conda env —
+the app must be self-sufficient, and leaking `PYTHONHOME` would mask bundle
+defects. See `helpers/launch-target.ts`.
+
+**Source-skew pitfall (worktrees):** the conda env's colrev is an *editable*
+install pointing at the main checkout. In a git worktree, dev-mode tests
+therefore run whatever colrev source the main checkout has checked out — not
+the worktree's. Packaged mode does not have this problem: the python bundle's
+colrev wheel is built from the repo the packaging script ran in. If dev-mode
+specs fail on missing status fields while packaged mode passes, check
+`git -C <main-checkout> log -1` first. The same applies to snapshot fixtures:
+rebuild them with `BUILD_FIXTURES=1 COLREV_TEST_MODE=packaged ...` when the
+main checkout is behind your branch.
+
+## Smoke tests of the packaged app
+
+The `smoke` Playwright project (`e2e/smoke/`) is a fast integrity check of an
+actual electron-builder artifact: app boots, python bundle + git shipped in
+`Contents/Resources`, backend reaches `running`, and a review is created
+end-to-end through the UI (init_project RPC → git commits → push to the fake
+GitHub bare remote).
+
+```bash
+cd electron-app
+
+# One command: package unsigned + run the packaged smoke suite
+npm run smoketest:mac          # full (rebuilds the python bundle)
+npm run smoketest:mac:fast     # reuse existing resources/python-mac-arm64
+
+# Pieces, if you already have a build in release/:
+npm run test:smoke             # smoke suite against the dev build
+npm run test:smoke:packaged    # smoke suite against release/ artifact
+
+# Full pipeline suite against the packaged app
+COLREV_TEST_MODE=packaged npx playwright test --project=e2e
+# or: bash ../scripts/smoketest.sh mac --skip-package --suite e2e
+```
+
+`scripts/smoketest.sh` is the CI-shaped entry point (exit code = Playwright
+exit code). If the host's `python3.12` is PEP-668 managed (homebrew), point
+`HOST_PYTHON` at the conda env before a full build:
+
+```bash
+HOST_PYTHON=~/miniforge3/envs/colrev/bin/python npm run smoketest:mac
 ```
 
 ## How to write a new test
@@ -84,6 +143,8 @@ Each test's workspace is at `/tmp/colrev-e2e/<safe-test-title>/`. The directory 
 |----------|---------|
 | `COLREV_FAKE_GITHUB_REGISTRY` | Path to a JSON file. When set, the app uses `FakeGitHubClient` instead of real GitHub REST calls and registers the `__test/switchAccount` IPC method. The fixture sets this automatically. |
 | `COLREV_E2E_PINNED_DATES` | When `1`, the JSON-RPC bridge pins `GIT_AUTHOR_DATE` / `GIT_COMMITTER_DATE` for snapshot determinism during fixture builds. |
+| `COLREV_TEST_MODE` | `packaged` makes the fixture launch the electron-builder artifact instead of `dist/main/index.js` (see "Dev vs packaged mode"). |
+| `COLREV_PACKAGED_APP` | Overrides the packaged binary the fixture launches. Accepts the executable or a mac `.app` bundle path. |
 
 ## Reliability and parallelism
 

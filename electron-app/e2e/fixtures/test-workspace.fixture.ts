@@ -2,6 +2,7 @@ import { test as base, _electron as electron, ElectronApplication, Page } from '
 import * as path from 'path';
 import * as fs from 'fs';
 import { TestWorkspace } from '../lib/test-workspace';
+import { resolveLaunchTarget } from '../helpers/launch-target';
 
 const REPO_ROOT = path.join(__dirname, '../..');
 
@@ -67,11 +68,7 @@ export const test = base.extend<TestWorkspaceFixtures>({
   },
 
   electronApp: async ({ workspace }, use) => {
-    const appPath = path.join(__dirname, '../../dist/main/index.js');
-
-    const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-    const condaEnvPath = `${homeDir}/miniforge3/envs/colrev`;
-    const condaBinPath = `${condaEnvPath}/bin`;
+    const target = resolveLaunchTarget();
 
     const pubmedFixturePath = path.join(
       __dirname, 'data', 'pubmed.fixture.json',
@@ -80,22 +77,34 @@ export const test = base.extend<TestWorkspaceFixtures>({
       __dirname, 'data', 'openalex.fixture.json',
     );
 
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      NODE_ENV: 'production',
+      COLREV_FAKE_GITHUB_REGISTRY: workspace.registryPath,
+      ...(fs.existsSync(pubmedFixturePath)
+        ? { COLREV_FAKE_PUBMED_REGISTRY: pubmedFixturePath }
+        : {}),
+      ...(fs.existsSync(openalexFixturePath)
+        ? { COLREV_FAKE_OPENALEX_REGISTRY: openalexFixturePath }
+        : {}),
+    };
+
+    // Dev mode runs the backend from the host's conda colrev env. In
+    // packaged mode the app must be self-sufficient (bundled python, bundled
+    // git), so the conda env is deliberately NOT injected — leaking
+    // PYTHONHOME into a packaged run would mask bundle defects.
+    if (target.mode === 'dev') {
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const condaEnvPath = `${homeDir}/miniforge3/envs/colrev`;
+      env.PATH = `${condaEnvPath}/bin${path.delimiter}${process.env.PATH}`;
+      env.CONDA_PREFIX = condaEnvPath;
+      env.PYTHONHOME = condaEnvPath;
+    }
+
     const electronApp = await electron.launch({
-      args: [appPath, `--user-data-dir=${workspace.userDataDir}`],
-      env: {
-        ...process.env,
-        NODE_ENV: 'production',
-        PATH: `${condaBinPath}:${process.env.PATH}`,
-        CONDA_PREFIX: condaEnvPath,
-        PYTHONHOME: condaEnvPath,
-        COLREV_FAKE_GITHUB_REGISTRY: workspace.registryPath,
-        ...(fs.existsSync(pubmedFixturePath)
-          ? { COLREV_FAKE_PUBMED_REGISTRY: pubmedFixturePath }
-          : {}),
-        ...(fs.existsSync(openalexFixturePath)
-          ? { COLREV_FAKE_OPENALEX_REGISTRY: openalexFixturePath }
-          : {}),
-      },
+      ...(target.executablePath ? { executablePath: target.executablePath } : {}),
+      args: [...target.args, `--user-data-dir=${workspace.userDataDir}`],
+      env: env as Record<string, string>,
     });
 
     await use(electronApp);
@@ -114,15 +123,24 @@ export const test = base.extend<TestWorkspaceFixtures>({
     // Suppress the macOS-only keychain explainer dialog. In a fresh userData/
     // its localStorage gate is unset, so validateSessionInBackground() opens
     // the dialog over the landing page on first boot. Set the gate early to
-    // prevent it; also click continue if it slipped through before we got
-    // here.
+    // prevent it, dismiss it if it already slipped through, and keep a
+    // MutationObserver around to dismiss it if it opens later — packaged
+    // builds boot slowly enough that the dialog can appear well after this
+    // fixture runs.
     await window.evaluate(() => {
       localStorage.setItem('colrev:keychain-explained', '1');
+      const dismiss = (): void => {
+        const btn = document.querySelector<HTMLElement>(
+          '[data-testid="keychain-explainer-continue"]',
+        );
+        btn?.click();
+      };
+      dismiss();
+      new MutationObserver(dismiss).observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
     });
-    await window
-      .locator('[data-testid="keychain-explainer-continue"]')
-      .click({ timeout: 1000 })
-      .catch(() => {});
 
     const stamp = (type: string, message: string): void => {
       workspace.appendRendererLog(`[${new Date().toISOString()}] [${type}] ${message}`);
