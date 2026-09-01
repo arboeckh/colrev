@@ -81,8 +81,10 @@ async function acceptInvitation(inv: RepoInvitation) {
     if (result.success) {
       invitations.value = invitations.value.filter((i) => i.id !== inv.id);
 
-      // Derive clone URL and project ID from the invitation
-      const cloneUrl = `https://github.com/${inv.repoFullName}.git`;
+      // Clone from the URL the invitation itself carries (the API's
+      // repository.html_url; the fake client's local bare path) — deriving a
+      // github.com URL from the name breaks any non-github remote.
+      const cloneUrl = inv.repoUrl || `https://github.com/${inv.repoFullName}.git`;
       const projectId = inv.repoFullName.split('/').pop() || inv.repoFullName;
 
       // Automatically clone the repo locally
@@ -438,6 +440,7 @@ loadInvitations();
                   class="gap-1.5 h-7 text-xs"
                   :disabled="acceptingInvitationId === inv.id || decliningInvitationId === inv.id || !connection.isOnline"
                   :title="connection.isOnline ? undefined : offlineTooltip"
+                  data-testid="accept-invitation"
                   @click="acceptInvitation(inv)"
                 >
                   <Check v-if="acceptingInvitationId !== inv.id" class="h-3 w-3" />

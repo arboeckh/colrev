@@ -72,6 +72,7 @@ async function handleSwitchAccount(login: string) {
           v-for="account in auth.accounts"
           :key="account.login"
           class="gap-2"
+          :data-testid="`switch-account-${account.login}`"
           @click="handleSwitchAccount(account.login)"
         >
           <Avatar class="h-5 w-5 shrink-0">
@@ -87,7 +88,7 @@ async function handleSwitchAccount(login: string) {
       </template>
 
       <!-- Add another account -->
-      <DropdownMenuItem v-if="auth.isAuthenticated" @click="handleAddAccount">
+      <DropdownMenuItem v-if="auth.isAuthenticated" data-testid="add-account-button" @click="handleAddAccount">
         <Plus class="h-4 w-4 mr-2" />
         Add account
       </DropdownMenuItem>
