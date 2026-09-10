@@ -192,7 +192,10 @@ export function statusClass(status: string): string {
 
 export function statusPillClass(status: string): string {
   const base =
-    'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-medium tracking-tight whitespace-nowrap';
+    // min-w-0 + ellipsis: the pill sits next to the "missing on disk" marker in
+    // a fixed-width column, and a long status label must clip itself rather
+    // than push that marker out of the cell.
+    'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-medium tracking-tight whitespace-nowrap min-w-0 overflow-hidden text-ellipsis';
   switch (status) {
     case 'pdf_prepared':
       return `${base} bg-green-500/10 text-green-700 dark:bg-green-400/10 dark:text-green-300`;

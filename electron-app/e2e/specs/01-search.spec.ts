@@ -151,7 +151,8 @@ test.describe('search', () => {
       window.waitForFunction(
         (name) => {
           const count = document.querySelector(`[data-testid="record-count-${name}"]`);
-          return count !== null && Number(count.textContent ?? '0') > 0;
+          // The card formats counts with grouping separators ("1,284").
+          return count !== null && Number((count.textContent ?? '0').replace(/\D/g, '')) > 0;
         },
         sourceName,
         { timeout: 60_000 },

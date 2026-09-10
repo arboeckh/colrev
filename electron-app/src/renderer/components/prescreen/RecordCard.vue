@@ -106,8 +106,11 @@ const metaParts = computed(() => {
   >
     <!-- Top row: ID · meta · nav -->
     <div class="flex items-center gap-3 px-1 pb-2">
+      <!-- Record IDs are generated from author+year and can run long; it
+           gives way before the nav buttons do. -->
       <span
-        class="font-mono text-[11px] uppercase tracking-wider text-muted-foreground/70 shrink-0"
+        class="font-mono text-[11px] uppercase tracking-wider text-muted-foreground/70 truncate max-w-[45%]"
+        :title="record.id"
         :data-testid="`${testIdPrefix}-record-id`"
       >
         {{ record.id }}
