@@ -57,10 +57,6 @@ async function discoverProjects() {
       for (const proj of response.projects) {
         projects.addProject(proj.id, proj.path, proj.title);
       }
-      // Rows appear immediately with just their names; record count, next step
-      // and git status fill in behind them so the Reviews list is readable
-      // without opening every review first.
-      void projects.hydrateProjectList(response.projects);
     }
   } catch (err) {
     console.error('Failed to discover projects:', err);

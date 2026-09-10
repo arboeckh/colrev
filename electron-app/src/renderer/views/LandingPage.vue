@@ -17,7 +17,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { ProjectsTable } from '@/components/project';
+import { ProjectsGallery } from '@/components/project';
 import { EmptyState, RepoVisibilityToggle, UserMenu } from '@/components/common';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
@@ -147,12 +147,6 @@ async function discoverProjects() {
       for (const proj of response.projects) {
         projects.addProject(proj.id, proj.path, proj.title);
       }
-      // Names alone don't orient anyone. Fill in the row detail — record count,
-      // next step, branch and cleanliness — in the background so the list is
-      // usable without opening each review first. Rows render immediately and
-      // fill in as each project resolves; failures leave that row's cells empty
-      // rather than blocking the others.
-      void projects.hydrateProjectList(response.projects);
     }
   } catch (err) {
     console.error('Failed to discover projects:', err);
@@ -414,7 +408,7 @@ loadInvitations();
         </EmptyState>
 
         <!-- Projects table -->
-        <ProjectsTable v-else :projects="projects.projects" />
+        <ProjectsGallery v-else :projects="projects.projects" />
 
         <!-- Pending invitations -->
         <div v-if="invitations.length > 0" class="mt-6 mb-2 max-w-2xl" data-testid="pending-invitations">
