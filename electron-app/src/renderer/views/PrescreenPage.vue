@@ -540,6 +540,11 @@ function cancelEdits() {
 // counts refresh through the seam.
 useProjectDataChanged(async (event) => {
   if (!event.full) return;
+  // A branch switch invalidates through this same seam. When someone else is
+  // driving it — the workflow stepper heading for reconcile, the router guard
+  // leaving a reviewer branch — re-running the access check here would switch
+  // straight back and fight them for the branch.
+  if (git.isSwitchingBranch) return;
   decisionHistory.value = [];
   allDecisionsMade.value = false;
   const canLoadQueue = await ensureManagedTaskAccess();
