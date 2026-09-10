@@ -68,8 +68,8 @@ class GetSourcesRequest(ProjectScopedRequest):
 
 
 class SourceInfo(BaseModel):
-    """The wire shape built in ``get_sources``: ``ExtendedSearchFile.model_dump()``
-    plus the staleness metadata. Extra fields ride along via ``extra="allow"``."""
+    """The wire shape built in ``get_sources``: :func:`_source_payload` plus the
+    staleness metadata. Extra fields ride along via ``extra="allow"``."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -77,6 +77,7 @@ class SourceInfo(BaseModel):
     search_results_path: Optional[str] = None
     search_string: Optional[str] = None
     search_type: Optional[str] = None
+    search_parameters: Optional[Dict[str, Any]] = None
     record_count: Optional[int] = None
     last_run_timestamp: Optional[str] = None
     is_stale: Optional[bool] = None
@@ -194,9 +195,117 @@ class GetSourceRecordsResponse(ProjectResponse):
     pagination: PaginationInfo
 
 
+def _source_payload(source: Any) -> Dict[str, Any]:
+    """``model_dump()`` plus the search parameters the UI needs.
+
+    colrev's ``model_dump`` is deliberately minimal and drops
+    ``search_parameters``, but the edit form has to re-open on the structured
+    query the source was built from. The stored URL has already had its API key
+    stripped, so it is safe to hand to the renderer.
+    """
+
+    payload = source.model_dump()
+    parameters = getattr(source, "search_parameters", None)
+    if parameters:
+        payload["search_parameters"] = parameters
+    return payload
+
+
+_OPENALEX_QUERY_FIELDS: Dict[str, Any] = {
+    "search": "",
+    "search_exact": False,
+    "year_from": None,
+    "year_to": None,
+    "open_access_only": False,
+    "work_types": None,
+    "sort": "relevance",
+    "min_citations": None,
+    "language": None,
+    "has_abstract": False,
+    "raw_url": None,
+}
+
+
+def _is_openalex_api_url(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return text.startswith("http") and "openalex.org" in text
+
+
+def _coerce_int(value: Any) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_openalex_query(
+    *,
+    search_string: str = "",
+    extra: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Return the canonical, persistable OpenAlex query.
+
+    The structured ``query`` is the source of truth and the ``url`` stored
+    beside it is derived from it. Rebuilding therefore always starts from the
+    query: reading the derived URL back in would pin the source to whatever it
+    was first built with and silently drop every later edit.
+    """
+
+    extra = extra or {}
+    incoming = extra.get("query")
+    query: Dict[str, Any] = dict(_OPENALEX_QUERY_FIELDS)
+
+    if incoming is None:
+        # No structured query: a bare ``url`` is one the user pasted verbatim.
+        raw_url = str(extra.get("url") or "").strip()
+        query["raw_url"] = raw_url or None
+        query["search"] = "" if raw_url else search_string.strip()
+        return query
+
+    for key in _OPENALEX_QUERY_FIELDS:
+        if key in incoming:
+            query[key] = incoming[key]
+    if "work_types" not in incoming and "types" in incoming:
+        query["work_types"] = incoming["types"]
+
+    raw_url = str(query.get("raw_url") or "").strip()
+    if not raw_url and _is_openalex_api_url(query.get("search")):
+        # Sources predating structured queries stored the pasted URL in
+        # ``search``; keep them on the raw-URL path instead of searching for
+        # the URL as keywords.
+        raw_url = str(query["search"]).strip()
+    query["raw_url"] = raw_url or None
+
+    if raw_url:
+        query["search"] = ""
+    else:
+        query["search"] = str(query.get("search") or search_string or "").strip()
+
+    work_types = query.get("work_types")
+    if isinstance(work_types, str):
+        work_types = [work_types]
+    if work_types:
+        cleaned = [str(t).strip() for t in work_types if str(t).strip()]
+        query["work_types"] = cleaned or None
+    else:
+        query["work_types"] = None
+
+    for numeric in ("year_from", "year_to", "min_citations"):
+        query[numeric] = _coerce_int(query.get(numeric))
+    for flag in ("search_exact", "open_access_only", "has_abstract"):
+        query[flag] = bool(query.get(flag))
+    query["sort"] = str(query.get("sort") or "relevance")
+    language = str(query.get("language") or "").strip()
+    query["language"] = language or None
+
+    return query
+
+
 def _build_openalex_search_parameters(
     *,
-    search_string: str,
+    search_string: str = "",
     extra: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build OpenAlex search_parameters without storing the API key."""
@@ -205,7 +314,6 @@ def _build_openalex_search_parameters(
     from colrev.packages.open_alex.src import open_alex_api
     from colrev.packages.open_alex.src.open_alex_query_builder import OpenAlexSearchParams
     from colrev.packages.open_alex.src.open_alex_query_builder import build_works_url
-    from colrev.packages.open_alex.src.open_alex_query_builder import inject_api_key
     from colrev.packages.open_alex.src.open_alex_query_builder import strip_sensitive_url_params
 
     api_key = open_alex_api.OpenAlexAPI.require_api_key()
@@ -213,35 +321,28 @@ def _build_openalex_search_parameters(
         colrev.env.environment_manager.EnvironmentManager.get_name_mail_from_git()
     )
 
-    extra = extra or {}
-    if extra.get("url"):
-        params = OpenAlexSearchParams(raw_url=str(extra["url"]))
+    query = _normalize_openalex_query(search_string=search_string, extra=extra)
+
+    if query["raw_url"]:
+        params = OpenAlexSearchParams(raw_url=str(query["raw_url"]))
     else:
-        query = extra.get("query") or {}
-        work_types = query.get("work_types") or query.get("types")
-        if isinstance(work_types, str):
-            work_types = [work_types]
-        search_text = (query.get("search") or search_string or "").strip()
         params = OpenAlexSearchParams(
-            search=search_text,
-            search_exact=bool(query.get("search_exact")),
-            year_from=query.get("year_from"),
-            year_to=query.get("year_to"),
-            open_access_only=bool(query.get("open_access_only")),
-            work_types=work_types,
-            sort=str(query.get("sort", "relevance")),
-            min_citations=query.get("min_citations"),
-            language=query.get("language"),
-            has_abstract=bool(query.get("has_abstract")),
+            search=query["search"],
+            search_exact=query["search_exact"],
+            year_from=query["year_from"],
+            year_to=query["year_to"],
+            open_access_only=query["open_access_only"],
+            work_types=query["work_types"],
+            sort=query["sort"],
+            min_citations=query["min_citations"],
+            language=query["language"],
+            has_abstract=query["has_abstract"],
         )
 
     url = build_works_url(params, api_key=api_key, mailto=email or "")
-    stored_query = extra.get("query") or {
-        "search": search_string,
-    }
     return {
         "url": strip_sensitive_url_params(url),
-        "query": stored_query,
+        "query": query,
     }
 
 
@@ -268,8 +369,12 @@ class SearchHandler(BaseHandler):
 
         search_operation = self.op(OperationsType.search, notify=True)
 
+        # Tag every event with the source being searched so the UI can attribute
+        # progress to one card. A batch run fans out into one call per source,
+        # so ``req.source`` identifies the card; "all" carries no attribution.
         progress_cb = make_progress_callback(
-            ProgressEventKind.search_progress, source="search"
+            ProgressEventKind.search_progress,
+            source=None if req.source == "all" else req.source,
         )
 
         # When source is "all", don't pass selection_str; the decorator
@@ -329,7 +434,7 @@ class SearchHandler(BaseHandler):
         sources_list: List[SourceInfo] = []
 
         for source in sources:
-            source_dict = source.model_dump()
+            source_dict = _source_payload(source)
 
             results_path = self.review_manager.path / source.search_results_path
             record_count = 0
@@ -456,7 +561,7 @@ class SearchHandler(BaseHandler):
             operation="add_source",
             message="Add_source operation completed successfully",
             details=AddSourceDetails(
-                source=new_source.model_dump(),
+                source=_source_payload(new_source),
                 message=f"Added search source: {req.endpoint}",
             ),
         )
@@ -632,7 +737,6 @@ class SearchHandler(BaseHandler):
         if source_to_update is None:
             raise ValueError(f"Source with filename '{req.filename}' not found")
 
-        query_changed = False
         history_path = (
             self.review_manager.path / source_to_update.get_search_history_path()
         )
@@ -640,15 +744,32 @@ class SearchHandler(BaseHandler):
             preserve_last_run_snapshot(history_path) if history_path.is_file() else (None, None)
         )
 
+        # ``search_parameters`` is an optional attribute (file-based sources
+        # have none), so edit a local copy and write it back only if it ends up
+        # holding something.
+        parameters: Dict[str, Any] = dict(
+            getattr(source_to_update, "search_parameters", None) or {}
+        )
+
+        # The stored ``url`` is derived from the query, so whether the search
+        # actually changed is decided by comparing the URL the source will be
+        # run with — before and after. Comparing only ``search_string`` would
+        # miss a filter-only edit (year range, open access, work types).
+        previous_url = str(parameters.get("url") or "")
+        stored_query = dict(parameters.get("query") or {})
+        incoming_query = None
+        if req.search_parameters is not None and isinstance(
+            req.search_parameters.get("query"), dict
+        ):
+            incoming_query = dict(req.search_parameters["query"])
+
+        is_api = source_to_update.search_type == SearchType.API
+        search_string_changed = False
         if req.search_string is not None:
-            if source_to_update.search_string != req.search_string:
-                query_changed = True
+            search_string_changed = source_to_update.search_string != req.search_string
             source_to_update.search_string = req.search_string
 
-            if (
-                source_to_update.search_type == SearchType.API
-                and source_to_update.platform == "colrev.pubmed"
-            ):
+            if is_api and source_to_update.platform == "colrev.pubmed":
                 import urllib.parse
 
                 encoded_query = urllib.parse.quote(req.search_string)
@@ -656,27 +777,37 @@ class SearchHandler(BaseHandler):
                     "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
                     f"esearch.fcgi?db=pubmed&term={encoded_query}"
                 )
-                source_to_update.search_parameters["url"] = pubmed_url
+                parameters["url"] = pubmed_url
                 logger.info("Rebuilt PubMed URL: %s", pubmed_url)
 
-            elif (
-                source_to_update.search_type == SearchType.API
-                and source_to_update.platform == "colrev.open_alex"
-            ):
-                rebuilt = _build_openalex_search_parameters(
-                    search_string=req.search_string,
-                    extra=source_to_update.search_parameters,
-                )
-                source_to_update.search_parameters.update(rebuilt)
-                logger.info("Rebuilt OpenAlex URL for updated query")
-
         if req.search_parameters is not None:
-            if "url" in req.search_parameters:
-                old_url = source_to_update.search_parameters.get("url", "")
-                if old_url != req.search_parameters["url"]:
-                    query_changed = True
-            for key, value in req.search_parameters.items():
-                source_to_update.search_parameters[key] = value
+            parameters.update(req.search_parameters)
+
+        if (
+            is_api
+            and source_to_update.platform == "colrev.open_alex"
+            # Rebuilding needs the API key; skip it for edits that touch
+            # neither the query nor the search string (e.g. run_date only).
+            and (req.search_string is not None or incoming_query is not None)
+        ):
+            # Merge over the stored query so a partial edit keeps the filters
+            # it did not mention, then rebuild the URL from that merge.
+            merged_query = {**stored_query, **(incoming_query or {})}
+            if req.search_string is not None:
+                merged_query["search"] = req.search_string
+            parameters.update(
+                _build_openalex_search_parameters(
+                    search_string=req.search_string or "",
+                    extra={"query": merged_query},
+                )
+            )
+            logger.info("Rebuilt OpenAlex URL from the updated query")
+
+        if parameters or hasattr(source_to_update, "search_parameters"):
+            source_to_update.search_parameters = parameters
+
+        new_url = str(parameters.get("url") or "")
+        query_changed = search_string_changed or new_url != previous_url
 
         # If the query changed, wipe results so the next search starts fresh.
         if query_changed:
@@ -705,7 +836,7 @@ class SearchHandler(BaseHandler):
             operation="update_source",
             message="Update_source operation completed successfully",
             details=UpdateSourceDetails(
-                source=source_to_update.model_dump(),
+                source=_source_payload(source_to_update),
                 message=f"Updated search source: {req.filename}",
             ),
         )

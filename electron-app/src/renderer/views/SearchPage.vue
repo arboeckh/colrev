@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { Plus, Loader2, Play } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
 import { AddSourceDialog, SourceCard } from '@/components/search';
+import type { SourceRunState } from '@/components/search/SourceCard.vue';
 import { LoadErrorState } from '@/components/common';
 import StepPageShell from '@/components/layout/StepPageShell.vue';
 import SearchPageHelp from './SearchPageHelp.vue';
@@ -28,16 +28,20 @@ const sources = ref<SearchSource[]>([]);
 const isLoadingSources = ref(false);
 const sourcesLoadError = ref<string | null>(null);
 
-// Search state
-const isSearching = ref(false);
-const searchingSource = ref<string | null>(null); // null = all sources, string = specific source filename
-const searchProgress = ref(0);
-const searchStatus = ref('');
-const fetchedRecords = ref(0);
-const totalRecords = ref(0);
-const currentBatch = ref(0);
-const totalBatches = ref(0);
+// Search state, per source.
+//
+// "Run all searches" is a wrapper around the per-source runs rather than a
+// separate batch RPC, so every card reports its own status instead of echoing
+// whichever source the shared progress channel last mentioned. The backend
+// handles one RPC at a time, so the batch advances one source at a time and
+// the sources still waiting say "Queued".
+const searchingSource = ref<string | null>(null);
+const queuedSources = ref<string[]>([]);
+const isRunningAll = ref(false);
+const progressBySource = ref<Record<string, string>>({});
 let progressCleanup: (() => void) | null = null;
+
+const isSearching = computed(() => searchingSource.value !== null);
 
 // Filter out empty FILES type sources (like the default files.bib)
 // These are useful for PDF imports but clutter the UI when empty
@@ -51,10 +55,12 @@ const visibleSources = computed(() => {
   });
 });
 
-// Count API sources for progress estimation
-const apiSourceCount = computed(() => {
-  return visibleSources.value.filter(s => s.search_type === 'API').length;
-});
+// Only API sources can be run from here. File-based sources are refreshed by
+// uploading a new export — colrev's DB search path prompts on stdin, which the
+// JSON-RPC backend has no way to answer.
+const runnableSources = computed(() =>
+  visibleSources.value.filter(s => s.search_type === 'API'),
+);
 
 // Endpoints already configured as API sources — gallery uses these to disable
 // duplicate tiles.
@@ -68,13 +74,23 @@ const existingApiEndpoints = computed(() => {
 // Dialog state — single unified Add Source dialog
 const showAddSourceDialog = ref(false);
 
-// Run search for a specific source
-async function runSourceSearch(sourceFilename: string) {
-  if (isSearching.value || !projects.currentProjectId || !backend.isRunning) return;
+function sourceKey(source: SearchSource): string {
+  return source.filename || source.search_results_path || '';
+}
 
-  isSearching.value = true;
-  searchingSource.value = sourceFilename; // Track which source is being searched
-  startProgressTracking();
+function runStateFor(source: SearchSource): SourceRunState {
+  const key = sourceKey(source);
+  if (searchingSource.value === key) return 'searching';
+  if (queuedSources.value.includes(key)) return 'queued';
+  return 'idle';
+}
+
+/** Run one source. Resolves either way so a batch continues past a failure. */
+async function runSourceSearch(sourceFilename: string): Promise<boolean> {
+  if (isSearching.value || !projects.currentProjectId || !backend.isRunning) return false;
+
+  searchingSource.value = sourceFilename;
+  delete progressBySource.value[sourceFilename];
 
   try {
     await backend.call('search', {
@@ -82,24 +98,56 @@ async function runSourceSearch(sourceFilename: string) {
       source: sourceFilename,
       rerun: true,
     });
-
-    stopProgressTracking(true);
-    notifications.success('Search completed');
-
-    // Sources, status counts and operation info refresh via the invalidation
-    // seam (search is a writer RPC). Short delay to show 100% before hiding.
-    await new Promise(resolve => setTimeout(resolve, 500));
+    return true;
   } catch (err) {
-    stopProgressTracking(false);
     const message = err instanceof Error ? err.message : 'Unknown error';
     notifications.error('Search failed', message);
+    return false;
   } finally {
-    isSearching.value = false;
     searchingSource.value = null;
-    searchProgress.value = 0;
-    searchStatus.value = '';
-    fetchedRecords.value = 0;
-    totalRecords.value = 0;
+    delete progressBySource.value[sourceFilename];
+  }
+}
+
+/** Run every API source, one after another, reporting each on its own card. */
+async function runAllSearches() {
+  if (isSearching.value || isRunningAll.value) return;
+  if (!projects.currentProjectId || !backend.isRunning) return;
+
+  const pending = runnableSources.value.map(sourceKey).filter(Boolean);
+  if (pending.length === 0) return;
+
+  isRunningAll.value = true;
+  queuedSources.value = [...pending];
+  let succeeded = 0;
+
+  try {
+    for (const filename of pending) {
+      queuedSources.value = queuedSources.value.filter(f => f !== filename);
+      if (await runSourceSearch(filename)) succeeded += 1;
+    }
+  } finally {
+    queuedSources.value = [];
+    isRunningAll.value = false;
+  }
+
+  if (succeeded === pending.length) {
+    notifications.success(
+      'Searches completed',
+      `Ran ${succeeded} source${succeeded !== 1 ? 's' : ''}`,
+    );
+  } else if (succeeded > 0) {
+    notifications.error(
+      'Some searches failed',
+      `${succeeded} of ${pending.length} sources completed`,
+    );
+  }
+}
+
+/** Run one source from its card, outside a batch. */
+async function runSingleSearch(sourceFilename: string) {
+  if (await runSourceSearch(sourceFilename)) {
+    notifications.success('Search completed');
   }
 }
 
@@ -131,79 +179,6 @@ async function loadSources() {
   }
 }
 
-function startProgressTracking() {
-  searchProgress.value = 0;
-  searchStatus.value = 'Connecting to search APIs...';
-  fetchedRecords.value = 0;
-  totalRecords.value = 0;
-  currentBatch.value = 0;
-  totalBatches.value = 0;
-
-  // Listen for real progress from backend logs
-  progressCleanup = backend.onSearchProgress((progress) => {
-    currentBatch.value = progress.currentBatch;
-    totalBatches.value = progress.totalBatches;
-    fetchedRecords.value = progress.fetchedRecords;
-    totalRecords.value = progress.totalRecords;
-    searchStatus.value = progress.status;
-
-    // Calculate real progress percentage
-    if (progress.totalBatches > 0) {
-      searchProgress.value = Math.round((progress.currentBatch / progress.totalBatches) * 100);
-    } else if (progress.totalRecords > 0) {
-      searchProgress.value = Math.round((progress.fetchedRecords / progress.totalRecords) * 100);
-    }
-  });
-}
-
-function stopProgressTracking(success: boolean) {
-  if (progressCleanup) {
-    progressCleanup();
-    progressCleanup = null;
-  }
-  backend.clearSearchProgress();
-
-  if (success) {
-    searchProgress.value = 100;
-    searchStatus.value = 'Search complete!';
-  }
-}
-
-async function runSearch() {
-  if (isSearching.value || !projects.currentProjectId || !backend.isRunning) return;
-
-  isSearching.value = true;
-  searchingSource.value = null; // null means all sources
-  startProgressTracking();
-
-  try {
-    // Use rerun=true to fetch all results (not just incremental updates)
-    // This ensures we don't hit the early termination logic in PubMed API
-    await backend.call('search', {
-      project_id: projects.currentProjectId,
-      rerun: true,
-    });
-
-    stopProgressTracking(true);
-    notifications.success('Search completed');
-
-    // Sources, status counts and operation info refresh via the invalidation
-    // seam. Short delay to show 100% before hiding.
-    await new Promise(resolve => setTimeout(resolve, 500));
-  } catch (err) {
-    stopProgressTracking(false);
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    notifications.error('Search failed', message);
-  } finally {
-    isSearching.value = false;
-    searchingSource.value = null;
-    searchProgress.value = 0;
-    searchStatus.value = '';
-    fetchedRecords.value = 0;
-    totalRecords.value = 0;
-  }
-}
-
 // Source mutations (add/update/delete/upload) and searches are writer RPCs:
 // the invalidation seam refreshes store-level state and this reloads the
 // page-owned source list.
@@ -213,6 +188,21 @@ useProjectDataChanged(async () => {
 
 onMounted(() => {
   loadSources();
+  // Progress events carry the source they belong to, so a status line lands on
+  // the card that produced it.
+  progressCleanup = backend.onSearchProgress((progress) => {
+    if (!progress.source) return;
+    progressBySource.value = {
+      ...progressBySource.value,
+      [progress.source]: progress.status,
+    };
+  });
+});
+
+onUnmounted(() => {
+  progressCleanup?.();
+  progressCleanup = null;
+  backend.clearSearchProgress();
 });
 </script>
 
@@ -223,48 +213,6 @@ onMounted(() => {
     :page-help="SearchPageHelp"
   >
     <div class="p-6 space-y-6">
-    <!-- Search Progress Card (only for "Run All Searches") -->
-    <Card v-if="isSearching && searchingSource === null" class="border-primary/20 bg-primary/5">
-      <CardContent class="pt-6">
-        <div class="space-y-4">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3">
-              <Loader2 class="h-5 w-5 animate-spin text-primary" />
-              <div>
-                <p class="font-medium">Searching databases...</p>
-                <p class="text-sm text-muted-foreground">{{ searchStatus || 'Connecting to APIs...' }}</p>
-              </div>
-            </div>
-            <div class="text-right">
-              <span class="text-sm font-medium tabular-nums">{{ Math.round(searchProgress) }}%</span>
-              <p v-if="totalRecords > 0" class="text-xs text-muted-foreground tabular-nums">
-                {{ fetchedRecords.toLocaleString() }} / {{ totalRecords.toLocaleString() }} records
-              </p>
-            </div>
-          </div>
-          <Progress :model-value="searchProgress" class="h-2" />
-          <div class="flex items-center justify-between text-xs text-muted-foreground">
-            <span v-if="totalBatches > 0">
-              Batch {{ currentBatch }} of {{ totalBatches }}
-            </span>
-            <span v-else>
-              Querying {{ apiSourceCount }} API source{{ apiSourceCount !== 1 ? 's' : '' }}
-            </span>
-            <span v-if="totalRecords > 0">
-              ~{{ Math.ceil((totalBatches - currentBatch) * 0.5) }}s remaining
-            </span>
-          </div>
-          <!-- 10k limit warning -->
-          <div v-if="totalRecords >= 10000"
-            class="flex items-start gap-2 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded text-xs text-yellow-600 dark:text-yellow-500">
-            <span class="font-medium">Note:</span>
-            <span>PubMed API limits searches to 10,000 results. Consider narrowing your search query or splitting by
-              date range for complete results.</span>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-
     <Separator />
 
     <!-- Sources section header with Run All button -->
@@ -275,14 +223,14 @@ onMounted(() => {
       </div>
 
       <Button
-        v-if="visibleSources.length > 0"
-        :disabled="isSearching || !backend.isRunning || isReadOnly"
+        v-if="runnableSources.length > 0"
+        :disabled="isSearching || isRunningAll || !backend.isRunning || isReadOnly"
         data-testid="run-all-searches-button"
-        @click="runSearch"
+        @click="runAllSearches"
       >
-        <Loader2 v-if="isSearching" class="h-4 w-4 mr-2 animate-spin" />
+        <Loader2 v-if="isRunningAll" class="h-4 w-4 mr-2 animate-spin" />
         <Play v-else class="h-4 w-4 mr-2" />
-        {{ isSearching ? 'Searching...' : 'Run All Searches' }}
+        {{ isRunningAll ? 'Running searches...' : 'Run All Searches' }}
       </Button>
     </div>
 
@@ -296,24 +244,26 @@ onMounted(() => {
     />
 
     <!-- Sources grid -->
-    <div v-else class="flex flex-wrap gap-3" :class="{ 'opacity-50 pointer-events-none': isSearching }">
+    <div v-else class="flex flex-wrap gap-3">
       <!-- Source cards -->
       <SourceCard
         v-for="source in visibleSources"
-        :key="source.filename || source.search_results_path"
+        :key="sourceKey(source)"
         :source="source"
         :project-id="projects.currentProjectId!"
-        :is-searching="isSearching && (searchingSource === null || searchingSource === (source.filename || source.search_results_path))"
-        :search-progress="isSearching && (searchingSource === null || searchingSource === (source.filename || source.search_results_path)) ? { progress: searchProgress, status: searchStatus, fetchedRecords, totalRecords, currentBatch, totalBatches } : undefined"
+        :run-state="runStateFor(source)"
+        :progress-message="progressBySource[sourceKey(source)]"
+        :busy="isSearching || isRunningAll"
         :read-only="isReadOnly"
         class="w-80"
-        @run-search="runSourceSearch"
+        @run-search="runSingleSearch"
       />
 
       <!-- Add Source skeleton card (hidden when read-only) -->
       <div v-if="!isReadOnly" class="relative w-72" data-testid="add-source-card">
         <Card
           class="h-full border-dashed border-2 hover:border-primary/50 hover:bg-accent/50 transition-colors cursor-pointer"
+          :class="(isSearching || isRunningAll) && 'pointer-events-none opacity-50'"
           @click="showAddSourceDialog = true"
         >
           <CardContent class="flex flex-col items-center justify-center py-6 text-muted-foreground h-full">

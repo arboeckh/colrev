@@ -228,3 +228,23 @@ export const PLANNED_UPLOAD_CONNECTORS = CONNECTORS.filter(
 export function findConnector(id: string): DbConnector | undefined {
   return CONNECTORS.find((c) => c.id === id);
 }
+
+/**
+ * The catalog entry for a configured source, so the UI can name it the way the
+ * database does ("OpenAlex") rather than by its colrev endpoint ("open_alex").
+ *
+ * Some databases appear twice — once as an API connector, once as a file
+ * upload — so the style disambiguates.
+ */
+export function findConnectorByEndpoint(
+  endpoint: string | undefined | null,
+  style?: ConnectionStyle,
+): DbConnector | undefined {
+  if (!endpoint) return undefined;
+  const matches = CONNECTORS.filter((c) => c.endpoint === endpoint);
+  if (style) {
+    const styled = matches.find((c) => c.style === style);
+    if (styled) return styled;
+  }
+  return matches[0];
+}

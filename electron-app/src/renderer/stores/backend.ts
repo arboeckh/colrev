@@ -35,6 +35,12 @@ export interface SearchProgress {
   fetchedRecords: number;
   totalRecords: number;
   status: string;
+  /**
+   * The search source this event belongs to (its results path), when the
+   * backend knows it. Lets the search page put a status line on the one card
+   * that produced it instead of on every card at once.
+   */
+  source?: string;
 }
 
 export const useBackendStore = defineStore('backend', () => {
@@ -115,6 +121,7 @@ export const useBackendStore = defineStore('backend', () => {
           fetchedRecords: current,
           totalRecords: total,
           status: event.message,
+          source: typeof event.source === 'string' ? event.source : undefined,
         };
         searchProgress.value = progress;
         notifySearchProgressListeners(progress);

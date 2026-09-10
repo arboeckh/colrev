@@ -1089,8 +1089,8 @@ export interface GetSourcesResponse {
   [k: string]: unknown;
 }
 /**
- * The wire shape built in ``get_sources``: ``ExtendedSearchFile.model_dump()``
- * plus the staleness metadata. Extra fields ride along via ``extra="allow"``.
+ * The wire shape built in ``get_sources``: :func:`_source_payload` plus the
+ * staleness metadata. Extra fields ride along via ``extra="allow"``.
  */
 
 export interface SourceInfo {
@@ -1098,6 +1098,9 @@ export interface SourceInfo {
   last_run_timestamp?: string | null;
   platform?: string | null;
   record_count?: number | null;
+  search_parameters?: {
+    [k: string]: unknown;
+  } | null;
   search_results_path?: string | null;
   search_string?: string | null;
   search_type?: string | null;

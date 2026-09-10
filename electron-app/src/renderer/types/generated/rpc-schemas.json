@@ -5938,7 +5938,7 @@
         "$defs": {
           "SourceInfo": {
             "additionalProperties": true,
-            "description": "The wire shape built in ``get_sources``: ``ExtendedSearchFile.model_dump()``\nplus the staleness metadata. Extra fields ride along via ``extra=\"allow\"``.",
+            "description": "The wire shape built in ``get_sources``: :func:`_source_payload` plus the\nstaleness metadata. Extra fields ride along via ``extra=\"allow\"``.",
             "properties": {
               "is_stale": {
                 "anyOf": [
@@ -5987,6 +5987,19 @@
                 ],
                 "default": null,
                 "title": "Record Count"
+              },
+              "search_parameters": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Search Parameters"
               },
               "search_results_path": {
                 "anyOf": [
