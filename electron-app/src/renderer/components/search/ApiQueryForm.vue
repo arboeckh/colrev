@@ -6,7 +6,7 @@
  * can be re-tuned with the same controls it was created with.
  */
 import { computed } from 'vue';
-import { Input } from '@/components/ui/input';
+import { Input, NumericInput } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import type { DbConnector } from './db-catalog';
 import type { ApiQueryValue } from './api-query';
@@ -67,24 +67,26 @@ const advancedOpen = computed({
         <div class="grid grid-cols-2 gap-3">
           <div class="space-y-1">
             <label class="text-xs font-medium">Year from</label>
-            <Input
+            <NumericInput
               :model-value="modelValue.yearFrom"
-              type="number"
+              mode="integer"
+              :allow-negative="false"
               placeholder="2020"
               :disabled="disabled"
               data-testid="query-year-from"
-              @update:model-value="set('yearFrom', String($event ?? ''))"
+              @update:model-value="set('yearFrom', $event)"
             />
           </div>
           <div class="space-y-1">
             <label class="text-xs font-medium">Year to</label>
-            <Input
+            <NumericInput
               :model-value="modelValue.yearTo"
-              type="number"
+              mode="integer"
+              :allow-negative="false"
               placeholder="2024"
               :disabled="disabled"
               data-testid="query-year-to"
-              @update:model-value="set('yearTo', String($event ?? ''))"
+              @update:model-value="set('yearTo', $event)"
             />
           </div>
         </div>
@@ -160,13 +162,14 @@ const advancedOpen = computed({
           </label>
           <div class="space-y-1">
             <label class="text-xs font-medium">Minimum citations</label>
-            <Input
+            <NumericInput
               :model-value="modelValue.minCitations"
-              type="number"
+              mode="integer"
+              :allow-negative="false"
               placeholder="10"
               :disabled="disabled"
               data-testid="query-min-citations"
-              @update:model-value="set('minCitations', String($event ?? ''))"
+              @update:model-value="set('minCitations', $event)"
             />
           </div>
           <div class="space-y-1">
