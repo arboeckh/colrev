@@ -7,7 +7,7 @@ import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
 import { useWalkthroughNavigation } from '@/composables/useWalkthroughNavigation';
-import ProgressTrack from '@/components/prescreen/ProgressTrack.vue';
+import { QueueMap } from '@/components/common';
 import RecordCard, { type DisplayRecord } from '@/components/prescreen/RecordCard.vue';
 import ReconcileDecisionButtons from './ReconcileDecisionButtons.vue';
 import ReconcileApplyBar from './ReconcileApplyBar.vue';
@@ -409,7 +409,7 @@ watch(
           :items="overridableBlockedItems"
         />
 
-        <ProgressTrack
+        <QueueMap
           :items="progressItems"
           :current-index="currentIndex"
           :decided-count="stagedCount"
