@@ -152,6 +152,57 @@ describe('projectData invalidation seam', () => {
     });
   });
 
+  describe('reentrant invalidation', () => {
+    // A branch switch invalidates through the seam, and a page handler can
+    // react by switching branch again (managed-review access check). Chaining
+    // the nested invalidation onto the serialization chain deadlocked: the
+    // link it waited for was the one awaiting that very handler.
+    it('resolves when a subscriber invalidates from inside its handler', async () => {
+      const projects = useProjectsStore();
+      projects.currentProjectId = 'p1';
+      const seam = useProjectDataStore();
+
+      const events: ProjectDataEvent[] = [];
+      let reentered = false;
+      seam.subscribe(async (e) => {
+        events.push(e);
+        if (!e.full || reentered) return;
+        reentered = true;
+        await seam.invalidateAll();
+      });
+
+      let settled = false;
+      const outer = seam.invalidateAll().then(() => {
+        settled = true;
+      });
+      await vi.runAllTimersAsync();
+      await outer;
+
+      expect(settled).toBe(true);
+      // Outer event plus the nested one the handler triggered.
+      expect(events).toHaveLength(2);
+    });
+
+    it('stops a subscriber that invalidates on every event', async () => {
+      const projects = useProjectsStore();
+      projects.currentProjectId = 'p1';
+      const seam = useProjectDataStore();
+
+      let depth = 0;
+      seam.subscribe(async () => {
+        depth += 1;
+        await seam.invalidateAll();
+      });
+
+      const outer = seam.invalidateAll();
+      await vi.runAllTimersAsync();
+      await outer;
+
+      expect(depth).toBeLessThan(10);
+      expect(seam.isStale).toBe(true);
+    });
+  });
+
   describe('staleness flag', () => {
     it('markStale / clearStale toggle the visible flag', () => {
       const seam = useProjectDataStore();

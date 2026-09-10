@@ -279,6 +279,11 @@ async function handlePdfsImported() {
 // working tree — discard walkthrough state and rebuild the queue.
 useProjectDataChanged(async (event) => {
   if (!event.full) return;
+  // A branch switch invalidates through this same seam. When someone else is
+  // driving it — the workflow stepper heading for reconcile, the router guard
+  // leaving a reviewer branch — re-running the access check here would switch
+  // straight back and fight them for the branch.
+  if (git.isSwitchingBranch) return;
   decisionHistory.value = [];
   const canLoadQueue = await ensureManagedTaskAccess();
   if (canLoadQueue) {
