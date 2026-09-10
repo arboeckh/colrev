@@ -302,6 +302,26 @@ class TestManagedReviewJSONRPC:
         assert "record_id" in csv_export["result"]["content"]
         assert '"task_id"' in json_export["result"]["content"]
 
+        # Reviewer branches are retired once their decisions are in dev. The
+        # progress counts must survive that: they used to be recomputed from
+        # the (now missing) branches and collapse to 0/N for both reviewers.
+        for reviewer in task["reviewers"]:
+            self.repo.git.branch("-D", reviewer["branch_name"])
+
+        listed = _request(
+            "list_managed_review_tasks",
+            self.project_id,
+            self.base_path,
+            kind="prescreen",
+        )["result"]["tasks"]
+        completed = next(t for t in listed if t["id"] == task["id"])
+        assert completed["state"] == "completed"
+        assert completed["record_count"] == 2
+        for progress in completed["reviewer_progress"]:
+            assert progress["available"] is False
+            assert progress["completed_count"] == 2
+            assert progress["pending_count"] == 0
+
     def test_screen_task_reconciliation_uses_criteria(self):
         criterion_response = _request(
             "add_screening_criterion",
@@ -404,6 +424,23 @@ class TestManagedReviewJSONRPC:
         records = review_manager.dataset.load_records_dict()
         assert records["R1"]["colrev_status"].name == "rev_excluded"
         assert records["R1"]["screening_criteria"] == "topic=out"
+
+        # Same retired-branch guarantee as prescreen: progress counts are
+        # snapshotted at completion, not recomputed from deleted branches.
+        for reviewer in task["reviewers"]:
+            self.repo.git.branch("-D", reviewer["branch_name"])
+
+        listed = _request(
+            "list_managed_review_tasks",
+            self.project_id,
+            self.base_path,
+            kind="screen",
+        )["result"]["tasks"]
+        completed = next(t for t in listed if t["id"] == task["id"])
+        assert completed["state"] == "completed"
+        for progress in completed["reviewer_progress"]:
+            assert progress["completed_count"] == completed["record_count"]
+            assert progress["pending_count"] == 0
 
     def test_apply_reconciliation_snapshot(self):
         """Handler-level snapshot: statuses + criteria after a mixed

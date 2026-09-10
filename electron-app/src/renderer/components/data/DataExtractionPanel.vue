@@ -4,7 +4,7 @@ import { Database, Settings, ChevronRight } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
+import { NumericInput } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { DataProgressBar } from '@/components/data';
@@ -63,23 +63,6 @@ function typeLabel(dt: string | undefined): string {
 function displayValue(fieldName: string): string {
   const val = props.localValues[fieldName];
   return val === 'TODO' ? '' : (val ?? '');
-}
-
-function updateIntegerField(fieldName: string, raw: string) {
-  const cleaned = raw.replace(/[^\d-]/g, '');
-  const normalized = cleaned.startsWith('-')
-    ? `-${cleaned.slice(1).replace(/-/g, '')}`
-    : cleaned.replace(/-/g, '');
-  emit('update-value', fieldName, normalized);
-}
-
-function updateDecimalField(fieldName: string, raw: string) {
-  const cleaned = raw.replace(/[^\d.-]/g, '');
-  const hasLeadingMinus = cleaned.startsWith('-');
-  const unsigned = hasLeadingMinus ? cleaned.slice(1) : cleaned;
-  const parts = unsigned.split('.');
-  const normalized = `${hasLeadingMinus ? '-' : ''}${parts[0] ?? ''}${parts.length > 1 ? `.${parts.slice(1).join('')}` : ''}`;
-  emit('update-value', fieldName, normalized);
 }
 </script>
 
@@ -184,29 +167,15 @@ function updateDecimalField(fieldName: string, raw: string) {
             @update:model-value="emit('update-value', field.name, String($event))"
           />
 
-          <!-- Integer -->
-          <Input
-            v-else-if="field.data_type === 'int'"
-            type="text"
-            inputmode="numeric"
-            pattern="[0-9-]*"
-            class="w-32 max-w-full [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          <!-- Integer / decimal: non-numeric keystrokes are refused at entry -->
+          <NumericInput
+            v-else-if="field.data_type === 'int' || field.data_type === 'double'"
+            :mode="field.data_type === 'int' ? 'integer' : 'decimal'"
+            class="w-32 max-w-full"
             :model-value="displayValue(field.name)"
             :placeholder="field.explanation || field.name"
             :data-testid="`data-field-input-${field.name}`"
-            @update:model-value="updateIntegerField(field.name, String($event))"
-          />
-
-          <!-- Decimal -->
-          <Input
-            v-else-if="field.data_type === 'double'"
-            type="text"
-            inputmode="decimal"
-            class="w-32 max-w-full [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-            :model-value="displayValue(field.name)"
-            :placeholder="field.explanation || field.name"
-            :data-testid="`data-field-input-${field.name}`"
-            @update:model-value="updateDecimalField(field.name, String($event))"
+            @update:model-value="emit('update-value', field.name, $event)"
           />
 
           <!-- Single choice (radio buttons) -->

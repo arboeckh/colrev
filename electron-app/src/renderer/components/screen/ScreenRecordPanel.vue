@@ -11,7 +11,7 @@ import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ScreenCriteriaChecklist from './ScreenCriteriaChecklist.vue';
 import ScreenCriteriaDecisionButtons from './ScreenCriteriaDecisionButtons.vue';
-import ScreenProgressBar from './ScreenProgressBar.vue';
+import { QueueMap } from '@/components/common';
 import type { ScreenQueueRecord, ScreenCriterionInfo } from '@/types/generated/rpc';
 import type { CriterionDecision } from '@/lib/screen-decision';
 
@@ -80,11 +80,14 @@ const emit = defineEmits<{
 
     <Separator />
 
-    <ScreenProgressBar
-      :records="queueRecords"
+    <QueueMap
+      :items="queueRecords.map((r) => ({ id: r.id, decision: r._decision }))"
       :current-index="currentIndex"
+      :decided-count="queueRecords.filter((r) => r._decision !== 'undecided').length"
+      :total-count="queueRecords.length"
+      test-id-prefix="screen"
       class="px-3 my-3 shrink-0"
-      @navigate="(index) => emit('navigate', index)"
+      @seek="(index) => emit('navigate', index)"
     />
 
     <Separator />

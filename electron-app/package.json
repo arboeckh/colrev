@@ -26,6 +26,7 @@
     "release:mac:fast": "bash ../scripts/build_and_package.sh mac unsigned --skip-jsonrpc",
     "release:win:fast": "bash ../scripts/build_and_package.sh win unsigned --skip-jsonrpc",
     "release:linux:fast": "bash ../scripts/build_and_package.sh linux unsigned --skip-jsonrpc",
+    "dev:bg": "COLREV_BACKGROUND=1 electron-vite dev",
     "dev:alice": "COLREV_USER=alice electron-vite dev",
     "dev:bob": "COLREV_USER=bob electron-vite dev",
     "dev:duo": "./dev-duo.sh",

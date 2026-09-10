@@ -26,6 +26,7 @@ import PreprocessingPageHelp from './PreprocessingPageHelp.vue';
 import type { SearchSource } from '@/types';
 import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 import { formatSourceName } from '@/lib/displayNames';
+import { formatCount, countTextSizeClass } from '@/lib/utils';
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
@@ -320,56 +321,67 @@ watch(
     </div>
 
     <template v-else>
-      <!-- Pipeline: sources → stages → output -->
+      <!-- Pipeline: sources → stages → output.
+           The diagram is a container: it reads as a left-to-right pipeline when
+           there is room for one, and stacks top-to-bottom when there is not.
+           Every column can shrink (min-w-0) so long source names and large
+           counts clip or wrap instead of pushing their card open. -->
       <div
-        class="rounded-lg border border-border bg-muted/10 p-6"
+        class="@container rounded-lg border border-border bg-muted/10 p-4 @2xl:p-6"
         data-testid="preprocessing-flow-diagram"
       >
-        <div class="grid grid-cols-[minmax(180px,220px)_auto_1fr_auto_minmax(180px,220px)] items-stretch gap-4">
+        <div
+          class="flex flex-col gap-4 @3xl:grid @3xl:grid-cols-[minmax(0,0.75fr)_auto_minmax(0,2fr)_auto_minmax(0,0.75fr)] @3xl:items-stretch"
+        >
           <!-- Sources column -->
-          <div class="flex flex-col gap-2">
+          <div class="flex flex-col gap-2 min-w-0">
             <div class="text-xs font-medium uppercase tracking-wide text-muted-foreground px-1">
               Sources
             </div>
             <div
               v-for="source in visibleSources"
               :key="source.filename || source.search_results_path"
-              class="flex items-center gap-2 p-2.5 bg-background rounded-md border border-border"
+              class="flex items-center gap-2 p-2.5 bg-background rounded-md border border-border min-w-0"
               :data-testid="`preprocessing-source-${getSourceDisplayName(source).toLowerCase()}`"
             >
               <Database class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               <div class="flex flex-col min-w-0 flex-1">
-                <span class="text-xs font-medium truncate">
+                <span class="text-xs font-medium truncate" :title="getSourceDisplayName(source)">
                   {{ getSourceDisplayName(source) }}
                 </span>
-                <span class="text-[11px] text-muted-foreground tabular-nums">
-                  {{ source.record_count ?? 0 }} records
+                <span class="text-[11px] text-muted-foreground tabular-nums truncate">
+                  {{ formatCount(source.record_count ?? 0) }} records
                 </span>
               </div>
             </div>
             <div
-              class="mt-1 pt-2 border-t border-border/60 text-xs text-muted-foreground px-1 flex justify-between"
+              class="mt-1 pt-2 border-t border-border/60 text-xs text-muted-foreground px-1 flex items-baseline justify-between gap-2"
             >
-              <span>Total</span>
-              <span class="font-medium text-foreground tabular-nums">{{ totalSourceRecords }}</span>
+              <span class="shrink-0">Total</span>
+              <span class="font-medium text-foreground tabular-nums truncate">
+                {{ formatCount(totalSourceRecords) }}
+              </span>
             </div>
           </div>
 
-          <!-- Arrow -->
-          <div class="flex items-center pt-6">
-            <ArrowRight class="h-5 w-5 text-muted-foreground" />
+          <!-- Arrow (points down while the pipeline is stacked) -->
+          <div class="flex items-center justify-center shrink-0 @3xl:pt-6">
+            <ArrowRight class="h-5 w-5 text-muted-foreground rotate-90 @3xl:rotate-0" />
           </div>
 
-          <!-- Stages -->
-          <div class="flex flex-col" data-testid="preprocessing-progress">
+          <!-- Stages. Its own container: three across when the column is wide
+               enough for the stage labels, stacked when it is not. -->
+          <div class="@container flex flex-col min-w-0" data-testid="preprocessing-progress">
             <div class="text-xs font-medium uppercase tracking-wide text-muted-foreground px-1 mb-2">
               Stages
             </div>
-            <div class="grid grid-cols-3 gap-3 flex-1">
+            <!-- Three across only when a stage card can hold its full label;
+                 below that the stages stack rather than shrink into ellipses. -->
+            <div class="grid grid-cols-1 @lg:grid-cols-3 gap-3 flex-1">
               <div
                 v-for="(stage, index) in stageDefinitions"
                 :key="stage.id"
-                class="relative flex flex-col p-3 rounded-md border transition-all duration-300"
+                class="relative flex flex-col min-w-0 p-3 rounded-md border transition-all duration-300"
                 :class="{
                   'border-primary/60 bg-primary/5 shadow-sm': getStageVisualStatus(stage.id) === 'running',
                   'border-emerald-500/40 bg-emerald-500/5': getStageVisualStatus(stage.id) === 'complete',
@@ -378,8 +390,10 @@ watch(
                 :data-testid="`preprocessing-step-${stage.id}`"
                 :data-status="getStageVisualStatus(stage.id)"
               >
-                <div class="flex items-center justify-between mb-1.5">
-                  <div class="flex items-center gap-1.5">
+                <!-- Header wraps before it overflows: the percentage drops to
+                     its own line rather than pushing past the card edge. -->
+                <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-1.5">
+                  <div class="flex items-center gap-1.5 min-w-0">
                     <span
                       class="flex items-center justify-center h-5 w-5 rounded-full text-[11px] font-semibold shrink-0"
                       :class="{
@@ -399,14 +413,14 @@ watch(
                       <template v-else>{{ index + 1 }}</template>
                     </span>
                     <component :is="stage.icon" class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <span class="text-sm font-medium">{{ stage.label }}</span>
+                    <span class="text-sm font-medium truncate" :title="stage.label">{{ stage.label }}</span>
                   </div>
                   <span
                     v-if="getStageVisualStatus(stage.id) === 'running' && currentStageProgress !== null"
-                    class="text-xs font-medium tabular-nums text-primary"
+                    class="text-xs font-medium tabular-nums text-primary shrink-0"
                   >{{ currentStageProgress }}%</span>
                 </div>
-                <p class="text-xs text-muted-foreground leading-snug mb-2">
+                <p class="text-xs text-muted-foreground leading-snug mb-2 break-words">
                   {{ stage.description }}
                 </p>
                 <!-- Progress bar (running only) -->
@@ -425,18 +439,18 @@ watch(
             </div>
           </div>
 
-          <!-- Arrow -->
-          <div class="flex items-center pt-6">
-            <ArrowRight class="h-5 w-5 text-muted-foreground" />
+          <!-- Arrow (points down while the pipeline is stacked) -->
+          <div class="flex items-center justify-center shrink-0 @3xl:pt-6">
+            <ArrowRight class="h-5 w-5 text-muted-foreground rotate-90 @3xl:rotate-0" />
           </div>
 
           <!-- Output column -->
-          <div class="flex flex-col">
+          <div class="flex flex-col min-w-0">
             <div class="text-xs font-medium uppercase tracking-wide text-muted-foreground px-1 mb-2">
               Output
             </div>
             <div
-              class="flex-1 flex flex-col items-center justify-center p-4 rounded-md border transition-all duration-300"
+              class="flex-1 flex flex-col items-center justify-center min-w-0 p-4 rounded-md border text-center transition-all duration-300"
               :class="isPreprocessingComplete
                 ? 'bg-emerald-500/10 border-emerald-500/30'
                 : 'bg-background border-border'"
@@ -445,23 +459,29 @@ watch(
                 <span class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   Dataset
                 </span>
-                <span class="text-3xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400 mt-1">
-                  {{ finalRecordCount }}
+                <!-- The headline number steps down a size as it gains digits,
+                     so a six- or seven-figure dataset still fits the column. -->
+                <span
+                  class="font-bold tabular-nums text-emerald-600 dark:text-emerald-400 mt-1 max-w-full leading-tight"
+                  :class="countTextSizeClass(finalRecordCount)"
+                >
+                  {{ formatCount(finalRecordCount) }}
                 </span>
                 <span class="text-xs text-muted-foreground">records</span>
                 <Badge
                   v-if="duplicatesRemoved > 0"
                   variant="secondary"
-                  class="mt-2 text-[11px]"
+                  class="mt-2 text-[11px] max-w-full"
+                  :title="`${formatCount(duplicatesRemoved)} duplicates removed`"
                 >
-                  −{{ duplicatesRemoved }} duplicate{{ duplicatesRemoved === 1 ? '' : 's' }}
+                  −{{ formatCount(duplicatesRemoved) }} duplicate{{ duplicatesRemoved === 1 ? '' : 's' }}
                 </Badge>
               </template>
               <template v-else>
                 <span class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   Pending
                 </span>
-                <span class="text-sm text-muted-foreground mt-2 text-center">
+                <span class="text-sm text-muted-foreground mt-2 text-center text-balance">
                   Run preprocessing to generate the dataset
                 </span>
               </template>
@@ -473,7 +493,7 @@ watch(
       <!-- Post-run summary: attention -->
       <div v-if="isPreprocessingComplete">
         <div
-          class="flex items-start gap-3 p-4 rounded-lg border"
+          class="flex flex-wrap items-start gap-3 p-4 rounded-lg border"
           :class="needsAttentionCount > 0
             ? 'bg-amber-500/5 border-amber-500/30'
             : 'bg-muted/20 border-border'"
@@ -487,10 +507,10 @@ watch(
             <AlertTriangle v-if="needsAttentionCount > 0" class="h-4 w-4" data-testid="attention-indicator" />
             <Check v-else class="h-4 w-4" />
           </div>
-          <div class="flex-1 min-w-0">
-            <div class="text-sm font-medium">
+          <div class="flex-1 min-w-0 basis-64">
+            <div class="text-sm font-medium text-pretty">
               <template v-if="needsAttentionCount > 0">
-                {{ needsAttentionCount }} record{{ needsAttentionCount === 1 ? '' : 's' }} need{{ needsAttentionCount === 1 ? 's' : '' }} attention
+                {{ formatCount(needsAttentionCount) }} record{{ needsAttentionCount === 1 ? '' : 's' }} need{{ needsAttentionCount === 1 ? 's' : '' }} attention
               </template>
               <template v-else>
                 All records processed cleanly
@@ -508,6 +528,7 @@ watch(
           <Button
             variant="outline"
             size="sm"
+            class="shrink-0 ml-auto"
             data-testid="view-results-button"
             @click="showResultsModal = true"
           >

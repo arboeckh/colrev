@@ -77,6 +77,18 @@ export const useProjectDataStore = defineStore('projectData', () => {
   let retryAttempt = 0;
   /** When the last write-triggered refresh was dispatched, for the leading edge. */
   let lastDispatchAt = 0;
+  /**
+   * Depth of `runRefresh` calls currently on the stack. Non-zero means we are
+   * inside a subscriber handler, which must never chain onto `refreshChain`
+   * (see `enqueueRefresh`).
+   */
+  let refreshDepth = 0;
+  /**
+   * A handler that invalidates on every event would recurse forever. Nothing
+   * legitimately needs more than one level (branch switch inside a handler),
+   * so cut it off well short of a stack overflow.
+   */
+  const MAX_REFRESH_DEPTH = 4;
 
   function bumpEpoch(): void {
     epoch.value += 1;
@@ -216,21 +228,41 @@ export const useProjectDataStore = defineStore('projectData', () => {
     const projects = useProjectsStore();
     const projectId = projects.currentProjectId;
     if (!projectId) return;
-    await refreshStores(full);
-    // Project switched while refreshing: this batch belongs to the old
-    // context — don't tell pages to reload against it.
-    if (useProjectsStore().currentProjectId !== projectId) return;
-    await emitEvent({ projectId, methods, full });
-    // `refreshStores` reports failure through the staleness flag rather than
-    // throwing, so this is the only place that learns the stores did not
-    // actually catch up with the write that triggered this refresh.
-    if (isStale.value) scheduleRetry(full);
+    refreshDepth += 1;
+    try {
+      await refreshStores(full);
+      // Project switched while refreshing: this batch belongs to the old
+      // context — don't tell pages to reload against it.
+      if (useProjectsStore().currentProjectId !== projectId) return;
+      await emitEvent({ projectId, methods, full });
+      // `refreshStores` reports failure through the staleness flag rather than
+      // throwing, so this is the only place that learns the stores did not
+      // actually catch up with the write that triggered this refresh.
+      if (isStale.value) scheduleRetry(full);
+    } finally {
+      refreshDepth -= 1;
+    }
   }
 
   /** Serialize refreshes so a full invalidation never races a write refresh. */
   function enqueueRefresh(methods: string[], full: boolean): Promise<void> {
     cancelRetry();
     lastDispatchAt = Date.now();
+    // Reentrant call: a subscriber handler reacted to an event by triggering
+    // another invalidation (a branch switch is the real case — see
+    // `git.switchBranch`). Chaining here would deadlock: the link we would
+    // wait for is the one that is awaiting this very handler. Serialization
+    // is already satisfied — nothing else can run while the chain is busy —
+    // so run it inline instead.
+    if (refreshDepth > 0) {
+      if (refreshDepth >= MAX_REFRESH_DEPTH) {
+        markStale('Refresh loop detected');
+        return Promise.resolve();
+      }
+      return runRefresh(methods, full).catch(() => {
+        markStale('Background refresh failed');
+      });
+    }
     // Failures are surfaced through the staleness flag; never poison the
     // chain (a rejected link would silently stop all future refreshes).
     refreshChain = refreshChain

@@ -239,14 +239,17 @@ test.describe('screen', () => {
       const pinia = (self as any).__pinia__;
       const pending = pinia?._s.get('pendingChanges');
       const git = pinia?._s.get('git');
-      if (!pending || !git) return false;
+      const sync = pinia?._s.get('sync');
+      if (!pending || !git || !sync) return false;
       if (pending.hasPending) {
         const ok = await pending.commit('screen: add criteria');
         if (!ok) return false;
         await git.refreshStatus?.();
       }
       if (git.hasRemote && git.ahead > 0) {
-        await git.push();
+        // The git store keeps raw remote ops behind __remoteOps on purpose;
+        // pushing goes through the sync store, as the UI does.
+        await sync.pushNow();
       }
       await git.refreshStatus?.();
       return git.isClean && git.ahead === 0;

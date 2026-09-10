@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { CheckSquare, FileDown } from 'lucide-vue-next';
-import { EmptyState, LoadErrorState } from '@/components/common';
+import { EmptyState, LoadErrorState, QueueJumpDialog } from '@/components/common';
 import {
   PdfViewerPanel,
   ScreenSplitPanel,
@@ -244,6 +244,18 @@ function skipToNextUndecided() {
   if (nextUndecidedIndex.value !== -1) currentIndex.value = nextUndecidedIndex.value;
 }
 
+const isJumpOpen = ref(false);
+
+const jumpItems = computed(() =>
+  queue.value.map((r) => ({
+    id: r.id,
+    title: r.title,
+    author: r.author,
+    year: r.year,
+    decision: r._decision,
+  })),
+);
+
 function enterEditMode() {
   mode.value = 'edit';
 }
@@ -255,6 +267,13 @@ function exitEditMode() {
 function handleKeydown(e: KeyboardEvent) {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
   if (mode.value !== 'screening') return;
+
+  if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+    if (queue.value.length === 0) return;
+    e.preventDefault();
+    isJumpOpen.value = !isJumpOpen.value;
+    return;
+  }
 
   switch (e.key) {
     case 'ArrowUp':
@@ -279,6 +298,11 @@ async function handlePdfsImported() {
 // working tree — discard walkthrough state and rebuild the queue.
 useProjectDataChanged(async (event) => {
   if (!event.full) return;
+  // A branch switch invalidates through this same seam. When someone else is
+  // driving it — the workflow stepper heading for reconcile, the router guard
+  // leaving a reviewer branch — re-running the access check here would switch
+  // straight back and fight them for the branch.
+  if (git.isSwitchingBranch) return;
   decisionHistory.value = [];
   const canLoadQueue = await ensureManagedTaskAccess();
   if (canLoadQueue) {
@@ -441,6 +465,14 @@ onUnmounted(() => {
         />
       </template>
     </ScreenSplitPanel>
+
+    <QueueJumpDialog
+      v-model:open="isJumpOpen"
+      :items="jumpItems"
+      :current-index="currentIndex"
+      test-id-prefix="screen"
+      @jump="goToRecord"
+    />
     </template>
   </div>
 </template>

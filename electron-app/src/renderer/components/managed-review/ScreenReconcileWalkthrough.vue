@@ -7,7 +7,7 @@ import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
 import { useWalkthroughNavigation } from '@/composables/useWalkthroughNavigation';
-import ProgressTrack from '@/components/prescreen/ProgressTrack.vue';
+import { QueueMap } from '@/components/common';
 import PdfViewerPanel from '@/components/screen/PdfViewerPanel.vue';
 import ScreenSplitPanel from '@/components/screen/ScreenSplitPanel.vue';
 import ScreenReconcileCriteriaPanel from './ScreenReconcileCriteriaPanel.vue';
@@ -475,7 +475,7 @@ onUnmounted(() => {
           Back
         </Button>
         <div class="flex-1 min-w-0">
-          <ProgressTrack
+          <QueueMap
             :items="progressItems"
             :current-index="currentIndex"
             :decided-count="decidedCount"
