@@ -449,17 +449,18 @@ export const useGitStore = defineStore('git', () => {
       // No optimistic branch write: `git:checkout` rebuilt the snapshot under
       // the mutex before returning, so the store already reflects the switch.
 
-      // Reload all project data since branch content differs
-      if (projects.currentProjectId) {
-        await projects.loadProject(projects.currentProjectId);
-      }
-
       await refreshBranches();
       // A branch switch replaces the working tree wholesale, so it goes
       // through the same seam as pull/reset/merge: every store re-derives and
       // mounted pages reload against the new branch. Without this, a page that
       // triggered the switch itself (managed-review access check) would keep
       // rendering the pre-switch view.
+      //
+      // This is also the *only* project reload here. It used to be preceded by
+      // a `projects.loadProject()`, whose work (status, settings, managed
+      // review tasks) `invalidateAll` -> `refreshCurrentProject` then repeated
+      // verbatim milliseconds later — every RPC twice, on a serialized pipe,
+      // on the critical path of entering a managed review step.
       await useProjectDataStore().invalidateAll();
       refreshBranchDelta(); // Fire and forget
       return true;

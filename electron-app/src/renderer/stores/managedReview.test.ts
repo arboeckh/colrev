@@ -62,19 +62,30 @@ describe('refresh', () => {
     expect(managed.lastRefreshError).toBeNull();
   });
 
-  it('fetches remote refs first when the project has a remote', async () => {
+  it('fetches remote refs when the caller asks and the project has a remote', async () => {
     ctx.setGitState({ remoteUrl: 'https://github.com/acme/lit-review.git' });
     ctx.mock.rpc.on('list_managed_review_tasks', (p) => tasksResponse(p.kind));
 
-    await useManagedReviewStore().refresh();
+    await useManagedReviewStore().refresh({ fetch: true });
 
     // Without the fetch, another reviewer's completed branch is invisible.
     expect(ctx.mock.git.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('does not fetch by default, even with a remote', async () => {
+    // This runs on the post-write refresh path: a network round trip here
+    // holds the git mutex and delays the next decision's RPC behind it.
+    ctx.setGitState({ remoteUrl: 'https://github.com/acme/lit-review.git' });
+    ctx.mock.rpc.on('list_managed_review_tasks', (p) => tasksResponse(p.kind));
+
+    await useManagedReviewStore().refresh();
+
+    expect(ctx.mock.git.fetch).not.toHaveBeenCalled();
+  });
+
   it('skips the fetch when there is no remote', async () => {
     ctx.mock.rpc.on('list_managed_review_tasks', (p) => tasksResponse(p.kind));
-    await useManagedReviewStore().refresh();
+    await useManagedReviewStore().refresh({ fetch: true });
     expect(ctx.mock.git.fetch).not.toHaveBeenCalled();
   });
 

@@ -103,7 +103,10 @@ const decisionHistory = ref<EnrichedRecord[]>([]);
 const totalCount = ref(0);
 const isLoading = ref(false);
 const loadError = ref<string | null>(null);
-const isDeciding = ref(false);
+// True only while the *last* decision of a queue is being flushed, i.e. the
+// one moment the user has to wait for the backend (the completion screen
+// reports server-side counts). Every other decision is optimistic.
+const isFinishing = ref(false);
 // One implementation of the reviewer-branch invariant, shared with ScreenPage
 // and the router guard (WP-07 §6).
 const {
@@ -397,49 +400,133 @@ watch(currentIndex, async (newIndex) => {
   }
 });
 
+// --- Decision persistence ---------------------------------------------------
+//
+// Advancing to the next record does not wait for the backend. The RPC pipe is
+// strictly serial (one Python request at a time, behind the main-process git
+// mutex), and a decision drags a refresh tail behind it — so awaiting the
+// round trip put 1-3s between the click and the next abstract even on an
+// eight-record queue. The decision is applied to the local queue and the
+// walkthrough advances immediately; the write is flushed on a background
+// chain that preserves click order.
+//
+// The user reads the next abstract while that happens, which is the budget
+// this trades against. Two things still wait for the backend: the last
+// decision of a queue (the completion screen shows server-side counts) and
+// any failure, which rolls the record back to undecided.
+
+/** Serializes the background writes so decisions reach the backend in order. */
+let decisionChain: Promise<void> = Promise.resolve();
+/** Remaining count from the most recent successful `prescreen_record`. */
+let lastRemainingCount: number | null = null;
+/** Writes queued or in flight. The server's `remaining_count` describes the
+ * tree as of *that* write, so adopting it while later decisions are still
+ * queued would bounce the "remaining" badge back up; the optimistic count is
+ * the accurate one until the chain drains. */
+let pendingWrites = 0;
+
+/** Resolves true when the decision reached the backend, false when it was
+ * rolled back. Never rejects — the chain must survive a failed write. */
+function flushDecision(
+  record: EnrichedRecord,
+  decision: 'include' | 'exclude',
+  guard: { isCurrent: () => boolean },
+): Promise<boolean> {
+  const projectId = projects.currentProjectId!;
+  const taskId = managedTask.value?.id;
+  pendingWrites += 1;
+  const run = decisionChain.then(async () => {
+    try {
+      // The project or branch moved on while this write was queued: the record
+      // it names belongs to a tree that is no longer on screen.
+      if (!guard.isCurrent()) return false;
+      const response = await backend.call('prescreen_record', {
+        project_id: projectId,
+        record_id: record.id,
+        decision,
+        task_id: taskId,
+      });
+      if (response.success) {
+        lastRemainingCount = response.remaining_count;
+        if (guard.isCurrent() && pendingWrites === 1) {
+          totalCount.value = response.remaining_count;
+        }
+        return true;
+      }
+      revertDecision(record, guard);
+      return false;
+    } catch (err) {
+      revertDecision(record, guard);
+      notifications.error(
+        'Decision failed',
+        err instanceof Error ? err.message : 'Unknown error',
+      );
+      return false;
+    } finally {
+      pendingWrites -= 1;
+    }
+  });
+  decisionChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+/** Put an optimistically-applied decision back to undecided after a failure. */
+function revertDecision(record: EnrichedRecord, guard: { isCurrent: () => boolean }) {
+  if (!guard.isCurrent()) return;
+  const queued = queue.value.find((r) => r.id === record.id);
+  if (queued) queued._decision = 'undecided';
+  const historyIndex = decisionHistory.value.findIndex((r) => r.id === record.id);
+  if (historyIndex !== -1) decisionHistory.value.splice(historyIndex, 1);
+  totalCount.value += 1;
+  allDecisionsMade.value = false;
+}
+
 async function makeDecision(decision: 'include' | 'exclude') {
-  if (!currentRecord.value || !projects.currentProjectId || isDeciding.value) return;
+  if (!currentRecord.value || !projects.currentProjectId || isFinishing.value) return;
   if (isCurrentDecided.value) return;
   // Debounce: prevent duplicate calls from simultaneous keyboard + click events
   const now = Date.now();
   if (now - lastDecisionTime.value < 500) return;
   lastDecisionTime.value = now;
 
-  isDeciding.value = true;
+  const record = currentRecord.value;
   const guard = projectData.snapshot();
+
+  // Optimistic: the UI moves now, the write catches up.
+  record._decision = decision === 'include' ? 'included' : 'excluded';
+  decisionHistory.value.push({ ...record });
+  totalCount.value = Math.max(0, totalCount.value - 1);
+
+  const flushed = flushDecision(record, decision, guard);
+
+  if (nextUndecidedIndex.value !== -1) {
+    currentIndex.value = nextUndecidedIndex.value;
+    return;
+  }
+
+  // Last record in the queue: from here the screen depends on backend facts
+  // (is there another page of records? what are the final counts?), so this
+  // is the one decision the user waits on.
+  isFinishing.value = true;
   try {
-    const response = await backend.call('prescreen_record', {
-      project_id: projects.currentProjectId,
-      record_id: currentRecord.value.id,
-      decision,
-      task_id: managedTask.value?.id,
-    });
-
+    // The write failed and rolled back — stay on the record.
+    if (!(await flushed)) return;
     if (!guard.isCurrent()) return;
-    if (response.success) {
-      currentRecord.value._decision = decision === 'include' ? 'included' : 'excluded';
-      totalCount.value = response.remaining_count;
-
-      decisionHistory.value.push({ ...currentRecord.value });
-
-      if (nextUndecidedIndex.value !== -1) {
-        currentIndex.value = nextUndecidedIndex.value;
-      } else if (response.remaining_count > 0) {
-        await loadQueue();
-      } else {
-        // Queue exhausted — flush the seam immediately so the completion
-        // screen renders fresh counts (the debounced write refresh would
-        // land a beat too late).
-        queue.value = [];
-        await projectData.refreshNow();
-        allDecisionsMade.value = true;
-      }
+    if ((lastRemainingCount ?? 0) > 0) {
+      await loadQueue();
+    } else {
+      // Queue exhausted — flush the seam immediately so the completion
+      // screen renders fresh counts (the debounced write refresh would
+      // land a beat too late).
+      queue.value = [];
+      await projectData.refreshNow();
+      allDecisionsMade.value = true;
     }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    notifications.error('Decision failed', message);
   } finally {
-    isDeciding.value = false;
+    isFinishing.value = false;
   }
 }
 
@@ -534,24 +621,21 @@ function cancelEdits() {
 }
 
 
-// Full invalidations (pull, reset, merge, backend restart) replace the
-// working tree — discard walkthrough state and rebuild the queue. Regular
-// write events are ignored: the in-progress queue is self-managed and store
-// counts refresh through the seam.
-useProjectDataChanged(async (event) => {
-  if (!event.full) return;
-  decisionHistory.value = [];
-  allDecisionsMade.value = false;
-  const canLoadQueue = await ensureManagedTaskAccess();
-  if (canLoadQueue) {
-    await loadQueue();
-  } else {
-    queue.value = [];
-    totalCount.value = 0;
-  }
-});
+/**
+ * Arrange branch access and load the queue.
+ *
+ * `isArrangingAccess` exists because `ensureManagedTaskAccess` can *cause* a
+ * full invalidation: checking out the reviewer branch replaces the working
+ * tree, which fires `project-data-changed` with `full: true`, whose handler
+ * is this same function. Without the guard, entering prescreen ran the whole
+ * sequence twice — access probe, branch checkout, queue load — on a serial
+ * pipe, for no new information.
+ */
+let isArrangingAccess = false;
 
-onMounted(async () => {
+async function arrangeAccessAndLoad(): Promise<void> {
+  if (isArrangingAccess) return;
+  isArrangingAccess = true;
   try {
     const canLoadQueue = await ensureManagedTaskAccess();
     if (canLoadQueue) {
@@ -560,6 +644,26 @@ onMounted(async () => {
       queue.value = [];
       totalCount.value = 0;
     }
+  } finally {
+    isArrangingAccess = false;
+  }
+}
+
+// Full invalidations (pull, reset, merge, backend restart) replace the
+// working tree — discard walkthrough state and rebuild the queue. Regular
+// write events are ignored: the in-progress queue is self-managed and store
+// counts refresh through the seam.
+useProjectDataChanged(async (event) => {
+  if (!event.full) return;
+  if (isArrangingAccess) return;
+  decisionHistory.value = [];
+  allDecisionsMade.value = false;
+  await arrangeAccessAndLoad();
+});
+
+onMounted(async () => {
+  try {
+    await arrangeAccessAndLoad();
   } finally {
     await git.refreshStatus();
     isPageReady.value = true;
@@ -864,7 +968,7 @@ onUnmounted(() => {
           <DecisionButtons
             :decision="currentRecord._decision"
             :disabled="!isCurrentRecordReady || isReadOnly"
-            :is-submitting="isDeciding"
+            :is-submitting="isFinishing"
             :show-skip-to-next="nextUndecidedIndex !== -1"
             test-id-prefix="prescreen"
             @decide="makeDecision"

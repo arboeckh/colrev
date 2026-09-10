@@ -177,48 +177,119 @@ async function loadQueue() {
   }
 }
 
+// Decisions are optimistic — see the note above `makeDecision` in
+// PrescreenPage.vue. Navigation must not wait on the serial RPC pipe; the
+// write is flushed on a background chain that preserves click order, and
+// only the final decision of a queue (which decides what the screen shows
+// next) is awaited.
+
+/** Serializes the background writes so decisions reach the backend in order. */
+let decisionChain: Promise<void> = Promise.resolve();
+/** Remaining count from the most recent successful `screen_record`. */
+let lastRemainingCount: number | null = null;
+/** Writes queued or in flight. The server's `remaining_count` describes the
+ * tree as of *that* write, so adopting it while later decisions are still
+ * queued would bounce the "remaining" badge back up; the optimistic count is
+ * the accurate one until the chain drains. */
+let pendingWrites = 0;
+
+function revertDecision(recordId: string, guard: { isCurrent: () => boolean }) {
+  if (!guard.isCurrent()) return;
+  const queued = queue.value.find((r) => r.id === recordId);
+  if (queued) queued._decision = 'undecided';
+  const historyIndex = decisionHistory.value.findIndex((r) => r.id === recordId);
+  if (historyIndex !== -1) decisionHistory.value.splice(historyIndex, 1);
+  totalCount.value += 1;
+  allDecisionsMade.value = false;
+}
+
+/** Resolves true when the decision reached the backend, false when it was
+ * rolled back. Never rejects — the chain must survive a failed write. */
+function flushDecision(
+  recordId: string,
+  decision: 'include' | 'exclude',
+  criteriaDecisions: Record<string, 'in' | 'out'>,
+  guard: { isCurrent: () => boolean },
+): Promise<boolean> {
+  const projectId = projects.currentProjectId!;
+  const taskId = managedTask.value?.id;
+  pendingWrites += 1;
+  const run = decisionChain.then(async () => {
+    try {
+      if (!guard.isCurrent()) return false;
+      const response = await backend.call('screen_record', {
+        project_id: projectId,
+        record_id: recordId,
+        decision,
+        criteria_decisions:
+          Object.keys(criteriaDecisions).length > 0 ? criteriaDecisions : undefined,
+        task_id: taskId,
+      });
+      if (response.success) {
+        lastRemainingCount = response.remaining_count;
+        if (guard.isCurrent() && pendingWrites === 1) {
+          totalCount.value = response.remaining_count;
+        }
+        return true;
+      }
+      revertDecision(recordId, guard);
+      return false;
+    } catch (err) {
+      revertDecision(recordId, guard);
+      notifications.error('Decision failed', err instanceof Error ? err.message : 'Unknown error');
+      return false;
+    } finally {
+      pendingWrites -= 1;
+    }
+  });
+  decisionChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 async function makeDecision(decision: 'include' | 'exclude') {
   if (!currentRecord.value || !projects.currentProjectId || isDeciding.value) return;
   if (isCurrentDecided.value) return;
 
+  const record = currentRecord.value;
+  const criteriaDecisions: Record<string, 'in' | 'out'> = {};
+  if (hasCriteria.value) {
+    for (const [name, value] of Object.entries(record._criteriaDecisions)) {
+      if (value !== 'TODO') criteriaDecisions[name] = value;
+    }
+  }
+
+  const guard = projectData.snapshot();
+
+  record._decision = decision === 'include' ? 'included' : 'excluded';
+  decisionHistory.value.push({ ...record });
+  totalCount.value = Math.max(0, totalCount.value - 1);
+
+  const flushed = flushDecision(record.id, decision, criteriaDecisions, guard);
+
+  if (nextUndecidedIndex.value !== -1) {
+    currentIndex.value = nextUndecidedIndex.value;
+    return;
+  }
+
+  // Last record in the queue: what the screen shows next depends on backend
+  // facts, so this is the one decision the user waits on.
   isDeciding.value = true;
   try {
-    const criteriaDecisions: Record<string, 'in' | 'out'> = {};
-    if (hasCriteria.value) {
-      for (const [name, value] of Object.entries(currentRecord.value._criteriaDecisions)) {
-        if (value !== 'TODO') criteriaDecisions[name] = value;
-      }
-    }
-
-    const guard = projectData.snapshot();
-    const response = await backend.call('screen_record', {
-      project_id: projects.currentProjectId,
-      record_id: currentRecord.value.id,
-      decision,
-      criteria_decisions: Object.keys(criteriaDecisions).length > 0 ? criteriaDecisions : undefined,
-      task_id: managedTask.value?.id,
-    });
-
+    if (!(await flushed)) return; // rolled back — stay on the record
     if (!guard.isCurrent()) return;
-    if (response.success) {
-      currentRecord.value._decision = decision === 'include' ? 'included' : 'excluded';
-      totalCount.value = response.remaining_count;
-      decisionHistory.value.push({ ...currentRecord.value });
-      if (nextUndecidedIndex.value !== -1) {
-        currentIndex.value = nextUndecidedIndex.value;
-      } else if (response.remaining_count > 0) {
-        await loadQueue();
-      } else {
-        // Queue exhausted — flush the seam immediately so the completion
-        // screen renders fresh counts (the debounced write refresh would
-        // land a beat too late).
-        queue.value = [];
-        await projectData.refreshNow();
-        allDecisionsMade.value = true;
-      }
+    if ((lastRemainingCount ?? 0) > 0) {
+      await loadQueue();
+    } else {
+      // Queue exhausted — flush the seam immediately so the completion
+      // screen renders fresh counts (the debounced write refresh would
+      // land a beat too late).
+      queue.value = [];
+      await projectData.refreshNow();
+      allDecisionsMade.value = true;
     }
-  } catch (err) {
-    notifications.error('Decision failed', err instanceof Error ? err.message : 'Unknown error');
   } finally {
     isDeciding.value = false;
   }
@@ -275,23 +346,20 @@ async function handlePdfsImported() {
   await loadQueue();
 }
 
-// Full invalidations (pull, reset, merge, backend restart) replace the
-// working tree — discard walkthrough state and rebuild the queue.
-useProjectDataChanged(async (event) => {
-  if (!event.full) return;
-  decisionHistory.value = [];
-  const canLoadQueue = await ensureManagedTaskAccess();
-  if (canLoadQueue) {
-    await loadQueue();
-  } else {
-    queue.value = [];
-    totalCount.value = 0;
-  }
-});
+/**
+ * Arrange branch access and load the queue.
+ *
+ * `isArrangingAccess` guards against doing it twice: checking out the
+ * reviewer branch replaces the working tree, which fires
+ * `project-data-changed` with `full: true` — whose handler is this same
+ * function. See the matching note in PrescreenPage.vue.
+ */
+let isArrangingAccess = false;
 
-onMounted(async () => {
+async function arrangeAccessAndLoad(): Promise<void> {
+  if (isArrangingAccess) return;
+  isArrangingAccess = true;
   try {
-    await reviewDefStore.loadDefinition();
     const canLoadQueue = await ensureManagedTaskAccess();
     if (canLoadQueue) {
       await loadQueue();
@@ -299,6 +367,24 @@ onMounted(async () => {
       queue.value = [];
       totalCount.value = 0;
     }
+  } finally {
+    isArrangingAccess = false;
+  }
+}
+
+// Full invalidations (pull, reset, merge, backend restart) replace the
+// working tree — discard walkthrough state and rebuild the queue.
+useProjectDataChanged(async (event) => {
+  if (!event.full) return;
+  if (isArrangingAccess) return;
+  decisionHistory.value = [];
+  await arrangeAccessAndLoad();
+});
+
+onMounted(async () => {
+  try {
+    await reviewDefStore.loadDefinition();
+    await arrangeAccessAndLoad();
   } finally {
     await git.refreshStatus();
     isPageReady.value = true;
