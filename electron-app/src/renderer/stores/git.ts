@@ -930,10 +930,22 @@ export const useGitStore = defineStore('git', () => {
     // Actions
     applySnapshot,
     nextReleaseVersion,
-    fetch,
-    pull,
-    fastForwardMain,
-    push,
+    /**
+     * Remote git primitives. INTERNAL — the sync coordinator
+     * (`stores/sync.ts`) is the only permitted caller.
+     *
+     * They are deliberately not top-level members of this store: the
+     * coordinator owns *when* the app talks to the remote (suspension while a
+     * walkthrough is in progress, the push debounce, offline handling,
+     * escalation of a diverged repo to the merge flow). A call site that
+     * reaches past it re-introduces exactly the drift this indirection exists
+     * to prevent, so `architecture.test.ts` fails the build on any reference
+     * to `__remoteOps` outside this file and `stores/sync.ts`.
+     *
+     * Need to sync from new code? Call `useSyncStore().pullNow()` /
+     * `.pushNow()` / `.fetchNow()` / `.syncNow()`.
+     */
+    __remoteOps: { fetch, pull, push, fastForwardMain },
     refreshStatus,
     refreshSnapshotFor,
     refreshBranches,

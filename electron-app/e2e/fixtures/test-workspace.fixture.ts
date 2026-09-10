@@ -129,6 +129,13 @@ export const test = base.extend<TestWorkspaceFixtures>({
     // fixture runs.
     await window.evaluate(() => {
       localStorage.setItem('colrev:keychain-explained', '1');
+      // Specs drive push/pull explicitly and assert on the sync buttons.
+      // Background sync would clear those affordances underneath them, so it
+      // is off by default here; a spec that wants to exercise the automatic
+      // path opts back in by clearing these keys before the project loads
+      // (the coordinator re-reads them in `start()`).
+      localStorage.setItem('sync.autoPull', 'false');
+      localStorage.setItem('sync.autoPush', 'false');
       const dismiss = (): void => {
         const btn = document.querySelector<HTMLElement>(
           '[data-testid="keychain-explainer-continue"]',

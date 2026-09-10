@@ -11,9 +11,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useGitStore } from '@/stores/git';
+import { useSyncStore } from '@/stores/sync';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
 
 const git = useGitStore();
+const sync = useSyncStore();
 const pending = usePendingChangesStore();
 
 const open = computed({
@@ -37,7 +39,7 @@ async function saveAndPull() {
       if (!committed) return;
     }
     open.value = false;
-    await git.pull();
+    await sync.pullNow();
   } finally {
     busy.value = null;
   }
@@ -52,7 +54,7 @@ async function discardAndPull() {
       if (!ok) return;
     }
     open.value = false;
-    await git.pull();
+    await sync.pullNow();
   } finally {
     busy.value = null;
   }

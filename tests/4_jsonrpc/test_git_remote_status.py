@@ -223,3 +223,53 @@ class TestResetToRemote:
         assert not env.repo.is_dirty(untracked_files=True)
         assert not notes.exists()
         assert not scratch.exists()
+
+    def test_stamps_a_recoverable_backup_ref(self, handler, params, env) -> None:
+        """The reset is destructive but must not be unrecoverable.
+
+        Discarding a co-reviewer's decisions is a research-integrity problem,
+        so everything thrown away has to stay reachable from a branch the user
+        can actually find — not just the reflog.
+        """
+        notes = env.project_path / "wedged_notes.txt"
+        notes.write_text("committed\n", encoding="utf-8")
+        env.repo.git.add("wedged_notes.txt")
+        env.repo.git.commit("-m", "Unpushed local commit")
+        unpushed_sha = env.repo.head.commit.hexsha
+        notes.write_text("dirty on top of the commit\n", encoding="utf-8")
+
+        response = _request(handler, "reset_to_remote", {**params, "confirm": True})
+        assert "error" not in response, response.get("error")
+        result = response["result"]
+
+        backup_ref = result["backup_ref"]
+        assert backup_ref, "reset_to_remote destroyed work without a recovery point"
+        assert backup_ref.startswith("backup/pre-reset-")
+        assert backup_ref in [h.name for h in env.repo.heads]
+
+        # The user is left where they started, on a branch matching the remote.
+        assert env.repo.active_branch.name == "dev"
+        assert env.repo.head.commit.hexsha == env.repo.commit("origin/dev").hexsha
+        assert not env.repo.is_dirty(untracked_files=True)
+
+        # Both the unpushed commit and the uncommitted edit on top of it are
+        # recoverable from the backup branch.
+        backup_tree = env.repo.commit(backup_ref).tree
+        assert backup_tree["wedged_notes.txt"].data_stream.read().decode() == (
+            "dirty on top of the commit\n"
+        )
+        assert env.repo.is_ancestor(unpushed_sha, backup_ref), (
+            "the discarded commit is not reachable from the backup branch"
+        )
+
+    def test_backup_ref_on_a_clean_tree_points_at_the_discarded_commit(
+        self, handler, params, env
+    ) -> None:
+        env.repo.git.commit("--allow-empty", "-m", "Unpushed local commit")
+        discarded_sha = env.repo.head.commit.hexsha
+
+        response = _request(handler, "reset_to_remote", {**params, "confirm": True})
+        result = response["result"]
+
+        assert env.repo.commit(result["backup_ref"]).hexsha == discarded_sha
+        assert env.repo.active_branch.name == "dev"

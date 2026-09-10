@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import { useBackendStore } from './backend';
 import { useProjectsStore } from './projects';
 import { useGitStore } from './git';
+import { useSyncStore } from './sync';
 import type { ManagedReviewTask } from '@/types/generated/rpc';
 import type { WorkflowStep } from '@/types/project';
 import { computeManagedStepStatus, type StepStatus } from '@/lib/stepStatus';
@@ -75,7 +76,7 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
       // Fetch remote refs first so we can see other reviewers' progress
       const gitStore = useGitStore();
       if (gitStore.hasRemote) {
-        await gitStore.fetch();
+        await useSyncStore().fetchNow();
       }
 
       const [prescreenResp, screenResp] = await Promise.all([

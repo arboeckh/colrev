@@ -17,6 +17,7 @@ import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
 import { useConnectionStore } from '@/stores/connection';
 import { useReadOnly } from '@/composables/useReadOnly';
 import { mapReadinessIssues, type MappedIssue } from './launch-readiness';
+import { useSyncStore } from '@/stores/sync';
 import type {
   GetManagedReviewTaskReadinessResponse,
   ManagedReviewTask,
@@ -37,6 +38,7 @@ const projects = useProjectsStore();
 const notifications = useNotificationsStore();
 const auth = useAuthStore();
 const git = useGitStore();
+const sync = useSyncStore();
 const reviewDefStore = useReviewDefinitionStore();
 const connection = useConnectionStore();
 const { isReadOnly } = useReadOnly();
@@ -84,6 +86,7 @@ const mappedIssues = computed<MappedIssue[]>(() => {
   return mapReadinessIssues(readiness.value.issues, {
     isResolvingIssue,
     git,
+    sync,
     projects,
     notifications,
     refreshData,
@@ -121,7 +124,7 @@ async function refreshData() {
   try {
     // Fetch remote refs so we can see other reviewers' progress
     if (git.hasRemote) {
-      await git.fetch();
+      await sync.fetchNow();
     }
     const [readinessResponse, tasksResponse, currentTaskResponse] = await Promise.all([
       backend.call('get_managed_review_task_readiness', {
@@ -193,7 +196,7 @@ async function createTask() {
 
     // Push dev branch so the other reviewer can see the task manifest
     if (git.hasRemote) {
-      await git.push();
+      await sync.pushNow();
     }
 
     const enriched = response.enriched_count ?? 0;

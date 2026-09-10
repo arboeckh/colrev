@@ -9,6 +9,7 @@ import { CriteriaList } from '@/components/review-definition';
 import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
+import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 import { useGitStore } from '@/stores/git';
 import { StepPageShell } from '@/components/layout';
 import DefinitionPageHelp from './DefinitionPageHelp.vue';
@@ -22,6 +23,22 @@ const { isReadOnly } = useReadOnly();
 const protocolUrl = ref('');
 const objectives = ref('');
 
+// The values the form was last seeded with. Lets us tell "the user typed
+// something" from "the definition moved underneath us": a pull replaces the
+// working tree wholesale, and without a re-seed the form would keep showing
+// the pre-pull text while reporting it as unsaved changes.
+const seededProtocolUrl = ref('');
+const seededObjectives = ref('');
+
+function seedFromStore() {
+  const definition = store.definition;
+  if (!definition) return;
+  protocolUrl.value = definition.protocol_url;
+  objectives.value = definition.objectives;
+  seededProtocolUrl.value = definition.protocol_url;
+  seededObjectives.value = definition.objectives;
+}
+
 const isValidProtocolUrl = computed(() => {
   const url = protocolUrl.value.trim();
   return url.startsWith('http://') || url.startsWith('https://');
@@ -30,14 +47,14 @@ const isValidProtocolUrl = computed(() => {
 // Tracks criteria changes staged to git but not yet committed
 const hasPendingCriteriaChanges = ref(false);
 
-// Dirty tracking
-const hasTextChanges = computed(() => {
-  if (!store.definition) return false;
-  return (
-    protocolUrl.value !== store.definition.protocol_url ||
-    objectives.value !== store.definition.objectives
-  );
-});
+// Dirty tracking. Measured against the seeded values, not against
+// `store.definition` — the two differ exactly when the definition was
+// reloaded under an untouched form, which is not an edit.
+const hasTextChanges = computed(
+  () =>
+    protocolUrl.value !== seededProtocolUrl.value ||
+    objectives.value !== seededObjectives.value,
+);
 
 const isDirty = computed(() => {
   return hasTextChanges.value || hasPendingCriteriaChanges.value;
@@ -45,10 +62,23 @@ const isDirty = computed(() => {
 
 onMounted(async () => {
   await store.loadDefinition();
-  if (store.definition) {
-    protocolUrl.value = store.definition.protocol_url;
-    objectives.value = store.definition.objectives;
+  seedFromStore();
+});
+
+// A pull / reset / merge replaced the working tree: the seam has already
+// reloaded `store.definition`, so re-seed the form from it. Keep the user's
+// own edits if they have any — Save then writes them over the pulled values,
+// which is their call to make.
+useProjectDataChanged((event) => {
+  if (!event.full) return;
+  if (hasTextChanges.value) {
+    notifications.info(
+      'Review definition changed on the remote',
+      'Your unsaved edits are still here. Saving will overwrite the pulled version.',
+    );
+    return;
   }
+  seedFromStore();
 });
 
 // Warn before navigating away with unsaved changes
@@ -81,6 +111,7 @@ async function saveAll() {
 
   const success = await store.updateDefinition(updates);
   if (success) {
+    seedFromStore();
     hasPendingCriteriaChanges.value = false;
     notifications.success('Saved', 'Review definition updated');
     gitStore.refreshStatus();
