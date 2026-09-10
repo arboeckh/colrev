@@ -324,11 +324,14 @@ defineExpose({ refreshData, activeTask, tasks });
     </div>
 
     <template v-else>
-      <!-- Readiness status -->
-      <div class="space-y-3">
+      <!-- Readiness status. Only meaningful when no task is running: it answers
+           "can a NEW round be launched?", and rendering it above a finished task
+           told users they were blocked while their own completed work sat below
+           it with a Continue button. -->
+      <div v-if="!activeTask" class="space-y-3">
         <div class="flex items-center gap-3">
           <Badge :variant="readiness?.ready ? 'default' : 'secondary'">
-            {{ readiness?.ready ? 'Ready' : 'Blocked' }}
+            {{ readiness?.ready ? 'Ready' : 'Not ready' }}
           </Badge>
           <span class="text-sm text-muted-foreground">
             {{ readiness?.eligible_count ?? 0 }} eligible record{{ readiness?.eligible_count === 1 ? '' : 's' }}

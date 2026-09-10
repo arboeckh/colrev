@@ -49,6 +49,17 @@ const nextRoute = computed(() =>
   resolveNextStepRoute(props.step, projects.currentProjectId ?? null, props.nextOverride),
 );
 
+/**
+ * Whether "Next" should carry primary emphasis.
+ *
+ * Next stays clickable — moving around a review is never destructive, and
+ * trapping people on a step is worse than letting them look ahead. But it
+ * should not be the loudest control on a step that hasn't been done: on an
+ * empty Search page a solid Next out-competed "Add source", which is the
+ * actual task. Primary emphasis is earned by finishing the step.
+ */
+const isNextPrimary = computed(() => !props.step || stepStatus.value === 'complete');
+
 watch(route, () => {
   isHelpOpen.value = false;
 });
@@ -101,10 +112,13 @@ function goNext() {
         </Button>
       </div>
 
-      <!-- Right: Next button (always enabled when next route exists) -->
+      <!-- Right: Next. Always available, but only emphasised once the step is
+           done — see isNextPrimary. -->
       <Button
         v-if="nextRoute"
+        :variant="isNextPrimary ? 'default' : 'outline'"
         data-testid="next-button"
+        :data-next-emphasis="isNextPrimary ? 'primary' : 'secondary'"
         @click="goNext"
       >
         {{ nextLabel ?? 'Next' }}

@@ -365,6 +365,37 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
+  /**
+   * Refresh the snapshot for a project that isn't the current one.
+   *
+   * The Reviews list needs branch and cleanliness for every project it shows,
+   * not just the one that happens to be open, so it can't go through
+   * `refreshStatus` (which is bound to `projects.currentProjectId`). Writes
+   * through the same `applySnapshot` seam, so there is still one writer of git
+   * facts. Never throws — a project that fails to read simply keeps no
+   * snapshot and the list renders a dash for it.
+   *
+   * Deliberately refuses the current project, before and after the read. That
+   * project's snapshot is owned by `initialize`/`refreshStatus` and by whatever
+   * branch the app has just checked out; a read started at boot resolves later
+   * and would republish the branch it saw *then*. Opening a fresh collaborator
+   * clone is the case that bites: the app moves it main -> dev, and a late
+   * background read would put `main` back into the snapshot.
+   */
+  async function refreshSnapshotFor(projectId: string, path: string): Promise<boolean> {
+    if (!projectId || !path) return false;
+    if (projectId === projects.currentProjectId) return false;
+    try {
+      const result = await window.gitState.refresh(projectId, path);
+      // The user may have opened this project while the read was in flight.
+      if (projectId === projects.currentProjectId) return false;
+      applySnapshot(result.state);
+      return result.success;
+    } catch {
+      return false;
+    }
+  }
+
   async function refreshBranches(): Promise<void> {
     const path = getProjectPath();
     if (!path) return;
@@ -599,7 +630,11 @@ export const useGitStore = defineStore('git', () => {
   async function loadReleases(): Promise<void> {
     const remote = remoteUrl.value;
     if (!remote || !remote.includes('github.com')) {
+      // Non-GitHub (or absent) remote: there are no releases to fetch, but the
+      // section still has to stop loading. Without this flag the Overview's
+      // spinner is gated on `!releasesLoaded` forever.
       releases.value = [];
+      releasesLoaded.value = true;
       return;
     }
 
@@ -798,9 +833,11 @@ export const useGitStore = defineStore('git', () => {
     refreshBranchDelta(); // Fire and forget
     if (hasRemote.value) {
       await fetch();
-      if (isGitHubRemote.value) {
-        loadReleases(); // Fire and forget
-      }
+      // Called unconditionally: `loadReleases` handles the non-GitHub case
+      // itself. Gating the call here meant `releasesLoaded` never flipped for
+      // a non-GitHub remote, and the Overview's Releases panel — which is
+      // rendered whenever a remote exists — spun forever.
+      loadReleases(); // Fire and forget
     }
   }
 
@@ -810,7 +847,7 @@ export const useGitStore = defineStore('git', () => {
   connection.onReconnect(() => {
     if (!getProjectPath()) return;
     void fetch().then(() => {
-      if (isGitHubRemote.value) loadReleases();
+      loadReleases();
     });
   });
 
@@ -898,6 +935,7 @@ export const useGitStore = defineStore('git', () => {
     fastForwardMain,
     push,
     refreshStatus,
+    refreshSnapshotFor,
     refreshBranches,
     switchBranch,
     ensureDevBranch,

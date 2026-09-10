@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { Bug, Trash2, Copy, Check } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,14 +20,51 @@ const isOpen = ref(false);
 const autoScroll = ref(true);
 const copied = ref(false);
 
-// Check if there are any errors in the logs
-const hasErrors = computed(() => {
-  return backend.logs.some(log =>
+const OPT_IN_KEY = 'colrev:debug-panel';
+
+// The panel is a developer/support tool, not a product feature. Shipping its
+// floating trigger unconditionally put a bug icon with a log-line badge in the
+// corner of every screen — including the sign-in page, before the user has an
+// app to debug. It now shows in dev builds, or when someone deliberately opts
+// in with Ctrl/Cmd+Shift+D (persisted, so a support session survives reloads).
+const optedIn = ref(readOptIn());
+const isVisible = computed(() => import.meta.env.DEV || optedIn.value);
+
+function readOptIn(): boolean {
+  try {
+    return localStorage.getItem(OPT_IN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function onKeydown(event: KeyboardEvent): void {
+  if (!event.shiftKey || !(event.metaKey || event.ctrlKey)) return;
+  if (event.key.toLowerCase() !== 'd') return;
+  event.preventDefault();
+  optedIn.value = !optedIn.value;
+  if (!optedIn.value) isOpen.value = false;
+  try {
+    localStorage.setItem(OPT_IN_KEY, optedIn.value ? '1' : '0');
+  } catch {
+    // Opt-in is a convenience; a storage failure must not break the shortcut.
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown));
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
+
+// Errors in the backend log stream. Only these warrant a badge — the previous
+// badge counted every log line, so a healthy app advertised "7 problems".
+const errorCount = computed(() => {
+  return backend.logs.filter(log =>
     log.toLowerCase().includes('error') ||
     log.toLowerCase().includes('exception') ||
     log.toLowerCase().includes('traceback')
-  );
+  ).length;
 });
+
+const hasErrors = computed(() => errorCount.value > 0);
 
 function copyAllLogs() {
   const text = backend.logs.join('\n');
@@ -58,21 +95,22 @@ watch(
 </script>
 
 <template>
-  <Sheet v-model:open="isOpen">
+  <Sheet v-if="isVisible" v-model:open="isOpen">
     <SheetTrigger as-child>
       <Button
         variant="outline"
         size="icon"
-        class="fixed bottom-4 right-4 z-50 rounded-full shadow-lg"
-        :class="{ 'animate-pulse bg-red-500/20 border-red-500': hasErrors }"
+        class="fixed bottom-20 right-4 z-50 rounded-full shadow-lg"
+        :class="{ 'bg-red-500/20 border-red-500': hasErrors }"
+        aria-label="Backend logs"
+        data-testid="debug-panel-trigger"
       >
         <Bug class="h-4 w-4" />
         <span
-          v-if="backend.logs.length > 0"
-          class="absolute -top-1 -right-1 h-4 w-4 rounded-full text-[10px] flex items-center justify-center"
-          :class="hasErrors ? 'bg-red-500 text-white' : 'bg-primary text-primary-foreground'"
+          v-if="hasErrors"
+          class="absolute -top-1 -right-1 h-4 w-4 rounded-full text-[10px] flex items-center justify-center bg-red-500 text-white"
         >
-          {{ backend.logs.length > 99 ? '!' : backend.logs.length }}
+          {{ errorCount > 99 ? '!' : errorCount }}
         </span>
       </Button>
     </SheetTrigger>
