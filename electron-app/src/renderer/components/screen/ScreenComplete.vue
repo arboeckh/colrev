@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useReconcileGate } from '@/composables/useReconcileGate';
 import { useGitStore } from '@/stores/git';
+import { useSyncStore } from '@/stores/sync';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
 
 const props = defineProps<{
@@ -21,6 +22,7 @@ const emit = defineEmits<{
 }>();
 
 const git = useGitStore();
+const sync = useSyncStore();
 const pending = usePendingChangesStore();
 const reconcileReady = computed(() => props.reconcileReady ?? true);
 const { canNavigateToReconcile } = useReconcileGate({ ready: reconcileReady });
@@ -39,7 +41,7 @@ async function saveToRemote() {
       await git.refreshStatus();
     }
     if (git.hasRemote && git.ahead > 0) {
-      await git.push();
+      await sync.pushNow();
     }
   } finally {
     isSavingToRemote.value = false;

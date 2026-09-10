@@ -24,6 +24,7 @@ import PreprocessingResultsModal from '@/components/preprocessing/PreprocessingR
 import StepPageShell from '@/components/layout/StepPageShell.vue';
 import PreprocessingPageHelp from './PreprocessingPageHelp.vue';
 import type { SearchSource } from '@/types';
+import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
@@ -256,6 +257,13 @@ const currentStageProgress = computed((): number | null => {
 function getStageVisualStatus(stageId: StageId): 'pending' | 'running' | 'complete' {
   return stageVisualStatuses.value[stageId];
 }
+
+// A pull / reset / merge replaced the working tree: search sources may have
+// changed under us.
+useProjectDataChanged(async (event) => {
+  if (!event.full) return;
+  await loadSources();
+});
 
 onMounted(() => {
   loadSources();

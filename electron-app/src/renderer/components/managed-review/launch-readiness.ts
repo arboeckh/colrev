@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type { useGitStore } from '@/stores/git';
 import type { useNotificationsStore } from '@/stores/notifications';
 import type { useProjectsStore } from '@/stores/projects';
+import type { useSyncStore } from '@/stores/sync';
 
 export interface MappedIssue {
   message: string;
@@ -11,6 +12,7 @@ export interface MappedIssue {
 type GitStore = ReturnType<typeof useGitStore>;
 type ProjectsStore = ReturnType<typeof useProjectsStore>;
 type NotificationsStore = ReturnType<typeof useNotificationsStore>;
+type SyncStore = ReturnType<typeof useSyncStore>;
 
 const GIT_REPO_ISSUE_MARKERS = ['fully synced', 'clean before'] as const;
 
@@ -21,6 +23,7 @@ function isGitRepoIssue(raw: string): boolean {
 function createSaveAndSyncIssue(ctx: {
   isResolvingIssue: Ref<boolean>;
   git: GitStore;
+  sync: SyncStore;
   projects: ProjectsStore;
   notifications: NotificationsStore;
   refreshData: () => Promise<void>;
@@ -38,10 +41,9 @@ function createSaveAndSyncIssue(ctx: {
             await window.git.addAndCommit(path, 'Save changes before review launch');
             await ctx.git.refreshStatus();
           }
-          if (ctx.git.hasRemote) {
-            if (ctx.git.ahead > 0) await ctx.git.push();
-            if (ctx.git.behind > 0) await ctx.git.pull();
-          }
+          // One "sync now" through the coordinator: same executor as the
+          // background loop, so this button cannot drift from it.
+          if (ctx.git.hasRemote) await ctx.sync.syncNow();
           await ctx.refreshData();
         } catch (err) {
           ctx.notifications.error('Save failed', err instanceof Error ? err.message : 'Unknown error');
@@ -86,6 +88,7 @@ export function mapReadinessIssues(
   ctx: {
     isResolvingIssue: Ref<boolean>;
     git: GitStore;
+    sync: SyncStore;
     projects: ProjectsStore;
     notifications: NotificationsStore;
     refreshData: () => Promise<void>;

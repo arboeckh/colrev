@@ -1,4 +1,5 @@
 import { computed, onMounted, onUnmounted, ref, toValue, type MaybeRefOrGetter } from 'vue';
+import { useSyncSuspense } from './useSyncSuspense';
 
 export interface UseWalkthroughNavigationOptions<T> {
   items: MaybeRefOrGetter<T[]>;
@@ -12,6 +13,12 @@ export interface UseWalkthroughNavigationOptions<T> {
 }
 
 export function useWalkthroughNavigation<T>(options: UseWalkthroughNavigationOptions<T>) {
+  // Every walkthrough holds a position in a list that a pull would reshuffle
+  // underneath the user. Suspending here rather than in each page means a new
+  // walkthrough surface is protected the moment it adopts this composable —
+  // there is no separate step to remember.
+  useSyncSuspense('walkthrough');
+
   const currentIndex = ref(0);
   const items = computed(() => toValue(options.items));
   const currentItem = computed<T | null>(() => items.value[currentIndex.value] ?? null);

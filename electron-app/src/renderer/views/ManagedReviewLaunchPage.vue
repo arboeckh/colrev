@@ -16,11 +16,13 @@ import { useGitStore } from '@/stores/git';
 import { ensureWorkingBranch } from '@/composables/useManagedTaskAccess';
 import { useReadOnly } from '@/composables/useReadOnly';
 import { mapReadinessIssues, type MappedIssue } from '@/components/managed-review/launch-readiness';
+import { useSyncStore } from '@/stores/sync';
 import type {
   GetManagedReviewTaskReadinessResponse,
   ManagedReviewTask,
 } from '@/types/generated/rpc';
 import type { GitHubCollaborator } from '@/types/window';
+import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 
 const route = useRoute();
 const backend = useBackendStore();
@@ -28,6 +30,7 @@ const projects = useProjectsStore();
 const notifications = useNotificationsStore();
 const auth = useAuthStore();
 const git = useGitStore();
+const sync = useSyncStore();
 const { isReadOnly } = useReadOnly();
 
 const isLoading = ref(false);
@@ -62,6 +65,7 @@ const mappedIssues = computed<MappedIssue[]>(() => {
   return mapReadinessIssues(readiness.value.issues, {
     isResolvingIssue,
     git,
+    sync,
     projects,
     notifications,
     refreshData,
@@ -99,7 +103,7 @@ async function refreshData() {
   try {
     // Fetch remote refs so we can see other reviewers' progress
     if (git.hasRemote) {
-      await git.fetch();
+      await sync.fetchNow();
     }
     const [readinessResponse, tasksResponse, currentTaskResponse] = await Promise.all([
       backend.call('get_managed_review_task_readiness', {
@@ -165,7 +169,7 @@ async function createTask() {
 
     // Push dev branch so the other reviewer can see the task manifest
     if (git.hasRemote) {
-      await git.push();
+      await sync.pushNow();
     }
 
     notifications.success(
@@ -229,6 +233,13 @@ async function inviteCollaborator() {
 watch(kind, async () => {
   await refreshData();
   await loadCollaborators();
+});
+
+// A pull / reset / merge replaced the working tree: task readiness and the
+// reviewer task list are both read out of it.
+useProjectDataChanged(async (event) => {
+  if (!event.full) return;
+  await refreshData();
 });
 
 onMounted(async () => {

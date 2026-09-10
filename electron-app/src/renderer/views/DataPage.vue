@@ -18,6 +18,7 @@ import DataPageHelp from './DataPageHelp.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useReadOnly } from '@/composables/useReadOnly';
+import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 // notifications removed — progress bar provides sufficient feedback
 import type {
   FieldDefinition,
@@ -257,6 +258,13 @@ async function exportCsv() {
 }
 
 // --- Lifecycle ---
+// A pull / reset / merge replaced the working tree: reload the queue rather
+// than keep rendering pre-pull records.
+useProjectDataChanged(async (event) => {
+  if (!event.full) return;
+  await loadQueue();
+});
+
 onMounted(async () => {
   await loadQueue();
 });

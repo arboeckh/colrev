@@ -9,10 +9,13 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useGitStore } from '@/stores/git';
+import { useSyncStore } from '@/stores/sync';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
 import { computeGitSyncState } from '@/lib/gitSyncState';
+import SyncStatusIndicator from './SyncStatusIndicator.vue';
 
 const git = useGitStore();
+const sync = useSyncStore();
 const pending = usePendingChangesStore();
 
 const syncState = computed(() =>
@@ -37,7 +40,7 @@ async function handlePush() {
     await git.refreshStatus();
   }
   if (git.ahead > 0) {
-    await git.push();
+    await sync.pushNow();
   }
 }
 
@@ -46,7 +49,7 @@ async function handlePull() {
   if (pull.status === 'divergedWarning') {
     await git.startDivergenceResolution();
   } else if (pull.status === 'active') {
-    await git.pull();
+    await sync.pullNow();
   }
 }
 
@@ -73,6 +76,8 @@ const pullButtonClass = computed(() => {
 
 <template>
   <div v-if="syncState.push.status !== 'hidden'" class="flex items-center gap-1.5">
+    <SyncStatusIndicator />
+
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger as-child>

@@ -10,6 +10,7 @@ the ``{success, project_id, git: {...}}`` envelope for ``get_git_status``.
 
 from __future__ import annotations
 
+import datetime
 import logging
 from typing import Any
 from typing import Dict
@@ -110,6 +111,9 @@ class ResetToRemoteResponse(ProjectResponse):
     target_ref: str
     discarded_commits: int
     discarded_files: List[str] = Field(default_factory=list)
+    #: Branch pointing at the pre-reset commit. Everything the reset threw
+    #: away is reachable from here, so "reset to remote" is recoverable.
+    backup_ref: Optional[str] = None
     message: str
 
 
@@ -361,7 +365,11 @@ class GitHandler(BaseHandler):
         - all uncommitted/untracked local changes,
         - all local commits ahead of the remote.
 
-        Requires ``confirm=True`` because the operation is irreversible.
+        Requires ``confirm=True``, and first stamps a ``backup/pre-reset-*``
+        branch on the pre-reset commit. Discarding a co-reviewer's screening
+        decisions is a research-integrity problem, not just data loss, so the
+        one operation in the app that can do it must stay reversible by
+        something other than the reflog — which no user will ever find.
         """
         assert self.review_manager is not None
         logger.info(
@@ -418,9 +426,18 @@ class GitHandler(BaseHandler):
         except Exception as e:  # noqa: BLE001
             logger.debug("reset_to_remote: fetch failed: %s", e)
 
+        # Stamp a recovery point before anything is destroyed. Uncommitted
+        # work is committed onto the backup branch so it survives too — a
+        # branch alone would only preserve the commits.
+        backup_ref = self._stamp_backup_ref(repo, current_branch)
+
         repo.git.reset("--hard", target_ref)
         # Drop any remaining untracked files / directories.
         repo.git.clean("-fd")
+
+        message = f"Reset to {target_ref}"
+        if backup_ref:
+            message += f". Previous state saved on '{backup_ref}'"
 
         return ResetToRemoteResponse(
             project_id=req.project_id,
@@ -428,8 +445,48 @@ class GitHandler(BaseHandler):
             target_ref=target_ref,
             discarded_commits=ahead_commits,
             discarded_files=discarded_files,
-            message=f"Reset to {target_ref}",
+            backup_ref=backup_ref,
+            message=message,
         )
+
+    def _stamp_backup_ref(self, repo: Any, current_branch: str) -> Optional[str]:
+        """Save everything the caller is about to discard onto a branch.
+
+        Uncommitted work is committed onto the backup branch, then the original
+        branch is restored unchanged, so the caller's reset behaves exactly as
+        it did before this existed. Best-effort: a repo too broken to stamp a
+        backup is precisely the repo the user most needs reset, so a failure
+        here must not block the recovery it exists to make safe.
+        """
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_ref = f"backup/pre-reset-{timestamp}"
+        try:
+            head_sha = repo.head.commit.hexsha
+            dirty = repo.is_dirty(untracked_files=True)
+            if not dirty:
+                repo.git.branch(backup_ref, head_sha)
+                return backup_ref
+
+            # Commit the working tree onto the backup branch without moving
+            # the user's branch: check it out, commit, then come back.
+            repo.git.checkout("-b", backup_ref)
+            repo.git.add("-A")
+            repo.git.commit(
+                "-m",
+                "Snapshot before reset to remote",
+                "--no-verify",
+            )
+            repo.git.checkout(current_branch)
+            return backup_ref
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Could not stamp backup ref before reset: %s", e)
+            # Make sure a half-finished stamp never leaves HEAD elsewhere.
+            try:
+                if repo.active_branch.name != current_branch:
+                    repo.git.checkout("--force", current_branch)
+            except Exception:  # noqa: BLE001
+                pass
+            return None
 
     # ------------------------------------------------------------------
     # Internals
