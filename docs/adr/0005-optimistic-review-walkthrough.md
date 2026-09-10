@@ -35,10 +35,10 @@ and then invalidated it (reloading it again); the invalidation re-ran the
 page's own access check, which reloaded the queue a second time; and
 `managedReview.refresh()` fetched on each of those passes.
 
-The record count makes all of this steeper, because the RPC layer reloads and
-rewrites `data/records.bib` per call. At 5,000 records `get_prescreen_queue`
-takes 6.6 s and one `prescreen_record` 3.7 s — but that is a separate problem
-(see Consequences); at eight records the entire delay was orchestration.
+The record count makes all of this steeper, because every project-scoped call
+re-parses `data/records.bib`. At 5,000 records `get_prescreen_queue` took 6.6 s
+and one `prescreen_record` 3.7 s — a second, independent problem (addressed
+under Consequences). At eight records the entire delay was orchestration.
 
 ## Decision
 
@@ -98,10 +98,18 @@ a duplicate pass has come back, and the failure names the call that multiplied.
   decision. The window is one RPC (~200 ms) rather than the seconds it takes
   to read an abstract, so it is smaller than the equivalent window under the
   old shape — but it is not zero.
-- **Not addressed here:** the per-call cost of `load_records_dict` +
-  `_save_record_list_by_id` in the RPC layer, which is O(records) on every
-  project-scoped call. Optimistic navigation hides it from the click, but it
-  still bounds how fast the backend drains a streak, and at a few thousand
-  records it becomes the dominant cost again. Fixing it means caching the
-  parsed records dict per (project, records.bib mtime) somewhere the whole
-  dispatcher can share.
+- The per-call cost of parsing `records.bib` — O(records) on every
+  project-scoped call — bounded how fast the backend could drain a streak even
+  once the click stopped waiting for it. That is now cached in
+  `colrev/dataset.py` (registered in `colrev/PATCHES.md`): the parsed dict is
+  held process-wide, keyed on the file's `(mtime_ns, size)`, and writers update
+  the entry rather than dropping it. It has to be process-wide because the
+  dispatcher builds a fresh `ReviewManager` per request, so an instance-level
+  cache would never be read twice. At 5,000 records `get_prescreen_queue` went
+  6.6 s → 0.3 s warm and `prescreen_record` 3.7 s → 1.0 s; the remaining floor
+  is the deep copy handed to each caller (~325 ms) plus the in-place file
+  rewrite (~380 ms).
+- That cache lives in vendored core rather than the RPC layer deliberately —
+  the app already reaches into core internals once (`install_lazy_git_repo`),
+  and a second white-box patch is worse than a change the patch registry
+  tracks and upstream could absorb.
