@@ -10,6 +10,7 @@ import { useGitStore } from '@/stores/git';
 import { useSyncStore } from '@/stores/sync';
 import { useNotificationsStore } from '@/stores/notifications';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
+import ReviewerBranchBanner from '@/components/common/ReviewerBranchBanner.vue';
 
 const route = useRoute();
 const projects = useProjectsStore();
@@ -113,6 +114,9 @@ onUnmounted(() => {
     <Header />
 
     <SyncStatusBanner />
+
+    <!-- Reviewer-branch explainer: says why the sidebar just changed shape. -->
+    <ReviewerBranchBanner />
 
     <!-- Main content area -->
     <div class="flex flex-1 overflow-hidden">

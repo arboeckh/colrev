@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
-import { User, LogOut, Github, EllipsisVertical, Check, Plus } from 'lucide-vue-next';
+import { User, LogOut, Github, EllipsisVertical, Check, Plus, Moon, Sun } from 'lucide-vue-next';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -11,9 +11,11 @@ import {
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import { useAuthStore } from '@/stores/auth';
+import { useThemeStore } from '@/stores/theme';
 
 const router = useRouter();
 const auth = useAuthStore();
+const theme = useThemeStore();
 
 async function handleSignOut() {
   await auth.logout();
@@ -86,6 +88,17 @@ async function handleSwitchAccount(login: string) {
         </DropdownMenuItem>
         <DropdownMenuSeparator />
       </template>
+
+      <!-- Appearance. The toggle used to live only in the Reviews-list header,
+           which is unreachable from inside a project — where people actually
+           spend their time. The user menu is on every screen. -->
+      <DropdownMenuItem data-testid="theme-toggle" @click="theme.toggleTheme()">
+        <Moon v-if="theme.theme !== 'dark'" class="h-4 w-4 mr-2" />
+        <Sun v-else class="h-4 w-4 mr-2" />
+        {{ theme.theme === 'dark' ? 'Light theme' : 'Dark theme' }}
+      </DropdownMenuItem>
+
+      <DropdownMenuSeparator v-if="auth.isAuthenticated" />
 
       <!-- Add another account -->
       <DropdownMenuItem v-if="auth.isAuthenticated" data-testid="add-account-button" @click="handleAddAccount">

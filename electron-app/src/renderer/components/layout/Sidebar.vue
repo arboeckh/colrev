@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
-import { LayoutDashboard, BookOpen } from 'lucide-vue-next';
+import { LayoutDashboard, BookOpen, Settings } from 'lucide-vue-next';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import SidebarItem from './SidebarItem.vue';
 import { UserMenu } from '@/components/common';
@@ -22,6 +22,7 @@ const managedReview = useManagedReviewStore();
 
 const isOverviewActive = computed(() => route.name === 'project-overview');
 const isDefinitionActive = computed(() => route.meta.step === 'review_definition');
+const isSettingsActive = computed(() => route.name === 'project-settings');
 
 // Get record counts from the current project status
 const recordCounts = computed(() => {
@@ -53,14 +54,24 @@ const stableRecordCounts = computed(() =>
   projects.isBranchSwitching ? projects.frozenRecordCounts : effectiveRecordCounts.value,
 );
 
-// Whether to show the badge legend
+// The legend explains both badge styles, so it has to appear whenever either
+// can. Gating it on `new_record_count > 0` meant a project showing only the
+// plain "waiting to be processed" badges rendered them with no key at all.
 const showBadgeLegend = computed(() => {
-  return (
+  const hasWaitingBadges = (stableRecordCounts.value?.total ?? 0) > 0;
+  const hasUnpublishedBadges =
     (git.isOnDev || managedReview.isOnReviewerBranch) &&
     git.branchDelta != null &&
-    git.branchDelta.new_record_count > 0
-  );
+    git.branchDelta.new_record_count > 0;
+  return hasWaitingBadges || hasUnpublishedBadges;
 });
+
+const showUnpublishedLegend = computed(
+  () =>
+    (git.isOnDev || managedReview.isOnReviewerBranch) &&
+    git.branchDelta != null &&
+    git.branchDelta.new_record_count > 0,
+);
 
 // True when delta badges should render
 const showDelta = computed(() => git.isOnDev || managedReview.isOnReviewerBranch);
@@ -124,13 +135,13 @@ const downstreamStatesPerStep = computed(() => {
 
       <!-- Badge legend -->
       <div v-if="showBadgeLegend" class="flex flex-col gap-1 mb-2 px-3">
-        <div class="flex items-center gap-1.5">
+        <div v-if="showUnpublishedLegend" class="flex items-center gap-1.5">
           <span class="flex h-4 min-w-4 items-center justify-center rounded-full border border-eucalyptus-300/50 bg-eucalyptus-50 px-1 text-[10px] tabular-nums text-eucalyptus-700 font-medium">+n</span>
-          <span class="text-[10px] text-ink-400">new unpublished records</span>
+          <span class="text-[10.5px] text-ink-500">new, not published yet</span>
         </div>
         <div class="flex items-center gap-1.5">
           <span class="flex h-4 min-w-4 items-center justify-center rounded-full bg-cream-200 px-1 text-[10px] tabular-nums text-ink-700 font-medium">n</span>
-          <span class="text-[10px] text-ink-400">waiting to be processed</span>
+          <span class="text-[10.5px] text-ink-500">waiting at this step</span>
         </div>
       </div>
 
@@ -143,6 +154,18 @@ const downstreamStatesPerStep = computed(() => {
           :suppress-counts="suppressCountsForStep.has(step.id)"
           :is-first="index === 0" :is-last="index === PIPELINE_STEPS.length - 1" />
       </nav>
+
+      <!-- Settings link. The page and its route already existed; nothing in the
+           app linked to it, so it was reachable only by typing the URL. -->
+      <RouterLink :to="`/project/${projectId}/settings`" data-testid="sidebar-settings"
+        class="flex items-center gap-3 px-3 py-2 rounded-md text-[13px] transition-colors mt-3" :class="[
+          isSettingsActive
+            ? 'bg-card border border-sidebar-border text-ink-900 font-medium'
+            : 'text-ink-600 hover:bg-card/60 hover:text-ink-900',
+        ]">
+        <Settings class="h-3.5 w-3.5" />
+        <span>Settings</span>
+      </RouterLink>
 
     </ScrollArea>
 

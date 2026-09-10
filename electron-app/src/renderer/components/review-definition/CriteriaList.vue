@@ -42,6 +42,7 @@ function handleAddCriterion(data: any) {
       :key="name"
       :criterion="{ name: name as string, ...criterion }"
       :is-saving="isSaving"
+      :read-only="readOnly"
       mode="view"
       @save="(data) => emit('update-criterion', name as string, data)"
       @delete="emit('delete-criterion', name as string)"
@@ -74,7 +75,7 @@ function handleAddCriterion(data: any) {
       class="text-sm text-muted-foreground text-center py-8 border border-dashed rounded"
     >
       <p class="mb-2">No screening criteria defined yet.</p>
-      <p class="text-xs">Add your first criterion to define inclusion/exclusion rules for screening.</p>
+      <p v-if="!readOnly" class="text-xs">Add your first criterion to define inclusion/exclusion rules for screening.</p>
     </div>
   </div>
 </template>

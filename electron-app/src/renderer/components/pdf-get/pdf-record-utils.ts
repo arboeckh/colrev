@@ -59,9 +59,15 @@ export const FIX_STAGE_PILLS: StatusFilterPill[] = [
   { label: 'All', statuses: null },
 ];
 
+// Summary is the last PDF stage, so its records have usually moved on to
+// rev_included/rev_excluded. "Ready" therefore keys off the file being on disk,
+// not off `pdf_prepared` — pinning it to that status made the pill read 0 for
+// every record that had progressed past screening. With `file_on_disk` as the
+// discriminator the three pills partition the set: on disk, expected but
+// missing, and never available.
 export const SUMMARY_STAGE_PILLS: StatusFilterPill[] = [
   { label: 'Missing on disk', statuses: null, requireMissing: true },
-  { label: 'Ready', statuses: ['pdf_prepared'], requireOnDisk: true },
+  { label: 'Ready', statuses: null, requireOnDisk: true },
   { label: 'Unavailable', statuses: ['pdf_not_available'] },
   { label: 'All', statuses: null },
 ];
@@ -139,8 +145,25 @@ export function statusLabel(status: string): string {
       return 'Needs upload';
     case 'pdf_needs_manual_preparation':
       return 'Needs fixing';
+    // Records that have moved past the PDF stage still show up in the summary
+    // table. Without these the column mixed vocabularies — a raw
+    // `rev_included` sitting next to a human-readable "Unavailable".
+    case 'rev_prescreen_included':
+      return 'Prescreen: included';
+    case 'rev_prescreen_excluded':
+      return 'Prescreen: excluded';
+    case 'rev_included':
+      return 'Included';
+    case 'rev_excluded':
+      return 'Excluded';
+    case 'rev_synthesized':
+      return 'Synthesized';
     default:
-      return status;
+      // Last resort for a status we haven't mapped: never show raw snake_case.
+      return status
+        .replace(/^(md|pdf|rev)_/, '')
+        .replace(/_/g, ' ')
+        .replace(/^./, (c) => c.toUpperCase());
   }
 }
 
@@ -156,6 +179,12 @@ export function statusClass(status: string): string {
       return 'text-amber-600 dark:text-amber-400';
     case 'pdf_needs_manual_preparation':
       return 'text-amber-600 dark:text-amber-400';
+    case 'rev_included':
+    case 'rev_synthesized':
+      return 'text-green-600 dark:text-green-400';
+    case 'rev_excluded':
+    case 'rev_prescreen_excluded':
+      return 'text-muted-foreground/70';
     default:
       return 'text-muted-foreground';
   }
@@ -174,6 +203,12 @@ export function statusPillClass(status: string): string {
     case 'pdf_needs_manual_retrieval':
     case 'pdf_needs_manual_preparation':
       return `${base} bg-amber-500/10 text-amber-700 dark:bg-amber-400/10 dark:text-amber-300`;
+    case 'rev_included':
+    case 'rev_synthesized':
+      return `${base} bg-green-500/10 text-green-700 dark:bg-green-400/10 dark:text-green-300`;
+    case 'rev_excluded':
+    case 'rev_prescreen_excluded':
+      return `${base} bg-muted/60 text-muted-foreground`;
     default:
       return `${base} bg-muted/60 text-muted-foreground`;
   }
@@ -190,6 +225,9 @@ export function statusPillDotClass(status: string): string {
     case 'pdf_needs_manual_retrieval':
     case 'pdf_needs_manual_preparation':
       return 'bg-amber-500 dark:bg-amber-400';
+    case 'rev_included':
+    case 'rev_synthesized':
+      return 'bg-green-500 dark:bg-green-400';
     default:
       return 'bg-muted-foreground/50';
   }

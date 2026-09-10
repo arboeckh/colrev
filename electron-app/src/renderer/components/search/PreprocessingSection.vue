@@ -11,6 +11,7 @@ import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
 import PreprocessingResultsModal from '@/components/preprocessing/PreprocessingResultsModal.vue';
 import type { SearchSource } from '@/types';
+import { formatSourceName } from '@/lib/displayNames';
 
 defineProps<{
   projectId: string;
@@ -59,9 +60,7 @@ function getSourceDisplayName(source: SearchSource): string {
     const basename = path.split('/').pop() || '';
     return basename.replace(/\.[^/.]+$/, '') || 'unknown';
   }
-  const endpoint = source.endpoint || source.platform || 'unknown';
-  const name = endpoint.split('.').pop() || endpoint;
-  return name.charAt(0).toUpperCase() + name.slice(1);
+  return formatSourceName(source.endpoint || source.platform);
 }
 
 // Stage completion from the shared status derivation

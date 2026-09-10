@@ -2,11 +2,11 @@
 import { computed } from 'vue';
 import { Settings, User, FileText, GitBranch } from 'lucide-vue-next';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useProjectsStore } from '@/stores/projects';
 import { useGitStore } from '@/stores/git';
+import { formatReviewType, formatSourceName } from '@/lib/displayNames';
 
 const projects = useProjectsStore();
 const git = useGitStore();
@@ -40,17 +40,15 @@ const gitState = computed(() => git.snapshot);
         <div class="grid gap-4">
           <div class="space-y-2">
             <label class="text-sm font-medium">Review Title</label>
-            <Input
-              :model-value="settings?.project?.title || ''"
-              disabled
-              placeholder="Review title"
-            />
+            <!-- Read-only value, rendered as text. A disabled input showed the
+                 title in placeholder grey, so it read as an empty field. -->
+            <p class="text-sm">{{ settings?.project?.title || 'Untitled review' }}</p>
           </div>
 
           <div v-if="settings?.project?.review_type" class="space-y-2">
             <label class="text-sm font-medium">Review Type</label>
             <div>
-              <Badge variant="secondary">{{ settings.project.review_type }}</Badge>
+              <Badge variant="secondary">{{ formatReviewType(settings.project.review_type) }}</Badge>
             </div>
           </div>
 
@@ -156,7 +154,7 @@ const gitState = computed(() => git.snapshot);
             :key="source.filename"
             class="flex items-center justify-between p-2 bg-muted rounded-md"
           >
-            <span class="font-mono text-sm">{{ source.endpoint.split('.').pop() }}</span>
+            <span class="text-sm">{{ formatSourceName(source.endpoint || source.platform) }}</span>
             <Badge variant="outline">{{ source.search_type }}</Badge>
           </li>
         </ul>
