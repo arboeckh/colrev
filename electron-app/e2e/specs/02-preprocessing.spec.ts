@@ -11,7 +11,7 @@ import {
   DEFAULT_PROJECT_ID,
 } from '../fixtures/test-workspace.fixture';
 import { TestWorkspace } from '../lib/test-workspace';
-import { clickWhenEnabled } from '../helpers/test-utils';
+import { clickWhenEnabled, findHorizontalOverflow } from '../helpers/test-utils';
 import type { Page } from '@playwright/test';
 
 const CACHE_DIR = path.join(os.homedir(), '.cache', 'colrev-test-fixtures');
@@ -94,6 +94,27 @@ test.describe('preprocessing', () => {
     );
 
     await workspace.markPhase(electronApp, 'preprocessing-auto-done');
+
+    // Layout guard: the pipeline has to absorb whatever the run produces —
+    // long source filenames, counts with grouping separators, the percentage
+    // the dedupe stage grows while it runs — instead of pushing it out of the
+    // cards. Checked at the default window size and at a narrow one.
+    for (const [width, height] of [[1200, 800], [900, 700]] as const) {
+      await electronApp.evaluate(({ BrowserWindow }, size) => {
+        BrowserWindow.getAllWindows()[0]?.setSize(size[0], size[1]);
+      }, [width, height]);
+      await window.waitForTimeout(300);
+      const overflow = await findHorizontalOverflow(
+        window, '[data-testid="preprocessing-flow-diagram"]',
+      );
+      expect(
+        overflow,
+        `pipeline overflows at ${width}x${height}: ${JSON.stringify(overflow)}`,
+      ).toEqual([]);
+    }
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.setSize(1200, 800);
+    });
 
     // Phase 5: drive the Manual Prep UI to resolve any records that prep
     // flagged as md_needs_manual_preparation. The two planted messy rows

@@ -244,7 +244,13 @@ function defectTooltip(record: PdfRecord): string {
 
     <div class="border border-border/60 rounded-md flex flex-col flex-1 min-h-0 overflow-hidden">
       <div class="overflow-auto flex-1 min-h-0">
-        <Table class="table-fixed w-full text-xs" container-class="overflow-visible">
+        <!-- The columns have real minimums (icons, status pills, action
+             buttons); below that the surrounding div scrolls horizontally
+             instead of the header labels spilling out of their cells. -->
+        <Table
+          :class="['table-fixed w-full text-xs', showActions ? 'min-w-[860px]' : 'min-w-[620px]']"
+          container-class="overflow-visible"
+        >
           <TableHeader>
             <TableRow class="hover:bg-transparent [&>th]:sticky [&>th]:top-0 [&>th]:bg-background [&>th]:z-10 [&>th]:border-b [&>th]:border-border/60">
               <TableHead class="h-8 px-2 w-[68px]"><span class="sr-only">DOI actions</span></TableHead>
