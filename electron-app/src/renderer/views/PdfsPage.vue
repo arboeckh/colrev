@@ -47,7 +47,12 @@ type StageId = PdfStageId;
 type PendingUploadKind = 'normal' | 'missing-restore';
 
 const records = ref<PdfRecord[]>([]);
+// Only the *first* load blanks the table for a spinner. Every later load is a
+// background refresh through the invalidation seam, and swapping a rendered
+// table for a spinner on each one is the flicker the user sees after every
+// single-record action.
 const isLoading = ref(false);
+const hasLoadedOnce = ref(false);
 const loadError = ref<string | null>(null);
 const uploadingRecordId = ref<string | null>(null);
 const markingRecordId = ref<string | null>(null);
@@ -167,7 +172,7 @@ const stages = computed<StageMeta[]>(() => [
 async function loadRecords() {
   if (!projects.currentProjectId || !backend.isRunning) return;
 
-  isLoading.value = true;
+  isLoading.value = !hasLoadedOnce.value;
   loadError.value = null;
   const guard = projectData.snapshot();
   try {
@@ -204,6 +209,7 @@ async function loadRecords() {
     if (!guard.isCurrent()) return;
     if (response.success) {
       records.value = response.records as unknown as PdfRecord[];
+      hasLoadedOnce.value = true;
     }
   } catch (err) {
     if (guard.isCurrent()) {
@@ -212,6 +218,19 @@ async function loadRecords() {
   } finally {
     isLoading.value = false;
   }
+}
+
+/**
+ * Reflect a per-record write locally, without waiting for the refresh.
+ *
+ * The RPC has already succeeded when this runs, so the new state is a fact,
+ * not a guess — and the row is expected to leave one stage's table for the
+ * next one the instant the user clicks. The seam's refresh still arrives and
+ * replaces the list wholesale; this only removes the visible dead time.
+ */
+function applyLocalStatus(recordId: string, status: string): void {
+  const record = records.value.find((r) => r.ID === recordId);
+  if (record) record.colrev_status = status;
 }
 
 function readFileAsBase64(file: File): Promise<string> {
@@ -274,6 +293,14 @@ async function handlePdfFileSelected(event: Event) {
     });
 
     if (response.success) {
+      // `prep_status` is the record's state when inline prep ran; 'skipped'
+      // means it didn't, and the upload's own `new_status` stands.
+      applyLocalStatus(
+        recordId,
+        !response.prep_status || response.prep_status === 'skipped'
+          ? response.new_status
+          : response.prep_status,
+      );
       if (response.prep_status === 'pdf_prepared') {
         uploadResults.value[recordId] = { status: 'success' };
         notifications.success('PDF uploaded & prepared', `PDF for ${recordId} is ready`);
@@ -319,6 +346,7 @@ async function markNotAvailable(recordId: string) {
     });
 
     if (response.success) {
+      applyLocalStatus(recordId, response.new_status);
       notifications.success('Marked unavailable', recordId);
     }
   } catch (err) {
@@ -342,6 +370,7 @@ async function undoNotAvailable(recordId: string) {
     });
 
     if (response.success) {
+      applyLocalStatus(recordId, response.new_status);
       notifications.success('Restored', `${recordId} ready to upload`);
     }
   } catch (err) {

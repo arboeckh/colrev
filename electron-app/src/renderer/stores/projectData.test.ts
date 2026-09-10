@@ -2,6 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useProjectDataStore, type ProjectDataEvent } from './projectData';
 import { useProjectsStore } from './projects';
+import { useGitStore } from './git';
 
 // These tests exercise the seam's own logic (epoch guards, event coalescing,
 // subscription lifecycle). The store-refresh side (refreshCurrentProject,
@@ -48,7 +49,7 @@ describe('projectData invalidation seam', () => {
   });
 
   describe('write-event coalescing', () => {
-    it('coalesces rapid writes into one event carrying all methods', async () => {
+    it('refreshes on the first write, then coalesces the rest of the streak', async () => {
       const projects = useProjectsStore();
       projects.currentProjectId = 'p1';
       const seam = useProjectDataStore();
@@ -65,14 +66,31 @@ describe('projectData invalidation seam', () => {
       expect(events).toHaveLength(0);
       await vi.runAllTimersAsync();
 
+      // Leading edge: the first write of the streak is not made to wait out
+      // the debounce. The two that followed it collapse into one trailing
+      // refresh rather than one each.
+      expect(events).toHaveLength(2);
+      expect(events.every((e) => e.full === false)).toBe(true);
+      expect(events.every((e) => e.projectId === 'p1')).toBe(true);
+      expect(events[0].methods).toEqual(['prescreen_record']);
+      expect(events[1].methods).toEqual(['prescreen_record', 'batch_enrich_records']);
+    });
+
+    it('emits the first write immediately, without waiting out the debounce', async () => {
+      const projects = useProjectsStore();
+      projects.currentProjectId = 'p1';
+      const seam = useProjectDataStore();
+
+      const events: ProjectDataEvent[] = [];
+      seam.subscribe((e) => {
+        events.push(e);
+      });
+
+      seam.notifyWriteCompleted('mark_pdf_not_available');
+      await vi.advanceTimersByTimeAsync(1);
+
       expect(events).toHaveLength(1);
-      expect(events[0].full).toBe(false);
-      expect(events[0].projectId).toBe('p1');
-      expect(events[0].methods).toEqual([
-        'prescreen_record',
-        'prescreen_record',
-        'batch_enrich_records',
-      ]);
+      expect(events[0].methods).toEqual(['mark_pdf_not_available']);
     });
 
     it('drops events when no project is open', async () => {
@@ -90,7 +108,7 @@ describe('projectData invalidation seam', () => {
   });
 
   describe('invalidateAll', () => {
-    it('bumps the epoch and emits a single full event including pending methods', async () => {
+    it('bumps the epoch and emits a full event', async () => {
       const projects = useProjectsStore();
       projects.currentProjectId = 'p1';
       const seam = useProjectDataStore();
@@ -101,7 +119,6 @@ describe('projectData invalidation seam', () => {
       });
 
       const guard = seam.snapshot();
-      seam.notifyWriteCompleted('commit_changes');
       const done = seam.invalidateAll();
       await vi.runAllTimersAsync();
       await done;
@@ -109,8 +126,32 @@ describe('projectData invalidation seam', () => {
       expect(guard.isCurrent()).toBe(false);
       expect(events).toHaveLength(1);
       expect(events[0].full).toBe(true);
-      expect(events[0].methods).toContain('commit_changes');
       expect(events[0].methods).toContain('invalidate');
+    });
+
+    it('absorbs a write still waiting on the debounce', async () => {
+      const projects = useProjectsStore();
+      projects.currentProjectId = 'p1';
+      const seam = useProjectDataStore();
+
+      const events: ProjectDataEvent[] = [];
+      seam.subscribe((e) => {
+        events.push(e);
+      });
+
+      // Two writes: the first goes out on the leading edge, the second is
+      // still queued behind the debounce when the invalidation lands and must
+      // ride along with it rather than firing a third refresh of its own.
+      seam.notifyWriteCompleted('commit_changes');
+      seam.notifyWriteCompleted('commit_changes');
+      const done = seam.invalidateAll();
+      await vi.runAllTimersAsync();
+      await done;
+
+      expect(events).toHaveLength(2);
+      expect(events[1].full).toBe(true);
+      expect(events[1].methods).toContain('commit_changes');
+      expect(events[1].methods).toContain('invalidate');
     });
   });
 
@@ -213,6 +254,39 @@ describe('projectData invalidation seam', () => {
       seam.clearStale();
       expect(seam.isStale).toBe(false);
       expect(seam.staleReason).toBeNull();
+    });
+
+    it('retries a failed store refresh until it succeeds', async () => {
+      const projects = useProjectsStore();
+      projects.currentProjectId = 'p1';
+      const git = useGitStore();
+      let attempts = 0;
+      vi.spyOn(git, 'refreshStatus').mockImplementation(async () => {
+        attempts += 1;
+        // The first refresh (and the immediate light refresh before it) fail;
+        // a later attempt finds the backend responsive again.
+        return attempts >= 3;
+      });
+
+      const seam = useProjectDataStore();
+      seam.notifyWriteCompleted('pdf_get');
+      await vi.runAllTimersAsync();
+
+      expect(attempts).toBeGreaterThanOrEqual(3);
+      expect(seam.isStale).toBe(false);
+    });
+
+    it('gives up after the capped backoff and leaves the flag set', async () => {
+      const projects = useProjectsStore();
+      projects.currentProjectId = 'p1';
+      const git = useGitStore();
+      vi.spyOn(git, 'refreshStatus').mockResolvedValue(false);
+
+      const seam = useProjectDataStore();
+      seam.notifyWriteCompleted('pdf_get');
+      await vi.runAllTimersAsync();
+
+      expect(seam.isStale).toBe(true);
     });
   });
 });
