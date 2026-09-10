@@ -16,6 +16,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { computeReviewPhaseStatus, type ReviewPhase } from '@/lib/stepStatus';
+import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 
 type Phase = ReviewPhase;
 
@@ -134,6 +135,15 @@ async function onNavigateReconcile() {
   await nextTick();
   await reconcilePanelRef.value?.tryAutoStart();
 }
+
+// A pull / reset / merge replaced the working tree: reviewer task state comes
+// from it.
+useProjectDataChanged(async (event) => {
+  if (!event.full) return;
+  if (backend.isRunning && projects.currentProjectId) {
+    await managedReview.refresh();
+  }
+});
 
 onMounted(async () => {
   if (backend.isRunning && projects.currentProjectId) {

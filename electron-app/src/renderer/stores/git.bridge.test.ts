@@ -99,7 +99,7 @@ describe('fetch', () => {
     const connection = useConnectionStore();
     connection.markOffline();
 
-    await expect(git.fetch()).resolves.toBe(true);
+    await expect(git.__remoteOps.fetch()).resolves.toBe(true);
 
     expect(connection.isOnline).toBe(true);
     expect(ctx.mock.gitState.refresh).toHaveBeenCalled();
@@ -110,7 +110,7 @@ describe('fetch', () => {
     const connection = useConnectionStore();
     ctx.mock.git.fetch.mockResolvedValue({ success: false, error: 'OFFLINE' });
 
-    await expect(git.fetch()).resolves.toBe(false);
+    await expect(git.__remoteOps.fetch()).resolves.toBe(false);
     expect(connection.isOnline).toBe(false);
   });
 });
@@ -121,7 +121,7 @@ describe('pull', () => {
     const seam = useProjectDataStore();
     const guard = seam.snapshot();
 
-    await expect(git.pull()).resolves.toBe(true);
+    await expect(git.__remoteOps.pull()).resolves.toBe(true);
 
     expect(ctx.mock.git.pull).toHaveBeenCalledWith(TEST_PROJECT_PATH, true);
     // The working tree was replaced: in-flight loads from before must not paint.
@@ -150,7 +150,7 @@ describe('pull', () => {
       },
     });
 
-    await expect(git.pull()).resolves.toBe(false);
+    await expect(git.__remoteOps.pull()).resolves.toBe(false);
 
     expect(git.showConflictDialog).toBe(true);
     expect(git.mergeAnalysis?.conflicts).toHaveLength(1);
@@ -160,7 +160,7 @@ describe('pull', () => {
     const git = useGitStore();
     ctx.mock.git.pull.mockResolvedValue({ success: false, error: 'DIVERGED' });
 
-    await git.pull();
+    await git.__remoteOps.pull();
 
     expect(git.showConflictDialog).toBe(false);
     expect(ctx.mock.git.applyMerge).toHaveBeenCalledWith(TEST_PROJECT_PATH, 'lit-review', []);
@@ -170,7 +170,7 @@ describe('pull', () => {
     const git = useGitStore();
     ctx.mock.git.pull.mockResolvedValue({ success: false, error: 'DIRTY_WORKTREE' });
 
-    await expect(git.pull()).resolves.toBe(false);
+    await expect(git.__remoteOps.pull()).resolves.toBe(false);
 
     expect(git.showPullBlockedDialog).toBe(true);
   });
@@ -188,7 +188,7 @@ describe('pull', () => {
       },
     });
 
-    await git.pull();
+    await git.__remoteOps.pull();
 
     expect(ctx.mock.git.applyMerge).not.toHaveBeenCalled();
     expect(git.showConflictDialog).toBe(false);
@@ -262,7 +262,7 @@ describe('push', () => {
     const success = vi.spyOn(useNotificationsStore(), 'success');
     connection.markOffline();
 
-    await expect(git.push()).resolves.toBe(true);
+    await expect(git.__remoteOps.push()).resolves.toBe(true);
 
     expect(ctx.mock.git.push).toHaveBeenCalledWith(TEST_PROJECT_PATH);
     expect(connection.isOnline).toBe(true);
@@ -275,7 +275,7 @@ describe('push', () => {
     const error = vi.spyOn(useNotificationsStore(), 'error');
     ctx.mock.git.push.mockResolvedValue({ success: false, error: 'REJECTED_FETCH_FIRST' });
 
-    await expect(git.push()).resolves.toBe(false);
+    await expect(git.__remoteOps.push()).resolves.toBe(false);
 
     expect(error).toHaveBeenCalledTimes(1);
     const [title, , action] = error.mock.calls[0];
@@ -293,7 +293,7 @@ describe('push', () => {
     const error = vi.spyOn(useNotificationsStore(), 'error');
     ctx.mock.git.push.mockResolvedValue({ success: false, error: 'AUTH_FAILED' });
 
-    await expect(git.push()).resolves.toBe(false);
+    await expect(git.__remoteOps.push()).resolves.toBe(false);
 
     const [title, , action] = error.mock.calls[0];
     expect(title).toBe('Sign in again');
@@ -311,7 +311,7 @@ describe('push', () => {
     const error = vi.spyOn(useNotificationsStore(), 'error');
     ctx.mock.git.push.mockResolvedValue({ success: false, error: 'OFFLINE' });
 
-    await expect(git.push()).resolves.toBe(false);
+    await expect(git.__remoteOps.push()).resolves.toBe(false);
 
     expect(connection.isOnline).toBe(false);
     expect(error.mock.calls[0][0]).toBe("You're offline");
@@ -324,7 +324,7 @@ describe('fastForwardMain', () => {
     const success = vi.spyOn(useNotificationsStore(), 'success');
     ctx.setGitState({ branch: 'dev' });
 
-    await expect(git.fastForwardMain()).resolves.toBe(true);
+    await expect(git.__remoteOps.fastForwardMain()).resolves.toBe(true);
 
     expect(ctx.mock.git.fastForwardMain).toHaveBeenCalledWith(TEST_PROJECT_PATH);
     expect(ctx.mock.git.pull).not.toHaveBeenCalled();
@@ -339,7 +339,7 @@ describe('fastForwardMain', () => {
     const git = useGitStore();
     ctx.setGitState({ branch: 'main' });
 
-    await expect(git.fastForwardMain()).resolves.toBe(true);
+    await expect(git.__remoteOps.fastForwardMain()).resolves.toBe(true);
 
     expect(ctx.mock.git.pull).toHaveBeenCalledWith(TEST_PROJECT_PATH, true);
     expect(ctx.mock.git.fastForwardMain).not.toHaveBeenCalled();
@@ -351,7 +351,7 @@ describe('fastForwardMain', () => {
     ctx.setGitState({ branch: 'dev' });
     ctx.mock.git.fastForwardMain.mockResolvedValue({ success: false, error: 'DIVERGED' });
 
-    await expect(git.fastForwardMain()).resolves.toBe(false);
+    await expect(git.__remoteOps.fastForwardMain()).resolves.toBe(false);
 
     expect(error).toHaveBeenCalledWith(
       'Cannot fast-forward main',

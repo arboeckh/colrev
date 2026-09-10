@@ -24,6 +24,8 @@ import PreprocessingResultsModal from '@/components/preprocessing/PreprocessingR
 import StepPageShell from '@/components/layout/StepPageShell.vue';
 import PreprocessingPageHelp from './PreprocessingPageHelp.vue';
 import type { SearchSource } from '@/types';
+import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
+import { formatSourceName } from '@/lib/displayNames';
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
@@ -91,10 +93,7 @@ function getSourceDisplayName(source: SearchSource): string {
     const basename = path.split('/').pop() || '';
     return basename.replace(/\.[^/.]+$/, '') || 'unknown';
   }
-  const endpoint = source.endpoint || source.platform || 'unknown';
-  const name = endpoint.split('.').pop() || endpoint;
-  // Capitalize first letter
-  return name.charAt(0).toUpperCase() + name.slice(1);
+  return formatSourceName(source.endpoint || source.platform);
 }
 
 // Compute stage status based on record counts
@@ -256,6 +255,13 @@ const currentStageProgress = computed((): number | null => {
 function getStageVisualStatus(stageId: StageId): 'pending' | 'running' | 'complete' {
   return stageVisualStatuses.value[stageId];
 }
+
+// A pull / reset / merge replaced the working tree: search sources may have
+// changed under us.
+useProjectDataChanged(async (event) => {
+  if (!event.full) return;
+  await loadSources();
+});
 
 onMounted(() => {
   loadSources();

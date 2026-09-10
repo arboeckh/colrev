@@ -3,3 +3,5 @@ export { useProjectDataChanged } from './useProjectDataChanged';
 export { useReadOnly } from './useReadOnly';
 export { useReconcileGate } from './useReconcileGate';
 export { useWalkthroughNavigation } from './useWalkthroughNavigation';
+export { useSyncSuspense } from './useSyncSuspense';
+export { useSyncGate } from './useSyncGate';

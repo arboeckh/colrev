@@ -1,20 +1,22 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { AlertTriangle, ArrowDown, X } from 'lucide-vue-next';
-import { Button } from '@/components/ui/button';
 import Header from './Header.vue';
 import Sidebar from './Sidebar.vue';
+import SyncStatusBanner from '@/components/common/SyncStatusBanner.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
+import { useSyncStore } from '@/stores/sync';
 import { useNotificationsStore } from '@/stores/notifications';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
+import ReviewerBranchBanner from '@/components/common/ReviewerBranchBanner.vue';
 
 const route = useRoute();
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const git = useGitStore();
+const sync = useSyncStore();
 const notifications = useNotificationsStore();
 const pending = usePendingChangesStore();
 
@@ -31,15 +33,24 @@ async function loadProjectFromRoute() {
       return;
     }
 
+    // The coordinator's timers, fetch clock and suspensions all belong to the
+    // project being left. Stop before loading so none of it carries over.
+    sync.stop();
+
     const success = await projects.loadProject(projectId);
     if (!success) {
       notifications.error('Failed to load review', projects.projectError || undefined);
-    } else {
-      // One-shot initialization — no intervals. Freshness is driven by window
-      // focus, explicit Refresh / Fetch buttons, and post-write hooks.
-      await git.initialize();
+      return;
     }
+    await git.initialize();
   }
+
+  // Hand freshness to the sync coordinator: it owns the background fetch
+  // cadence, auto-pull and auto-push from here on. This is the only place it
+  // is started — `architecture.test.ts` enforces that, so a second surface
+  // cannot spawn a competing loop. `start()` is idempotent, so re-entering
+  // the same project (remount, hot reload) does not stack timers.
+  if (projects.currentProjectId) sync.start();
 }
 
 // Refresh everything on window focus — the app is the user's "view" into the
@@ -51,11 +62,11 @@ async function handleWindowFocus() {
   if (focusRefreshInFlight) return;
   focusRefreshInFlight = true;
   try {
-    await Promise.all([
-      // One snapshot refresh: git facts and pending changes come from it.
-      git.refreshStatus(),
-      git.hasRemote ? git.fetch() : Promise.resolve(),
-    ]);
+    // One snapshot refresh: git facts and pending changes come from it.
+    await git.refreshStatus();
+    // Focus forces the coordinator's next tick to fetch, then act on what it
+    // finds — so tabbing back picks up a collaborator's work immediately.
+    sync.onWindowFocus();
   } finally {
     focusRefreshInFlight = false;
   }
@@ -92,6 +103,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('focus', handleWindowFocus);
+  sync.stop();
   git.cleanup();
 });
 </script>
@@ -101,48 +113,10 @@ onUnmounted(() => {
     <!-- Header -->
     <Header />
 
-    <!-- Merge conflict banner -->
-    <div
-      v-if="git.hasMergeConflict"
-      class="bg-destructive/10 border-b border-destructive/30 px-4 py-2 flex items-center gap-2"
-    >
-      <AlertTriangle class="h-4 w-4 text-destructive shrink-0" />
-      <span class="text-sm text-destructive">
-        Merge conflict detected. Resolve manually or abort the merge.
-      </span>
-      <Button
-        variant="outline"
-        size="sm"
-        class="ml-auto h-7 text-xs"
-        data-testid="abort-merge-button"
-        @click="git.abortMerge()"
-      >
-        <X class="h-3 w-3 mr-1" />
-        Abort Merge
-      </Button>
-    </div>
+    <SyncStatusBanner />
 
-    <!-- Remote has new changes banner. Keys off main-vs-origin/main so the
-         banner appears even when the user is on dev. -->
-    <div
-      v-if="git.mainBehind > 0 && !git.hasMergeConflict"
-      class="bg-eucalyptus-50 border-b border-eucalyptus-300/50 px-4 py-2 flex items-center gap-2"
-    >
-      <ArrowDown class="h-4 w-4 text-eucalyptus-700 shrink-0" />
-      <span class="text-sm text-eucalyptus-700">
-        Collaborators pushed {{ git.mainBehind }} new commit{{ git.mainBehind === 1 ? '' : 's' }}.
-      </span>
-      <Button
-        variant="outline"
-        size="sm"
-        class="ml-auto h-7 text-xs"
-        :disabled="git.isPulling"
-        data-testid="pull-changes-button"
-        @click="git.fastForwardMain()"
-      >
-        {{ git.isPulling ? 'Pulling...' : 'Pull now' }}
-      </Button>
-    </div>
+    <!-- Reviewer-branch explainer: says why the sidebar just changed shape. -->
+    <ReviewerBranchBanner />
 
     <!-- Main content area -->
     <div class="flex flex-1 overflow-hidden">

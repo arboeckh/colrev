@@ -6,7 +6,6 @@ export { default as OperationButton } from './OperationButton.vue';
 export { default as ProgressCircle } from './ProgressCircle.vue';
 export { default as ReadOnlyBanner } from './ReadOnlyBanner.vue';
 export { default as DebugPanel } from './DebugPanel.vue';
-export { default as ThemeToggle } from './ThemeToggle.vue';
 export { default as UserMenu } from './UserMenu.vue';
 export { default as ReviewerSelector } from './ReviewerSelector.vue';
 export { default as CollaboratorInviteForm } from './CollaboratorInviteForm.vue';

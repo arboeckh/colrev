@@ -7,11 +7,13 @@ import GitSyncControls from '@/components/common/GitSyncControls.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
+import { useSyncStore } from '@/stores/sync';
 import { useProjectDataStore } from '@/stores/projectData';
 const router = useRouter();
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const git = useGitStore();
+const sync = useSyncStore();
 const projectData = useProjectDataStore();
 
 const projectTitle = computed(() => {
@@ -39,7 +41,7 @@ async function refresh() {
   try {
     await Promise.all([
       projectData.refreshNow(),
-      git.hasRemote ? git.fetch() : Promise.resolve(),
+      git.hasRemote ? sync.fetchNow() : Promise.resolve(),
     ]);
   } finally {
     isRefreshingManual.value = false;

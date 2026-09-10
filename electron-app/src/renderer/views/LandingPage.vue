@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { Plus, Loader2, RefreshCw, FolderKanban, FolderOpen, Settings, Github, Globe, Lock, Download, Mail, Check, X } from 'lucide-vue-next';
+import { Plus, Loader2, RefreshCw, FolderKanban, FolderOpen, Github, Globe, Lock, Download, Mail, Check, X } from 'lucide-vue-next';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import type { RepoInvitation } from '@/types/window';
 import { Button } from '@/components/ui/button';
@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { ProjectsTable } from '@/components/project';
-import { EmptyState, RepoVisibilityToggle, ThemeToggle, UserMenu } from '@/components/common';
+import { EmptyState, RepoVisibilityToggle, UserMenu } from '@/components/common';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
 import { useNotificationsStore } from '@/stores/notifications';
@@ -147,15 +147,18 @@ async function discoverProjects() {
       for (const proj of response.projects) {
         projects.addProject(proj.id, proj.path, proj.title);
       }
+      // Names alone don't orient anyone. Fill in the row detail — record count,
+      // next step, branch and cleanliness — in the background so the list is
+      // usable without opening each review first. Rows render immediately and
+      // fill in as each project resolves; failures leave that row's cells empty
+      // rather than blocking the others.
+      void projects.hydrateProjectList(response.projects);
     }
   } catch (err) {
     console.error('Failed to discover projects:', err);
   } finally {
     isLoadingProjects.value = false;
   }
-
-  // Projects are displayed immediately
-  // Status/git status will be loaded on-demand when viewing individual projects
 }
 
 async function createProject() {
@@ -263,14 +266,6 @@ loadInvitations();
           <span>Reviews</span>
         </RouterLink>
 
-        <!-- Settings nav item (placeholder) -->
-        <button
-          disabled
-          class="flex w-full items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground/50 cursor-not-allowed"
-        >
-          <Settings class="h-4 w-4" />
-          <span>Settings</span>
-        </button>
       </ScrollArea>
 
       <!-- User menu at the bottom -->
@@ -287,27 +282,29 @@ loadInvitations();
           <h2 class="text-lg font-semibold">Reviews</h2>
 
           <div class="flex items-center gap-2">
-            <!-- Backend status indicator -->
-            <div class="flex items-center gap-2 text-sm">
+            <!-- Backend status. Only shown when it is something the user can
+                 act on — a healthy backend reporting "Running" is a developer
+                 fact, not information a reviewer needs on every visit. -->
+            <div v-if="!backend.isRunning" class="flex items-center gap-2 text-sm" data-testid="backend-status">
               <div
                 class="h-2 w-2 rounded-full"
                 :class="{
-                  'bg-green-500': backend.isRunning,
                   'bg-yellow-500 animate-pulse': backend.isStarting,
                   'bg-red-500': backend.status === 'error',
                   'bg-muted': backend.status === 'stopped',
                 }"
               />
-              <span class="text-muted-foreground capitalize">{{ backend.status }}</span>
+              <span class="text-muted-foreground">
+                {{ backend.isStarting ? 'Starting up…' : backend.status === 'error' ? "Couldn't start" : 'Not running' }}
+              </span>
             </div>
-
-            <!-- Theme toggle -->
-            <ThemeToggle />
 
             <!-- Refresh button -->
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Refresh review list"
+              title="Refresh review list"
               :disabled="!backend.isRunning || isLoadingProjects"
               @click="discoverProjects"
             >
@@ -341,8 +338,13 @@ loadInvitations();
                       :disabled="isCreatingProject"
                       @keyup.enter="createProject"
                     />
+                    <!-- Name what actually gets created. The dialog makes a
+                         repository on the user's GitHub account and previously
+                         only showed the derived slug as "ID: ...". -->
                     <p v-if="generatedSlug" class="text-xs text-muted-foreground">
-                      ID: {{ generatedSlug }}
+                      Creates the repository
+                      <span class="font-mono">{{ auth.user?.login ? `${auth.user.login}/${generatedSlug}` : generatedSlug }}</span>
+                      on GitHub.
                     </p>
                   </div>
 
@@ -353,6 +355,11 @@ loadInvitations();
                       :disabled="isCreatingProject"
                       test-id="toggle-repo-visibility"
                     />
+                    <p class="text-xs text-muted-foreground">
+                      {{ isPrivateRepo
+                        ? 'Only you and the collaborators you invite can see this review.'
+                        : 'Anyone can see this review. Collaborators still need an invitation to make changes.' }}
+                    </p>
                   </div>
                 </div>
 

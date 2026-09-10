@@ -2,6 +2,7 @@ import { computed, ref } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
+import { useSyncStore } from '@/stores/sync';
 import { useProjectsStore } from '@/stores/projects';
 import type {
   GetCurrentManagedReviewTaskResponse,
@@ -120,7 +121,7 @@ export function useManagedTaskAccess(kind: ManagedReviewKind) {
     if (git.currentBranch !== reviewer.branch_name) {
       accessState.value = 'switching';
       // Fetch first so the reviewer branch exists locally to check out.
-      if (git.hasRemote) await git.fetch();
+      if (git.hasRemote) await useSyncStore().fetchNow();
       if (!(await git.switchBranch(reviewer.branch_name))) {
         accessState.value = 'blocked';
         return false;

@@ -32,6 +32,7 @@ import { useProjectsStore } from '@/stores/projects';
 import { isReviewStepComplete } from '@/lib/stepStatus';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
+import { useSyncStore } from '@/stores/sync';
 import { useManagedReviewStore } from '@/stores/managedReview';
 import { useNotificationsStore } from '@/stores/notifications';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
@@ -68,6 +69,7 @@ const auth = useAuthStore();
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const git = useGitStore();
+const sync = useSyncStore();
 const managedReview = useManagedReviewStore();
 const notifications = useNotificationsStore();
 const pending = usePendingChangesStore();
@@ -89,7 +91,7 @@ async function saveToRemote() {
       await git.refreshStatus();
     }
     if (git.hasRemote && git.ahead > 0) {
-      await git.push();
+      await sync.pushNow();
     }
   } finally {
     isSavingToRemote.value = false;

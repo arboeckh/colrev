@@ -9,10 +9,13 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useGitStore } from '@/stores/git';
+import { useSyncStore } from '@/stores/sync';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
 import { computeGitSyncState } from '@/lib/gitSyncState';
+import SyncStatusIndicator from './SyncStatusIndicator.vue';
 
 const git = useGitStore();
+const sync = useSyncStore();
 const pending = usePendingChangesStore();
 
 const syncState = computed(() =>
@@ -37,7 +40,7 @@ async function handlePush() {
     await git.refreshStatus();
   }
   if (git.ahead > 0) {
-    await git.push();
+    await sync.pushNow();
   }
 }
 
@@ -46,7 +49,7 @@ async function handlePull() {
   if (pull.status === 'divergedWarning') {
     await git.startDivergenceResolution();
   } else if (pull.status === 'active') {
-    await git.pull();
+    await sync.pullNow();
   }
 }
 
@@ -73,23 +76,36 @@ const pullButtonClass = computed(() => {
 
 <template>
   <div v-if="syncState.push.status !== 'hidden'" class="flex items-center gap-1.5">
+    <SyncStatusIndicator />
+
     <TooltipProvider>
       <Tooltip>
+        <!-- A disabled <button> emits no pointer events, so a tooltip attached
+             directly to it never opens — exactly when the user most needs to
+             know why the control is dead. The focusable wrapper carries the
+             trigger instead, and the reason is also on the wrapper's title so
+             it survives keyboard focus. -->
         <TooltipTrigger as-child>
-          <Button
-            variant="outline"
-            size="sm"
-            class="h-7 gap-1.5 text-xs px-2.5 transition-colors"
-            :class="pushButtonClass"
-            :disabled="pushDisabled"
-            data-testid="push-button"
-            @click="handlePush"
+          <span
+            class="inline-flex"
+            :tabindex="pushDisabled ? 0 : -1"
+            :title="pushDisabled ? syncState.push.tooltip : undefined"
           >
-            <Loader2 v-if="syncState.push.status === 'loading'" class="h-3 w-3 animate-spin" />
-            <WifiOff v-else-if="syncState.push.status === 'offline'" class="h-3 w-3" />
-            <ArrowUp v-else class="h-3 w-3" />
-            {{ syncState.push.label }}
-          </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-7 gap-1.5 text-xs px-2.5 transition-colors"
+              :class="[pushButtonClass, pushDisabled ? 'pointer-events-none' : '']"
+              :disabled="pushDisabled"
+              data-testid="push-button"
+              @click="handlePush"
+            >
+              <Loader2 v-if="syncState.push.status === 'loading'" class="h-3 w-3 animate-spin" />
+              <WifiOff v-else-if="syncState.push.status === 'offline'" class="h-3 w-3" />
+              <ArrowUp v-else class="h-3 w-3" />
+              {{ syncState.push.label }}
+            </Button>
+          </span>
         </TooltipTrigger>
         <TooltipContent v-if="syncState.push.tooltip">
           <p class="text-xs">{{ syncState.push.tooltip }}</p>
@@ -100,20 +116,26 @@ const pullButtonClass = computed(() => {
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger as-child>
-          <Button
-            variant="outline"
-            size="sm"
-            class="h-7 gap-1.5 text-xs px-2.5 transition-colors"
-            :class="pullButtonClass"
-            :disabled="pullDisabled"
-            data-testid="pull-button"
-            @click="handlePull"
+          <span
+            class="inline-flex"
+            :tabindex="pullDisabled ? 0 : -1"
+            :title="pullDisabled ? syncState.pull.tooltip : undefined"
           >
-            <Loader2 v-if="syncState.pull.status === 'loading'" class="h-3 w-3 animate-spin" />
-            <WifiOff v-else-if="syncState.pull.status === 'offline'" class="h-3 w-3" />
-            <ArrowDown v-else class="h-3 w-3" />
-            {{ syncState.pull.label }}
-          </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-7 gap-1.5 text-xs px-2.5 transition-colors"
+              :class="[pullButtonClass, pullDisabled ? 'pointer-events-none' : '']"
+              :disabled="pullDisabled"
+              data-testid="pull-button"
+              @click="handlePull"
+            >
+              <Loader2 v-if="syncState.pull.status === 'loading'" class="h-3 w-3 animate-spin" />
+              <WifiOff v-else-if="syncState.pull.status === 'offline'" class="h-3 w-3" />
+              <ArrowDown v-else class="h-3 w-3" />
+              {{ syncState.pull.label }}
+            </Button>
+          </span>
         </TooltipTrigger>
         <TooltipContent v-if="syncState.pull.tooltip">
           <p class="text-xs">{{ syncState.pull.tooltip }}</p>

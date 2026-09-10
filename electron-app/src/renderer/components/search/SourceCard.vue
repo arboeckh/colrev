@@ -36,6 +36,7 @@ import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { SearchSource } from '@/types';
+import { formatSourceName } from '@/lib/displayNames';
 
 /**
  * Where this source sits in a run.
@@ -101,7 +102,7 @@ const endpoint = computed(
 
 /**
  * Stable identifier for test hooks: the endpoint's last segment, or the file
- * stem for uploads. Never shown to the user — see `displayName`.
+ * stem for uploads. Never shown to the user — see `sourceLabel`.
  */
 const sourceName = computed(() => {
   if (props.source.search_type === 'DB') {
@@ -112,6 +113,7 @@ const sourceName = computed(() => {
   return endpoint.value.split('.').pop() || endpoint.value || 'unknown';
 });
 
+/** The catalog entry, for the options its query form offers. */
 const connector = computed(() =>
   findConnectorByEndpoint(
     endpoint.value,
@@ -119,16 +121,12 @@ const connector = computed(() =>
   ),
 );
 
-/** What the database calls itself ("OpenAlex"), not its colrev endpoint. */
-const displayName = computed(() => {
-  if (connector.value) return connector.value.name;
-  // Unknown connector: title-case the slug rather than show "open_alex".
-  return sourceName.value
-    .split(/[_-]/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-});
+// `sourceName` stays the raw identifier — it keys the card's test ids and the
+// results modal. Anything a person reads uses `sourceLabel`, which maps
+// `open_alex` to "OpenAlex" instead of showing the package name.
+const sourceLabel = computed(() =>
+  props.source.search_type === 'DB' ? sourceName.value : formatSourceName(sourceName.value),
+);
 
 const filename = computed(() => {
   return props.source.filename || props.source.search_results_path || '';
@@ -171,7 +169,7 @@ const isActive = computed(() => isSearching.value || isQueued.value);
  * any number here would be invented. The label says which source is working.
  */
 const searchStatusText = computed(() =>
-  isQueued.value ? 'Queued' : props.progressMessage || `Searching ${displayName.value}…`,
+  isQueued.value ? 'Queued' : props.progressMessage || `Searching ${sourceLabel.value}…`,
 );
 
 // Format relative time for display with both relative and absolute date
@@ -374,7 +372,7 @@ async function handleUpdateFile() {
       <div class="flex items-center justify-between">
         <CardTitle class="text-base flex items-center gap-2 flex-wrap">
           <component :is="sourceIcon" class="h-4 w-4 shrink-0" />
-          {{ displayName }}
+          {{ sourceLabel }}
           <Badge :variant="searchTypeVariant">{{ source.search_type }}</Badge>
           <Badge
             v-if="source.is_stale"
@@ -401,7 +399,7 @@ async function handleUpdateFile() {
             size="icon"
             :disabled="isActive || busy || readOnly"
             :data-testid="`run-search-${sourceName}`"
-            :title="`Run the ${displayName} search`"
+            :title="`Run the ${sourceLabel} search`"
             @click="runSearch"
           >
             <Loader2 v-if="isActive" class="h-4 w-4 animate-spin" />
@@ -426,7 +424,7 @@ async function handleUpdateFile() {
             size="icon"
             :disabled="isActive || busy"
             :data-testid="`edit-source-${sourceName}`"
-            :title="`Edit the ${displayName} query`"
+            :title="`Edit the ${sourceLabel} query`"
             @click="openEditDialog"
           >
             <Settings class="h-4 w-4" />
@@ -540,7 +538,7 @@ async function handleUpdateFile() {
       <DialogHeader>
         <DialogTitle>Delete Source</DialogTitle>
         <DialogDescription>
-          Are you sure you want to remove "{{ displayName }}" from your search sources?
+          Are you sure you want to remove "{{ sourceLabel }}" from your search sources?
           This will also delete the search results file.
         </DialogDescription>
       </DialogHeader>
@@ -571,7 +569,7 @@ async function handleUpdateFile() {
   <Dialog v-model:open="showEditDialog">
     <DialogContent class="max-w-prose max-h-[85vh] overflow-y-auto">
       <DialogHeader>
-        <DialogTitle>Edit {{ displayName }} search</DialogTitle>
+        <DialogTitle>Edit {{ sourceLabel }} search</DialogTitle>
         <DialogDescription>
           Changing the search discards the results already fetched — run the
           search again to refill it.
@@ -621,7 +619,7 @@ async function handleUpdateFile() {
   <Dialog v-model:open="showUpdateFileDialog">
     <DialogContent class="max-w-prose">
       <DialogHeader>
-        <DialogTitle>Update {{ displayName }} source</DialogTitle>
+        <DialogTitle>Update {{ sourceLabel }} source</DialogTitle>
         <DialogDescription>
           Upload a new file to replace the existing search results.
         </DialogDescription>
@@ -684,7 +682,7 @@ async function handleUpdateFile() {
   <!-- Search Results Modal -->
   <SearchResultsModal
     v-model:open="showResultsModal"
-    :source-name="displayName"
+    :source-name="sourceLabel"
     :filename="filename"
     :project-id="projectId"
   />

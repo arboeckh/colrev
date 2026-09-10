@@ -26,6 +26,8 @@ import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useConnectionStore } from '@/stores/connection';
 import { useGitStore } from '@/stores/git';
+import { WORKFLOW_STEPS } from '@/types/project';
+import { stepForOperation } from '@/lib/stepStatus';
 
 defineProps<{
   projects: ProjectListItem[];
@@ -44,7 +46,10 @@ const isDeleting = ref(false);
 const deleteGithubToo = ref(false);
 
 function openProject(project: ProjectListItem) {
-  if (!project.loading && !isDeleting.value) {
+  // `loading` now means "row detail is still being fetched", which happens for
+  // every row right after discovery. That must not make the row unclickable —
+  // opening a review doesn't depend on its summary having arrived.
+  if (!isDeleting.value) {
     router.push(`/project/${project.id}`);
   }
 }
@@ -105,16 +110,32 @@ async function confirmDelete() {
 }
 
 function getRecordCount(project: ProjectListItem): number {
-  return project.status?.currently?.total ?? project.status?.records?.total ?? 0;
+  // `total_records` is the field the engine actually populates; `currently` is
+  // the per-state breakdown and carries no total, so the old lookup fell
+  // through to 0 for every project.
+  return (
+    project.status?.total_records ??
+    project.status?.currently?.total ??
+    project.status?.records?.total ??
+    0
+  );
 }
 
 function getNextOperation(project: ProjectListItem): string {
   return project.status?.next_operation ?? '-';
 }
 
+/**
+ * Name the pipeline step the engine's `next_operation` belongs to.
+ *
+ * Title-casing the raw operation produced labels like "Pdf Get" that match
+ * nothing in the sidebar. Routing through WORKFLOW_STEPS means the list names
+ * the same six steps the project navigation does.
+ */
 function formatNextOperation(op: string): string {
   if (op === '-' || !op) return '-';
-  // Convert snake_case to Title Case
+  const step = stepForOperation(op, WORKFLOW_STEPS);
+  if (step) return step.label;
   return op
     .split('_')
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
@@ -151,7 +172,6 @@ function getUncommittedCount(project: ProjectListItem): number {
           v-for="project in projects"
           :key="project.id"
           class="cursor-pointer hover:bg-muted/50"
-          :class="{ 'opacity-50': project.loading }"
           :data-testid="`project-row-${project.id}`"
           @click="openProject(project)"
         >
