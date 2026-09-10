@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import colrev.dataset
 import colrev.exceptions as colrev_exceptions
 import colrev.review_manager
 from colrev.constants import ExitCodes
@@ -681,3 +682,116 @@ def test_stash_unstaged_changes(
         Path(unstaged_file_path.name)
         not in base_repo_review_manager.dataset.git_repo.get_untracked_files()
     ), "The file should not be recognized as an unstaged change after stashing."
+
+
+# --- records cache ---------------------------------------------------------
+#
+# `load_records_dict` parses the whole records file, which dominates the cost
+# of every records operation (~2.2s for 5k records) and is paid again on the
+# very next call because callers load, mutate and save in quick succession.
+# The cache is only correct if it is *invisible*: every caller must still get
+# its own dict, every write must be visible to the next load, and a file
+# changed by anything else (git checkout, pull, the user's editor) must win.
+
+
+def _notified_dataset(
+    review_manager: colrev.review_manager.ReviewManager,
+) -> colrev.dataset.Dataset:
+    review_manager.notified_next_operation = OperationsType.check
+    review_manager.dataset.invalidate_records_cache()
+    return review_manager.dataset
+
+
+def test_records_cache_serves_an_independent_copy(
+    base_repo_review_manager: colrev.review_manager.ReviewManager,
+) -> None:
+    """A cached parse must not let one caller's mutations reach the next."""
+
+    dataset = _notified_dataset(base_repo_review_manager)
+
+    first = dataset.load_records_dict()
+    assert first, "fixture repo has no records to test with"
+    record_id = next(iter(first))
+    first[record_id][Fields.TITLE] = "mutated in place"
+    first["injected"] = {Fields.ID: "injected"}
+
+    second = dataset.load_records_dict()
+
+    assert "injected" not in second
+    assert second[record_id][Fields.TITLE] != "mutated in place"
+
+
+def test_records_cache_is_shared_across_dataset_instances(
+    base_repo_review_manager: colrev.review_manager.ReviewManager,
+) -> None:
+    """The RPC server builds a fresh ReviewManager per request, so an
+    instance-level cache would never be read twice."""
+
+    dataset = _notified_dataset(base_repo_review_manager)
+    expected = dataset.load_records_dict()
+
+    other = colrev.dataset.Dataset(review_manager=base_repo_review_manager)
+
+    assert other.load_records_dict() == expected
+
+
+def test_records_cache_reflects_a_partial_save(
+    base_repo_review_manager: colrev.review_manager.ReviewManager,
+) -> None:
+    """A partial save replaces the entries it names; the next load must see
+    them, whether it comes from the cache or from a re-parse."""
+
+    dataset = _notified_dataset(base_repo_review_manager)
+
+    records = dataset.load_records_dict()
+    record_id = next(iter(records))
+    changed = dict(records[record_id])
+    changed[Fields.TITLE] = "saved partially"
+
+    dataset.save_records_dict({record_id: changed}, partial=True)
+
+    assert dataset.load_records_dict()[record_id][Fields.TITLE] == "saved partially"
+    # …and the cache is not merely echoing the dict it was handed.
+    dataset.invalidate_records_cache()
+    assert dataset.load_records_dict()[record_id][Fields.TITLE] == "saved partially"
+
+
+def test_records_cache_reflects_a_full_save(
+    base_repo_review_manager: colrev.review_manager.ReviewManager,
+) -> None:
+    """A full save replaces the file, so the saved dict *is* the new parse."""
+
+    dataset = _notified_dataset(base_repo_review_manager)
+
+    records = dataset.load_records_dict()
+    record_id = next(iter(records))
+    records[record_id][Fields.TITLE] = "saved fully"
+
+    dataset.save_records_dict(records)
+
+    assert dataset.load_records_dict()[record_id][Fields.TITLE] == "saved fully"
+
+
+def test_records_cache_yields_to_an_external_write(
+    base_repo_review_manager: colrev.review_manager.ReviewManager,
+) -> None:
+    """A pull, a checkout or the user's editor rewrites records.bib without
+    going through Dataset. The file always wins."""
+
+    dataset = _notified_dataset(base_repo_review_manager)
+
+    records = dataset.load_records_dict()
+    record_id = next(iter(records))
+
+    records_file = base_repo_review_manager.paths.records
+    contents = records_file.read_text(encoding="utf-8")
+    records_file.write_text(
+        contents.replace(
+            records[record_id][Fields.TITLE], "written behind the dataset's back"
+        ),
+        encoding="utf-8",
+    )
+
+    reloaded = dataset.load_records_dict()
+
+    assert reloaded[record_id][Fields.TITLE] == "written behind the dataset's back"

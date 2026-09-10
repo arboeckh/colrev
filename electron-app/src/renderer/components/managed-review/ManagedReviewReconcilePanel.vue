@@ -14,6 +14,7 @@ import { ensureWorkingBranch, retireReviewerBranches } from '@/composables/useMa
 import { useManagedReviewStore } from '@/stores/managedReview';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
+import { useSyncStore } from '@/stores/sync';
 import ReconcileWalkthrough from './ReconcileWalkthrough.vue';
 import ScreenReconcileWalkthrough from './ScreenReconcileWalkthrough.vue';
 import type {
@@ -30,6 +31,7 @@ const git = useGitStore();
 const managedReview = useManagedReviewStore();
 const notifications = useNotificationsStore();
 const projects = useProjectsStore();
+const sync = useSyncStore();
 
 const isLoading = ref(false);
 const isExporting = ref(false);
@@ -180,6 +182,11 @@ onMounted(async () => {
   if (!isOnDev.value) {
     await ensureWorkingBranch();
   }
+  // "Has the other reviewer finished?" is the question this panel exists to
+  // answer, so it is worth one fetch on arrival. It used to come for free
+  // from `managedReview.refresh()`, which fetched on every call — including
+  // after every decision, where the round trip cost more than it bought.
+  if (git.hasRemote) await sync.fetchNow();
   await refreshData();
 });
 

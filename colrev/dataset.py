@@ -2,6 +2,8 @@
 """Dataset class providing functionality for data/records.bib and git repository."""
 from __future__ import annotations
 
+import collections
+import copy
 import os
 import tempfile
 import typing
@@ -22,12 +24,79 @@ from colrev.writer.write_utils import to_string
 
 # pylint: disable=too-many-public-methods
 
+# Parsed records.bib, keyed by absolute path, with the file stamp it was
+# parsed from. Parsing dominates the cost of every records operation (~2.2s
+# for 5k records) and callers routinely load, mutate and save in quick
+# succession.
+#
+# Process-wide rather than per-Dataset because the JSON-RPC server builds a
+# fresh ReviewManager (and Dataset) for every request, so an instance-level
+# cache would never be read twice. Correctness does not depend on the scope:
+# an entry is only served when the file's (mtime_ns, size) still matches, and
+# writers update the entry as they write.
+_RECORDS_CACHE: "collections.OrderedDict[Path, tuple[tuple[int, int], dict]]" = (
+    collections.OrderedDict()
+)
+# Bounds the memory a long-lived process can accumulate across projects. A
+# 5k-record parse is ~13 MB, so a handful of projects stays modest, and the
+# app works in one project at a time.
+_RECORDS_CACHE_MAX_ENTRIES = 4
+
 
 class Dataset:
     """The CoLRev dataset (records and their history in git)"""
 
     def __init__(self, *, review_manager: colrev.review_manager.ReviewManager) -> None:
         self.review_manager = review_manager
+
+    @property
+    def _records_cache_key(self) -> Path:
+        return self.review_manager.paths.records.resolve()
+
+    def _records_file_stamp(self) -> typing.Optional[tuple[int, int]]:
+        """(mtime_ns, size) of records.bib, or None when it does not exist."""
+        try:
+            stat = self.review_manager.paths.records.stat()
+        except OSError:
+            return None
+        return (stat.st_mtime_ns, stat.st_size)
+
+    def _cached_records(self) -> typing.Optional[dict]:
+        """The cached parse, if it still matches the file on disk."""
+        entry = _RECORDS_CACHE.get(self._records_cache_key)
+        if entry is None:
+            return None
+        stamp, records = entry
+        if stamp != self._records_file_stamp():
+            return None
+        _RECORDS_CACHE.move_to_end(self._records_cache_key)
+        return records
+
+    def _store_records_cache(self, records: dict) -> None:
+        """Adopt ``records`` as the cached parse of the file as it stands now.
+
+        Callers own the dict they passed in and may mutate it afterwards, so
+        the stored copy is its own. The stamp is read *after* the write, so
+        this must only be called once the file is final.
+        """
+        stamp = self._records_file_stamp()
+        if stamp is None:
+            self.invalidate_records_cache()
+            return
+        key = self._records_cache_key
+        _RECORDS_CACHE[key] = (stamp, records)
+        _RECORDS_CACHE.move_to_end(key)
+        while len(_RECORDS_CACHE) > _RECORDS_CACHE_MAX_ENTRIES:
+            _RECORDS_CACHE.popitem(last=False)
+
+    def invalidate_records_cache(self) -> None:
+        """Drop the cached parse for this project.
+
+        The stamp check makes this belt-and-braces — anything that rewrites the
+        file changes its mtime — but it is exposed for callers that replace
+        records.bib behind the Dataset's back.
+        """
+        _RECORDS_CACHE.pop(self._records_cache_key, None)
 
     @cached_property
     def git_repo(self) -> GitRepo:
@@ -147,12 +216,22 @@ class Dataset:
         if header_only:
             # Note : currently not parsing screening_criteria to settings.ScreeningCriterion
             # to optimize performance
+            # Deliberately uncached: a different projection of the file, and
+            # cheap enough that a second cache is not worth the reasoning.
             bib_loader = colrev.loader.bib.BIBLoader(
                 filename=self.review_manager.paths.records,
                 logger=self.review_manager.logger,
                 unique_id_field="ID",
             )
             return bib_loader.get_record_header_items()
+
+        # Serve the cached parse when records.bib has not moved since it was
+        # taken. Callers already receive a freshly-built dict from every call,
+        # so handing back a copy is indistinguishable from re-parsing — the
+        # cache is invisible except in how long it takes.
+        cached = self._cached_records()
+        if cached is not None:
+            return copy.deepcopy(cached)
 
         if self.review_manager.paths.records.is_file():
 
@@ -165,6 +244,8 @@ class Dataset:
         else:
             records_dict = {}
 
+        self._store_records_cache(copy.deepcopy(records_dict))
+
         return records_dict
 
     def save_records_dict_to_file(self, records: dict) -> None:
@@ -176,6 +257,9 @@ class Dataset:
 
         with open(self.review_manager.paths.records, "w", encoding="utf-8") as out:
             out.write(bibtex_str + "\n")
+
+        # A full save replaces the file, so `records` *is* the new parse.
+        self._store_records_cache(copy.deepcopy(records))
 
         self.git_repo.add_changes(self.review_manager.paths.RECORDS_FILE)
 
@@ -242,7 +326,21 @@ class Dataset:
         if not records:
             return
         if partial:
+            # A partial save replaces the entries it names and appends the
+            # rest, so the file afterwards is the previous parse overlaid with
+            # `records`. Merging that into the cache rather than dropping it is
+            # what keeps a decision streak from re-parsing between every call.
+            # The merge is O(changed records): the cached dict is already
+            # private to the cache, so only the incoming records are copied.
+            cache = self._cached_records()
+            if cache is not None:
+                cache.update(copy.deepcopy(records))
             self._save_record_list_by_id(records)
+            if cache is None:
+                self.invalidate_records_cache()
+            else:
+                # Re-key the (already merged) dict to the file's new stamp.
+                self._store_records_cache(cache)
             return
         self.save_records_dict_to_file(records)
 

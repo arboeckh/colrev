@@ -67,16 +67,31 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
     });
   }
 
-  async function refresh(): Promise<void> {
+  /**
+   * Reload the task lists.
+   *
+   * `fetch` controls whether remote refs are refreshed first. It defaults to
+   * false because this function is on the post-write refresh path (every
+   * prescreen/screen decision reaches it through
+   * `projectData.refreshStores`), and a `git fetch` there is a network round
+   * trip holding the main-process git mutex — the next decision's RPC queues
+   * behind it, which is what made each click cost seconds. Task *membership*
+   * only changes when someone launches or reconciles a task, so the local
+   * refs are the right answer on the write path; the periodic auto-fetch in
+   * the sync store keeps them current. Callers that specifically need other
+   * reviewers' progress (the workflow page, reconciliation) opt in.
+   */
+  async function refresh(options: { fetch?: boolean } = {}): Promise<void> {
     const id = projects.currentProjectId;
     if (!id || !backend.isRunning) return;
 
     isLoading.value = true;
     try {
-      // Fetch remote refs first so we can see other reviewers' progress
-      const gitStore = useGitStore();
-      if (gitStore.hasRemote) {
-        await useSyncStore().fetchNow();
+      if (options.fetch) {
+        const gitStore = useGitStore();
+        if (gitStore.hasRemote) {
+          await useSyncStore().fetchNow();
+        }
       }
 
       const [prescreenResp, screenResp] = await Promise.all([

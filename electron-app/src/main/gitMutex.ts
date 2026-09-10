@@ -23,6 +23,9 @@ export function acquire(label: string): Promise<Release> {
     release = () => {
       if (holdStart !== null) {
         const ms = Date.now() - holdStart;
+        if (process.env.COLREV_MUTEX_TRACE) {
+          console.log(`[mutexTrace] hold ${ms}ms ${holdLabel}`);
+        }
         if (ms >= SLOW_HOLD_MS) {
           console.warn(`[gitMutex] slow hold: ${holdLabel} held for ${ms}ms`);
         }
@@ -36,9 +39,13 @@ export function acquire(label: string): Promise<Release> {
   const waitFor = chain;
   chain = next;
 
+  const queuedAt = Date.now();
   return waitFor.then(() => {
     holdStart = Date.now();
     holdLabel = label;
+    if (process.env.COLREV_MUTEX_TRACE) {
+      console.log(`[mutexTrace] wait ${holdStart - queuedAt}ms ${label}`);
+    }
     return release;
   });
 }

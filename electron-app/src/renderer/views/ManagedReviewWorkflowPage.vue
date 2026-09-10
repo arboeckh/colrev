@@ -137,7 +137,10 @@ async function onNavigateReconcile() {
 }
 
 // A pull / reset / merge replaced the working tree: reviewer task state comes
-// from it.
+// from it. No fetch — a full invalidation is a *local* tree replacement
+// (branch switch, pull that already fetched), and entering the review phase
+// triggers one, so fetching here would put a network round trip on the
+// critical path of every entry.
 useProjectDataChanged(async (event) => {
   if (!event.full) return;
   if (backend.isRunning && projects.currentProjectId) {
@@ -147,7 +150,9 @@ useProjectDataChanged(async (event) => {
 
 onMounted(async () => {
   if (backend.isRunning && projects.currentProjectId) {
-    await managedReview.refresh();
+    // The one place a fetch is worth its latency: arriving at the workflow
+    // page is when the user asks "where is the other reviewer at?".
+    await managedReview.refresh({ fetch: true });
   }
 });
 
