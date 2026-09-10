@@ -1469,6 +1469,7 @@ export interface ResetToRemoteRequest {
 }
 
 export interface ResetToRemoteResponse {
+  backup_ref?: string | null;
   discarded_commits: number;
   discarded_files?: string[];
   message: string;
