@@ -39,6 +39,17 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
+/**
+ * Background launch (COLREV_BACKGROUND=1): open the window without stealing
+ * focus. Agents relaunch the app constantly to check their work, and on macOS
+ * every launch yanks the cursor out of whatever the human is doing. In this
+ * mode the window is shown but never activated, and on macOS the app runs as
+ * an "accessory" (no dock icon, absent from Cmd-Tab) so AppKit does not bring
+ * it to the front. The window stays fully interactive — clicking it activates
+ * ColRev as usual. Unset the variable for a normal, focusable launch.
+ */
+const backgroundLaunch = process.env.COLREV_BACKGROUND === '1';
+
 let mainWindow: BrowserWindow | null = null;
 let backend: ColrevBackend | null = null;
 const authManager = new AuthManager();
@@ -63,6 +74,9 @@ function createWindow() {
     width: 1200,
     height: 800,
     title: 'ColRev',
+    // A window created hidden cannot take focus when it appears; maximize()
+    // below shows it without activating.
+    show: !backgroundLaunch,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -70,8 +84,12 @@ function createWindow() {
     },
   });
 
-  // Maximize the window on startup
+  // Maximize the window on startup. maximize() also shows a hidden window
+  // without focusing it, which is exactly what background launches want.
   mainWindow.maximize();
+  if (backgroundLaunch) {
+    mainWindow.showInactive();
+  }
 
   // Load the app
   if (process.env.NODE_ENV === 'development') {
@@ -277,6 +295,15 @@ function setupIPC() {
 }
 
 app.whenReady().then(() => {
+  // Must run before the first window exists: an accessory app is never made
+  // frontmost on launch, so the human's current app keeps the keyboard.
+  if (backgroundLaunch) {
+    console.log('[colrev] background launch: window shown without taking focus');
+    if (process.platform === 'darwin') {
+      app.setActivationPolicy('accessory');
+    }
+  }
+
   // Configure dugite's git binary path before any dugite call. This sets
   // LOCAL_GIT_DIRECTORY on process.env so github:* / git:* IPC handlers work
   // regardless of whether the Python backend has been started yet.
