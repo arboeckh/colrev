@@ -23,10 +23,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { EmptyState, LoadErrorState } from '@/components/common';
+import {
+  EmptyState,
+  LoadErrorState,
+  QueueFilmstrip,
+  QueueJumpDialog,
+  QueueMap,
+} from '@/components/common';
 import DecisionButtons from '@/components/prescreen/DecisionButtons.vue';
 import RecordCard from '@/components/prescreen/RecordCard.vue';
-import ProgressTrack from '@/components/prescreen/ProgressTrack.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useProjectsStore } from '@/stores/projects';
 import { isReviewStepComplete } from '@/lib/stepStatus';
@@ -145,6 +150,27 @@ const editRecords = ref<EditRecord[]>([]);
 const editSearchText = ref('');
 const isLoadingEditRecords = ref(false);
 const isSavingEdits = ref(false);
+
+const isJumpOpen = ref(false);
+
+// The queue holds only what is loaded, so the palette searches that. Records
+// still on the server are reached by working forward, as they always were.
+const jumpItems = computed(() =>
+  queue.value.map((r) => ({
+    id: r.id,
+    title: r.title,
+    author: r.author,
+    year: r.year,
+    decision: r._decision,
+  })),
+);
+
+function onJumpShortcut(e: KeyboardEvent) {
+  if (e.key !== 'k' || !(e.metaKey || e.ctrlKey)) return;
+  if (isEditMode.value || queue.value.length === 0) return;
+  e.preventDefault();
+  isJumpOpen.value = !isJumpOpen.value;
+}
 
 const filteredEditRecords = computed(() => {
   if (!editSearchText.value) return editRecords.value;
@@ -655,6 +681,13 @@ async function arrangeAccessAndLoad(): Promise<void> {
 // counts refresh through the seam.
 useProjectDataChanged(async (event) => {
   if (!event.full) return;
+  // A branch switch invalidates through this same seam. When someone else is
+  // driving it — the workflow stepper heading for reconcile, the router guard
+  // leaving a reviewer branch — re-running the access check here would switch
+  // straight back and fight them for the branch.
+  if (git.isSwitchingBranch) return;
+  // …and when *we* are driving it, the pass already underway will load the
+  // queue; re-entering here would do the whole sequence a second time.
   if (isArrangingAccess) return;
   decisionHistory.value = [];
   allDecisionsMade.value = false;
@@ -662,6 +695,7 @@ useProjectDataChanged(async (event) => {
 });
 
 onMounted(async () => {
+  window.addEventListener('keydown', onJumpShortcut);
   try {
     await arrangeAccessAndLoad();
   } finally {
@@ -671,6 +705,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener('keydown', onJumpShortcut);
   if (enrichmentAbortController) {
     enrichmentAbortController.abort();
   }
@@ -941,9 +976,10 @@ onUnmounted(() => {
 
     <!-- Screening interface -->
     <div v-else class="flex-1 flex flex-col min-h-0">
-      <!-- Progress Bar -->
-      <div class="mb-2">
-        <ProgressTrack
+      <!-- Queue map: bars are binned, so the node count is bounded by width -->
+      <div class="mb-2 flex items-center gap-3">
+        <QueueMap
+          class="flex-1 min-w-0"
           :items="queue.map((r) => ({ id: r.id, decision: r._decision }))"
           :current-index="currentIndex"
           :decided-count="decidedCount"
@@ -951,6 +987,17 @@ onUnmounted(() => {
           test-id-prefix="prescreen"
           @seek="goToRecord"
         />
+        <Button
+          variant="outline"
+          size="sm"
+          class="shrink-0 self-start"
+          data-testid="prescreen-jump-btn"
+          @click="isJumpOpen = true"
+        >
+          <Search class="h-3.5 w-3.5" />
+          Jump to record
+          <span class="ml-1 text-[11px] text-muted-foreground font-normal">&#8984;K</span>
+        </Button>
       </div>
 
       <!-- Record Card with side-by-side title + decision and abstract -->
@@ -976,7 +1023,23 @@ onUnmounted(() => {
           />
         </template>
       </RecordCard>
+
+      <QueueFilmstrip
+        class="mt-3"
+        :items="queue.map((r) => ({ id: r.id, title: r.title, year: r.year, decision: r._decision }))"
+        :current-index="currentIndex"
+        test-id-prefix="prescreen"
+        @seek="goToRecord"
+      />
     </div>
+
+    <QueueJumpDialog
+      v-model:open="isJumpOpen"
+      :items="jumpItems"
+      :current-index="currentIndex"
+      test-id-prefix="prescreen"
+      @jump="goToRecord"
+    />
     </template>
   </div>
 </template>

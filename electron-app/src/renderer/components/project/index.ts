@@ -1,2 +1,1 @@
-export { default as ProjectCard } from './ProjectCard.vue';
-export { default as ProjectsTable } from './ProjectsTable.vue';
+export { default as ProjectsGallery } from './ProjectsGallery.vue';

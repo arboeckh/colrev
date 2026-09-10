@@ -377,48 +377,81 @@ class ManagedReviewService:
             "tracking": tracking,
         }
 
-    def _serialize_task(self, *, task: Dict[str, Any]) -> Dict[str, Any]:
+    def _count_reviewer_decisions(
+        self, *, task: Dict[str, Any], branch_ref: str
+    ) -> int:
+        """Records in the task this reviewer has moved out of the eligible state."""
+
         eligible_state = task["eligible_state"]
+        records = self._load_records_from_ref(
+            ref=branch_ref, kind=task["kind"], header_only=True
+        )
+        completed_count = 0
+        for record_id in task["record_ids"]:
+            if record_id not in records:
+                continue
+            status = self._normalize_status(records[record_id].get(Fields.STATUS, ""))
+            if status != eligible_state:
+                completed_count += 1
+        return completed_count
+
+    def _snapshot_reviewer_completion(self, *, task: Dict[str, Any]) -> Dict[str, int]:
+        """Freeze each reviewer's decision count while their branch still exists.
+
+        Reviewer branches are deleted once their decisions are reconciled into
+        `dev`, so live counting stops working the moment a task completes.
+        Without this snapshot a finished task reports every reviewer at 0/N.
+        """
+
+        snapshot = {}
+        for reviewer in task["reviewers"]:
+            branch_ref = self._branch_ref(branch_name=reviewer["branch_name"])
+            if branch_ref is None:
+                continue
+            snapshot[reviewer["role"]] = self._count_reviewer_decisions(
+                task=task, branch_ref=branch_ref
+            )
+        return snapshot
+
+    def _serialize_task(self, *, task: Dict[str, Any]) -> Dict[str, Any]:
         serialized = deepcopy(task)
         reviewer_progress = []
+        record_count = len(task["record_ids"])
+        # Written when the task completed, from the branches as they stood then.
+        final_counts = task.get("final_reviewer_counts") or {}
 
         for reviewer in task["reviewers"]:
             branch_ref = self._branch_ref(branch_name=reviewer["branch_name"])
             if branch_ref is None:
+                # A retired reviewer branch is the normal end state, not a
+                # reviewer who did nothing: prefer the completion snapshot.
+                completed_count = final_counts.get(reviewer["role"], 0)
                 reviewer_progress.append(
                     {
                         **reviewer,
                         "branch_ref": None,
-                        "completed_count": 0,
-                        "pending_count": len(task["record_ids"]),
+                        "completed_count": completed_count,
+                        "pending_count": record_count - completed_count,
                         "available": False,
                     }
                 )
                 continue
 
-            records = self._load_records_from_ref(
-                ref=branch_ref, kind=task["kind"], header_only=True
+            completed_count = self._count_reviewer_decisions(
+                task=task, branch_ref=branch_ref
             )
-            completed_count = 0
-            for record_id in task["record_ids"]:
-                if record_id not in records:
-                    continue
-                status = self._normalize_status(records[record_id].get(Fields.STATUS, ""))
-                if status != eligible_state:
-                    completed_count += 1
-
             reviewer_progress.append(
                 {
                     **reviewer,
                     "branch_ref": branch_ref,
                     "completed_count": completed_count,
-                    "pending_count": len(task["record_ids"]) - completed_count,
+                    "pending_count": record_count - completed_count,
                     "available": True,
                 }
             )
 
         serialized["reviewer_progress"] = reviewer_progress
-        serialized["record_count"] = len(task["record_ids"])
+        serialized["record_count"] = record_count
         return serialized
 
     def list_tasks(self, *, kind: str) -> Dict[str, Any]:
@@ -532,6 +565,9 @@ class ManagedReviewService:
             "completed_at": None,
             "canceled_at": None,
             "reconciliation_summary": None,
+            # Filled in at reconciliation, before the reviewer branches are
+            # retired (see `_snapshot_reviewer_completion`).
+            "final_reviewer_counts": {},
         }
         manifest["managed_tasks"].append(task)
         self.save_manifest(manifest=manifest, add_to_git=True)
@@ -966,6 +1002,11 @@ class ManagedReviewService:
         resolved_at = self._now()
         manifest_task["state"] = "completed"
         manifest_task["completed_at"] = resolved_at
+        # Capture reviewer progress before the branches it is derived from are
+        # retired (see `_snapshot_reviewer_completion`).
+        manifest_task["final_reviewer_counts"] = self._snapshot_reviewer_completion(
+            task=manifest_task
+        )
         manifest_task["reconciliation_summary"] = {
             "resolved_by": resolved_by,
             "resolved_at": resolved_at,

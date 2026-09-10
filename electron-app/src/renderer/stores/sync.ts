@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useGitStore } from './git';
 import { useBackendStore } from './backend';
 import { useConnectionStore } from './connection';
@@ -33,8 +33,24 @@ const TICK_MS = 5_000;
 const FETCH_INTERVAL_MS = 90_000;
 /** Spread across clients so two collaborators don't fetch in lockstep. */
 const FETCH_JITTER_MS = 15_000;
-/** Quiet period after the last commit before auto-push fires. */
-const PUSH_DEBOUNCE_MS = 4_000;
+/**
+ * Quiet period after the branch first goes ahead before auto-push fires.
+ *
+ * The window is anchored to the *first* unpushed commit, not the latest, so a
+ * streak of decisions still collapses into one push while the wait stays
+ * bounded: work reaches the remote ~2s after it is committed no matter how
+ * long the streak runs. The tick alone cannot deliver that — it samples every
+ * `TICK_MS` — so `watchAhead` arms a timer the moment the snapshot changes and
+ * the tick is only the backstop.
+ */
+const PUSH_DEBOUNCE_MS = 2_000;
+/**
+ * How long a failed auto-resolve suppresses the next attempt. `analyze_merge`
+ * re-parses the whole record set, and divergence the engine declined to merge
+ * on its own does not become mergeable a tick later — so retrying on the tick
+ * would spend real work to reach the same "ask the user" every 5s.
+ */
+const RESOLVE_RETRY_MS = 60_000;
 
 const AUTO_PULL_KEY = 'sync.autoPull';
 const AUTO_PUSH_KEY = 'sync.autoPush';
@@ -70,6 +86,7 @@ export const useSyncStore = defineStore('sync', () => {
 
   const lastFetchAt = ref<number | null>(null);
   const aheadSince = ref<number | null>(null);
+  const lastResolveAttemptAt = ref<number | null>(null);
   const lastSyncAt = ref<number | null>(null);
   const lastIdleReason = ref<IdleReason | null>(null);
 
@@ -78,6 +95,7 @@ export const useSyncStore = defineStore('sync', () => {
   const isRunning = ref(false);
 
   let tickTimer: ReturnType<typeof setInterval> | null = null;
+  let pushTimer: ReturnType<typeof setTimeout> | null = null;
   let fetchJitter = Math.floor(Math.random() * FETCH_JITTER_MS);
 
   const escalation = computed<SyncEscalation | null>(() =>
@@ -128,9 +146,11 @@ export const useSyncStore = defineStore('sync', () => {
       autoPushEnabled: autoPushEnabled.value,
       lastFetchAt: lastFetchAt.value,
       aheadSince: aheadSince.value,
+      lastResolveAttemptAt: lastResolveAttemptAt.value,
       now,
       fetchIntervalMs: FETCH_INTERVAL_MS + fetchJitter,
       pushDebounceMs: PUSH_DEBOUNCE_MS,
+      resolveRetryMs: RESOLVE_RETRY_MS,
     };
   }
 
@@ -180,6 +200,27 @@ export const useSyncStore = defineStore('sync', () => {
     return ok === true;
   }
 
+  /**
+   * Combine a diverged branch with its upstream, but only where the engine
+   * needs no decision from the user. A refusal is recorded, not reported: the
+   * sync banner is already showing the divergence, and the cooldown keeps the
+   * coordinator from re-analysing the record set every tick.
+   */
+  async function resolveNow(): Promise<boolean> {
+    const ok = await runExclusive(() => git.__remoteOps.tryAutoResolveDivergence());
+    if (ok) {
+      lastSyncAt.value = Date.now();
+      lastResolveAttemptAt.value = null;
+      // The merge commit is ours to publish; let the push debounce start now.
+      aheadSince.value = Date.now();
+    } else if (ok === false) {
+      // `null` means the executor was busy and never tried — not a refusal,
+      // so it must not start a minute of silence.
+      lastResolveAttemptAt.value = Date.now();
+    }
+    return ok === true;
+  }
+
   /** Fast-forward local `main` to `origin/main` without checking it out. */
   async function fastForwardMainNow(): Promise<boolean> {
     const ok = await runExclusive(() => git.__remoteOps.fastForwardMain());
@@ -196,6 +237,12 @@ export const useSyncStore = defineStore('sync', () => {
     await fetchNow();
     if (git.behind > 0 && git.ahead === 0 && git.isClean) {
       await pullNow();
+    }
+    // An explicit "sync now" is the user asking; a cooldown from an earlier
+    // automatic refusal must not make the button do nothing.
+    if (git.ahead > 0 && git.behind > 0 && git.isClean) {
+      lastResolveAttemptAt.value = null;
+      await resolveNow();
     }
     if (git.ahead > 0 && git.behind === 0) {
       await pushNow();
@@ -234,6 +281,10 @@ export const useSyncStore = defineStore('sync', () => {
         lastIdleReason.value = null;
         await pushNow();
         return;
+      case 'resolve':
+        lastIdleReason.value = null;
+        await resolveNow();
+        return;
       default: {
         // Exhaustiveness guard: a new action kind fails to compile here until
         // it is executed, so the policy can never grow a case the coordinator
@@ -253,11 +304,57 @@ export const useSyncStore = defineStore('sync', () => {
     }
   }
 
+  function clearPushTimer(): void {
+    if (pushTimer !== null) {
+      clearTimeout(pushTimer);
+      pushTimer = null;
+    }
+  }
+
+  /**
+   * Turn "the branch went ahead" into a scheduled decision instead of waiting
+   * for the next tick.
+   *
+   * Every mutating git operation in the main process rebuilds the snapshot and
+   * pushes it to the store before it returns, so `git.ahead` moves the instant
+   * a commit lands. Sampling that on a 5s timer meant a commit could sit for
+   * the tick *plus* the debounce before anything happened — long enough that
+   * the user reads the push counter as broken rather than pending. Arming a
+   * timer for exactly the remaining debounce makes the wait the debounce, and
+   * only the debounce; the tick stays as the backstop for everything the
+   * watcher cannot see (a collaborator's push, coming back online).
+   */
+  function watchAhead(): void {
+    trackAhead();
+    clearPushTimer();
+    if (aheadSince.value === null) return;
+
+    const elapsed = Date.now() - aheadSince.value;
+    const remaining = Math.max(0, PUSH_DEBOUNCE_MS - elapsed);
+    pushTimer = setTimeout(() => {
+      pushTimer = null;
+      void tick();
+    }, remaining);
+  }
+
   async function tick(): Promise<void> {
     if (!projects.currentProjectId || !backend.isRunning) return;
     trackAhead();
     await executeAuto(decideAutoSync(policyInput(Date.now())));
   }
+
+  /**
+   * The snapshot is the only source of `ahead`, so watching it covers every
+   * way a commit can appear — a screening decision, a merge, a managed review
+   * — without each of those having to remember to poke the coordinator.
+   */
+  watch(
+    () => (isRunning.value ? git.ahead : 0),
+    () => {
+      if (!isRunning.value) return;
+      watchAhead();
+    },
+  );
 
   /**
    * Start the background loop for the current project. Called once, from
@@ -272,6 +369,7 @@ export const useSyncStore = defineStore('sync', () => {
     loadPreferences();
     isRunning.value = true;
     tickTimer = setInterval(() => void tick(), TICK_MS);
+    watchAhead();
     void tick();
   }
 
@@ -281,9 +379,11 @@ export const useSyncStore = defineStore('sync', () => {
       clearInterval(tickTimer);
       tickTimer = null;
     }
+    clearPushTimer();
     suspensions.value = [];
     lastFetchAt.value = null;
     aheadSince.value = null;
+    lastResolveAttemptAt.value = null;
     lastIdleReason.value = null;
   }
 
@@ -315,6 +415,7 @@ export const useSyncStore = defineStore('sync', () => {
     suspensions,
     lastFetchAt,
     lastSyncAt,
+    lastResolveAttemptAt,
     lastIdleReason,
     busy,
     isRunning,
@@ -327,6 +428,7 @@ export const useSyncStore = defineStore('sync', () => {
     fetchNow,
     pullNow,
     pushNow,
+    resolveNow,
     fastForwardMainNow,
     syncNow,
     // lifecycle

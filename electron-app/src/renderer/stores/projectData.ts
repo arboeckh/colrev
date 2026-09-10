@@ -32,6 +32,19 @@ type ProjectDataSubscriber = (event: ProjectDataEvent) => void | Promise<void>;
 const WRITE_REFRESH_DEBOUNCE_MS = 400;
 
 /**
+ * Backoff for re-deriving store state after a failed refresh.
+ *
+ * A refresh that fails is not a cosmetic problem: every page that renders
+ * *derived* state (the PDF stage machine, step status, runnability) reads it
+ * from the stores and nothing else, so one lost `get_status` freezes those
+ * views on the pre-mutation payload until something reloads the project
+ * outright — switching accounts, or reopening the review. Retrying here is
+ * what keeps a single transient failure (an RPC timeout, a backend restart)
+ * from turning into permanently wrong-looking UI.
+ */
+const REFRESH_RETRY_BACKOFFS_MS = [1_000, 3_000, 9_000];
+
+/**
  * The single invalidation seam for project data freshness (WP-05).
  *
  * "How does the UI learn the new state after a mutation?" has exactly one
@@ -60,6 +73,22 @@ export const useProjectDataStore = defineStore('projectData', () => {
   let pendingMethods: string[] = [];
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let refreshChain: Promise<void> = Promise.resolve();
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryAttempt = 0;
+  /** When the last write-triggered refresh was dispatched, for the leading edge. */
+  let lastDispatchAt = 0;
+  /**
+   * Depth of `runRefresh` calls currently on the stack. Non-zero means we are
+   * inside a subscriber handler, which must never chain onto `refreshChain`
+   * (see `enqueueRefresh`).
+   */
+  let refreshDepth = 0;
+  /**
+   * A handler that invalidates on every event would recurse forever. Nothing
+   * legitimately needs more than one level (branch switch inside a handler),
+   * so cut it off well short of a stack overflow.
+   */
+  const MAX_REFRESH_DEPTH = 4;
 
   function bumpEpoch(): void {
     epoch.value += 1;
@@ -95,6 +124,46 @@ export const useProjectDataStore = defineStore('projectData', () => {
   function clearStale(): void {
     isStale.value = false;
     staleReason.value = null;
+  }
+
+  function cancelRetry(): void {
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+    retryAttempt = 0;
+  }
+
+  /**
+   * Re-derive store state after a failed refresh, on a capped backoff.
+   *
+   * Only the store side is retried: pages were already told to reload their
+   * own record lists by the refresh that failed, and repeating that would
+   * churn every mounted table. Giving up after the last backoff leaves
+   * `isStale` set, which is what the header's staleness indicator and the
+   * manual Refresh button are for.
+   */
+  function scheduleRetry(full: boolean): void {
+    if (retryTimer) return;
+    const delay = REFRESH_RETRY_BACKOFFS_MS[retryAttempt];
+    if (delay === undefined) return;
+    retryAttempt += 1;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      refreshChain = refreshChain
+        .then(async () => {
+          if (!isStale.value) {
+            retryAttempt = 0;
+            return;
+          }
+          await refreshStores(full);
+          if (isStale.value) scheduleRetry(full);
+          else retryAttempt = 0;
+        })
+        .catch(() => {
+          markStale('Background refresh failed');
+        });
+    }, delay);
   }
 
   async function emitEvent(event: ProjectDataEvent): Promise<void> {
@@ -159,15 +228,41 @@ export const useProjectDataStore = defineStore('projectData', () => {
     const projects = useProjectsStore();
     const projectId = projects.currentProjectId;
     if (!projectId) return;
-    await refreshStores(full);
-    // Project switched while refreshing: this batch belongs to the old
-    // context — don't tell pages to reload against it.
-    if (useProjectsStore().currentProjectId !== projectId) return;
-    await emitEvent({ projectId, methods, full });
+    refreshDepth += 1;
+    try {
+      await refreshStores(full);
+      // Project switched while refreshing: this batch belongs to the old
+      // context — don't tell pages to reload against it.
+      if (useProjectsStore().currentProjectId !== projectId) return;
+      await emitEvent({ projectId, methods, full });
+      // `refreshStores` reports failure through the staleness flag rather than
+      // throwing, so this is the only place that learns the stores did not
+      // actually catch up with the write that triggered this refresh.
+      if (isStale.value) scheduleRetry(full);
+    } finally {
+      refreshDepth -= 1;
+    }
   }
 
   /** Serialize refreshes so a full invalidation never races a write refresh. */
   function enqueueRefresh(methods: string[], full: boolean): Promise<void> {
+    cancelRetry();
+    lastDispatchAt = Date.now();
+    // Reentrant call: a subscriber handler reacted to an event by triggering
+    // another invalidation (a branch switch is the real case — see
+    // `git.switchBranch`). Chaining here would deadlock: the link we would
+    // wait for is the one that is awaiting this very handler. Serialization
+    // is already satisfied — nothing else can run while the chain is busy —
+    // so run it inline instead.
+    if (refreshDepth > 0) {
+      if (refreshDepth >= MAX_REFRESH_DEPTH) {
+        markStale('Refresh loop detected');
+        return Promise.resolve();
+      }
+      return runRefresh(methods, full).catch(() => {
+        markStale('Background refresh failed');
+      });
+    }
     // Failures are surfaced through the staleness flag; never poison the
     // chain (a rejected link would silently stop all future refreshes).
     refreshChain = refreshChain
@@ -176,6 +271,17 @@ export const useProjectDataStore = defineStore('projectData', () => {
         markStale('Background refresh failed');
       });
     return refreshChain;
+  }
+
+  /** Dispatch everything queued so far as one refresh. */
+  function flushPending(full: boolean): void {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+    const methods = pendingMethods;
+    pendingMethods = [];
+    void enqueueRefresh(methods, full);
   }
 
   /**
@@ -196,18 +302,27 @@ export const useProjectDataStore = defineStore('projectData', () => {
   /**
    * A writer RPC completed. Pending-changes/git state refreshes immediately;
    * the comprehensive refresh (status, operation info, managed review, page
-   * record lists) is coalesced on a trailing debounce so decision streaks
-   * and enrichment batches trigger one refresh, not one each.
+   * record lists) is debounced leading-and-trailing.
+   *
+   * Leading edge matters for how the app feels: a single deliberate action
+   * (mark a PDF unavailable, finish an operation) is one write after a quiet
+   * period, and making the user watch a debounce elapse before the row leaves
+   * the table is latency we simply added ourselves. The trailing edge is what
+   * the debounce was for — decision streaks and enrichment batches still
+   * collapse into one follow-up refresh rather than one refresh each.
    */
   function notifyWriteCompleted(method: string): void {
     void lightRefresh();
     pendingMethods.push(method);
+    const quiet = Date.now() - lastDispatchAt >= WRITE_REFRESH_DEBOUNCE_MS;
+    if (!debounceTimer && quiet) {
+      flushPending(false);
+      return;
+    }
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
-      const methods = pendingMethods;
-      pendingMethods = [];
-      void enqueueRefresh(methods, false);
+      flushPending(false);
     }, WRITE_REFRESH_DEBOUNCE_MS);
   }
 

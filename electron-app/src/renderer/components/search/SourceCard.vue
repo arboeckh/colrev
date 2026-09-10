@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { Database, Globe, Trash2, Settings, Loader2, ExternalLink, AlertCircle, Play, CheckCircle2, Circle, Upload, Copy, Check } from 'lucide-vue-next';
-import { cn } from '@/lib/utils';
+import { cn, formatCount } from '@/lib/utils';
 import {
   Card,
   CardContent,
@@ -369,10 +369,12 @@ async function handleUpdateFile() {
     )"
   >
     <CardHeader class="pb-2">
-      <div class="flex items-center justify-between">
-        <CardTitle class="text-base flex items-center gap-2 flex-wrap">
+      <div class="flex items-start justify-between gap-2 min-w-0">
+        <CardTitle class="text-base flex items-center gap-2 flex-wrap min-w-0">
           <component :is="sourceIcon" class="h-4 w-4 shrink-0" />
-          {{ sourceLabel }}
+          <!-- A DB source is named after its file: long, and often a single
+               unbroken word. It gets the slack, the badges keep their size. -->
+          <span class="truncate max-w-full" :title="sourceLabel">{{ sourceLabel }}</span>
           <Badge :variant="searchTypeVariant">{{ source.search_type }}</Badge>
           <Badge
             v-if="source.is_stale"
@@ -462,14 +464,14 @@ async function handleUpdateFile() {
       </div>
 
       <!-- Status section (when idle) -->
-      <div v-else class="flex items-center justify-between">
+      <div v-else class="flex flex-wrap items-center justify-between gap-2">
         <!-- Status indicator -->
-        <div class="flex items-center gap-2 text-sm">
+        <div class="flex items-center gap-2 text-sm min-w-0 flex-wrap">
           <!-- Completed (has records, not stale) -->
           <template v-if="source.last_run_timestamp && !source.is_stale">
             <CheckCircle2 class="h-4 w-4 text-green-500" />
             <span class="text-muted-foreground">
-              <span class="font-medium text-foreground" :data-testid="`record-count-${sourceName}`">{{ source.record_count }}</span> records
+              <span class="font-medium text-foreground tabular-nums" :data-testid="`record-count-${sourceName}`">{{ formatCount(source.record_count) }}</span> records
             </span>
             <span class="text-muted-foreground">·</span>
             <TooltipProvider>
@@ -486,7 +488,7 @@ async function handleUpdateFile() {
           <!-- Stale -->
           <template v-else-if="source.is_stale">
             <AlertCircle class="h-4 w-4 text-yellow-500" />
-            <span class="text-yellow-600 dark:text-yellow-400 text-xs">{{ source.stale_reason }}</span>
+            <span class="text-yellow-600 dark:text-yellow-400 text-xs min-w-0 break-words">{{ source.stale_reason }}</span>
           </template>
           <!-- Never run -->
           <template v-else>
@@ -500,7 +502,7 @@ async function handleUpdateFile() {
           v-if="(source.record_count ?? 0) > 0 && !source.is_stale"
           variant="outline"
           size="sm"
-          class="h-7 text-xs"
+          class="h-7 text-xs shrink-0 ml-auto"
           :data-testid="`view-results-${sourceName}`"
           @click="showResultsModal = true"
         >

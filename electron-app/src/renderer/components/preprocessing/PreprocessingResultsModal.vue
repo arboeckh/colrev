@@ -315,10 +315,10 @@ function truncate(text: string | undefined, maxLength: number): string {
                     </td>
                     <td class="px-4 py-3">
                       <div class="space-y-1">
-                        <div class="font-medium" :title="record.title">
+                        <div class="font-medium break-words" :title="record.title">
                           {{ truncate(record.title, 80) }}
                         </div>
-                        <div v-if="record.journal || record.booktitle" class="text-xs text-muted-foreground">
+                        <div v-if="record.journal || record.booktitle" class="text-xs text-muted-foreground break-words">
                           {{ record.journal || record.booktitle }}
                         </div>
                         <div v-if="record.doi" class="text-xs">
@@ -326,7 +326,7 @@ function truncate(text: string | undefined, maxLength: number): string {
                             :href="`https://doi.org/${record.doi}`"
                             target="_blank"
                             rel="noopener noreferrer"
-                            class="text-primary hover:underline inline-flex items-center gap-1"
+                            class="text-primary hover:underline inline-flex items-center gap-1 max-w-full break-all"
                             @click.stop
                           >
                             {{ record.doi }}
@@ -335,7 +335,7 @@ function truncate(text: string | undefined, maxLength: number): string {
                         </div>
                       </div>
                     </td>
-                    <td class="px-4 py-3 text-muted-foreground" :title="record.author">
+                    <td class="px-4 py-3 text-muted-foreground break-words" :title="record.author">
                       {{ truncate(record.author, 30) }}
                     </td>
                     <td class="px-4 py-3">
@@ -425,10 +425,10 @@ function truncate(text: string | undefined, maxLength: number): string {
                     </td>
                     <td class="px-4 py-3">
                       <div class="space-y-1">
-                        <div class="font-medium" :title="record.title">
+                        <div class="font-medium break-words" :title="record.title">
                           {{ truncate(record.title, 80) }}
                         </div>
-                        <div v-if="record.journal || record.booktitle" class="text-xs text-muted-foreground">
+                        <div v-if="record.journal || record.booktitle" class="text-xs text-muted-foreground break-words">
                           {{ record.journal || record.booktitle }}
                         </div>
                         <div v-if="record.doi" class="text-xs">
@@ -436,7 +436,7 @@ function truncate(text: string | undefined, maxLength: number): string {
                             :href="`https://doi.org/${record.doi}`"
                             target="_blank"
                             rel="noopener noreferrer"
-                            class="text-primary hover:underline inline-flex items-center gap-1"
+                            class="text-primary hover:underline inline-flex items-center gap-1 max-w-full break-all"
                             @click.stop
                           >
                             {{ record.doi }}
@@ -445,7 +445,7 @@ function truncate(text: string | undefined, maxLength: number): string {
                         </div>
                       </div>
                     </td>
-                    <td class="px-4 py-3 text-muted-foreground" :title="record.author">
+                    <td class="px-4 py-3 text-muted-foreground break-words" :title="record.author">
                       {{ truncate(record.author, 30) }}
                     </td>
                     <td class="px-4 py-3">
@@ -533,10 +533,10 @@ function truncate(text: string | undefined, maxLength: number): string {
                     </td>
                     <td class="px-4 py-3">
                       <div class="space-y-1">
-                        <div class="font-medium" :title="record.title">
+                        <div class="font-medium break-words" :title="record.title">
                           {{ truncate(record.title, 80) }}
                         </div>
-                        <div v-if="record.journal || record.booktitle" class="text-xs text-muted-foreground">
+                        <div v-if="record.journal || record.booktitle" class="text-xs text-muted-foreground break-words">
                           {{ record.journal || record.booktitle }}
                         </div>
                         <div v-if="record.doi" class="text-xs">
@@ -544,7 +544,7 @@ function truncate(text: string | undefined, maxLength: number): string {
                             :href="`https://doi.org/${record.doi}`"
                             target="_blank"
                             rel="noopener noreferrer"
-                            class="text-primary hover:underline inline-flex items-center gap-1"
+                            class="text-primary hover:underline inline-flex items-center gap-1 max-w-full break-all"
                             @click.stop
                           >
                             {{ record.doi }}
@@ -553,7 +553,7 @@ function truncate(text: string | undefined, maxLength: number): string {
                         </div>
                       </div>
                     </td>
-                    <td class="px-4 py-3 text-muted-foreground" :title="record.author">
+                    <td class="px-4 py-3 text-muted-foreground break-words" :title="record.author">
                       {{ truncate(record.author, 30) }}
                     </td>
                     <td class="px-4 py-3">

@@ -48,27 +48,28 @@ afterEach(() => {
 });
 
 describe('write -> refresh fan-out', () => {
-  it('refreshes git immediately and the rest on the trailing debounce', async () => {
+  it('fans out on the leading edge, without waiting out the debounce', async () => {
     const seam = useProjectDataStore();
     const events: ProjectDataEvent[] = [];
     seam.subscribe((e) => void events.push(e));
 
     seam.notifyWriteCompleted('prescreen_record');
 
-    // The git snapshot gates commit buttons — it must not wait for the
-    // debounce (a window where the tree is dirty but the UI says clean).
-    await vi.advanceTimersByTimeAsync(0);
-    expect(ctx.mock.gitState.refresh).toHaveBeenCalledTimes(1);
-    expect(ctx.mock.rpc.countOf('get_status')).toBe(0);
-    expect(events).toHaveLength(0);
+    // A single deliberate action must not be made to wait: the git snapshot
+    // (which gates commit buttons) and the derived project status both catch
+    // up straight away, and the page is told to reload with them.
+    await vi.advanceTimersByTimeAsync(1);
+    expect(ctx.mock.gitState.refresh).toHaveBeenCalled();
+    expect(ctx.mock.rpc.countOf('get_status')).toBe(1);
+    expect(events).toHaveLength(1);
 
     await vi.runAllTimersAsync();
 
-    // Project status, settings and managed-review tasks all re-read...
+    // Project status, settings and managed-review tasks all re-read once...
     expect(ctx.mock.rpc.countOf('get_status')).toBe(1);
     expect(ctx.mock.rpc.countOf('get_settings')).toBe(1);
     expect(ctx.mock.rpc.countOf('list_managed_review_tasks')).toBe(2); // prescreen + screen
-    // ...and pages are told exactly once.
+    // ...and no trailing refresh follows a lone write.
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ projectId: TEST_PROJECT_ID, full: false });
   });
@@ -118,7 +119,7 @@ describe('write -> refresh fan-out', () => {
     expect(ctx.mock.git.listBranches).not.toHaveBeenCalled();
   });
 
-  it('fans out once for a burst of writes', async () => {
+  it('collapses a burst of writes into one trailing fan-out', async () => {
     const seam = useProjectDataStore();
     const events: ProjectDataEvent[] = [];
     seam.subscribe((e) => void events.push(e));
@@ -128,9 +129,12 @@ describe('write -> refresh fan-out', () => {
     seam.notifyWriteCompleted('prescreen_record');
     await vi.runAllTimersAsync();
 
-    expect(ctx.mock.rpc.countOf('get_status')).toBe(1);
-    expect(events).toHaveLength(1);
-    expect(events[0].methods).toHaveLength(3);
+    // One refresh for the leading write, one for everything that followed it
+    // inside the debounce window — not one per decision.
+    expect(ctx.mock.rpc.countOf('get_status')).toBe(2);
+    expect(events).toHaveLength(2);
+    expect(events[0].methods).toHaveLength(1);
+    expect(events[1].methods).toHaveLength(2);
   });
 });
 

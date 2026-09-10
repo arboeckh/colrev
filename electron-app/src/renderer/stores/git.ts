@@ -753,6 +753,46 @@ export const useGitStore = defineStore('git', () => {
   }
 
   /**
+   * Combine a diverged branch with its upstream *without ever asking* — the
+   * coordinator's automatic path.
+   *
+   * Deliberately narrower than `startDivergenceResolution`: it applies only
+   * the merge that needs no decision (no blockers, no conflicts) and
+   * otherwise gives up quietly, leaving the branch diverged for the sync
+   * banner and the `useSyncGate` boundaries to raise with the user. Opening
+   * the conflict dialog from here would put a modal on screen mid-screening,
+   * which ADR 0004 rules out; reporting a failure would put a toast there for
+   * a situation the banner is already showing.
+   *
+   * Returns true only when the divergence is actually gone.
+   */
+  async function tryAutoResolveDivergence(): Promise<boolean> {
+    const path = getProjectPath();
+    if (!path || !projects.currentProjectId || isResolving.value) return false;
+
+    isResolving.value = true;
+    let analysis: MergeAnalysis;
+    try {
+      const result = await window.git.analyzeDivergence(path, projects.currentProjectId);
+      if (!result.success || !result.analysis) return false;
+      if (result.analysis.blockers.length > 0) return false;
+      if (result.analysis.hasConflicts) return false;
+      analysis = result.analysis;
+    } catch {
+      return false;
+    } finally {
+      // `applyMergeResolutions` takes the flag again; releasing it here keeps
+      // the early returns from leaving the UI stuck in "Syncing...".
+      isResolving.value = false;
+    }
+
+    mergeAnalysis.value = analysis;
+    const merged = await applyMergeResolutions([]);
+    if (!merged) mergeAnalysis.value = null;
+    return merged;
+  }
+
+  /**
    * Apply user's conflict resolutions and complete the merge.
    */
   async function applyMergeResolutions(resolutions: MergeConflictResolution[]): Promise<boolean> {
@@ -946,7 +986,7 @@ export const useGitStore = defineStore('git', () => {
      * Need to sync from new code? Call `useSyncStore().pullNow()` /
      * `.pushNow()` / `.fetchNow()` / `.syncNow()`.
      */
-    __remoteOps: { fetch, pull, push, fastForwardMain },
+    __remoteOps: { fetch, pull, push, fastForwardMain, tryAutoResolveDivergence },
     refreshStatus,
     refreshSnapshotFor,
     refreshBranches,

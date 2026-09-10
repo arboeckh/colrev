@@ -11,3 +11,6 @@ export { default as ReviewerSelector } from './ReviewerSelector.vue';
 export { default as CollaboratorInviteForm } from './CollaboratorInviteForm.vue';
 export { default as GitHubUserAutocomplete } from './GitHubUserAutocomplete.vue';
 export { default as RepoVisibilityToggle } from './RepoVisibilityToggle.vue';
+export { default as QueueMap } from './QueueMap.vue';
+export { default as QueueJumpDialog } from './QueueJumpDialog.vue';
+export { default as QueueFilmstrip } from './QueueFilmstrip.vue';
