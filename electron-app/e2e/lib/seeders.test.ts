@@ -478,8 +478,11 @@ describe('COLREV_E2E_PINNED_DATES', () => {
       { cwd: projectPath, encoding: 'utf-8' },
     ).trim();
 
-    expect(authorDate).toBe('2025-01-01T00:00:00+00:00');
-    expect(committerDate).toBe('2025-01-01T00:00:00+00:00');
+    // git >= 2.50 renders a UTC offset as `Z`; older versions as `+00:00`.
+    // The instant is what is pinned, so compare that rather than the spelling.
+    const pinnedInstant = Date.parse('2025-01-01T00:00:00Z');
+    expect(Date.parse(authorDate)).toBe(pinnedInstant);
+    expect(Date.parse(committerDate)).toBe(pinnedInstant);
   });
 
   it('git commits use real dates when env var is unset', () => {

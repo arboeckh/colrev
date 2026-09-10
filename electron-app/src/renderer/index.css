@@ -238,6 +238,8 @@
 
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
+  /* Work with no known end: a sweeping bar, not a fabricated percentage. */
+  --animate-indeterminate: indeterminate 1.4s ease-in-out infinite;
 
   @keyframes accordion-down {
     from { height: 0; }
@@ -246,6 +248,10 @@
   @keyframes accordion-up {
     from { height: var(--reka-accordion-content-height); }
     to   { height: 0; }
+  }
+  @keyframes indeterminate {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(300%); }
   }
 }
 

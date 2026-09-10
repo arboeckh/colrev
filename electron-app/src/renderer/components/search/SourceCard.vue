@@ -10,7 +10,6 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -22,6 +21,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { SearchResultsModal } from '@/components/search';
+import ApiQueryForm from './ApiQueryForm.vue';
+import { findConnectorByEndpoint } from './db-catalog';
+import {
+  type ApiQueryValue,
+  apiQueryFromSource,
+  apiQueryIsComplete,
+  apiQuerySearchString,
+  apiQueryToStoredQuery,
+  emptyApiQuery,
+} from './api-query';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
@@ -29,21 +38,24 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import type { SearchSource } from '@/types';
 import { formatSourceName } from '@/lib/displayNames';
 
-interface SearchProgress {
-  progress: number;
-  status: string;
-  fetchedRecords: number;
-  totalRecords: number;
-  currentBatch: number;
-  totalBatches: number;
-}
+/**
+ * Where this source sits in a run.
+ *
+ * `queued` exists because "Run all searches" fans out into one search per
+ * source and the backend takes them one at a time — a card that is waiting its
+ * turn should say so rather than pretend to be working.
+ */
+export type SourceRunState = 'idle' | 'queued' | 'searching';
 
 const props = defineProps<{
   source: SearchSource;
   projectId: string;
   class?: string;
-  isSearching?: boolean;
-  searchProgress?: SearchProgress;
+  runState?: SourceRunState;
+  /** Latest status line the backend reported for this source, if any. */
+  progressMessage?: string;
+  /** Another source is running, so this card's actions are unavailable. */
+  busy?: boolean;
   readOnly?: boolean;
 }>();
 
@@ -66,8 +78,10 @@ const isDeleting = ref(false);
 const isUpdating = ref(false);
 const isUploadingUpdate = ref(false);
 
-// Edit form state (for API sources)
-const editSearchString = ref('');
+// Edit form state (for API sources) — the same shape the add dialog binds to,
+// so an existing source is re-tuned with the controls it was created with.
+const editQuery = ref<ApiQueryValue>(emptyApiQuery());
+const editShowAdvanced = ref(false);
 
 // Update file form state (for DB sources)
 const updateFile = ref<File | null>(null);
@@ -82,18 +96,30 @@ const sourceIcon = computed(() => {
   return props.source.search_type === 'API' ? Globe : Database;
 });
 
+const endpoint = computed(
+  () => props.source.endpoint || props.source.platform || '',
+);
+
+/**
+ * Stable identifier for test hooks: the endpoint's last segment, or the file
+ * stem for uploads. Never shown to the user — see `sourceLabel`.
+ */
 const sourceName = computed(() => {
-  // For DB (file-based) sources, use the filename without extension as the name
-  // e.g., "data/search/scopus.ris" -> "scopus"
   if (props.source.search_type === 'DB') {
     const path = props.source.filename || props.source.search_results_path || '';
     const basename = path.split('/').pop() || '';
     return basename.replace(/\.[^/.]+$/, '') || 'unknown';
   }
-  // For API sources, extract name from endpoint (e.g., "colrev.pubmed" -> "pubmed")
-  const endpoint = props.source.endpoint || props.source.platform || 'unknown';
-  return endpoint.split('.').pop() || endpoint;
+  return endpoint.value.split('.').pop() || endpoint.value || 'unknown';
 });
+
+/** The catalog entry, for the options its query form offers. */
+const connector = computed(() =>
+  findConnectorByEndpoint(
+    endpoint.value,
+    props.source.search_type === 'API' ? 'api' : 'upload',
+  ),
+);
 
 // `sourceName` stays the raw identifier — it keys the card's test ids and the
 // results modal. Anything a person reads uses `sourceLabel`, which maps
@@ -133,6 +159,18 @@ const isDbSource = computed(() => {
 const isCompleted = computed(() => {
   return !!props.source.last_run_timestamp && !props.source.is_stale;
 });
+
+const isSearching = computed(() => props.runState === 'searching');
+const isQueued = computed(() => props.runState === 'queued');
+const isActive = computed(() => isSearching.value || isQueued.value);
+
+/**
+ * No percentage: colrev reports one event per source, not per page fetched, so
+ * any number here would be invented. The label says which source is working.
+ */
+const searchStatusText = computed(() =>
+  isQueued.value ? 'Queued' : props.progressMessage || `Searching ${sourceLabel.value}…`,
+);
 
 // Format relative time for display with both relative and absolute date
 function formatRelativeTime(timestamp: string): { relative: string; date: string } {
@@ -184,9 +222,21 @@ function runSearch() {
 }
 
 function openEditDialog() {
-  editSearchString.value = props.source.search_string || '';
+  editQuery.value = apiQueryFromSource(
+    props.source.search_parameters,
+    props.source.search_string,
+  );
+  editShowAdvanced.value = !!editQuery.value.rawApiUrl;
   showEditDialog.value = true;
 }
+
+const supportsQueryOptions = computed(
+  () => endpoint.value === 'colrev.open_alex',
+);
+
+const canSaveEdit = computed(
+  () => !isUpdating.value && apiQueryIsComplete(editQuery.value, supportsQueryOptions.value),
+);
 
 async function handleDelete() {
   isDeleting.value = true;
@@ -218,7 +268,12 @@ async function handleUpdate() {
     const response = await backend.call('update_source', {
       project_id: props.projectId,
       filename: filename.value,
-      search_string: editSearchString.value,
+      search_string: apiQuerySearchString(editQuery.value),
+      // The stored URL is derived from this query, so the filters travel with
+      // the keywords — otherwise a filter change would never reach the API.
+      ...(supportsQueryOptions.value
+        ? { search_parameters: { query: apiQueryToStoredQuery(editQuery.value) } }
+        : {}),
     });
 
     if (response.success) {
@@ -302,7 +357,7 @@ async function handleUpdateFile() {
   <Card
     :data-testid="`source-card-${sourceName}`"
     :class="cn(
-      isSearching
+      isActive
         ? 'border-primary/50 bg-primary/5'
         : source.is_stale
           ? 'border-yellow-500/50 bg-yellow-500/5'
@@ -342,12 +397,12 @@ async function handleUpdateFile() {
             v-if="isApiSource"
             variant="ghost"
             size="icon"
-            :disabled="isSearching || readOnly"
+            :disabled="isActive || busy || readOnly"
             :data-testid="`run-search-${sourceName}`"
-            title="Run search for this source"
+            :title="`Run the ${sourceLabel} search`"
             @click="runSearch"
           >
-            <Loader2 v-if="isSearching" class="h-4 w-4 animate-spin" />
+            <Loader2 v-if="isActive" class="h-4 w-4 animate-spin" />
             <Play v-else class="h-4 w-4" />
           </Button>
           <!-- Update file (DB sources only) -->
@@ -355,6 +410,7 @@ async function handleUpdateFile() {
             v-if="isDbSource && !readOnly"
             variant="ghost"
             size="icon"
+            :disabled="busy"
             :data-testid="`update-source-${sourceName}`"
             title="Update source file"
             @click="openUpdateFileDialog"
@@ -366,8 +422,9 @@ async function handleUpdateFile() {
             v-if="isApiSource && !readOnly"
             variant="ghost"
             size="icon"
+            :disabled="isActive || busy"
             :data-testid="`edit-source-${sourceName}`"
-            title="Edit search query"
+            :title="`Edit the ${sourceLabel} query`"
             @click="openEditDialog"
           >
             <Settings class="h-4 w-4" />
@@ -377,6 +434,7 @@ async function handleUpdateFile() {
             v-if="!readOnly"
             variant="ghost"
             size="icon"
+            :disabled="isActive || busy"
             :data-testid="`delete-source-${sourceName}`"
             title="Delete source"
             @click="showDeleteDialog = true"
@@ -387,37 +445,28 @@ async function handleUpdateFile() {
       </div>
     </CardHeader>
     <CardContent class="space-y-3">
-      <!-- Search progress (when searching) -->
-      <div v-if="isSearching && searchProgress" class="space-y-2">
-        <div class="flex items-center justify-between text-sm">
-          <div class="flex items-center gap-2">
-            <Loader2 class="h-4 w-4 animate-spin text-primary" />
-            <span class="text-muted-foreground">{{ searchProgress.status || 'Searching...' }}</span>
-          </div>
-          <span class="text-xs font-medium tabular-nums">{{ Math.round(searchProgress.progress) }}%</span>
+      <!-- Running: this source only. There is no meaningful percentage to show —
+           colrev reports one event per source, not per page fetched — so the
+           bar is indeterminate rather than a fabricated number. -->
+      <div v-if="isActive" class="space-y-2" :data-testid="`search-status-${sourceName}`">
+        <div class="flex items-center gap-2 text-sm">
+          <Loader2 v-if="isSearching" class="h-4 w-4 animate-spin text-primary" />
+          <Circle v-else class="h-4 w-4 text-muted-foreground" />
+          <span :class="isSearching ? 'font-medium text-primary' : 'text-muted-foreground'">
+            {{ searchStatusText }}
+          </span>
         </div>
-        <Progress :model-value="searchProgress.progress" class="h-1.5" />
-        <div class="flex items-center justify-between text-xs text-muted-foreground">
-          <span v-if="searchProgress.totalBatches > 0">
-            Batch {{ searchProgress.currentBatch }}/{{ searchProgress.totalBatches }}
-          </span>
-          <span v-if="searchProgress.totalRecords > 0" class="tabular-nums">
-            {{ searchProgress.fetchedRecords.toLocaleString() }}/{{ searchProgress.totalRecords.toLocaleString() }} records
-          </span>
+        <div v-if="isSearching" class="h-1.5 overflow-hidden rounded-full bg-primary/15">
+          <div class="h-full w-1/3 animate-indeterminate rounded-full bg-primary" />
         </div>
       </div>
 
-      <!-- Status section (when not searching) -->
+      <!-- Status section (when idle) -->
       <div v-else class="flex items-center justify-between">
         <!-- Status indicator -->
         <div class="flex items-center gap-2 text-sm">
-          <!-- Searching (fallback if no progress data) -->
-          <template v-if="isSearching">
-            <Loader2 class="h-4 w-4 animate-spin text-primary" />
-            <span class="font-medium text-primary">Searching...</span>
-          </template>
           <!-- Completed (has records, not stale) -->
-          <template v-else-if="source.last_run_timestamp && !source.is_stale">
+          <template v-if="source.last_run_timestamp && !source.is_stale">
             <CheckCircle2 class="h-4 w-4 text-green-500" />
             <span class="text-muted-foreground">
               <span class="font-medium text-foreground" :data-testid="`record-count-${sourceName}`">{{ source.record_count }}</span> records
@@ -448,7 +497,7 @@ async function handleUpdateFile() {
 
         <!-- View records button (only when has records and not stale) -->
         <Button
-          v-if="(source.record_count ?? 0) > 0 && !source.is_stale && !isSearching"
+          v-if="(source.record_count ?? 0) > 0 && !source.is_stale"
           variant="outline"
           size="sm"
           class="h-7 text-xs"
@@ -515,20 +564,29 @@ async function handleUpdateFile() {
     </DialogContent>
   </Dialog>
 
-  <!-- Edit Dialog (for API sources) -->
+  <!-- Edit Dialog (for API sources) — the same form the source was added with,
+       so every option stays reachable after creation. -->
   <Dialog v-model:open="showEditDialog">
-    <DialogContent class="max-w-prose">
+    <DialogContent class="max-w-prose max-h-[85vh] overflow-y-auto">
       <DialogHeader>
-        <DialogTitle>Edit {{ sourceLabel }} Search</DialogTitle>
+        <DialogTitle>Edit {{ sourceLabel }} search</DialogTitle>
         <DialogDescription>
-          Update the search query for this API source.
+          Changing the search discards the results already fetched — run the
+          search again to refill it.
         </DialogDescription>
       </DialogHeader>
-      <div class="space-y-4 py-4">
-        <div class="space-y-2">
-          <label class="text-sm font-medium">Search Query</label>
+      <div class="py-2">
+        <ApiQueryForm
+          v-if="connector"
+          v-model="editQuery"
+          v-model:show-advanced="editShowAdvanced"
+          :connector="connector"
+          :disabled="isUpdating"
+        />
+        <div v-else class="space-y-2">
+          <label class="text-sm font-medium">Search query</label>
           <Textarea
-            v-model="editSearchString"
+            v-model="editQuery.searchQuery"
             placeholder="Enter search query"
             data-testid="edit-query-input"
             :disabled="isUpdating"
@@ -546,7 +604,7 @@ async function handleUpdateFile() {
           Cancel
         </Button>
         <Button
-          :disabled="isUpdating || !editSearchString.trim()"
+          :disabled="!canSaveEdit"
           data-testid="confirm-edit-source"
           @click="handleUpdate"
         >
@@ -561,7 +619,7 @@ async function handleUpdateFile() {
   <Dialog v-model:open="showUpdateFileDialog">
     <DialogContent class="max-w-prose">
       <DialogHeader>
-        <DialogTitle>Update {{ sourceLabel }} Source</DialogTitle>
+        <DialogTitle>Update {{ sourceLabel }} source</DialogTitle>
         <DialogDescription>
           Upload a new file to replace the existing search results.
         </DialogDescription>
@@ -624,7 +682,7 @@ async function handleUpdateFile() {
   <!-- Search Results Modal -->
   <SearchResultsModal
     v-model:open="showResultsModal"
-    :source-name="sourceName"
+    :source-name="sourceLabel"
     :filename="filename"
     :project-id="projectId"
   />

@@ -528,6 +528,89 @@ class TestUpdateSource:
         assert by_path[SOURCE_FILENAME]["search_string"] == "revised query"
 
 
+class TestUpdateOpenAlexSource:
+    """The OpenAlex URL is derived from the query, so an edit must rebuild it.
+
+    Regression: the rebuild used to read the stored (already derived) URL back
+    in as if the user had pasted it, which rebuilt the *original* search. The
+    query changed in the UI and the result count never moved.
+    """
+
+    OPENALEX_FILENAME = "data/search/open_alex.bib"
+
+    @pytest.fixture(autouse=True)
+    def _api_key(self, monkeypatch) -> None:
+        monkeypatch.setenv("OPENALEX_API_KEY", "test-key")
+
+    @pytest.fixture
+    def openalex_source(self, source_handler, source_params) -> dict:
+        added = _source_request(
+            source_handler,
+            "add_source",
+            {
+                **source_params,
+                "endpoint": "colrev.open_alex",
+                "search_type": "API",
+                "filename": self.OPENALEX_FILENAME,
+                "search_string": "sotatercept",
+                "search_parameters": {"query": {"search": "sotatercept", "year_from": 2020}},
+            },
+        )
+        assert "error" not in added, added.get("error")
+        return added["result"]["details"]["source"]
+
+    def _stored_source(self, source_handler, source_params) -> dict:
+        sources = _source_request(source_handler, "get_sources", source_params)[
+            "result"
+        ]["sources"]
+        by_path = {s["search_results_path"]: s for s in sources}
+        return by_path[self.OPENALEX_FILENAME]
+
+    def test_search_string_edit_rebuilds_the_url(
+        self, source_handler, source_params, openalex_source
+    ) -> None:
+        original_url = openalex_source["search_parameters"]["url"]
+        assert "sotatercept" in original_url
+
+        response = _source_request(
+            source_handler,
+            "update_source",
+            {
+                **source_params,
+                "filename": self.OPENALEX_FILENAME,
+                "search_string": "macitentan",
+            },
+        )
+        assert "error" not in response, response.get("error")
+
+        stored = self._stored_source(source_handler, source_params)
+        assert stored["search_string"] == "macitentan"
+        assert "macitentan" in stored["search_parameters"]["url"]
+        assert "sotatercept" not in stored["search_parameters"]["url"]
+        # Filters the edit did not mention are preserved.
+        assert stored["search_parameters"]["query"]["year_from"] == 2020
+
+    def test_filter_only_edit_rebuilds_the_url(
+        self, source_handler, source_params, openalex_source
+    ) -> None:
+        response = _source_request(
+            source_handler,
+            "update_source",
+            {
+                **source_params,
+                "filename": self.OPENALEX_FILENAME,
+                "search_parameters": {"query": {"open_access_only": True}},
+            },
+        )
+        assert "error" not in response, response.get("error")
+
+        stored = self._stored_source(source_handler, source_params)
+        # The keyword query is untouched, but the URL the search runs changed.
+        assert stored["search_string"] == "sotatercept"
+        assert "is_oa" in stored["search_parameters"]["url"]
+        assert stored["search_parameters"]["query"]["search"] == "sotatercept"
+
+
 class TestRemoveSource:
     def test_removes_the_source_its_history_and_optionally_its_file(
         self, source_handler, source_params, source_project
