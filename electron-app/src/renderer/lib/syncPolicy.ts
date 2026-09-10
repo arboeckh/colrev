@@ -18,7 +18,8 @@ export type AutoSyncAction =
   | { kind: 'idle'; reason: IdleReason }
   | { kind: 'fetch' }
   | { kind: 'pull' }
-  | { kind: 'push' };
+  | { kind: 'push' }
+  | { kind: 'resolve' };
 
 /**
  * Why the coordinator is doing nothing. Surfaced in the sync status UI and in
@@ -32,7 +33,8 @@ export type IdleReason =
   | 'busy'
   | 'operation-running'
   | 'suspended'
-  | 'diverged'
+  | 'diverged-dirty'
+  | 'resolve-cooldown'
   | 'dirty'
   | 'auto-pull-disabled'
   | 'auto-push-disabled'
@@ -61,11 +63,21 @@ export interface SyncPolicyInput {
   lastFetchAt: number | null;
   /** ms since epoch when the branch first became `ahead`; null if not ahead. */
   aheadSince: number | null;
+  /**
+   * ms since epoch of the last auto-resolve attempt that left the branches
+   * still diverged; null if none. Divergence that the engine will not merge
+   * on its own does not become mergeable by asking again a tick later, and
+   * `analyze_merge` re-parses the whole record set — so a failed attempt
+   * buys quiet, not a retry loop.
+   */
+  lastResolveAttemptAt: number | null;
   now: number;
   fetchIntervalMs: number;
   /** Quiet period after the last commit before an auto-push fires, so a
    * streak of decisions becomes one push instead of one push per decision. */
   pushDebounceMs: number;
+  /** How long a failed auto-resolve suppresses the next attempt. */
+  resolveRetryMs: number;
 }
 
 /**
@@ -102,14 +114,44 @@ function isDiverged(input: { ahead: number; behind: number }): boolean {
 }
 
 /**
+ * Why an automatic resolve of a diverged branch is off the table right now, or
+ * `null` when it may go ahead.
+ *
+ * Resolving is not a push: it rewrites the working tree with a collaborator's
+ * work and writes a merge commit, so it rides the auto-*pull* switch and obeys
+ * the same "never lose anything" rule. The engine still decides whether the
+ * histories combine — this only decides whether it is safe to ask.
+ *
+ * The cleanliness requirement is load-bearing rather than cautious:
+ * `apply_merge` runs `git add -A` before it commits, so a dirty tree would
+ * sweep uncommitted work the user never chose to save into a merge commit
+ * they never asked for.
+ */
+function divergenceBlocker(input: SyncPolicyInput): IdleReason | null {
+  if (!input.autoPullEnabled) return 'auto-pull-disabled';
+  if (!input.isClean) return 'diverged-dirty';
+  if (
+    input.lastResolveAttemptAt !== null &&
+    input.now - input.lastResolveAttemptAt < input.resolveRetryMs
+  ) {
+    return 'resolve-cooldown';
+  }
+  return null;
+}
+
+/**
  * Decide this tick's action.
  *
  * Precedence, highest first:
  *  1. Hard blocks — nothing may run (no remote, offline, mid-merge, busy).
  *  2. Pull, when it is a strict fast-forward. Reading the collaborator's work
  *     before publishing ours is what keeps the divergence window short.
- *  3. Push, when it is a strict fast-forward and the debounce has elapsed.
- *  4. Fetch, when the remote counts are stale. Read-only, so it is safe even
+ *  3. Resolve, when the branches have diverged and combining them is
+ *     unambiguous. Divergence blocks both pull and push, so leaving it alone
+ *     stalls sync entirely — the one case where doing nothing is the
+ *     expensive option.
+ *  4. Push, when it is a strict fast-forward and the debounce has elapsed.
+ *  5. Fetch, when the remote counts are stale. Read-only, so it is safe even
  *     while suspended — but it is the lowest priority.
  */
 export function decideAutoSync(input: SyncPolicyInput): AutoSyncAction {
@@ -137,6 +179,15 @@ export function decideAutoSync(input: SyncPolicyInput): AutoSyncAction {
     return { kind: 'pull' };
   }
 
+  if (isDiverged(input)) {
+    const blocked = divergenceBlocker(input);
+    if (blocked === null) return { kind: 'resolve' };
+    // Still worth refreshing the counts: the collaborator may push again, or
+    // land the very commit that turns this into a fast-forward.
+    if (fetchIsStale) return { kind: 'fetch' };
+    return { kind: 'idle', reason: blocked };
+  }
+
   if (isFastForwardPush(input)) {
     if (!input.autoPushEnabled) return { kind: 'idle', reason: 'auto-push-disabled' };
     const since = input.aheadSince;
@@ -148,9 +199,8 @@ export function decideAutoSync(input: SyncPolicyInput): AutoSyncAction {
 
   if (fetchIsStale) return { kind: 'fetch' };
 
-  // Nothing automatic applies. Say why, so the UI can escalate the two cases
-  // that need a human instead of silently sitting still.
-  if (isDiverged(input)) return { kind: 'idle', reason: 'diverged' };
+  // Nothing automatic applies. Say why, so the UI can escalate the case that
+  // needs a human instead of silently sitting still.
   if (input.behind > 0 && !input.isClean) return { kind: 'idle', reason: 'dirty' };
   return { kind: 'idle', reason: 'up-to-date' };
 }

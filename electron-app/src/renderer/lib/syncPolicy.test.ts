@@ -25,9 +25,11 @@ function input(overrides: Partial<SyncPolicyInput> = {}): SyncPolicyInput {
     autoPushEnabled: true,
     lastFetchAt: NOW,
     aheadSince: null,
+    lastResolveAttemptAt: null,
     now: NOW,
     fetchIntervalMs: 90_000,
     pushDebounceMs: 4_000,
+    resolveRetryMs: 60_000,
     ...overrides,
   };
 }
@@ -65,9 +67,9 @@ describe('hard blocks', () => {
     expect(action).toEqual({ kind: 'idle', reason });
   });
 
-  it('never auto-pulls over a diverged repo', () => {
+  it('never auto-pulls over a diverged repo — it resolves instead', () => {
     const action = decideAutoSync(input({ ahead: 2, behind: 3, lastFetchAt: NOW }));
-    expect(action).toEqual({ kind: 'idle', reason: 'diverged' });
+    expect(action).toEqual({ kind: 'resolve' });
   });
 
   it('never auto-pulls over uncommitted work', () => {
@@ -97,6 +99,49 @@ describe('holding off', () => {
   it('still fetches while a writer RPC runs', () => {
     const action = decideAutoSync(
       input({ operationRunning: true, lastFetchAt: NOW - 200_000 }),
+    );
+    expect(action).toEqual({ kind: 'fetch' });
+  });
+});
+
+describe('resolving a diverged branch', () => {
+  it('resolves when the tree is clean and nothing has been tried yet', () => {
+    expect(decideAutoSync(input({ ahead: 1, behind: 1 }))).toEqual({ kind: 'resolve' });
+  });
+
+  it('refuses to resolve over uncommitted work — `apply_merge` stages everything', () => {
+    const action = decideAutoSync(input({ ahead: 1, behind: 1, isClean: false, lastFetchAt: NOW }));
+    expect(action).toEqual({ kind: 'idle', reason: 'diverged-dirty' });
+  });
+
+  it('rides the auto-pull switch, not the auto-push one', () => {
+    const action = decideAutoSync(
+      input({ ahead: 1, behind: 1, autoPullEnabled: false, lastFetchAt: NOW }),
+    );
+    expect(action).toEqual({ kind: 'idle', reason: 'auto-pull-disabled' });
+
+    expect(decideAutoSync(input({ ahead: 1, behind: 1, autoPushEnabled: false }))).toEqual({
+      kind: 'resolve',
+    });
+  });
+
+  it('stays quiet for the cooldown after an attempt the engine refused', () => {
+    const action = decideAutoSync(
+      input({ ahead: 1, behind: 1, lastResolveAttemptAt: NOW - 30_000, lastFetchAt: NOW }),
+    );
+    expect(action).toEqual({ kind: 'idle', reason: 'resolve-cooldown' });
+  });
+
+  it('tries again once the cooldown has elapsed', () => {
+    const action = decideAutoSync(
+      input({ ahead: 1, behind: 1, lastResolveAttemptAt: NOW - 61_000 }),
+    );
+    expect(action).toEqual({ kind: 'resolve' });
+  });
+
+  it('keeps fetching while divergence waits on a human', () => {
+    const action = decideAutoSync(
+      input({ ahead: 1, behind: 1, isClean: false, lastFetchAt: NOW - 200_000 }),
     );
     expect(action).toEqual({ kind: 'fetch' });
   });

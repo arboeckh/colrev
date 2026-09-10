@@ -41,14 +41,47 @@ Pull and push have opposite risk profiles and are treated differently.
   local is not ahead, working tree is clean. That case is mechanically
   incapable of losing anything: it moves a ref and updates files. Everything
   else (diverged, dirty) is a decision only the user can make.
-- **Auto-push whenever the push is a fast-forward**, debounced ~4s after the
-  last commit so a decision streak becomes one push. A push destroys nothing;
-  the worst case is publishing work slightly early, and a non-fast-forward
-  push is refused by the remote anyway.
+- **Auto-push whenever the push is a fast-forward**, ~2s after the branch
+  first goes ahead. The window is anchored to the *first* unpushed commit
+  rather than the latest, so a decision streak still collapses into one push
+  while the wait stays bounded. It is scheduled by a watcher on the git
+  snapshot, not sampled on the tick: sampling made the real wait the tick
+  *plus* the debounce, which is long enough that a user reads the push counter
+  as broken rather than pending. A push destroys nothing; the worst case is
+  publishing work slightly early, and a non-fast-forward push is refused by
+  the remote anyway.
+- **Auto-resolve a diverged branch, but only where nothing is at stake** —
+  the tree is clean and `analyze_merge` reports no conflicts and no blockers.
+  Divergence blocks pull *and* push, so leaving it alone stalls sync
+  completely; it is the one case where doing nothing is the expensive option.
+  Two limits keep it honest: a conflict or blocker never opens a dialog (it
+  falls back to the banner, because a modal mid-screening is the failure this
+  ADR exists to avoid), and a dirty tree is refused outright because
+  `apply_merge` runs `git add -A` before committing and would sweep
+  uncommitted work into a merge commit the user never asked for. A refusal
+  starts a 60s cooldown — `analyze_merge` re-parses the whole record set, and
+  divergence the engine declined does not become mergeable a tick later.
 - **Background fetch every ~90s (jittered), plus on focus.** Fetch is
   read-only and never touches the working tree, so it runs even while sync is
   otherwise held off — the counts stay honest, and the moment a hold lifts the
   coordinator already knows what to do.
+
+### Auto-sync never commits, and the UI says which half it owns
+
+The write handlers stage but never commit (`framework/__init__.py`); a commit
+happens only when a human asks for one. That makes uncommitted work the
+*normal* state of the repo, not an edge case — and it means the coordinator's
+reach stops at the commit boundary.
+
+The push button consequently covers two quantities with different fates:
+uncommitted work, which only a click clears, and unpushed commits, which
+auto-push clears within seconds. They were once added into a single badge, and
+the result was a counter that sat at the same number through a successful
+push — the half that moved was never the half the user was looking at, so
+working machinery read as broken. `computeGitSyncState` now reports them
+separately (`Save 2 · Push 1`) and says in the tooltip which half is
+automatic. Any future count that auto-sync cannot drain belongs in the same
+split, for the same reason.
 
 ### Interruption happens at operation boundaries, never mid-operation
 
@@ -132,6 +165,12 @@ appearing in a review.
 
 - **A modal on every pending change.** Rejected: unprompted modals mid-review
   get dismissed reflexively, so the one that matters gets dismissed too.
+- **Auto-committing pending work so the push badge drains to zero.**
+  Rejected: it is the one change that would make the counter behave the way a
+  first-time user expects, and it buys that by writing history nobody asked
+  for. Commits in a systematic review carry provenance; a background
+  "Save changes" over a half-finished screening pass is not a commit anyone
+  can defend later. Splitting the badge tells the same truth without it.
 - **Rebase instead of merge on divergence.** Rejected: with auto-push the
   other side already has our commits, so a rebase duplicates them and forces a
   push — and `colrev validate --merge` computes inter-rater agreement from the

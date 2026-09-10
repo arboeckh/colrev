@@ -37,6 +37,7 @@ function stubRemoteOps(ok = true) {
     pull: vi.fn().mockResolvedValue(ok),
     push: vi.fn().mockResolvedValue(ok),
     fastForwardMain: vi.fn().mockResolvedValue(ok),
+    tryAutoResolveDivergence: vi.fn().mockResolvedValue(ok),
   };
   // The store exposes these as a plain object; swapping it is how a test
   // drives the coordinator without a real repo.
@@ -88,7 +89,7 @@ describe('sync coordinator', () => {
     expect(sync.escalation).toBe('dirty-blocks-pull');
   });
 
-  it('never auto-pulls a diverged repo — that is the merge flow’s decision', async () => {
+  it('never pulls or pushes a diverged repo — it goes through the merge engine', async () => {
     const git = useGitStore();
     git.applySnapshot(snapshot({ ahead: 2, behind: 3 }));
     const ops = stubRemoteOps();
@@ -98,7 +99,61 @@ describe('sync coordinator', () => {
 
     expect(ops.pull).not.toHaveBeenCalled();
     expect(ops.push).not.toHaveBeenCalled();
+    expect(ops.tryAutoResolveDivergence).toHaveBeenCalledOnce();
+  });
+
+  it('leaves a diverged dirty tree alone — `apply_merge` would commit it', async () => {
+    const git = useGitStore();
+    git.applySnapshot(snapshot({ ahead: 2, behind: 3, isClean: false, uncommittedChanges: 1 }));
+    const ops = stubRemoteOps();
+    const sync = useSyncStore();
+
+    // A never-fetched coordinator fetches first — it outranks everything that
+    // is only waiting. Get that out of the way so the tick under test decides.
+    await sync.fetchNow();
+    await sync.tick();
+
+    expect(ops.tryAutoResolveDivergence).not.toHaveBeenCalled();
     expect(sync.escalation).toBe('diverged');
+    expect(sync.lastIdleReason).toBe('diverged-dirty');
+  });
+
+  it('stops re-analysing a divergence the engine already refused', async () => {
+    vi.useFakeTimers();
+    try {
+      const git = useGitStore();
+      git.applySnapshot(snapshot({ ahead: 2, behind: 3 }));
+      const ops = stubRemoteOps();
+      ops.tryAutoResolveDivergence.mockResolvedValue(false);
+      const sync = useSyncStore();
+      await sync.fetchNow();
+
+      await sync.tick();
+      await sync.tick();
+      expect(ops.tryAutoResolveDivergence).toHaveBeenCalledOnce();
+      expect(sync.lastIdleReason).toBe('resolve-cooldown');
+
+      vi.advanceTimersByTime(61_000);
+      await sync.tick();
+      expect(ops.tryAutoResolveDivergence).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('lets an explicit Sync now retry a divergence the cooldown is holding', async () => {
+    const git = useGitStore();
+    git.applySnapshot(snapshot({ ahead: 2, behind: 3 }));
+    const ops = stubRemoteOps();
+    ops.tryAutoResolveDivergence.mockResolvedValue(false);
+    const sync = useSyncStore();
+
+    await sync.tick();
+    expect(ops.tryAutoResolveDivergence).toHaveBeenCalledOnce();
+
+    await sync.syncNow();
+
+    expect(ops.tryAutoResolveDivergence).toHaveBeenCalledTimes(2);
   });
 
   it('holds a pull while a suspension is registered, and resumes after release', async () => {
@@ -148,6 +203,56 @@ describe('sync coordinator', () => {
 
       vi.advanceTimersByTime(10_000);
       await sync.tick();
+      expect(ops.push).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * The reported symptom: a commit landed, the push counter stayed put, and
+   * nothing happened for long enough to look broken. Sampling `ahead` on the
+   * 5s tick meant the debounce could not start until the tick after the
+   * commit, so the true wait was the tick plus the debounce.
+   */
+  it('schedules the push off the commit itself, not the next tick', async () => {
+    vi.useFakeTimers();
+    try {
+      const git = useGitStore();
+      git.applySnapshot(snapshot());
+      const ops = stubRemoteOps();
+      const sync = useSyncStore();
+      sync.start();
+      ops.fetch.mockClear();
+
+      git.applySnapshot(snapshot({ ahead: 1, refreshedAt: 2 }));
+      await vi.advanceTimersByTimeAsync(2_100);
+
+      expect(ops.push).toHaveBeenCalledOnce();
+      sync.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('publishes a merge it made itself, once the debounce has run', async () => {
+    vi.useFakeTimers();
+    try {
+      const git = useGitStore();
+      git.applySnapshot(snapshot({ ahead: 2, behind: 3 }));
+      const ops = stubRemoteOps();
+      const sync = useSyncStore();
+      await sync.fetchNow();
+
+      await sync.tick();
+      expect(ops.tryAutoResolveDivergence).toHaveBeenCalledOnce();
+
+      // The engine merged and pushed; a merge commit that failed to reach the
+      // remote leaves the branch ahead, which the debounce then covers.
+      git.applySnapshot(snapshot({ ahead: 1, behind: 0 }));
+      vi.advanceTimersByTime(3_000);
+      await sync.tick();
+
       expect(ops.push).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();

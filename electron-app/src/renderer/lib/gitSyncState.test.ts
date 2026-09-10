@@ -64,9 +64,10 @@ describe('computeGitSyncState', () => {
       expect(state.pull.status).toBe('divergedWarning');
     });
 
-    it('push label shows combined count, pull label shows Pull & merge', () => {
+    it('push label keeps the halves apart, pull label shows Pull & merge', () => {
       const state = computeGitSyncState({ ...base, ahead: 1, behind: 2, pendingCount: 1 });
       expect(state.push.count).toBe(2); // ahead + pending
+      expect(state.push.label).toBe('Save 1 · Push 1');
       expect(state.pull.count).toBe(2);
       expect(state.pull.label).toContain('Pull & merge');
     });
@@ -115,6 +116,41 @@ describe('computeGitSyncState', () => {
       expect(state.pull.status).toBe('active');
       expect(state.pull.count).toBe(4);
       expect(state.push.status).toBe('idle');
+    });
+  });
+
+  describe('unsaved vs unpushed', () => {
+    /**
+     * The bug this split exists to prevent: auto-push clears commits and
+     * nothing else, so a badge that adds uncommitted files to the commit count
+     * sits at the same number through a successful push and reads as broken.
+     */
+    it('reports the two halves separately, since only one drains on its own', () => {
+      const state = computeGitSyncState({ ...base, ahead: 1, pendingCount: 2 });
+      expect(state.push.unsavedCount).toBe(2);
+      expect(state.push.unpushedCount).toBe(1);
+      expect(state.push.label).toBe('Save 2 · Push 1');
+    });
+
+    it('labels uncommitted work as needing a save, not a push', () => {
+      const state = computeGitSyncState({ ...base, pendingCount: 2 });
+      expect(state.push.label).toBe('Save (2)');
+      expect(state.push.tooltip).toMatch(/never commits for you/i);
+    });
+
+    it('says the unpushed half is automatic, so the count reads as pending', () => {
+      const state = computeGitSyncState({ ...base, ahead: 1 });
+      expect(state.push.label).toBe('Push (1)');
+      expect(state.push.tooltip).toMatch(/automatically/i);
+    });
+
+    it('carries the split through offline and diverged states', () => {
+      const offline = computeGitSyncState({ ...base, isOffline: true, ahead: 1, pendingCount: 2 });
+      expect(offline.push.label).toBe('Save 2 · Push 1');
+
+      const diverged = computeGitSyncState({ ...base, ahead: 1, behind: 1, pendingCount: 2 });
+      expect(diverged.push.unsavedCount).toBe(2);
+      expect(diverged.push.unpushedCount).toBe(1);
     });
   });
 
