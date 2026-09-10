@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import {
   Github,
   Globe,
@@ -13,6 +14,7 @@ import {
   UserPlus,
   User,
   ArrowRight,
+  Search,
 } from 'lucide-vue-next';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -47,6 +49,7 @@ import { useConnectionStore } from '@/stores/connection';
 import { WORKFLOW_STEPS } from '@/types/project';
 import { stepForOperation } from '@/lib/stepStatus';
 
+const router = useRouter();
 const projects = useProjectsStore();
 const auth = useAuthStore();
 const git = useGitStore();
@@ -60,12 +63,16 @@ const offlineTooltip = 'Requires internet';
 const nextStep = computed(() => stepForOperation(projects.nextOperation, WORKFLOW_STEPS));
 
 const nextStepRoute = computed(() => {
-  if (!nextStep.value || !projects.currentProjectId) return undefined;
+  if (!projects.currentProjectId) return undefined;
+  // A review with nothing in it has no engine-derived next operation, which
+  // left the header with no forward action at all. Search is always the answer
+  // in that state.
+  if (!nextStep.value) return isEmptyReview.value ? searchRoute.value : undefined;
   return `/project/${projects.currentProjectId}/${nextStep.value.route}`;
 });
 
 const nextStepLabel = computed(() => {
-  if (!nextStep.value) return undefined;
+  if (!nextStep.value) return isEmptyReview.value ? 'Start with Search' : undefined;
   return `Continue to ${nextStep.value.label}`;
 });
 
@@ -126,9 +133,13 @@ const isPushing = ref(false);
 
 // Remote status helpers
 const remoteUrl = computed(() => git.remoteUrl);
-const isGitHubRemote = computed(() => !!remoteUrl.value);
+// Collaborators and releases both need a remote to exist at all; the GitHub
+// API calls behind them are gated separately on `git.isGitHubRemote`. This
+// used to be *named* isGitHubRemote while only testing for a remote, which is
+// how a local path ended up rendered as a GitHub repo link.
+const hasRemote = computed(() => !!remoteUrl.value);
 const gitHubUrl = computed(() => {
-  if (!remoteUrl.value || !isGitHubRemote.value) return null;
+  if (!git.isGitHubRemote || !remoteUrl.value) return null;
   return remoteUrl.value
     .replace(/\.git$/, '')
     .replace(/^git@github\.com:/, 'https://github.com/');
@@ -180,7 +191,7 @@ const excludeInviteLogins = computed(() => [
 ]);
 
 async function loadCollaborators() {
-  if (!remoteUrl.value || !isGitHubRemote.value) return;
+  if (!remoteUrl.value) return;
   isLoadingCollaborators.value = true;
   try {
     const [collabResult, invResult] = await Promise.all([
@@ -267,6 +278,21 @@ function sumDeltaStates(deltaByState: globalThis.Record<string, number>, states:
   return states.reduce((sum, s) => sum + (deltaByState[s] ?? 0), 0);
 }
 
+/**
+ * A review with no records anywhere yet.
+ *
+ * The generic Overview has nothing to say in this state — it reported "All
+ * changes published, your review is up to date", which is true and useless,
+ * and the "Continue to …" header CTA is absent because the engine has no next
+ * operation to point at. A first-time user was left with no action on the
+ * first screen inside their own review.
+ */
+const isEmptyReview = computed(() => (projects.currentStatus?.total_records ?? 0) === 0);
+
+const searchRoute = computed(() =>
+  projects.currentProjectId ? `/project/${projects.currentProjectId}/search` : '/',
+);
+
 const newRecordFunnel = computed(() => {
   const delta = git.branchDelta;
   if (!delta || delta.new_record_count === 0) return null;
@@ -291,8 +317,27 @@ const newRecordFunnel = computed(() => {
     >
       <div class="p-6 max-w-4xl space-y-6">
 
+        <!-- First run: the review has no records, so give it the one action
+             that matters instead of a publishing panel with nothing to say. -->
+        <div
+          v-if="isEmptyReview"
+          class="rounded-md border border-border bg-card p-6"
+          data-testid="overview-get-started"
+        >
+          <h3 class="text-lg font-medium mb-1">Start with a search</h3>
+          <p class="text-sm text-muted-foreground max-w-prose mb-4">
+            A review begins by collecting candidate papers. Add a search source — a
+            database like PubMed or OpenAlex, or a file you exported from one — and
+            CoLRev pulls the results in, cleans them up and removes duplicates.
+          </p>
+          <Button data-testid="overview-add-first-source" @click="router.push(searchRoute)">
+            <Search class="h-4 w-4 mr-2" />
+            Add a search source
+          </Button>
+        </div>
+
         <!-- Publishing section -->
-        <div>
+        <div v-if="!isEmptyReview">
           <div class="flex items-center gap-2 mb-3">
             <h3 class="text-sm font-medium text-muted-foreground">Publishing</h3>
           </div>
@@ -366,10 +411,12 @@ const newRecordFunnel = computed(() => {
             </div>
           </template>
 
-          <!-- No delta data -->
+          <!-- No delta data yet. Reads as a placeholder rather than as a
+               finished statement — the old copy was indistinguishable from
+               real content, so a slow-loading panel looked like the answer. -->
           <div v-else class="p-3 rounded-md bg-muted/30 border border-border/50">
             <p class="text-xs text-muted-foreground">
-              Work on your review by searching, screening, and extracting data. When you're ready to mark a milestone, publish a version.
+              Publishing status isn't available yet.
             </p>
           </div>
         </div>
@@ -382,7 +429,7 @@ const newRecordFunnel = computed(() => {
 
           <!-- Remote status -->
           <div class="flex items-center gap-2 text-sm flex-wrap">
-            <template v-if="isGitHubRemote && gitHubUrl">
+            <template v-if="gitHubUrl">
               <a
                 :href="gitHubUrl"
                 target="_blank"
@@ -429,7 +476,7 @@ const newRecordFunnel = computed(() => {
           </div>
 
           <!-- Collaborators (GitHub only) -->
-          <div v-if="isGitHubRemote" class="space-y-3">
+          <div v-if="hasRemote" class="space-y-3">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <h4 class="text-sm font-medium text-muted-foreground">Collaborators</h4>
@@ -524,7 +571,7 @@ const newRecordFunnel = computed(() => {
         </div>
 
         <!-- Releases section (GitHub only) -->
-        <div v-if="isGitHubRemote" class="space-y-3">
+        <div v-if="hasRemote" class="space-y-3">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <h3 class="text-sm font-medium text-muted-foreground">Releases</h3>
@@ -542,7 +589,7 @@ const newRecordFunnel = computed(() => {
               size="sm"
               class="h-7 text-xs gap-1"
               data-testid="new-release-button"
-              :disabled="!connection.isOnline"
+              :disabled="!connection.isOnline || !git.isGitHubRemote"
               :title="connection.isOnline ? undefined : offlineTooltip"
               @click="openReleaseDialog"
             >
@@ -554,6 +601,15 @@ const newRecordFunnel = computed(() => {
           <!-- Releases list -->
           <div v-if="git.isLoadingReleases || !git.releasesLoaded" class="flex items-center justify-center py-4">
             <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+
+          <!-- Releases are a GitHub feature. Saying "no releases yet" for a
+               remote that can't have them invites the user to click a button
+               that cannot work. -->
+          <div v-else-if="!git.isGitHubRemote" class="flex flex-col items-center justify-center py-6 text-center">
+            <Tag class="h-7 w-7 text-muted-foreground/30 mb-2" />
+            <p class="text-sm text-muted-foreground">Releases need a GitHub remote</p>
+            <p class="text-xs text-muted-foreground/60 mt-0.5">This review is hosted somewhere else, so citable releases aren't available</p>
           </div>
 
           <div v-else-if="git.releases.length === 0" class="flex flex-col items-center justify-center py-6 text-center">

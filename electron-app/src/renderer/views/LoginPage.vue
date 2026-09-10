@@ -83,12 +83,22 @@ function openGitHub() {
 
 <template>
   <div class="min-h-screen bg-background flex items-center justify-center p-4">
-    <Card class="w-full max-w-xs">
+    <Card class="w-full max-w-sm">
       <CardHeader class="text-center">
         <CardTitle class="text-2xl font-bold">CoLRev</CardTitle>
         <CardDescription>
           Collaborative Literature Reviews
-          <span class="block mt-1">A GitHub account is required to use CoLRev.</span>
+          <!-- The old copy stated the GitHub requirement without giving a
+               reason for it, which is the first thing a new user sees. -->
+          <span class="block mt-3 text-left">
+            CoLRev stores each review as a Git repository on GitHub. That is what
+            lets two reviewers screen independently, keeps every decision
+            attributable, and gives you a citable record of the review.
+          </span>
+          <span class="block mt-2 text-left">
+            Signing in creates and updates repositories on your account. CoLRev
+            never touches repositories you don't use for a review.
+          </span>
         </CardDescription>
       </CardHeader>
 

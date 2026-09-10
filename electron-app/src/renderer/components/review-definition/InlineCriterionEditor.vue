@@ -19,6 +19,13 @@ interface Props {
   };
   mode: 'add' | 'edit' | 'view';
   isSaving?: boolean;
+  /**
+   * Criteria are frozen while a managed task is active and on non-dev branches.
+   * When set, the card stops offering edit and delete affordances it cannot
+   * honour — previously the delete button rendered directly beneath the
+   * "criteria are frozen" notice.
+   */
+  readOnly?: boolean;
 }
 
 const props = defineProps<Props>();
@@ -64,6 +71,7 @@ const isFormValid = computed(() => {
 });
 
 function toggleEdit() {
+  if (props.readOnly) return;
   if (props.mode === 'view') {
     isEditing.value = !isEditing.value;
   }
@@ -118,7 +126,8 @@ function cancel() {
   <!-- View Mode (collapsed) -->
   <div
     v-if="!isEditing && mode !== 'add'"
-    class="p-4 border border-border bg-muted/40 rounded hover:bg-muted cursor-pointer transition-colors duration-150"
+    class="p-4 border border-border bg-muted/40 rounded transition-colors duration-150"
+    :class="readOnly ? 'cursor-default' : 'hover:bg-muted cursor-pointer'"
     :data-testid="`criterion-view-${criterion?.name}`"
     @click="toggleEdit"
   >
@@ -142,9 +151,11 @@ function cancel() {
         </p>
       </div>
       <Button
+        v-if="!readOnly"
         variant="ghost"
         size="icon"
         class="text-destructive hover:text-destructive"
+        :aria-label="`Delete criterion ${criterion?.name}`"
         :data-testid="`criterion-delete-${criterion?.name}`"
         @click.stop="emit('delete')"
       >

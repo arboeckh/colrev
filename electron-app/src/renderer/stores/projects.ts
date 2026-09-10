@@ -141,6 +141,9 @@ export const useProjectsStore = defineStore('projects', () => {
         }
         return status;
       }
+      // A response that isn't a usable status still ends the load. Leaving the
+      // flag set stranded the row's spinner on forever.
+      if (project) project.loading = false;
       return null;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to load status';
@@ -150,6 +153,47 @@ export const useProjectsStore = defineStore('projects', () => {
       }
       return null;
     }
+  }
+
+  /**
+   * Fill in the detail the Reviews list shows for each project: record count,
+   * next step (from `get_status`) and branch / cleanliness (from the git
+   * snapshot).
+   *
+   * Discovery used to add names only, on the reasoning that status would load
+   * "on-demand when viewing individual projects" — which left Records, Next
+   * Step and Git Status permanently showing a dash on the app's home screen.
+   *
+   * The JSON-RPC backend serialises calls, so this walks a few projects at a
+   * time rather than firing every `get_status` at once; rows render straight
+   * away and fill in as each project resolves. Failures are per-row: a project
+   * that can't be read leaves its cells empty without holding up the others.
+   */
+  const HYDRATE_CONCURRENCY = 3;
+
+  async function hydrateProjectList(
+    discovered: { id: string; path: string }[],
+  ): Promise<void> {
+    const git = useGitStore();
+    const queue = [...discovered];
+
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        const proj = queue.shift();
+        if (!proj) return;
+        // The open project owns its own status and git snapshot, and reading
+        // its repo here would race the checkout `loadProject` performs.
+        if (proj.id === currentProjectId.value) continue;
+        await Promise.allSettled([
+          loadProjectStatus(proj.id),
+          git.refreshSnapshotFor(proj.id, proj.path),
+        ]);
+      }
+    };
+
+    await Promise.allSettled(
+      Array.from({ length: Math.min(HYDRATE_CONCURRENCY, queue.length) }, worker),
+    );
   }
 
   async function loadProjectSettings(id: string): Promise<ProjectSettings | null> {
@@ -442,6 +486,7 @@ export const useProjectsStore = defineStore('projects', () => {
     addProject,
     removeProject,
     loadProjectStatus,
+    hydrateProjectList,
     loadProjectSettings,
     loadProject,
     refreshCurrentProject,

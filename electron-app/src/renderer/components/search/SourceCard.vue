@@ -27,6 +27,7 @@ import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectsStore } from '@/stores/projects';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { SearchSource } from '@/types';
+import { formatSourceName } from '@/lib/displayNames';
 
 interface SearchProgress {
   progress: number;
@@ -93,6 +94,13 @@ const sourceName = computed(() => {
   const endpoint = props.source.endpoint || props.source.platform || 'unknown';
   return endpoint.split('.').pop() || endpoint;
 });
+
+// `sourceName` stays the raw identifier — it keys the card's test ids and the
+// results modal. Anything a person reads uses `sourceLabel`, which maps
+// `open_alex` to "OpenAlex" instead of showing the package name.
+const sourceLabel = computed(() =>
+  props.source.search_type === 'DB' ? sourceName.value : formatSourceName(sourceName.value),
+);
 
 const filename = computed(() => {
   return props.source.filename || props.source.search_results_path || '';
@@ -309,7 +317,7 @@ async function handleUpdateFile() {
       <div class="flex items-center justify-between">
         <CardTitle class="text-base flex items-center gap-2 flex-wrap">
           <component :is="sourceIcon" class="h-4 w-4 shrink-0" />
-          {{ sourceName }}
+          {{ sourceLabel }}
           <Badge :variant="searchTypeVariant">{{ source.search_type }}</Badge>
           <Badge
             v-if="source.is_stale"
@@ -481,7 +489,7 @@ async function handleUpdateFile() {
       <DialogHeader>
         <DialogTitle>Delete Source</DialogTitle>
         <DialogDescription>
-          Are you sure you want to remove "{{ sourceName }}" from your search sources?
+          Are you sure you want to remove "{{ sourceLabel }}" from your search sources?
           This will also delete the search results file.
         </DialogDescription>
       </DialogHeader>
@@ -511,7 +519,7 @@ async function handleUpdateFile() {
   <Dialog v-model:open="showEditDialog">
     <DialogContent class="max-w-prose">
       <DialogHeader>
-        <DialogTitle>Edit {{ sourceName }} Search</DialogTitle>
+        <DialogTitle>Edit {{ sourceLabel }} Search</DialogTitle>
         <DialogDescription>
           Update the search query for this API source.
         </DialogDescription>
@@ -553,7 +561,7 @@ async function handleUpdateFile() {
   <Dialog v-model:open="showUpdateFileDialog">
     <DialogContent class="max-w-prose">
       <DialogHeader>
-        <DialogTitle>Update {{ sourceName }} Source</DialogTitle>
+        <DialogTitle>Update {{ sourceLabel }} Source</DialogTitle>
         <DialogDescription>
           Upload a new file to replace the existing search results.
         </DialogDescription>

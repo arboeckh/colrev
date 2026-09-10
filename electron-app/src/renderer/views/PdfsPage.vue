@@ -391,7 +391,9 @@ onMounted(async () => {
     :page-help="PdfsPageHelp"
   >
   <div class="h-full flex flex-col" data-testid="pdfs-page">
-    <div class="px-8 pt-4 flex justify-end">
+    <!-- Toolbar follows the page's own gating: a step showing "complete
+         prescreening first" shouldn't still offer PDF import/export. -->
+    <div v-if="!pageBlocked" class="px-8 pt-4 flex justify-end">
       <PdfShareActions variant="default" />
     </div>
 
@@ -722,7 +724,7 @@ onMounted(async () => {
                 {{ missingOnDiskCount === 1 ? "PDF isn't" : "PDFs aren't" }}
                 on this machine.
               </template>
-              <template v-else>PDF summary.</template>
+              <template v-else>Every PDF is accounted for</template>
             </h2>
             <p class="text-sm text-muted-foreground leading-relaxed max-w-prose mx-auto mb-4">
               <template v-if="missingOnDiskCount > 0">
@@ -765,7 +767,7 @@ onMounted(async () => {
               :undoing-record-id="undoingRecordId"
               :upload-results="uploadResults"
               :filter-pills="SUMMARY_STAGE_PILLS"
-              :default-pill-idx="missingOnDiskCount > 0 ? 0 : 1"
+              :default-pill-idx="missingOnDiskCount > 0 ? 0 : 3"
               test-id="pdfs-summary-section"
               @upload="uploadPdfForRecord"
               @mark-not-available="markNotAvailable"
