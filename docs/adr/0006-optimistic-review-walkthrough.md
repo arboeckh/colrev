@@ -1,4 +1,4 @@
-# ADR 0005: Review-walkthrough navigation is optimistic; the backend catches up
+# ADR 0006: Review-walkthrough navigation is optimistic; the backend catches up
 
 ## Status
 
