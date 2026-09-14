@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { OperationButton, EmptyState, LoadErrorState } from '@/components/common';
 import PdfRecordTable from '@/components/pdf-get/PdfRecordTable.vue';
 import BatchUploadDialog from '@/components/pdf-get/BatchUploadDialog.vue';
+import PdfReviewDialog from '@/components/pdf-get/PdfReviewDialog.vue';
 import PdfShareActions from '@/components/shared/PdfShareActions.vue';
 import StepPageShell from '@/components/layout/StepPageShell.vue';
 import PdfsPageHelp from './PdfsPageHelp.vue';
@@ -62,6 +63,8 @@ const pdfFileInput = ref<HTMLInputElement | null>(null);
 const pendingUploadRecordId = ref<string | null>(null);
 const pendingUploadKind = ref<PendingUploadKind>('normal');
 const uploadResults = ref<Record<string, UploadResult>>({});
+const previewRecordId = ref<string | null>(null);
+const acceptingRecordId = ref<string | null>(null);
 
 const userSelectedStage = ref<StageId | null>(null);
 
@@ -201,6 +204,8 @@ async function loadRecords() {
         'journal',
         'booktitle',
         'doi',
+        'pages',
+        'file',
         'colrev_data_provenance',
       ],
     });
@@ -332,6 +337,94 @@ async function handlePdfFileSelected(event: Event) {
     uploadingRecordId.value = null;
     pendingUploadRecordId.value = null;
     pendingUploadKind.value = 'normal';
+  }
+}
+
+// -- PDF review dialog ------------------------------------------------------
+
+const flaggedRecordIds = computed(() =>
+  records.value
+    .filter((r) => r.colrev_status === 'pdf_needs_manual_preparation')
+    .map((r) => r.ID),
+);
+
+const previewRecord = computed(
+  () => records.value.find((r) => r.ID === previewRecordId.value) ?? null,
+);
+
+// Prev/next walks the flagged queue, but only while the open record is part of
+// it — a PDF opened from the "Prepared" list has no queue to walk.
+const previewQueuePosition = computed(() => {
+  const index = previewRecordId.value
+    ? flaggedRecordIds.value.indexOf(previewRecordId.value)
+    : -1;
+  return index === -1 ? null : { index, total: flaggedRecordIds.value.length };
+});
+
+function openPreview(recordId: string) {
+  previewRecordId.value = recordId;
+}
+
+function closePreview() {
+  previewRecordId.value = null;
+}
+
+function stepPreview(delta: number) {
+  const pos = previewQueuePosition.value;
+  if (!pos) return;
+  const nextId = flaggedRecordIds.value[pos.index + delta];
+  if (nextId) previewRecordId.value = nextId;
+}
+
+/**
+ * After a decision in the dialog, move on to the next flagged PDF (or the
+ * previous one when this was the last), so a run of false alarms can be
+ * cleared without reopening the dialog each time. Close when none are left.
+ * `queueBefore` is the queue as it was before the decision removed the record.
+ */
+function advancePreviewAfterDecision(recordId: string, queueBefore: string[]) {
+  if (previewRecordId.value !== recordId) return;
+  const index = queueBefore.indexOf(recordId);
+  const remaining = queueBefore.filter((id) => id !== recordId);
+  previewRecordId.value =
+    index === -1 ? null : (remaining[index] ?? remaining[index - 1] ?? null);
+}
+
+async function acceptPdfAsIs(recordId: string) {
+  if (!projects.currentProjectId) return;
+
+  acceptingRecordId.value = recordId;
+  const queueBefore = [...flaggedRecordIds.value];
+  try {
+    const response = await backend.call('accept_pdf_as_is', {
+      project_id: projects.currentProjectId,
+      record_id: recordId,
+    });
+
+    if (response.success) {
+      applyLocalStatus(recordId, response.new_status);
+      notifications.success('PDF accepted', recordId);
+      advancePreviewAfterDecision(recordId, queueBefore);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    notifications.error('Could not accept PDF', message);
+  } finally {
+    acceptingRecordId.value = null;
+  }
+}
+
+function reuploadFromPreview(recordId: string) {
+  // The file picker and the upload's own toasts take over from here.
+  closePreview();
+  uploadPdfForRecord(recordId);
+}
+
+async function markNotAvailableFromPreview(recordId: string) {
+  const queueBefore = [...flaggedRecordIds.value];
+  await markNotAvailable(recordId);
+  if (records.value.find((r) => r.ID === recordId)?.colrev_status !== 'pdf_needs_manual_preparation') {
+    advancePreviewAfterDecision(recordId, queueBefore);
   }
 }
 
@@ -611,6 +704,7 @@ onMounted(async () => {
               :filter-pills="UPLOAD_STAGE_PILLS"
               :default-pill-idx="0"
               test-id="pdfs-upload-section"
+              @preview="openPreview"
               @upload="uploadPdfForRecord"
               @mark-not-available="markNotAvailable"
               @undo-not-available="undoNotAvailable"
@@ -640,7 +734,7 @@ onMounted(async () => {
               </template>
               <template v-else>
                 Preparation validates each PDF, extracts its text, and flags any
-                that need a cleaner copy.
+                that look wrong for you to review.
               </template>
             </p>
             <OperationButton
@@ -668,6 +762,7 @@ onMounted(async () => {
               :filter-pills="PREPARE_STAGE_PILLS"
               :default-pill-idx="0"
               test-id="pdfs-prepare-section"
+              @preview="openPreview"
             />
           </div>
         </section>
@@ -681,12 +776,12 @@ onMounted(async () => {
           <div class="max-w-xl mx-auto text-center mb-8 shrink-0">
             <h2 class="text-xl font-medium mb-3">
               <span class="tabular-nums">{{ needsPrepCount }}</span>
-              {{ needsPrepCount === 1 ? 'PDF needs' : 'PDFs need' }} a cleaner copy.
+              {{ needsPrepCount === 1 ? 'PDF was' : 'PDFs were' }} flagged for review.
             </h2>
             <p class="text-sm text-muted-foreground leading-relaxed max-w-prose mx-auto">
-              These PDFs were retrieved but have issues that prevent text
-              extraction. Re-upload a better copy from another source — each
-              row below explains what's wrong.
+              CoLRev's automatic checks flagged these PDFs. The checks can be
+              wrong — use <span class="text-foreground">Review PDF</span> to
+              look at the file, then accept it as-is or re-upload a better copy.
             </p>
           </div>
 
@@ -713,6 +808,7 @@ onMounted(async () => {
               :default-pill-idx="0"
               :defects-as-prose="true"
               test-id="pdfs-fix-section"
+              @preview="openPreview"
               @upload="uploadPdfForRecord"
               @mark-not-available="markNotAvailable"
               @undo-not-available="undoNotAvailable"
@@ -798,6 +894,7 @@ onMounted(async () => {
               :filter-pills="SUMMARY_STAGE_PILLS"
               :default-pill-idx="missingOnDiskCount > 0 ? 0 : 3"
               test-id="pdfs-summary-section"
+              @preview="openPreview"
               @upload="uploadPdfForRecord"
               @mark-not-available="markNotAvailable"
               @undo-not-available="undoNotAvailable"
@@ -816,6 +913,21 @@ onMounted(async () => {
       class="sr-only"
       data-testid="pdf-file-input"
       @change="handlePdfFileSelected"
+    />
+
+    <PdfReviewDialog
+      :open="previewRecord !== null"
+      :record="previewRecord"
+      :queue-position="previewQueuePosition"
+      :read-only="isReadOnly"
+      :accepting="acceptingRecordId !== null && acceptingRecordId === previewRecordId"
+      :marking="markingRecordId !== null && markingRecordId === previewRecordId"
+      @update:open="(open) => { if (!open) closePreview(); }"
+      @accept="acceptPdfAsIs"
+      @upload="reuploadFromPreview"
+      @mark-not-available="markNotAvailableFromPreview"
+      @prev="stepPreview(-1)"
+      @next="stepPreview(1)"
     />
 
     <!-- Batch Upload Dialog -->

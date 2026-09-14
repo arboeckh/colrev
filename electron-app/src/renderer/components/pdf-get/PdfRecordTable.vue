@@ -15,6 +15,8 @@ import {
   Check,
   ExternalLink,
   FileWarning,
+  Eye,
+  ScanSearch,
 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -79,6 +81,7 @@ defineEmits<{
   'mark-not-available': [recordId: string];
   'undo-not-available': [recordId: string];
   'upload-missing': [recordId: string];
+  preview: [recordId: string];
 }>();
 
 const search = ref('');
@@ -193,7 +196,7 @@ const filtered = computed(() => {
 const columnCount = computed(
   () => 4 + (props.showStatus ? 1 : 0) + (props.showActions ? 1 : 0),
 );
-// 1 (copy) + 1 (title) + 1 (author) + 1 (year) + status? + actions?
+// 1 (row icons) + 1 (title) + 1 (author) + 1 (year) + status? + actions?
 
 function hasDefects(record: PdfRecord): boolean {
   return (
@@ -248,12 +251,12 @@ function defectTooltip(record: PdfRecord): string {
              buttons); below that the surrounding div scrolls horizontally
              instead of the header labels spilling out of their cells. -->
         <Table
-          :class="['table-fixed w-full text-xs', showActions ? 'min-w-[860px]' : 'min-w-[620px]']"
+          :class="['table-fixed w-full text-xs', showActions ? 'min-w-[1000px]' : 'min-w-[650px]']"
           container-class="overflow-visible"
         >
           <TableHeader>
             <TableRow class="hover:bg-transparent [&>th]:sticky [&>th]:top-0 [&>th]:bg-background [&>th]:z-10 [&>th]:border-b [&>th]:border-border/60">
-              <TableHead class="h-8 px-2 w-[68px]"><span class="sr-only">DOI actions</span></TableHead>
+              <TableHead class="h-8 px-2 w-[96px]"><span class="sr-only">PDF and DOI actions</span></TableHead>
               <TableHead class="h-8 px-3">
                 <button type="button" class="inline-flex items-center gap-1 hover:text-foreground"
                   :class="sortKey === 'title' ? 'text-foreground' : ''" @click="toggleSort('title')">
@@ -290,7 +293,7 @@ function defectTooltip(record: PdfRecord): string {
                   <ArrowUpDown v-else class="h-3 w-3 opacity-40" />
                 </button>
               </TableHead>
-              <TableHead v-if="showActions" class="h-8 pl-4 pr-3 w-[260px] text-right whitespace-nowrap">Actions
+              <TableHead v-if="showActions" class="h-8 pl-4 pr-3 w-[370px] text-right whitespace-nowrap">Actions
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -299,6 +302,23 @@ function defectTooltip(record: PdfRecord): string {
               <TableRow class="hover:bg-muted/30" :data-testid="`pdf-record-row-${record.ID}`">
                 <TableCell class="py-1.5 px-2 pr-0 align-middle">
                   <div class="flex items-center gap-0.5">
+                    <TooltipProvider :disable-hoverable-content="true">
+                      <Tooltip>
+                        <TooltipTrigger as-child>
+                          <button type="button"
+                            class="inline-flex items-center justify-center h-6 w-6 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                            :disabled="record.file_on_disk !== true" :data-testid="`pdf-view-btn-${record.ID}`"
+                            @click="$emit('preview', record.ID)">
+                            <Eye class="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          <p v-if="record.file_on_disk === false">PDF not on this machine</p>
+                          <p v-else-if="record.file_on_disk !== true">No PDF yet</p>
+                          <p v-else>View PDF</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                     <TooltipProvider :disable-hoverable-content="true">
                       <Tooltip>
                         <TooltipTrigger as-child>
@@ -465,6 +485,12 @@ function defectTooltip(record: PdfRecord): string {
                     </template>
 
                     <template v-else-if="record.colrev_status === 'pdf_needs_manual_preparation'">
+                      <Button size="sm" variant="outline" class="h-7 px-2.5 text-xs"
+                        :disabled="uploadingRecordId === record.ID || markingRecordId === record.ID"
+                        :data-testid="`pdf-review-btn-${record.ID}`" @click="$emit('preview', record.ID)">
+                        <ScanSearch class="h-3 w-3 mr-1" />
+                        Review PDF
+                      </Button>
                       <Button v-if="uploadingRecordId === record.ID" size="sm" variant="ghost" disabled
                         class="h-7 px-2.5 text-xs" :data-testid="`pdf-reupload-btn-${record.ID}`">
                         <Loader2 class="h-3 w-3 mr-1 animate-spin" />
