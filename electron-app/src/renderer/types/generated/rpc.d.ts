@@ -87,6 +87,22 @@ export interface RecordSummary {
   [k: string]: unknown;
 }
 
+export interface AcceptPdfAsIsRequest {
+  base_path?: string | null;
+  project_id: string;
+  record_id: string;
+  verbose?: boolean;
+}
+
+export interface AcceptPdfAsIsResponse {
+  ignored_defects: string[];
+  new_status: string;
+  project_id: string;
+  record_id: string;
+  success?: true;
+  [k: string]: unknown;
+}
+
 export interface AddScreeningCriterionRequest {
   base_path?: string | null;
   comment?: string | null;
@@ -1849,6 +1865,10 @@ export interface ValidateResponse {
 
 /** Discriminated map: method name → request/response types. */
 export interface RPCMethods {
+  "accept_pdf_as_is": {
+    params: AcceptPdfAsIsRequest;
+    result: AcceptPdfAsIsResponse;
+  };
   "add_screening_criterion": {
     params: AddScreeningCriterionRequest;
     result: AddScreeningCriterionResponse;

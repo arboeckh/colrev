@@ -1,6 +1,85 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "methods": {
+    "accept_pdf_as_is": {
+      "request": {
+        "additionalProperties": false,
+        "properties": {
+          "base_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Path"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "record_id": {
+            "title": "Record Id",
+            "type": "string"
+          },
+          "verbose": {
+            "default": false,
+            "title": "Verbose",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "record_id"
+        ],
+        "title": "AcceptPDFAsIsRequest",
+        "type": "object"
+      },
+      "requires_project": true,
+      "response": {
+        "additionalProperties": true,
+        "properties": {
+          "ignored_defects": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ignored Defects",
+            "type": "array"
+          },
+          "new_status": {
+            "title": "New Status",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "record_id": {
+            "title": "Record Id",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "record_id",
+          "new_status",
+          "ignored_defects"
+        ],
+        "title": "AcceptPDFAsIsResponse",
+        "type": "object"
+      },
+      "timeout_class": "slow",
+      "writes": true
+    },
     "add_screening_criterion": {
       "request": {
         "additionalProperties": false,

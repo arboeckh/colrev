@@ -7,6 +7,9 @@ export interface PdfRecord {
   journal?: string;
   booktitle?: string;
   doi?: string;
+  /** Project-relative path of the linked PDF, e.g. `data/pdfs/Smith2023.pdf`. */
+  file?: string;
+  pages?: string;
   colrev_data_provenance?: globalThis.Record<string, { source: string; note: string }>;
   /**
    * Backend-computed: true = PDF file present on this machine, false = metadata
@@ -75,41 +78,84 @@ export const SUMMARY_STAGE_PILLS: StatusFilterPill[] = [
 interface DefectCopy {
   label: string;
   sentence: string;
+  /**
+   * What to look for in the PDF to decide whether the flag is a false alarm.
+   * CoLRev's checks are text heuristics; the user looking at the file is the
+   * authority, and this tells them what the heuristic couldn't confirm.
+   */
+  check: (record: PdfRecord) => string;
 }
 
 const PDF_DEFECT_LABELS: globalThis.Record<string, DefectCopy> = {
   'no-text-in-pdf': {
     label: 'no extractable text',
     sentence: 'The PDF appears to be scanned with no text layer — try a different source or OCR it first.',
+    check: () =>
+      'Try selecting text in the viewer. A scanned PDF is still fine to read for screening; only text extraction needs a text layer.',
   },
   'pdf-incomplete': {
     label: 'incomplete',
     sentence: 'The PDF looks incomplete — some pages may be missing.',
+    check: (r) =>
+      r.pages
+        ? `Scroll through and check the article runs over its full page range (pp. ${formatPages(r.pages)}).`
+        : 'Scroll through and check the article is complete from start to finish.',
   },
   'author-not-in-pdf': {
     label: 'author missing',
     sentence: "The author's name couldn't be found in the PDF — it may be the wrong file.",
+    check: () =>
+      'Check the first page names the authors listed above. Accents, initials, or a byline set as an image often trip this check.',
   },
   'title-not-in-pdf': {
     label: 'title missing',
     sentence: "The title couldn't be found in the PDF — it may be the wrong file.",
+    check: () =>
+      'Check the first page shows the title above. Subtitles, hyphenation, or special characters often trip this check.',
   },
   'coverpage-included': {
     label: 'cover page included',
     sentence: 'The PDF has a cover page that interferes with extraction — re-upload without it.',
+    check: () =>
+      'A publisher cover page does not affect reading. Accept if the article itself follows it.',
   },
   'last-page-appended': {
     label: 'extra last page',
     sentence: 'The PDF has extra pages at the end that interfere with extraction.',
+    check: () =>
+      'Extra trailing pages do not affect reading. Accept if the article itself is intact.',
+  },
+  'pdf-unreadable': {
+    label: 'unreadable',
+    sentence: "The PDF file couldn't be opened — it may be corrupt.",
+    check: () =>
+      "If the viewer shows the article, the file opens fine here. If it doesn't, re-upload a different copy.",
+  },
+  'pdf-hash-error': {
+    label: 'fingerprint failed',
+    sentence: "CoLRev couldn't fingerprint the PDF's first page.",
+    check: () => 'Check the first page renders and belongs to this article.',
   },
 };
 
+/** Defects pdf-prep flagged and nobody has overridden yet. */
 export function getDefects(record: PdfRecord): string[] {
+  return fileNotes(record).filter((d) => !d.startsWith('IGNORE:'));
+}
+
+/** Defects a person accepted the PDF despite (stored as `IGNORE:<code>`). */
+export function getIgnoredDefects(record: PdfRecord): string[] {
+  return fileNotes(record)
+    .filter((d) => d.startsWith('IGNORE:'))
+    .map((d) => d.slice('IGNORE:'.length));
+}
+
+function fileNotes(record: PdfRecord): string[] {
   const note = record.colrev_data_provenance?.file?.note || '';
   return note
     .split(',')
     .map((d) => d.trim())
-    .filter((d) => d && !d.startsWith('IGNORE:'));
+    .filter(Boolean);
 }
 
 export function getDefectLabel(code: string): string {
@@ -118,6 +164,18 @@ export function getDefectLabel(code: string): string {
 
 export function getDefectSentence(code: string): string {
   return PDF_DEFECT_LABELS[code]?.sentence || code;
+}
+
+export function getDefectCheck(code: string, record: PdfRecord): string {
+  return (
+    PDF_DEFECT_LABELS[code]?.check(record) ||
+    'Look through the PDF and decide whether it is the right, readable article.'
+  );
+}
+
+/** BibTeX page ranges use `--`; show a proper en dash. */
+export function formatPages(pages: string): string {
+  return pages.replace(/\s*-{1,2}\s*/g, '–');
 }
 
 export function getVenue(record: PdfRecord): string {

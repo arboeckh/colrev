@@ -37,8 +37,11 @@ import HelpSection from '@/components/layout/HelpSection.vue';
       </HelpSection>
 
       <HelpSection :icon="Wrench" title="Fix &amp; summary">
-        Re-upload cleaner copies for PDFs that failed preparation — scanned or
-        image-only files cannot be text-extracted. The Summary stage confirms
+        PDFs that fail CoLRev's checks (author or title not found, incomplete,
+        no text layer) land here. Click
+        <span class="text-ink-800 font-medium">Review PDF</span> to open the file
+        next to what was flagged: if the checks were wrong, accept it as-is;
+        otherwise re-upload a better copy or mark it unavailable. The Summary stage confirms
         everything is ready and lets you import a teammate's PDF zip when files are
         missing on your machine — PDF files are not shared automatically between
         collaborators, so you may need to import a zip from a teammate.

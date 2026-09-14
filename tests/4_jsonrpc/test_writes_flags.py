@@ -15,6 +15,7 @@ import colrev.ui_jsonrpc.framework_handlers  # noqa: F401  (registers methods)
 from colrev.ui_jsonrpc.framework import registry
 
 AUDITED_WRITERS = {
+    "accept_pdf_as_is",
     "add_screening_criterion",
     "add_source",
     # WP-04 engine-owned merge: commits with both merge parents.
