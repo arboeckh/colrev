@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { CheckSquare, FileDown } from 'lucide-vue-next';
+import { Check, CheckSquare, FileDown, Pencil } from 'lucide-vue-next';
+import { Button } from '@/components/ui/button';
 import { EmptyState, LoadErrorState, QueueJumpDialog } from '@/components/common';
 import {
   PdfViewerPanel,
   ScreenSplitPanel,
   ScreenRecordPanel,
-  ScreenEditMode,
   ScreenComplete,
 } from '@/components/screen';
 import PdfShareActions from '@/components/shared/PdfShareActions.vue';
@@ -23,7 +23,12 @@ import { useManagedTaskAccess } from '@/composables/useManagedTaskAccess';
 import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 import { useReadOnly } from '@/composables/useReadOnly';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
-import { canIncludeDecision, canExcludeDecision } from '@/lib/screen-decision';
+import {
+  canIncludeDecision,
+  canExcludeDecision,
+  formatCriteriaString,
+  type CriterionDecision,
+} from '@/lib/screen-decision';
 import type {
   ScreenQueueRecord,
   ScreenCriterionInfo,
@@ -34,7 +39,7 @@ type ScreenMode = 'screening' | 'edit' | 'complete';
 
 interface ScreenEnrichedRecord extends ScreenQueueRecord {
   _decision: DecisionState;
-  _criteriaDecisions: Record<string, 'in' | 'out' | 'TODO'>;
+  _criteriaDecisions: Record<string, CriterionDecision>;
 }
 
 const props = withDefaults(defineProps<{
@@ -86,24 +91,30 @@ const {
 const statusCounts = computed(() => projects.currentStatus?.currently ?? null);
 const completeIncludedCount = computed(() => statusCounts.value?.rev_included ?? 0);
 const completeExcludedCount = computed(() => statusCounts.value?.rev_excluded ?? 0);
-const screenSessionDecisions = computed((): Record<string, 'include' | 'exclude'> => {
-  const out: Record<string, 'include' | 'exclude'> = {};
-  for (const record of decisionHistory.value) {
-    if (record._decision === 'included') out[record.id] = 'include';
-    else if (record._decision === 'excluded') out[record.id] = 'exclude';
-  }
-  return out;
-});
 const pdfPreparedCount = computed(() => statusCounts.value?.pdf_prepared ?? 0);
-const currentRecord = computed(() => queue.value[currentIndex.value] || null);
+// Editing decisions is the review walkthrough again: the records that already
+// carry a decision are loaded into their own queue and shown in the same split
+// panel, with the decision buttons live on decided records.
+const editQueue = ref<ScreenEnrichedRecord[]>([]);
+const isLoadingEditQueue = ref(false);
+/** What each edit-queue record holds on disk, by id — to tell a real change
+ * from a re-confirmation, and to roll back a failed write. */
+const savedEdits = new Map<string, { decision: DecisionState; criteria: Record<string, CriterionDecision> }>();
+/** Where the review walkthrough stood, to return there after editing. */
+let reviewIndexBeforeEdit = 0;
+/** The queue the walkthrough is showing: the review queue or, while editing,
+ * the decided records. */
+const activeQueue = computed(() => (mode.value === 'edit' ? editQueue.value : queue.value));
+
+const currentRecord = computed(() => activeQueue.value[currentIndex.value] || null);
 const hasCriteria = computed(() => Object.keys(criteria.value).length > 0);
-const decidedCount = computed(() => queue.value.filter((r) => r._decision !== 'undecided').length);
-const includedCount = computed(() => queue.value.filter((r) => r._decision === 'included').length);
-const excludedCount = computed(() => queue.value.filter((r) => r._decision === 'excluded').length);
+const decidedCount = computed(() => activeQueue.value.filter((r) => r._decision !== 'undecided').length);
+const includedCount = computed(() => activeQueue.value.filter((r) => r._decision === 'included').length);
+const excludedCount = computed(() => activeQueue.value.filter((r) => r._decision === 'excluded').length);
 const isCurrentDecided = computed(() => currentRecord.value?._decision !== 'undecided');
 const nextUndecidedIndex = computed(() => {
-  for (let i = currentIndex.value + 1; i < queue.value.length; i++) {
-    if (queue.value[i]._decision === 'undecided') return i;
+  for (let i = currentIndex.value + 1; i < activeQueue.value.length; i++) {
+    if (activeQueue.value[i]._decision === 'undecided') return i;
   }
   return -1;
 });
@@ -135,6 +146,19 @@ const managedAccessDescription = computed(() => {
 });
 
 
+function criteriaDecisionsOf(record: ScreenQueueRecord): Record<string, CriterionDecision> {
+  const decisions: Record<string, CriterionDecision> = {};
+  for (const [name, criterion] of Object.entries(criteria.value)) {
+    const value = (record.current_criteria?.[name] as 'in' | 'out') || 'TODO';
+    // An inclusion is stored with every criterion "in", exclusion criteria
+    // too; on the checklist an exclusion criterion that does not apply is
+    // simply unmarked.
+    decisions[name] =
+      value === 'in' && criterion.criterion_type === 'exclusion_criterion' ? 'TODO' : value;
+  }
+  return decisions;
+}
+
 async function loadQueue() {
   if (!projects.currentProjectId || !backend.isRunning) return;
   isLoading.value = true;
@@ -151,18 +175,11 @@ async function loadQueue() {
     if (!guard.isCurrent()) return;
     if (response.success) {
       criteria.value = response.criteria || {};
-      const criteriaNames = Object.keys(criteria.value);
-      const newRecords: ScreenEnrichedRecord[] = response.records.map((record) => {
-        const criteriaDecisions: Record<string, 'in' | 'out' | 'TODO'> = {};
-        for (const name of criteriaNames) {
-          criteriaDecisions[name] = record.current_criteria?.[name] as 'in' | 'out' || 'TODO';
-        }
-        return {
-          ...record,
-          _decision: 'undecided' as DecisionState,
-          _criteriaDecisions: criteriaDecisions,
-        };
-      });
+      const newRecords: ScreenEnrichedRecord[] = response.records.map((record) => ({
+        ...record,
+        _decision: 'undecided' as DecisionState,
+        _criteriaDecisions: criteriaDecisionsOf(record),
+      }));
       const history = decisionHistory.value;
       queue.value = [...history, ...newRecords];
       totalCount.value = response.total_count;
@@ -296,10 +313,144 @@ async function makeDecision(decision: 'include' | 'exclude') {
 }
 
 function confirmCriteriaDecision(decision: 'include' | 'exclude') {
-  if (isCurrentDecided.value || isDeciding.value || isReadOnly.value) return;
+  if (isDeciding.value || isReadOnly.value) return;
   if (decision === 'include' && !canInclude.value) return;
   if (decision === 'exclude' && !canExclude.value) return;
-  makeDecision(decision);
+  if (mode.value === 'edit') reviseDecision(decision);
+  else if (!isCurrentDecided.value) makeDecision(decision);
+}
+
+// --- Edit mode ---
+
+// Every decided record, not a page of them: the queue map is bounded by
+// width, not by queue length.
+const EDIT_QUEUE_LIMIT = 100_000;
+
+async function enterEditMode() {
+  if (!projects.currentProjectId || !backend.isRunning) return;
+  reviewIndexBeforeEdit = currentIndex.value;
+  mode.value = 'edit';
+  editQueue.value = [];
+  currentIndex.value = 0;
+  await loadEditQueue();
+}
+
+async function loadEditQueue() {
+  if (!projects.currentProjectId || !backend.isRunning) return;
+  isLoadingEditQueue.value = true;
+  const guard = projectData.snapshot();
+  try {
+    const response = await backend.call('get_screen_queue', {
+      project_id: projects.currentProjectId,
+      limit: EDIT_QUEUE_LIMIT,
+      task_id: managedTask.value?.id,
+      decided: true,
+    });
+    if (!guard.isCurrent() || mode.value !== 'edit') return;
+    criteria.value = response.criteria || {};
+    savedEdits.clear();
+    editQueue.value = response.records.map((record) => {
+      const decision: DecisionState = record.decision === 'include' ? 'included' : 'excluded';
+      const criteriaDecisions = criteriaDecisionsOf(record);
+      savedEdits.set(record.id, { decision, criteria: { ...criteriaDecisions } });
+      return { ...record, _decision: decision, _criteriaDecisions: criteriaDecisions };
+    });
+    currentIndex.value = 0;
+  } catch (err) {
+    notifications.error(
+      'Failed to load decisions',
+      err instanceof Error ? err.message : 'Unknown error',
+    );
+    if (guard.isCurrent()) await exitEditMode();
+  } finally {
+    isLoadingEditQueue.value = false;
+  }
+}
+
+/** Change the decision (or an exclusion's criteria) on the current record and
+ * move on, as reviewing does. Optimistic, on the same ordered write chain as
+ * first decisions. */
+function reviseDecision(decision: 'include' | 'exclude') {
+  const record = currentRecord.value;
+  const saved = record && savedEdits.get(record.id);
+  if (!record || !saved) return;
+
+  const target: DecisionState = decision === 'include' ? 'included' : 'excluded';
+  const criteriaChanged =
+    decision === 'exclude' &&
+    formatCriteriaString(record._criteriaDecisions) !== formatCriteriaString(saved.criteria);
+  if (saved.decision !== target || criteriaChanged) {
+    const criteriaDecisions: Record<string, 'in' | 'out'> = {};
+    for (const [name, value] of Object.entries(record._criteriaDecisions)) {
+      if (value !== 'TODO') criteriaDecisions[name] = value;
+    }
+    // Mirror what the inclusion stores (see criteriaDecisionsOf).
+    if (decision === 'include') {
+      for (const [name, criterion] of Object.entries(criteria.value)) {
+        record._criteriaDecisions[name] =
+          criterion.criterion_type === 'exclusion_criterion' ? 'TODO' : 'in';
+      }
+    }
+    record._decision = target;
+    savedEdits.set(record.id, { decision: target, criteria: { ...record._criteriaDecisions } });
+    flushRevision(record, decision, criteriaDecisions, saved, projectData.snapshot());
+  }
+  if (currentIndex.value < activeQueue.value.length - 1) currentIndex.value += 1;
+}
+
+function flushRevision(
+  record: ScreenEnrichedRecord,
+  decision: 'include' | 'exclude',
+  criteriaDecisions: Record<string, 'in' | 'out'>,
+  previous: { decision: DecisionState; criteria: Record<string, CriterionDecision> },
+  guard: { isCurrent: () => boolean },
+) {
+  const projectId = projects.currentProjectId!;
+  const applied = savedEdits.get(record.id);
+  const rollBack = (message: string) => {
+    if (guard.isCurrent() && savedEdits.get(record.id) === applied) {
+      record._decision = previous.decision;
+      record._criteriaDecisions = { ...previous.criteria };
+      savedEdits.set(record.id, previous);
+    }
+    notifications.error('Decision change failed', message);
+  };
+  const run = decisionChain.then(async () => {
+    if (!guard.isCurrent()) return;
+    try {
+      const response = await backend.call('update_screen_decisions', {
+        project_id: projectId,
+        changes: [{ record_id: record.id, decision, criteria_decisions: criteriaDecisions }],
+      });
+      const skipped = response.skipped.find((s) => s.record_id === record.id);
+      if (skipped) rollBack(`${record.id}: ${skipped.reason}`);
+    } catch (err) {
+      rollBack(err instanceof Error ? err.message : 'Unknown error');
+    }
+  });
+  decisionChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+}
+
+async function exitEditMode() {
+  // Carry revised decisions back into the review walkthrough's own copies.
+  const revised = new Map(editQueue.value.map((r) => [r.id, r]));
+  for (const r of [...queue.value, ...decisionHistory.value]) {
+    const edited = revised.get(r.id);
+    if (!edited) continue;
+    r._decision = edited._decision;
+    r._criteriaDecisions = { ...edited._criteriaDecisions };
+  }
+  editQueue.value = [];
+  savedEdits.clear();
+  currentIndex.value = Math.min(reviewIndexBeforeEdit, Math.max(0, queue.value.length - 1));
+  mode.value = isScreenComplete.value ? 'complete' : 'screening';
+  // The completion screen reads server-side counts: refresh once the
+  // revisions have landed.
+  await decisionChain;
+  await projectData.refreshNow();
 }
 
 function toggleCriterion(name: string, value: 'in' | 'out' | 'TODO') {
@@ -308,7 +459,7 @@ function toggleCriterion(name: string, value: 'in' | 'out' | 'TODO') {
 }
 
 function goToRecord(index: number) {
-  if (index >= 0 && index < queue.value.length) currentIndex.value = index;
+  if (index >= 0 && index < activeQueue.value.length) currentIndex.value = index;
 }
 
 function skipToNextUndecided() {
@@ -318,7 +469,7 @@ function skipToNextUndecided() {
 const isJumpOpen = ref(false);
 
 const jumpItems = computed(() =>
-  queue.value.map((r) => ({
+  activeQueue.value.map((r) => ({
     id: r.id,
     title: r.title,
     author: r.author,
@@ -327,20 +478,12 @@ const jumpItems = computed(() =>
   })),
 );
 
-function enterEditMode() {
-  mode.value = 'edit';
-}
-
-function exitEditMode() {
-  mode.value = isScreenComplete.value ? 'complete' : 'screening';
-}
-
 function handleKeydown(e: KeyboardEvent) {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-  if (mode.value !== 'screening') return;
+  if (mode.value === 'complete') return;
 
   if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
-    if (queue.value.length === 0) return;
+    if (activeQueue.value.length === 0) return;
     e.preventDefault();
     isJumpOpen.value = !isJumpOpen.value;
     return;
@@ -353,7 +496,7 @@ function handleKeydown(e: KeyboardEvent) {
       break;
     case 'ArrowDown':
       e.preventDefault();
-      if (currentIndex.value < queue.value.length - 1) currentIndex.value += 1;
+      if (currentIndex.value < activeQueue.value.length - 1) currentIndex.value += 1;
       break;
   }
 }
@@ -404,6 +547,9 @@ useProjectDataChanged(async (event) => {
   // queue; re-entering here would do the whole sequence a second time.
   if (isArrangingAccess) return;
   decisionHistory.value = [];
+  editQueue.value = [];
+  savedEdits.clear();
+  if (mode.value === 'edit') mode.value = 'screening';
   await arrangeAccessAndLoad();
 });
 
@@ -457,16 +603,32 @@ onUnmounted(() => {
 
     <template v-else>
 
-    <div v-if="mode === 'edit'" class="px-4 py-3">
-      <ScreenEditMode
-        :managed-task="managedTask"
-        :session-decisions="screenSessionDecisions"
-        @close="exitEditMode"
-      />
+    <!-- Edit mode: loading / nothing decided yet. With records it is the
+         split panel below. -->
+    <div
+      v-if="mode === 'edit' && isLoadingEditQueue"
+      class="flex-1 flex items-center justify-center"
+      data-testid="screen-edit-loading"
+    >
+      <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
     </div>
 
+    <EmptyState
+      v-else-if="mode === 'edit' && editQueue.length === 0"
+      :icon="Pencil"
+      title="No decisions to edit"
+      description="Records you include or exclude in screening appear here."
+    >
+      <template #action>
+        <Button size="sm" data-testid="screen-edit-done-btn" @click="exitEditMode">
+          <Check class="h-4 w-4 mr-1.5" />
+          Done
+        </Button>
+      </template>
+    </EmptyState>
+
     <ScreenComplete
-      v-else-if="mode === 'complete' || (!isLoading && queue.length === 0 && isScreenComplete)"
+      v-else-if="mode === 'complete' || (mode !== 'edit' && !isLoading && queue.length === 0 && isScreenComplete)"
       class="px-4 py-3"
       :included-count="completeIncludedCount"
       :excluded-count="completeExcludedCount"
@@ -478,7 +640,7 @@ onUnmounted(() => {
     />
 
     <LoadErrorState
-      v-else-if="!isLoading && loadError"
+      v-else-if="mode !== 'edit' && !isLoading && loadError"
       title="Failed to load screening queue"
       :message="loadError"
       test-id="screen-load-error"
@@ -486,7 +648,7 @@ onUnmounted(() => {
     />
 
     <div
-      v-else-if="!isLoading && queue.length === 0 && !isScreenComplete && pdfPreparedCount === 0"
+      v-else-if="mode !== 'edit' && !isLoading && queue.length === 0 && !isScreenComplete && pdfPreparedCount === 0"
       class="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8"
     >
       <FileDown class="h-10 w-10 text-muted-foreground" />
@@ -498,7 +660,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div v-else-if="isLoading" class="flex-1 flex items-center justify-center">
+    <div v-else-if="mode !== 'edit' && isLoading" class="flex-1 flex items-center justify-center">
       <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
     </div>
 
@@ -510,7 +672,7 @@ onUnmounted(() => {
     />
 
     <EmptyState
-      v-else-if="!isLoading && queue.length === 0"
+      v-else-if="mode !== 'edit' && !isLoading && queue.length === 0"
       :icon="CheckSquare"
       title="No records to screen"
       description="There are no full-text records ready for the current screening queue."
@@ -542,13 +704,14 @@ onUnmounted(() => {
           :is-current-decided="isCurrentDecided"
           :next-undecided-index="nextUndecidedIndex"
           :mode="mode"
-          :queue-records="queue"
+          :queue-records="activeQueue"
           :current-index="currentIndex"
           :read-only="isReadOnly"
           @toggle-criterion="toggleCriterion"
           @confirm-decision="confirmCriteriaDecision"
           @skip-to-next-undecided="skipToNextUndecided"
           @enter-edit-mode="enterEditMode"
+          @exit-edit-mode="exitEditMode"
           @navigate="goToRecord"
         />
       </template>

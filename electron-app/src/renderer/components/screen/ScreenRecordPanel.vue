@@ -40,16 +40,26 @@ const emit = defineEmits<{
   confirmDecision: [decision: 'include' | 'exclude'];
   skipToNextUndecided: [];
   enterEditMode: [];
+  exitEditMode: [];
   navigate: [index: number];
 }>();
 </script>
 
 <template>
   <div class="h-full flex flex-col min-h-0" data-testid="screen-record-panel">
-    <div class="px-3 py-2 flex items-center justify-between shrink-0">
+    <div class="px-3 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
       <div class="flex items-center gap-2">
         <CheckSquare class="h-4 w-4 text-muted-foreground" />
         <h2 class="text-sm font-semibold" data-testid="screen-title">Screen</h2>
+        <Badge
+          v-if="mode === 'edit'"
+          variant="outline"
+          class="px-2 py-0.5 text-xs"
+          data-testid="screen-edit-mode"
+        >
+          <Pencil class="h-3 w-3 mr-1" />
+          Editing
+        </Badge>
       </div>
 
       <div class="flex items-center gap-2">
@@ -61,12 +71,27 @@ const emit = defineEmits<{
           <X class="h-3 w-3 mr-1" />
           {{ excludedCount }}
         </Badge>
-        <Badge variant="secondary" class="px-2 py-0.5 text-xs" data-testid="screen-remaining-count">
+        <Badge
+          v-if="mode !== 'edit'"
+          variant="secondary"
+          class="px-2 py-0.5 text-xs"
+          data-testid="screen-remaining-count"
+        >
           {{ totalCount }} left
         </Badge>
 
         <Button
-          v-if="decidedCount > 0 && !readOnly"
+          v-if="mode === 'edit'"
+          size="sm"
+          class="h-7"
+          data-testid="screen-edit-done-btn"
+          @click="emit('exitEditMode')"
+        >
+          <Check class="h-3.5 w-3.5 mr-1" />
+          Done
+        </Button>
+        <Button
+          v-else-if="decidedCount > 0 && !readOnly"
           variant="ghost"
           size="icon"
           class="h-7 w-7"
@@ -162,7 +187,8 @@ const emit = defineEmits<{
       "
       :is-submitting="isDeciding"
       :disabled="readOnly"
-      :show-next-button="isCurrentDecided && nextUndecidedIndex !== -1"
+      :show-next-button="mode !== 'edit' && isCurrentDecided && nextUndecidedIndex !== -1"
+      :editable="mode === 'edit'"
       test-id-prefix="screen"
       @confirm="(decision) => emit('confirmDecision', decision)"
       @skip-to-next="emit('skipToNextUndecided')"

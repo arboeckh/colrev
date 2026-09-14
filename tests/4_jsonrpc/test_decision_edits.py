@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""Decision-editing RPCs: update_prescreen_decisions, update_screen_decisions,
-include_all_screen.
+"""Decision-editing RPCs: the ``decided`` prescreen/screen queues,
+update_prescreen_decisions, update_screen_decisions, include_all_screen.
 
 These are the endpoints behind "flip a decision I already made" in the
-prescreen/screen review tables, plus the "include all" shortcut. They edit
+prescreen/screen review walkthroughs, plus the "include all" shortcut. They edit
 ``colrev_status`` in ``data/records.bib`` through the engine's prescreen/screen
 operations, so every assertion here reads the dataset back from disk.
 
@@ -14,6 +14,7 @@ whole records file.
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Generator
@@ -35,6 +36,11 @@ RECORDS = [
     # Screen-decision records (already decided; the tests flip them).
     {"ID": "S1", "status": "rev_included", "file": "data/pdfs/S1.pdf"},
     {"ID": "S2", "status": "rev_excluded", "file": "data/pdfs/S2.pdf"},
+    # Untouched by the flip tests: fixed points for the decided-queue tests.
+    {"ID": "Q1", "status": "rev_prescreen_included"},
+    {"ID": "Q2", "status": "md_processed"},
+    {"ID": "C1", "status": "rev_excluded", "file": "data/pdfs/C1.pdf",
+     "screening_criteria": "focus=out;method=in"},
     # Screen-queue records for include_all_screen.
     {"ID": "A1", "status": "pdf_prepared", "file": "data/pdfs/A1.pdf"},
     {"ID": "A2", "status": "pdf_prepared", "file": "data/pdfs/A2.pdf"},
@@ -55,6 +61,10 @@ def _records_bib(entries: list[dict]) -> str:
         ]
         if "file" in entry:
             lines.append(f"   file                          = {{{entry['file']}}},")
+        if "screening_criteria" in entry:
+            lines.append(
+                f"   screening_criteria            = {{{entry['screening_criteria']}}},"
+            )
         lines.append("}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks) + "\n"
@@ -93,11 +103,25 @@ def project(tmp_path_factory, session_mocker) -> Generator[Path, None, None]:
     finally:
         os.chdir(original_cwd)
 
+    # The commit hook's status report counts exclusions per criterion, so
+    # every criterion a record names has to exist in the settings.
+    settings_path = project_path / "settings.json"
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    settings["screen"]["criteria"] = {
+        name: {
+            "explanation": name,
+            "comment": "",
+            "criterion_type": "inclusion_criterion",
+        }
+        for name in ("focus", "method")
+    }
+    settings_path.write_text(json.dumps(settings, indent=4), encoding="utf-8")
+
     records_path = project_path / "data" / "records.bib"
     records_path.parent.mkdir(parents=True, exist_ok=True)
     records_path.write_text(_records_bib(RECORDS), encoding="utf-8")
     repo = git.Repo(project_path)
-    repo.git.add("data/records.bib")
+    repo.git.add(["data/records.bib", "settings.json"])
     # --no-verify: the check hook runs data.main(), which would advance
     # rev_included records to rev_synthesized before the tests see them.
     repo.git.commit("-m", "Seed decided and screen-ready records", "--no-verify")
@@ -110,14 +134,59 @@ def params(project: Path) -> dict:
     return {"project_id": PROJECT_ID, "base_path": str(project)}
 
 
-def _statuses_on_disk(project: Path) -> dict[str, str]:
-    """Read colrev_status per record from data/records.bib via the engine."""
+def _records_on_disk(project: Path) -> dict[str, dict]:
+    """Read data/records.bib via the engine."""
     review_manager = colrev.review_manager.ReviewManager(
         path_str=str(project / PROJECT_ID)
     )
     review_manager.get_prescreen_operation(notify_state_transition_operation=False)
-    records = review_manager.dataset.load_records_dict()
-    return {rid: rec["colrev_status"].name for rid, rec in records.items()}
+    return review_manager.dataset.load_records_dict()
+
+
+def _statuses_on_disk(project: Path) -> dict[str, str]:
+    """Read colrev_status per record from data/records.bib via the engine."""
+    return {
+        rid: rec["colrev_status"].name for rid, rec in _records_on_disk(project).items()
+    }
+
+
+class TestDecidedQueues:
+    # Runs first, against the seeded statuses.
+    def test_prescreen_queue_returns_decided_records_with_their_decision(
+        self, handler, params
+    ) -> None:
+        response = _request(
+            handler, "get_prescreen_queue", {**params, "decided": True}
+        )
+        assert "error" not in response, response.get("error")
+        result = response["result"]
+
+        decisions = {r["id"]: r["decision"] for r in result["records"]}
+        assert decisions == {"P1": "include", "P2": "exclude", "Q1": "include"}
+        assert result["total_count"] == 3
+
+    def test_prescreen_queue_default_still_returns_undecided_records(
+        self, handler, params
+    ) -> None:
+        response = _request(handler, "get_prescreen_queue", params)
+        assert "error" not in response, response.get("error")
+
+        records = response["result"]["records"]
+        assert [r["id"] for r in records] == ["Q2"]
+        assert records[0].get("decision") is None
+
+    def test_screen_queue_returns_decided_records_with_decision_and_criteria(
+        self, handler, params
+    ) -> None:
+        response = _request(handler, "get_screen_queue", {**params, "decided": True})
+        assert "error" not in response, response.get("error")
+        records = {r["id"]: r for r in response["result"]["records"]}
+
+        assert set(records) == {"S1", "S2", "C1"}
+        assert records["S1"]["decision"] == "include"
+        assert records["C1"]["decision"] == "exclude"
+        assert records["C1"]["current_criteria"] == {"focus": "out", "method": "in"}
+        assert records["C1"]["pdf_path"] == "data/pdfs/C1.pdf"
 
 
 class TestUpdatePrescreenDecisions:
@@ -248,6 +317,30 @@ class TestUpdateScreenDecisions:
         assert reasons["NOPE"] == "Record not found"
         assert "Invalid state" in reasons["P1"]
         assert _statuses_on_disk(project)["P1"] == "rev_prescreen_excluded"
+
+    def test_revises_the_criteria_of_an_exclusion_that_stays_excluded(
+        self, handler, params, project
+    ) -> None:
+        response = _request(
+            handler,
+            "update_screen_decisions",
+            {
+                **params,
+                "changes": [
+                    {
+                        "record_id": "C1",
+                        "decision": "exclude",
+                        "criteria_decisions": {"focus": "in", "method": "out"},
+                    }
+                ],
+            },
+        )
+        assert "error" not in response, response.get("error")
+        assert response["result"]["updated_records"] == ["C1"]
+
+        record = _records_on_disk(project)["C1"]
+        assert record["colrev_status"].name == "rev_excluded"
+        assert record["screening_criteria"] == "focus=in;method=out"
 
     def test_rejects_an_invalid_decision(self, handler, params) -> None:
         response = _request(

@@ -17,9 +17,13 @@ const props = withDefaults(
     isSubmitting?: boolean;
     disabled?: boolean;
     showNextButton?: boolean;
+    /** Keep the Include/Exclude buttons on a decided record, marking the
+     * current decision, so it can be changed (editing decisions). */
+    editable?: boolean;
     testIdPrefix?: string;
   }>(),
   {
+    editable: false,
     confirmedDecision: null,
     isSubmitting: false,
     disabled: false,
@@ -37,7 +41,8 @@ const canInclude = computed(() => canIncludeDecision(props.criteria, props.decis
 const canExclude = computed(() => canExcludeDecision(props.criteria, props.decisions));
 const isConfirmed = computed(
   () =>
-    props.confirmedDecision === 'include' || props.confirmedDecision === 'exclude',
+    !props.editable &&
+    (props.confirmedDecision === 'include' || props.confirmedDecision === 'exclude'),
 );
 </script>
 
@@ -84,6 +89,8 @@ const isConfirmed = computed(
         variant="outline"
         size="lg"
         class="flex-1 h-11 text-base border-l-[3px] border-l-destructive hover:bg-destructive/5 hover:border-l-destructive"
+        :class="confirmedDecision === 'exclude' && 'bg-destructive/10 border-destructive/40 font-semibold'"
+        :aria-pressed="editable ? confirmedDecision === 'exclude' : undefined"
         :data-testid="`${testIdPrefix}-btn-exclude`"
         :disabled="disabled || isSubmitting || !canExclude"
         @click="emit('confirm', 'exclude')"
@@ -97,6 +104,8 @@ const isConfirmed = computed(
         variant="outline"
         size="lg"
         class="flex-1 h-11 text-base border-l-[3px] border-l-green-600 hover:bg-green-600/5 hover:border-l-green-600"
+        :class="confirmedDecision === 'include' && 'bg-green-600/10 border-green-600/40 font-semibold'"
+        :aria-pressed="editable ? confirmedDecision === 'include' : undefined"
         :data-testid="`${testIdPrefix}-btn-include`"
         :disabled="disabled || isSubmitting || !canInclude"
         @click="emit('confirm', 'include')"

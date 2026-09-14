@@ -57,6 +57,9 @@ class PrescreenBatchResponse(ProjectResponse):
 class GetPrescreenQueueRequest(ProjectScopedRequest):
     limit: int = 50
     task_id: Optional[str] = None
+    # True returns the records that already carry a prescreen decision
+    # (for editing them) instead of the ones still awaiting one.
+    decided: bool = False
 
 
 class PrescreenQueueRecord(BaseModel):
@@ -73,6 +76,8 @@ class PrescreenQueueRecord(BaseModel):
     booktitle: Optional[str] = None
     doi: Optional[str] = None
     pubmedid: Optional[str] = None
+    # Set only for records returned with ``decided=True``.
+    decision: Optional[Decision] = None
 
 
 class GetPrescreenQueueResponse(ProjectResponse):
@@ -291,17 +296,28 @@ class PrescreenHandler(BaseHandler):
         )
         self.op(OperationsType.prescreen, notify=False)
         records_dict = self.review_manager.dataset.load_records_dict() or {}
+        wanted_states = (
+            {RecordState.rev_prescreen_included, RecordState.rev_prescreen_excluded}
+            if req.decided
+            else {RecordState.md_processed}
+        )
         prescreen_records = [
             r
             for r in records_dict.values()
-            if r.get(Fields.STATUS) == RecordState.md_processed
+            if r.get(Fields.STATUS) in wanted_states
             and (task_record_ids is None or r.get(Fields.ID) in task_record_ids)
         ]
         total_count = len(prescreen_records)
-        formatted = [
-            PrescreenQueueRecord(**_format_queue_record(r))
-            for r in prescreen_records[: req.limit]
-        ]
+        formatted = []
+        for r in prescreen_records[: req.limit]:
+            payload = _format_queue_record(r)
+            if req.decided:
+                payload["decision"] = (
+                    "include"
+                    if r.get(Fields.STATUS) == RecordState.rev_prescreen_included
+                    else "exclude"
+                )
+            formatted.append(PrescreenQueueRecord(**payload))
         return GetPrescreenQueueResponse(
             project_id=req.project_id,
             total_count=total_count,

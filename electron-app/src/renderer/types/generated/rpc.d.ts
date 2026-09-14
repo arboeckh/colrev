@@ -285,6 +285,7 @@ export interface PrescreenQueueRecord {
   author?: string;
   booktitle?: string | null;
   can_enrich?: boolean;
+  decision?: ("include" | "exclude") | null;
   doi?: string | null;
   id: string;
   journal?: string | null;
@@ -797,6 +798,7 @@ export interface GetPreprocessingSummaryResponse {
 
 export interface GetPrescreenQueueRequest {
   base_path?: string | null;
+  decided?: boolean;
   limit?: number;
   project_id: string;
   task_id?: string | null;
@@ -980,6 +982,7 @@ export interface CriterionInfo {
 
 export interface GetScreenQueueRequest {
   base_path?: string | null;
+  decided?: boolean;
   limit?: number;
   project_id: string;
   task_id?: string | null;
@@ -1011,6 +1014,7 @@ export interface ScreenQueueRecord {
   current_criteria?: {
     [k: string]: string;
   } | null;
+  decision?: ("include" | "exclude") | null;
   id: string;
   journal?: string | null;
   pdf_path?: string | null;
@@ -1706,6 +1710,9 @@ export interface UpdateScreenDecisionsRequest {
 }
 
 export interface ScreenDecisionChange {
+  criteria_decisions?: {
+    [k: string]: "in" | "out" | "TODO";
+  } | null;
   decision: "include" | "exclude";
   record_id: string;
 }

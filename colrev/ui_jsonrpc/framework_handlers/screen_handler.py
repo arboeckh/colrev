@@ -48,6 +48,9 @@ class ScreenBatchResponse(ProjectResponse):
 class GetScreenQueueRequest(ProjectScopedRequest):
     limit: int = 50
     task_id: Optional[str] = None
+    # True returns the records that already carry a screen decision (for
+    # editing them) instead of the ones still awaiting one.
+    decided: bool = False
 
 
 class ScreenCriterionInfo(BaseModel):
@@ -71,6 +74,8 @@ class ScreenQueueRecord(BaseModel):
     booktitle: Optional[str] = None
     pdf_path: Optional[str] = None
     current_criteria: Optional[Dict[str, str]] = None
+    # Set only for records returned with ``decided=True``.
+    decision: Optional[Decision] = None
 
 
 class GetScreenQueueResponse(ProjectResponse):
@@ -106,6 +111,9 @@ class ScreenDecisionChange(BaseModel):
 
     record_id: str
     decision: Decision
+    # Criteria to record with an exclusion. Omitted keeps the record's
+    # existing criteria; inclusion always records every criterion as "in".
+    criteria_decisions: Optional[Dict[str, CriterionValue]] = None
 
 
 class UpdateScreenDecisionsRequest(ProjectScopedRequest):
@@ -194,10 +202,15 @@ class ScreenHandler(BaseHandler):
         self.op(OperationsType.screen, notify=False)
         records_dict = self.review_manager.dataset.load_records_dict() or {}
 
+        wanted_states = (
+            {RecordState.rev_included, RecordState.rev_excluded}
+            if req.decided
+            else {RecordState.pdf_prepared}
+        )
         screen_records = [
             r
             for r in records_dict.values()
-            if r.get(Fields.STATUS) == RecordState.pdf_prepared
+            if r.get(Fields.STATUS) in wanted_states
             and (task_record_ids is None or r.get(Fields.ID) in task_record_ids)
         ]
         total_count = len(screen_records)
@@ -218,6 +231,12 @@ class ScreenHandler(BaseHandler):
             if Fields.SCREENING_CRITERIA in r:
                 payload["current_criteria"] = _parse_criteria_string(
                     r[Fields.SCREENING_CRITERIA]
+                )
+            if req.decided:
+                payload["decision"] = (
+                    "include"
+                    if r.get(Fields.STATUS) == RecordState.rev_included
+                    else "exclude"
                 )
             formatted.append(ScreenQueueRecord(**payload))
 
@@ -367,19 +386,23 @@ class ScreenHandler(BaseHandler):
                 if change.decision == "include"
                 else RecordState.rev_excluded
             )
-            if current_status == target:
+            existing_criteria = record_dict.get(Fields.SCREENING_CRITERIA, "NA")
+            # Inclusion ignores the criteria passed (screen_op.screen records
+            # every criterion as "in"); an exclusion keeps the existing ones
+            # unless new ones are given.
+            criteria_str = existing_criteria
+            if change.decision == "exclude" and change.criteria_decisions is not None:
+                criteria_str = _format_criteria_string(change.criteria_decisions)
+            if current_status == target and (
+                change.decision == "include" or criteria_str == existing_criteria
+            ):
                 continue
 
-            # Preserve existing criteria when flipping to excluded; for flipping
-            # to included, screen_op.screen builds a default ("all-in") set.
-            existing_criteria = record_dict.get(Fields.SCREENING_CRITERIA, "NA")
             record = colrev.record.record.Record(record_dict)
             screen_op.screen(
                 record=record,
                 screen_inclusion=(change.decision == "include"),
-                screening_criteria=(
-                    existing_criteria if change.decision == "exclude" else "NA"
-                ),
+                screening_criteria=criteria_str,
             )
             updated_ids.append(change.record_id)
 
@@ -416,6 +439,12 @@ class ScreenHandler(BaseHandler):
             operation="include_all_screen",
             message="All records included in screen",
         )
+
+def _format_criteria_string(criteria: Dict[str, CriterionValue]) -> str:
+    """Format {"criterion1": "in"} as "criterion1=in", dropping undecided ones."""
+    parts = [f"{k}={v}" for k, v in criteria.items() if v != "TODO"]
+    return ";".join(parts) if parts else "NA"
+
 
 def _parse_criteria_string(criteria_str: str) -> Dict[str, str]:
     """Parse "criterion1=in;criterion2=out" into a dict."""

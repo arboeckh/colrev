@@ -860,6 +860,22 @@
                 "title": "Can Enrich",
                 "type": "boolean"
               },
+              "decision": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "include",
+                      "exclude"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Decision"
+              },
               "doi": {
                 "anyOf": [
                   {
@@ -2272,6 +2288,22 @@
                 "default": false,
                 "title": "Can Enrich",
                 "type": "boolean"
+              },
+              "decision": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "include",
+                      "exclude"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Decision"
               },
               "doi": {
                 "anyOf": [
@@ -4085,6 +4117,11 @@
             "default": null,
             "title": "Base Path"
           },
+          "decided": {
+            "default": false,
+            "title": "Decided",
+            "type": "boolean"
+          },
           "limit": {
             "default": 50,
             "title": "Limit",
@@ -4157,6 +4194,22 @@
                 "default": false,
                 "title": "Can Enrich",
                 "type": "boolean"
+              },
+              "decision": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "include",
+                      "exclude"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Decision"
               },
               "doi": {
                 "anyOf": [
@@ -5396,6 +5449,11 @@
             "default": null,
             "title": "Base Path"
           },
+          "decided": {
+            "default": false,
+            "title": "Decided",
+            "type": "boolean"
+          },
           "limit": {
             "default": 50,
             "title": "Limit",
@@ -5500,6 +5558,22 @@
                 ],
                 "default": null,
                 "title": "Current Criteria"
+              },
+              "decision": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "include",
+                      "exclude"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Decision"
               },
               "id": {
                 "title": "Id",
@@ -9075,6 +9149,26 @@
           "ScreenDecisionChange": {
             "additionalProperties": false,
             "properties": {
+              "criteria_decisions": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "enum": [
+                        "in",
+                        "out",
+                        "TODO"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Criteria Decisions"
+              },
               "decision": {
                 "enum": [
                   "include",
