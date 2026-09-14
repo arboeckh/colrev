@@ -13,8 +13,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import QueueMap, { type QueueDecision, type QueueMapItem } from './QueueMap.vue';
 
 const TRACK_WIDTH = 600;
-// Mirrors MIN_BAR_PX / BAR_GAP_PX in the component.
+// Mirrors MIN_BAR_PX / BINNED_GAP_PX in the component.
 const MAX_BARS = Math.floor((TRACK_WIDTH + 1) / (6 + 1));
+// Mirrors MAX_BAR_PX / DISCRETE_GAP_PX: the most records that still fit as
+// fixed-size tiles.
+const MAX_DISCRETE = Math.floor((TRACK_WIDTH + 4) / (20 + 4));
 
 function items(count: number, decide: (i: number) => QueueDecision = () => 'undecided') {
   return Array.from({ length: count }, (_, i) => ({ id: `r${i}`, decision: decide(i) }));
@@ -38,6 +41,18 @@ async function mountMap(props: MapProps) {
 
 function bars(wrapper: ReturnType<typeof mount>) {
   return wrapper.findAll('[data-testid^="prescreen-queue-map-bin-"]');
+}
+
+function mode(wrapper: ReturnType<typeof mount>) {
+  return wrapper.get('[data-testid="prescreen-queue-map"]').attributes('data-mode');
+}
+
+function windowBar(wrapper: ReturnType<typeof mount>) {
+  const el = wrapper.get('[data-testid="prescreen-queue-map-window"]');
+  return {
+    index: Number(el.attributes('data-bar-index')),
+    barCount: Number(el.attributes('data-bar-count')),
+  };
 }
 
 beforeEach(() => {
@@ -68,6 +83,34 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe('layout modes', () => {
+  it('lays a single record out as one fixed-size tile, not a full-width bar', async () => {
+    const wrapper = await mountMap({ items: items(1), currentIndex: 0 });
+    expect(mode(wrapper)).toBe('discrete');
+    expect(bars(wrapper)).toHaveLength(1);
+    const row = wrapper.get('[data-testid="prescreen-queue-map-bin-0"]').element.parentElement;
+    expect(row?.getAttribute('style')).toContain('width: 20px');
+  });
+
+  it('keeps short queues as tiles while they fit', async () => {
+    const wrapper = await mountMap({ items: items(MAX_DISCRETE), currentIndex: 0 });
+    expect(mode(wrapper)).toBe('discrete');
+    expect(bars(wrapper)).toHaveLength(MAX_DISCRETE);
+  });
+
+  it('stretches one bar per record once tiles no longer fit', async () => {
+    const wrapper = await mountMap({ items: items(MAX_DISCRETE + 1), currentIndex: 0 });
+    expect(mode(wrapper)).toBe('fill');
+    expect(bars(wrapper)).toHaveLength(MAX_DISCRETE + 1);
+  });
+
+  it('bins records once a bar per record would be too thin', async () => {
+    const wrapper = await mountMap({ items: items(MAX_BARS + 1), currentIndex: 0 });
+    expect(mode(wrapper)).toBe('binned');
+    expect(bars(wrapper).length).toBeLessThanOrEqual(MAX_BARS);
+  });
 });
 
 describe('binning', () => {
@@ -109,19 +152,23 @@ describe('the viewport window', () => {
     const barCount = bars(wrapper).length;
 
     await wrapper.setProps({ currentIndex: 1000 });
-    const style = wrapper.get('[data-testid="prescreen-queue-map-window"]').attributes('style') ?? '';
-    const left = Number(/left:\s*([\d.]+)%/.exec(style)?.[1]);
+    const window = windowBar(wrapper);
 
-    const expectedBar = Math.floor((1000 * barCount) / count);
-    expect(left).toBeCloseTo((expectedBar * 100) / barCount, 5);
+    expect(window.barCount).toBe(barCount);
+    expect(window.index).toBe(Math.floor((1000 * barCount) / count));
   });
 
-  it('stays inside the track at the last record', async () => {
+  it('stays on the last bar at the last record', async () => {
     const wrapper = await mountMap({ items: items(2000), currentIndex: 1999 });
-    const style = wrapper.get('[data-testid="prescreen-queue-map-window"]').attributes('style') ?? '';
-    const left = Number(/left:\s*([\d.]+)%/.exec(style)?.[1]);
-    const width = Number(/width:\s*([\d.]+)%/.exec(style)?.[1]);
-    expect(left + width).toBeLessThanOrEqual(100.0001);
+    const { index, barCount } = windowBar(wrapper);
+    expect(index).toBe(barCount - 1);
+  });
+
+  it('frames the only record in a queue of one', async () => {
+    const wrapper = await mountMap({ items: items(1), currentIndex: 0 });
+    const { index, barCount } = windowBar(wrapper);
+    expect(index).toBe(0);
+    expect(barCount).toBe(1);
   });
 });
 
@@ -138,6 +185,22 @@ describe('seeking', () => {
     const seeks = wrapper.emitted('seek');
     expect(seeks).toHaveLength(1);
     expect(seeks?.[0][0]).toBe(Math.floor(count / 2));
+  });
+
+  it('seeks the last record when a short queue is clicked past its tiles', async () => {
+    const wrapper = await mountMap({ items: items(3), currentIndex: 0 });
+    const row = wrapper.get('[data-testid="prescreen-queue-map-bin-0"]').element.parentElement!;
+    // The row of three tiles is 68px wide; click well to the right of it.
+    vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      width: 68,
+    } as DOMRect);
+
+    await wrapper
+      .get('[data-testid="prescreen-queue-map"]')
+      .trigger('pointerdown', { clientX: 400, pointerId: 1 });
+
+    expect(wrapper.emitted('seek')?.[0][0]).toBe(2);
   });
 
   it('can reach the last record at the right edge', async () => {
