@@ -11,9 +11,13 @@ withDefaults(
     isSubmitting?: boolean;
     showKeyboardHints?: boolean;
     showSkipToNext?: boolean;
+    /** Keep both buttons on a decided record, marking the current decision,
+     * so it can be changed (editing decisions). */
+    editable?: boolean;
     testIdPrefix?: string;
   }>(),
   {
+    editable: false,
     disabled: false,
     isSubmitting: false,
     showKeyboardHints: true,
@@ -33,11 +37,13 @@ const emit = defineEmits<{
     class="flex items-center justify-center gap-4 h-[56px] shrink-0"
     :data-testid="`${testIdPrefix}-decision-bar`"
   >
-    <template v-if="decision === 'undecided'">
+    <template v-if="decision === 'undecided' || editable">
       <Button
         variant="outline"
         size="lg"
         class="min-w-[150px] h-11 text-base border-l-[3px] border-l-destructive hover:bg-destructive/5 hover:border-l-destructive"
+        :class="decision === 'excluded' && 'bg-destructive/10 border-destructive/40 font-semibold'"
+        :aria-pressed="editable ? decision === 'excluded' : undefined"
         :data-testid="`${testIdPrefix}-btn-exclude`"
         :disabled="disabled || isSubmitting"
         @click="emit('decide', 'exclude')"
@@ -55,6 +61,8 @@ const emit = defineEmits<{
         variant="outline"
         size="lg"
         class="min-w-[150px] h-11 text-base border-l-[3px] border-l-green-600 hover:bg-green-600/5 hover:border-l-green-600"
+        :class="decision === 'included' && 'bg-green-600/10 border-green-600/40 font-semibold'"
+        :aria-pressed="editable ? decision === 'included' : undefined"
         :data-testid="`${testIdPrefix}-btn-include`"
         :disabled="disabled || isSubmitting"
         @click="emit('decide', 'include')"

@@ -13,16 +13,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Input } from '@/components/ui/input';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import {
   EmptyState,
   LoadErrorState,
@@ -136,27 +126,25 @@ const PREFETCH_BATCH_SIZE = 10;
 let enrichmentAbortController: AbortController | null = null;
 
 // --- Edit mode state ---
-interface EditRecord {
-  id: string;
-  title: string;
-  author: string;
-  year: string;
-  originalDecision: 'include' | 'exclude';
-  newDecision: 'include' | 'exclude';
-}
-
+// Editing decisions is the review walkthrough again: the records that already
+// carry a decision are loaded into their own queue and shown with the same
+// map, card and filmstrip, with both decision buttons live.
 const isEditMode = ref(false);
-const editRecords = ref<EditRecord[]>([]);
-const editSearchText = ref('');
-const isLoadingEditRecords = ref(false);
-const isSavingEdits = ref(false);
+const editQueue = ref<EnrichedRecord[]>([]);
+const isLoadingEditQueue = ref(false);
+/** Where the review walkthrough stood, to return there after editing. */
+let reviewIndexBeforeEdit = 0;
+
+/** The queue the walkthrough is showing: the review queue or, while editing,
+ * the decided records. */
+const activeQueue = computed(() => (isEditMode.value ? editQueue.value : queue.value));
 
 const isJumpOpen = ref(false);
 
 // The queue holds only what is loaded, so the palette searches that. Records
 // still on the server are reached by working forward, as they always were.
 const jumpItems = computed(() =>
-  queue.value.map((r) => ({
+  activeQueue.value.map((r) => ({
     id: r.id,
     title: r.title,
     author: r.author,
@@ -167,25 +155,10 @@ const jumpItems = computed(() =>
 
 function onJumpShortcut(e: KeyboardEvent) {
   if (e.key !== 'k' || !(e.metaKey || e.ctrlKey)) return;
-  if (isEditMode.value || queue.value.length === 0) return;
+  if (activeQueue.value.length === 0) return;
   e.preventDefault();
   isJumpOpen.value = !isJumpOpen.value;
 }
-
-const filteredEditRecords = computed(() => {
-  if (!editSearchText.value) return editRecords.value;
-  const q = editSearchText.value.toLowerCase();
-  return editRecords.value.filter(
-    (r) =>
-      r.title.toLowerCase().includes(q) ||
-      r.author.toLowerCase().includes(q) ||
-      r.id.toLowerCase().includes(q),
-  );
-});
-
-const editChangesCount = computed(
-  () => editRecords.value.filter((r) => r.newDecision !== r.originalDecision).length,
-);
 
 const {
   currentIndex,
@@ -196,19 +169,10 @@ const {
   prev: prevRecord,
   skipToNextUndecided,
 } = useWalkthroughNavigation<EnrichedRecord>({
-  items: queue,
+  items: activeQueue,
   isUndecided: (r) => r._decision === 'undecided',
-  shouldHandleKey: () => !isEditMode.value,
-  onArrowLeft: () => {
-    if (!isCurrentDecided.value && currentRecord.value && isCurrentRecordReady.value) {
-      makeDecision('exclude');
-    }
-  },
-  onArrowRight: () => {
-    if (!isCurrentDecided.value && currentRecord.value && isCurrentRecordReady.value) {
-      makeDecision('include');
-    }
-  },
+  onArrowLeft: () => decide('exclude'),
+  onArrowRight: () => decide('include'),
 });
 const managedAccessTitle = computed(() => {
   if (!activeManagedTask.value) return 'Prescreen is unavailable';
@@ -226,13 +190,22 @@ const managedAccessDescription = computed(() => {
 });
 
 // Decision tracking
-const decidedCount = computed(() => queue.value.filter((r) => r._decision !== 'undecided').length);
+const decidedCount = computed(
+  () => activeQueue.value.filter((r) => r._decision !== 'undecided').length,
+);
 
-const overallTotal = computed(() => decidedCount.value + totalCount.value);
+// Every record in the edit queue is decided, so there is nothing beyond it.
+const overallTotal = computed(() =>
+  isEditMode.value ? editQueue.value.length : decidedCount.value + totalCount.value,
+);
 
-const includedCount = computed(() => queue.value.filter((r) => r._decision === 'included').length);
+const includedCount = computed(
+  () => activeQueue.value.filter((r) => r._decision === 'included').length,
+);
 
-const excludedCount = computed(() => queue.value.filter((r) => r._decision === 'excluded').length);
+const excludedCount = computed(
+  () => activeQueue.value.filter((r) => r._decision === 'excluded').length,
+);
 
 const isCurrentDecided = computed(() => currentRecord.value !== null && currentRecord.value._decision !== 'undecided');
 
@@ -265,7 +238,7 @@ const isCurrentRecordReady = computed(() => {
 
 // Check if next record is ready
 const isNextRecordReady = computed(() => {
-  const nextRecord = queue.value[currentIndex.value + 1];
+  const nextRecord = activeQueue.value[currentIndex.value + 1];
   if (!nextRecord) return true;
   return (
     nextRecord.abstract ||
@@ -276,6 +249,21 @@ const isNextRecordReady = computed(() => {
 });
 
 // --- Data loading ---
+
+function initialEnrichmentStatus(record: PrescreenQueueRecord): EnrichmentStatus {
+  if (record.abstract) return 'complete';
+  if (skipEnrichment.value) return 'failed';
+  return record.can_enrich ? 'pending' : 'complete';
+}
+
+/** A loaded record by id, in either queue — enrichment results can land after
+ * the walkthrough has switched between reviewing and editing. */
+function findLoadedRecord(recordId: string): EnrichedRecord | undefined {
+  return (
+    queue.value.find((r) => r.id === recordId) ??
+    editQueue.value.find((r) => r.id === recordId)
+  );
+}
 
 async function loadQueue() {
   if (!projects.currentProjectId || !backend.isRunning) return;
@@ -295,13 +283,7 @@ async function loadQueue() {
     if (response.success) {
       const newRecords: EnrichedRecord[] = response.records.map((record) => ({
         ...record,
-        _enrichmentStatus: record.abstract
-          ? 'complete'
-          : skipEnrichment.value
-            ? ('failed' as EnrichmentStatus)
-            : record.can_enrich
-              ? 'pending'
-              : ('complete' as EnrichmentStatus),
+        _enrichmentStatus: initialEnrichmentStatus(record),
         _decision: 'undecided' as DecisionState,
       }));
 
@@ -333,7 +315,7 @@ async function startBackgroundEnrichment() {
   const signal = enrichmentAbortController.signal;
 
   while (!signal.aborted) {
-    const recordsToEnrich = queue.value
+    const recordsToEnrich = activeQueue.value
       .filter((r) => r._enrichmentStatus === 'pending')
       .slice(0, PREFETCH_BATCH_SIZE)
       .map((r) => r.id);
@@ -341,7 +323,7 @@ async function startBackgroundEnrichment() {
     if (recordsToEnrich.length === 0) break;
 
     recordsToEnrich.forEach((id) => {
-      const record = queue.value.find((r) => r.id === id);
+      const record = findLoadedRecord(id);
       if (record) record._enrichmentStatus = 'loading';
     });
 
@@ -355,7 +337,7 @@ async function startBackgroundEnrichment() {
 
       if (response.success) {
         for (const result of response.records) {
-          const queueRecord = queue.value.find((r) => r.id === result.id);
+          const queueRecord = findLoadedRecord(result.id);
           const enriched = result.record;
           if (queueRecord && enriched) {
             queueRecord.abstract = enriched.abstract;
@@ -370,7 +352,7 @@ async function startBackgroundEnrichment() {
       if (signal.aborted) break;
       console.error('Background enrichment batch failed:', err);
       recordsToEnrich.forEach((id) => {
-        const record = queue.value.find((r) => r.id === id);
+        const record = findLoadedRecord(id);
         if (record && record._enrichmentStatus === 'loading') {
           record._enrichmentStatus = 'failed';
         }
@@ -381,7 +363,7 @@ async function startBackgroundEnrichment() {
 }
 
 async function enrichSingleRecord(recordId: string) {
-  const record = queue.value.find((r) => r.id === recordId);
+  const record = findLoadedRecord(recordId);
   if (!record || record._enrichmentStatus !== 'pending') return;
   if (skipEnrichment.value) {
     record._enrichmentStatus = 'failed';
@@ -415,12 +397,12 @@ watch(currentIndex, async (newIndex) => {
   // (simultaneous click + keypress); reset when the active record changes.
   lastDecisionTime.value = 0;
 
-  const nextRecord = queue.value[newIndex + 1];
+  const nextRecord = activeQueue.value[newIndex + 1];
   if (nextRecord && nextRecord._enrichmentStatus === 'pending') {
     await enrichSingleRecord(nextRecord.id);
   }
 
-  const current = queue.value[newIndex];
+  const current = activeQueue.value[newIndex];
   if (current && current._enrichmentStatus === 'pending') {
     await enrichSingleRecord(current.id);
   }
@@ -556,94 +538,123 @@ async function makeDecision(decision: 'include' | 'exclude') {
   }
 }
 
+/** Decision buttons and arrow keys: decide an undecided record, or revise a
+ * decided one while editing. */
+function decide(decision: 'include' | 'exclude') {
+  if (!currentRecord.value || !isCurrentRecordReady.value) return;
+  if (isEditMode.value) reviseDecision(decision);
+  else if (!isCurrentDecided.value) makeDecision(decision);
+}
+
 // --- Edit mode functions ---
+
+// Every decided record, not a page of them: the map and filmstrip are bounded
+// by width, not by queue length.
+const EDIT_QUEUE_LIMIT = 100_000;
 
 async function enterEditMode() {
   if (!projects.currentProjectId || !backend.isRunning) return;
-
+  reviewIndexBeforeEdit = currentIndex.value;
   isEditMode.value = true;
-  isLoadingEditRecords.value = true;
-  editSearchText.value = '';
+  editQueue.value = [];
+  currentIndex.value = 0;
+  await loadEditQueue();
+}
 
+async function loadEditQueue() {
+  if (!projects.currentProjectId || !backend.isRunning) return;
+  isLoadingEditQueue.value = true;
+  const guard = projectData.snapshot();
   try {
-    const response = await backend.call('get_records', {
+    const response = await backend.call('get_prescreen_queue', {
       project_id: projects.currentProjectId,
-      filters: { status: ['rev_prescreen_included', 'rev_prescreen_excluded'] },
-      pagination: { offset: 0, limit: 500 },
-      fields: ['ID', 'title', 'author', 'year', 'colrev_status'],
+      limit: EDIT_QUEUE_LIMIT,
+      task_id: managedTask.value?.id,
+      decided: true,
     });
-
-    if (response.success) {
-      const editableRecords = managedTask.value
-        ? response.records.filter((r: any) => managedTask.value?.record_ids.includes(r.ID))
-        : response.records;
-
-      editRecords.value = editableRecords.map((r: any) => {
-        const isIncluded = r.colrev_status === 'rev_prescreen_included';
-        return {
-          id: r.ID,
-          title: r.title || '',
-          author: r.author || '',
-          year: r.year || '',
-          originalDecision: isIncluded ? 'include' : 'exclude',
-          newDecision: isIncluded ? 'include' : 'exclude',
-        } as EditRecord;
-      });
-    }
+    if (!guard.isCurrent() || !isEditMode.value) return;
+    editQueue.value = response.records.map((record) => ({
+      ...record,
+      _enrichmentStatus: initialEnrichmentStatus(record),
+      _decision: record.decision === 'include' ? 'included' : 'excluded',
+    }));
+    currentIndex.value = 0;
+    startBackgroundEnrichment();
   } catch (err) {
-    console.error('Failed to load records for edit mode:', err);
-    notifications.error('Failed to load records', err instanceof Error ? err.message : 'Unknown error');
-    isEditMode.value = false;
-  } finally {
-    isLoadingEditRecords.value = false;
-  }
-}
-
-function toggleDecision(recordId: string) {
-  const record = editRecords.value.find((r) => r.id === recordId);
-  if (!record) return;
-  record.newDecision = record.newDecision === 'include' ? 'exclude' : 'include';
-}
-
-async function saveEdits() {
-  if (!projects.currentProjectId || isSavingEdits.value) return;
-
-  const changed = editRecords.value.filter((r) => r.newDecision !== r.originalDecision);
-  if (changed.length === 0) return;
-
-  isSavingEdits.value = true;
-  try {
-    const response = await backend.call(
-      'update_prescreen_decisions',
-      {
-        project_id: projects.currentProjectId,
-        changes: changed.map((r) => ({
-          record_id: r.id,
-          decision: r.newDecision,
-        })),
-      },
+    notifications.error(
+      'Failed to load decisions',
+      err instanceof Error ? err.message : 'Unknown error',
     );
-
-    if (response.success) {
-      notifications.success(
-        'Decisions updated',
-        `${response.changes_count} record(s) updated`,
-      );
-      isEditMode.value = false;
-      editRecords.value = [];
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    notifications.error('Save failed', message);
+    if (guard.isCurrent()) await exitEditMode();
   } finally {
-    isSavingEdits.value = false;
+    isLoadingEditQueue.value = false;
   }
 }
 
-function cancelEdits() {
+/** Change the decision on the current record and move on, as reviewing does.
+ * Optimistic, on the same ordered write chain as first decisions. */
+function reviseDecision(decision: 'include' | 'exclude') {
+  const record = currentRecord.value;
+  if (!record || !projects.currentProjectId || isReadOnly.value) return;
+  // Debounce: prevent duplicate calls from simultaneous keyboard + click events
+  const now = Date.now();
+  if (now - lastDecisionTime.value < 500) return;
+  lastDecisionTime.value = now;
+
+  const target: DecisionState = decision === 'include' ? 'included' : 'excluded';
+  const previous = record._decision;
+  if (previous !== target) {
+    record._decision = target;
+    flushRevision(record, decision, previous, projectData.snapshot());
+  }
+  nextRecord();
+}
+
+function flushRevision(
+  record: EnrichedRecord,
+  decision: 'include' | 'exclude',
+  previous: DecisionState,
+  guard: { isCurrent: () => boolean },
+) {
+  const projectId = projects.currentProjectId!;
+  const applied: DecisionState = decision === 'include' ? 'included' : 'excluded';
+  const rollBack = (message: string) => {
+    if (guard.isCurrent() && record._decision === applied) record._decision = previous;
+    notifications.error('Decision change failed', message);
+  };
+  const run = decisionChain.then(async () => {
+    if (!guard.isCurrent()) return;
+    try {
+      const response = await backend.call('update_prescreen_decisions', {
+        project_id: projectId,
+        changes: [{ record_id: record.id, decision }],
+      });
+      const skipped = response.skipped.find((s) => s.record_id === record.id);
+      if (skipped) rollBack(`${record.id}: ${skipped.reason}`);
+    } catch (err) {
+      rollBack(err instanceof Error ? err.message : 'Unknown error');
+    }
+  });
+  decisionChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+}
+
+async function exitEditMode() {
+  // Carry revised decisions back into the review walkthrough's own copies.
+  const revised = new Map(editQueue.value.map((r) => [r.id, r._decision]));
+  for (const r of [...queue.value, ...decisionHistory.value]) {
+    const decision = revised.get(r.id);
+    if (decision) r._decision = decision;
+  }
   isEditMode.value = false;
-  editRecords.value = [];
-  editSearchText.value = '';
+  editQueue.value = [];
+  currentIndex.value = Math.min(reviewIndexBeforeEdit, Math.max(0, queue.value.length - 1));
+  // The completion screen reads server-side counts: refresh once the
+  // revisions have landed.
+  await decisionChain;
+  await projectData.refreshNow();
 }
 
 
@@ -691,6 +702,8 @@ useProjectDataChanged(async (event) => {
   if (isArrangingAccess) return;
   decisionHistory.value = [];
   allDecisionsMade.value = false;
+  isEditMode.value = false;
+  editQueue.value = [];
   await arrangeAccessAndLoad();
 });
 
@@ -740,13 +753,23 @@ onUnmounted(() => {
     <template v-else>
     <!-- Zone 1: Header + Stats -->
     <div class="flex items-center justify-between mb-3">
-      <div v-if="!embedded" class="flex items-center gap-2">
-        <Filter class="h-5 w-5 text-muted-foreground" />
-        <h2 class="text-xl font-semibold" data-testid="prescreen-title">Prescreen</h2>
+      <div class="flex items-center gap-2">
+        <template v-if="!embedded">
+          <Filter class="h-5 w-5 text-muted-foreground" />
+          <h2 class="text-xl font-semibold" data-testid="prescreen-title">Prescreen</h2>
+        </template>
+        <Badge
+          v-if="isEditMode"
+          variant="outline"
+          class="px-2.5 py-0.5"
+          data-testid="prescreen-edit-mode"
+        >
+          <Pencil class="h-3 w-3 mr-1" />
+          Editing decisions
+        </Badge>
       </div>
-      <div v-else />
 
-      <div v-if="queue.length > 0" class="flex items-center gap-3">
+      <div v-if="activeQueue.length > 0 || isEditMode" class="flex items-center gap-3">
         <Badge variant="secondary" class="px-2.5 py-0.5" data-testid="prescreen-included-count">
           <Check class="h-3 w-3 mr-1" />
           {{ includedCount }}
@@ -755,117 +778,48 @@ onUnmounted(() => {
           <X class="h-3 w-3 mr-1" />
           {{ excludedCount }}
         </Badge>
-        <Badge variant="secondary" class="px-2.5 py-0.5" data-testid="prescreen-remaining-count">
+        <Badge
+          v-if="!isEditMode"
+          variant="secondary"
+          class="px-2.5 py-0.5"
+          data-testid="prescreen-remaining-count"
+        >
           {{ totalCount }} remaining
         </Badge>
+        <Button
+          v-if="isEditMode"
+          size="sm"
+          data-testid="prescreen-edit-done-btn"
+          @click="exitEditMode"
+        >
+          <Check class="h-4 w-4 mr-1.5" />
+          Done
+        </Button>
       </div>
     </div>
 
     <Separator class="mb-3" />
 
-    <!-- Edit mode -->
+    <!-- Edit mode: loading / nothing decided yet. With records it is the
+         screening interface below. -->
     <div
-      v-if="isEditMode"
-      class="flex-1 flex flex-col min-h-0"
-      data-testid="prescreen-edit-mode"
+      v-if="isEditMode && isLoadingEditQueue"
+      class="flex-1 flex items-center justify-center"
+      data-testid="prescreen-edit-loading"
     >
-      <!-- Edit mode header -->
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <h3 class="text-base font-medium">Edit Prescreen Decisions</h3>
-          <Badge v-if="editChangesCount > 0" variant="secondary" class="px-2 py-0.5">
-            {{ editChangesCount }} change{{ editChangesCount !== 1 ? 's' : '' }}
-          </Badge>
-        </div>
-        <div class="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            data-testid="prescreen-edit-cancel-btn"
-            @click="cancelEdits"
-          >
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            data-testid="prescreen-edit-save-btn"
-            :disabled="editChangesCount === 0 || isSavingEdits || isReadOnly"
-            @click="saveEdits"
-          >
-            <Loader2 v-if="isSavingEdits" class="h-4 w-4 mr-1.5 animate-spin" />
-            Save {{ editChangesCount }} change{{ editChangesCount !== 1 ? 's' : '' }}
-          </Button>
-        </div>
-      </div>
-
-      <!-- Search input -->
-      <div class="relative mb-3">
-        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          v-model="editSearchText"
-          placeholder="Filter by title, author, or ID..."
-          class="pl-9"
-          data-testid="prescreen-edit-search"
-        />
-      </div>
-
-      <!-- Loading state -->
-      <div v-if="isLoadingEditRecords" class="flex-1 flex items-center justify-center">
-        <Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-
-      <!-- Records table -->
-      <ScrollArea v-else class="flex-1">
-        <Table class="table-fixed w-full">
-          <TableHeader>
-            <TableRow>
-              <TableHead class="w-[45%]">Title</TableHead>
-              <TableHead class="w-[25%]">Authors</TableHead>
-              <TableHead class="w-[50px]">Year</TableHead>
-              <TableHead class="w-[110px] text-right">Decision</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            <TableRow
-              v-for="record in filteredEditRecords"
-              :key="record.id"
-              :class="{ 'bg-muted/50': record.newDecision !== record.originalDecision }"
-              :data-testid="`prescreen-edit-row-${record.id}`"
-            >
-              <TableCell class="overflow-hidden">
-                <div class="font-medium text-sm leading-tight truncate">{{ record.title }}</div>
-                <div class="text-xs text-muted-foreground font-mono mt-0.5 truncate">{{ record.id }}</div>
-              </TableCell>
-              <TableCell class="text-sm overflow-hidden">
-                <span class="block truncate">{{ record.author }}</span>
-              </TableCell>
-              <TableCell class="text-sm">{{ record.year }}</TableCell>
-              <TableCell class="text-right">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  :class="
-                    record.newDecision === 'include'
-                      ? 'border-green-600/50 text-green-500 hover:bg-green-600/10'
-                      : 'border-destructive/50 text-red-400 hover:bg-destructive/10'
-                  "
-                  :data-testid="`prescreen-edit-toggle-${record.id}`"
-                  @click="toggleDecision(record.id)"
-                >
-                  <Check v-if="record.newDecision === 'include'" class="h-3.5 w-3.5 mr-1" />
-                  <X v-else class="h-3.5 w-3.5 mr-1" />
-                  {{ record.newDecision === 'include' ? 'Included' : 'Excluded' }}
-                </Button>
-              </TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
-      </ScrollArea>
+      <Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
     </div>
+
+    <EmptyState
+      v-else-if="isEditMode && editQueue.length === 0"
+      :icon="Pencil"
+      title="No decisions to edit"
+      description="Records you include or exclude in prescreen appear here."
+    />
 
     <!-- Completion state -->
     <div
-      v-else-if="!isLoading && queue.length === 0 && isPrescreenComplete"
+      v-else-if="!isEditMode && !isLoading && queue.length === 0 && isPrescreenComplete"
       class="flex-1 flex flex-col items-center justify-center text-center"
       data-testid="prescreen-complete"
     >
@@ -959,7 +913,7 @@ onUnmounted(() => {
 
     <!-- Load failure: retry UI, distinguishable from an empty queue -->
     <LoadErrorState
-      v-else-if="!isLoading && loadError"
+      v-else-if="!isEditMode && !isLoading && loadError"
       title="Failed to load prescreen queue"
       :message="loadError"
       test-id="prescreen-load-error"
@@ -968,7 +922,7 @@ onUnmounted(() => {
 
     <!-- Empty state (no records available yet) -->
     <EmptyState
-      v-else-if="!isLoading && queue.length === 0"
+      v-else-if="!isEditMode && !isLoading && queue.length === 0"
       :icon="Filter"
       title="No records to prescreen"
       description="There are no records ready for prescreening yet. Run search & preprocessing first."
@@ -980,7 +934,7 @@ onUnmounted(() => {
       <div class="mb-2 flex items-center gap-3">
         <QueueMap
           class="flex-1 min-w-0"
-          :items="queue.map((r) => ({ id: r.id, decision: r._decision }))"
+          :items="activeQueue.map((r) => ({ id: r.id, decision: r._decision }))"
           :current-index="currentIndex"
           :decided-count="decidedCount"
           :total-count="overallTotal"
@@ -1005,7 +959,7 @@ onUnmounted(() => {
         v-if="currentRecord"
         :record="currentRecord"
         :can-prev="currentIndex > 0"
-        :can-next="currentIndex < queue.length - 1"
+        :can-next="currentIndex < activeQueue.length - 1"
         layout="side-by-side"
         test-id-prefix="prescreen"
         @prev="prevRecord"
@@ -1016,9 +970,10 @@ onUnmounted(() => {
             :decision="currentRecord._decision"
             :disabled="!isCurrentRecordReady || isReadOnly"
             :is-submitting="isFinishing"
-            :show-skip-to-next="nextUndecidedIndex !== -1"
+            :show-skip-to-next="!isEditMode && nextUndecidedIndex !== -1"
+            :editable="isEditMode"
             test-id-prefix="prescreen"
-            @decide="makeDecision"
+            @decide="decide"
             @skip-to-next="skipToNextUndecided"
           />
         </template>
@@ -1026,7 +981,7 @@ onUnmounted(() => {
 
       <QueueFilmstrip
         class="mt-3"
-        :items="queue.map((r) => ({ id: r.id, title: r.title, year: r.year, decision: r._decision }))"
+        :items="activeQueue.map((r) => ({ id: r.id, title: r.title, year: r.year, decision: r._decision }))"
         :current-index="currentIndex"
         test-id-prefix="prescreen"
         @seek="goToRecord"
