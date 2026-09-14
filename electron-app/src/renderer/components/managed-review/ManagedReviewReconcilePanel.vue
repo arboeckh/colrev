@@ -125,12 +125,33 @@ function onWalkthroughClose() {
 }
 
 async function onWalkthroughApplied(response: ApplyReconciliationResponse) {
+  // The task is completed on dev as of this response. Reflect that before
+  // anything slow runs: `tasks` still holds the pre-apply snapshot (active,
+  // every reviewer finished), which would re-offer "Start Reconciliation"
+  // against reviewer branches that are about to be deleted.
+  tasks.value = tasks.value.map((task) =>
+    task.id === response.task_id ? { ...task, state: 'completed' } : task,
+  );
   showWalkthrough.value = false;
+
+  // Store-level state (status, managed review tasks) refreshes via the
+  // invalidation seam; reload the panel-owned task data here, ahead of branch
+  // retirement — that is one network round trip per branch.
+  await refreshData();
 
   // The reviewer branches have done their job: their decisions are in dev and
   // the audit trail records what they contained. Left alone they accumulate on
   // origin, one pair per completed task.
-  const retired = await retireReviewerBranches(response.retired_branches ?? []);
+  let retired: { deleted: string[]; failed: string[] };
+  try {
+    retired = await retireReviewerBranches(response.retired_branches ?? []);
+  } catch (err) {
+    notifications.info(
+      'Review branches were not cleaned up',
+      `${err instanceof Error ? err.message : 'Unknown error'}. Reconciliation itself succeeded.`,
+    );
+    return;
+  }
   if (retired.deleted.length > 0) {
     notifications.success(
       'Review branches cleaned up',
@@ -145,10 +166,6 @@ async function onWalkthroughApplied(response: ApplyReconciliationResponse) {
       `${retired.failed.join(', ')} could not be deleted. Reconciliation itself succeeded.`,
     );
   }
-
-  // Store-level state (status, managed review tasks) refreshes via the
-  // invalidation seam; reload the panel-owned reconciliation data here.
-  await refreshData();
 }
 
 async function exportAudit(format: 'csv' | 'json') {
