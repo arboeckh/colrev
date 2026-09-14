@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { Loader2, AlertCircle, Trash2, Github } from 'lucide-vue-next';
+import { Loader2, AlertCircle, Trash2, Info } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -15,7 +14,6 @@ import {
 import { useProjectsStore, type ProjectListItem } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useNotificationsStore } from '@/stores/notifications';
-import { useConnectionStore } from '@/stores/connection';
 import { useGitStore } from '@/stores/git';
 
 defineProps<{
@@ -26,13 +24,11 @@ const router = useRouter();
 const projectsStore = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
-const connection = useConnectionStore();
 const git = useGitStore();
 
 const showDeleteDialog = ref(false);
 const projectToDelete = ref<ProjectListItem | null>(null);
 const isDeleting = ref(false);
-const deleteGithubToo = ref(false);
 // Whether the project being deleted has a GitHub remote. Read for that one
 // project when the dialog opens — the gallery itself reads no repos.
 const deleteTargetRemoteUrl = ref<string | null>(null);
@@ -55,7 +51,6 @@ function initials(project: ProjectListItem): string {
 async function onDeleteClick(event: Event, project: ProjectListItem) {
   event.stopPropagation();
   projectToDelete.value = project;
-  deleteGithubToo.value = false;
   deleteTargetRemoteUrl.value = git.snapshotFor(project.id)?.remoteUrl ?? null;
   showDeleteDialog.value = true;
 
@@ -67,9 +62,12 @@ async function onDeleteClick(event: Event, project: ProjectListItem) {
   }
 }
 
-function hasGitHubRemote(): boolean {
-  const url = deleteTargetRemoteUrl.value;
-  return !!url && url.includes('github.com');
+// The app only deletes the local copy: removing a GitHub repository needs
+// admin rights we don't ask the user's token for. Point them at the repo's
+// settings page instead, where GitHub's own delete lives.
+function gitHubSettingsUrl(): string | null {
+  const match = deleteTargetRemoteUrl.value?.match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
+  return match ? `https://github.com/${match[1]}/${match[2]}/settings` : null;
 }
 
 async function confirmDelete() {
@@ -78,23 +76,12 @@ async function confirmDelete() {
   isDeleting.value = true;
 
   try {
-    const remoteUrl = deleteTargetRemoteUrl.value;
-    if (deleteGithubToo.value && remoteUrl) {
-      const ghResult = await window.github.deleteRepo({ remoteUrl });
-      if (!ghResult.success) {
-        notifications.error('Failed to delete GitHub repository', ghResult.error ?? 'Unknown error');
-        isDeleting.value = false;
-        return;
-      }
-    }
-
     const response = await backend.call('delete_project', {
       project_id: projectToDelete.value.id,
     });
 
     if (response.success) {
-      const suffix = deleteGithubToo.value ? ' and GitHub repository' : '';
-      notifications.success('Review deleted', `Deleted ${projectToDelete.value.id}${suffix}`);
+      notifications.success('Review deleted', `Deleted ${projectToDelete.value.id}`);
       projectsStore.removeProject(projectToDelete.value.id);
     }
   } catch (err) {
@@ -166,32 +153,23 @@ async function confirmDelete() {
         </DialogDescription>
       </DialogHeader>
 
-      <!-- GitHub delete option -->
+      <!-- The GitHub repository is left untouched -->
       <div
-        v-if="hasGitHubRemote()"
-        class="flex items-start gap-3 rounded-md border p-3"
-        :class="deleteGithubToo ? 'border-destructive bg-destructive/5' : 'border-border'"
-        :title="connection.isOnline ? undefined : 'Requires internet'"
+        v-if="gitHubSettingsUrl()"
+        class="flex items-start gap-2 rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground"
+        data-testid="delete-github-info"
       >
-        <Checkbox
-          :checked="deleteGithubToo"
-          :disabled="!connection.isOnline"
-          data-testid="delete-github-checkbox"
-          @update:checked="deleteGithubToo = $event"
-        />
-        <div class="space-y-1">
-          <label
-            class="text-sm font-medium flex items-center gap-1.5"
-            :class="connection.isOnline ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
-            @click="connection.isOnline && (deleteGithubToo = !deleteGithubToo)"
-          >
-            <Github class="h-4 w-4" />
-            Also delete GitHub repository
-          </label>
-          <p class="text-xs text-muted-foreground">
-            This will permanently delete the repository on GitHub. All collaborators will lose access.
-          </p>
-        </div>
+        <Info class="h-4 w-4 shrink-0" />
+        <p>
+          This only deletes the review on this computer. The GitHub repository stays, and collaborators keep
+          access. To delete it as well, do so on GitHub under
+          <a
+            :href="gitHubSettingsUrl()!"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="font-medium text-foreground underline underline-offset-2"
+          >Settings → Danger Zone</a>.
+        </p>
       </div>
 
       <DialogFooter>
@@ -209,7 +187,7 @@ async function confirmDelete() {
           @click="confirmDelete"
         >
           <Loader2 v-if="isDeleting" class="h-4 w-4 mr-2 animate-spin" />
-          {{ deleteGithubToo ? 'Delete Local & GitHub' : 'Delete Local' }}
+          Delete Local
         </Button>
       </DialogFooter>
     </DialogContent>

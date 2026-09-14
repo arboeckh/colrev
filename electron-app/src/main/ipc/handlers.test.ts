@@ -149,7 +149,6 @@ describe('lock classification', () => {
       'github:accept-invitation',
       'github:add-collaborator',
       'github:decline-invitation',
-      'github:delete-repo',
       'github:invite-user-suggestions',
       'github:list-collaborators',
       'github:list-colrev-repos',

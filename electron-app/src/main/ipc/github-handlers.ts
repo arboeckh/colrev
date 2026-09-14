@@ -266,13 +266,5 @@ export function createGitHubHandlers(deps: GitHubHandlerDeps): IpcHandlerSpec[] 
         gh.declineRepoInvitation(token, params.invitationId),
       ),
     ),
-
-    apiOnly('github:delete-repo', (params: { remoteUrl: string }) =>
-      withRepo(
-        deps,
-        { remoteUrl: params.remoteUrl, empty: {}, failureMessage: 'Failed to delete repository' },
-        ({ token, owner, repo }) => gh.deleteRepo(token, owner, repo),
-      ),
-    ),
   ];
 }
