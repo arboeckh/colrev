@@ -20,6 +20,10 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
   const projects = useProjectsStore();
 
   const definition = ref<ReviewDefinitionData | null>(null);
+  // The store is not reset when the user switches projects, so `definition`
+  // can still hold the previous project's until the next load lands. Readers
+  // that must not show another project's definition compare against this.
+  const loadedProjectId = ref<string | null>(null);
   const isLoading = ref(false);
   const isSaving = ref(false);
   const hasBeenVisited = ref(false);
@@ -28,16 +32,18 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
   async function loadDefinition() {
     if (!projects.currentProjectId || !backend.isRunning) return;
 
+    const projectId = projects.currentProjectId;
     isLoading.value = true;
     loadError.value = null;
     try {
       const response = await backend.call(
         'get_review_definition',
-        { project_id: projects.currentProjectId },
+        { project_id: projectId },
       );
       if (response.success) {
         const { success, project_id, ...data } = response;
         definition.value = data;
+        loadedProjectId.value = projectId;
       }
 
       // Load visited status from localStorage
@@ -215,6 +221,7 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
 
   return {
     definition,
+    loadedProjectId,
     isLoading,
     isSaving,
     hasBeenVisited,

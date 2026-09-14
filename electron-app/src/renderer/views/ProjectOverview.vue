@@ -15,6 +15,7 @@ import {
   User,
   ArrowRight,
   Search,
+  FileText,
 } from 'lucide-vue-next';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -46,11 +47,14 @@ import { useGitStore } from '@/stores/git';
 import { ensureWorkingBranch } from '@/composables/useManagedTaskAccess';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useConnectionStore } from '@/stores/connection';
+import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
 import { WORKFLOW_STEPS } from '@/types/project';
 import { stepForOperation } from '@/lib/stepStatus';
+import { isDefinitionEmpty } from '@/lib/reviewDefinition';
 
 const router = useRouter();
 const projects = useProjectsStore();
+const reviewDefinition = useReviewDefinitionStore();
 const auth = useAuthStore();
 const git = useGitStore();
 const notifications = useNotificationsStore();
@@ -62,17 +66,29 @@ const offlineTooltip = 'Requires internet';
 // shared status module.
 const nextStep = computed(() => stepForOperation(projects.nextOperation, WORKFLOW_STEPS));
 
+// A review with nothing in it has no engine-derived next operation, which left
+// the header with no forward action at all. In that state the header follows
+// the get-started checklist: the definition while it is still blank, search
+// after that.
+const firstRunCta = computed<{ route: string; label: string } | undefined>(() => {
+  if (!isEmptyReview.value) return undefined;
+  if (definitionState.value === 'empty') {
+    return { route: definitionRoute.value, label: 'Start with Definition' };
+  }
+  // Hold the button back while the definition is still loading, rather than
+  // showing Search and then swapping it out a moment later.
+  if (definitionState.value === 'unknown' && reviewDefinition.isLoading) return undefined;
+  return { route: searchRoute.value, label: 'Start with Search' };
+});
+
 const nextStepRoute = computed(() => {
   if (!projects.currentProjectId) return undefined;
-  // A review with nothing in it has no engine-derived next operation, which
-  // left the header with no forward action at all. Search is always the answer
-  // in that state.
-  if (!nextStep.value) return isEmptyReview.value ? searchRoute.value : undefined;
+  if (!nextStep.value) return firstRunCta.value?.route;
   return `/project/${projects.currentProjectId}/${nextStep.value.route}`;
 });
 
 const nextStepLabel = computed(() => {
-  if (!nextStep.value) return isEmptyReview.value ? 'Start with Search' : undefined;
+  if (!nextStep.value) return firstRunCta.value?.label;
   return `Continue to ${nextStep.value.label}`;
 });
 
@@ -293,6 +309,28 @@ const searchRoute = computed(() =>
   projects.currentProjectId ? `/project/${projects.currentProjectId}/search` : '/',
 );
 
+const definitionRoute = computed(() =>
+  projects.currentProjectId ? `/project/${projects.currentProjectId}/review-definition` : '/',
+);
+
+/**
+ * Whether the research question and criteria have been written down yet.
+ * `unknown` until this project's definition has loaded — the store can still
+ * hold the previously opened project's, which would otherwise show a freshly
+ * created review as already defined.
+ */
+const definitionState = computed<'unknown' | 'empty' | 'defined'>(() => {
+  const definition = reviewDefinition.definition;
+  if (!definition || reviewDefinition.loadedProjectId !== projects.currentProjectId) {
+    return 'unknown';
+  }
+  return isDefinitionEmpty(definition) ? 'empty' : 'defined';
+});
+
+// Fire-and-forget, like collaborators below; only the get-started checklist
+// reads it.
+reviewDefinition.loadDefinition();
+
 const newRecordFunnel = computed(() => {
   const delta = git.branchDelta;
   if (!delta || delta.new_record_count === 0) return null;
@@ -317,23 +355,75 @@ const newRecordFunnel = computed(() => {
     >
       <div class="p-6 max-w-4xl space-y-6">
 
-        <!-- First run: the review has no records, so give it the one action
-             that matters instead of a publishing panel with nothing to say. -->
+        <!-- First run: the review has no records, so give it the actions that
+             matter instead of a publishing panel with nothing to say. The
+             definition comes first but is not a gate — search works without
+             it, so its button stays available either way. -->
         <div
           v-if="isEmptyReview"
           class="rounded-md border border-border bg-card p-6"
           data-testid="overview-get-started"
         >
-          <h3 class="text-lg font-medium mb-1">Start with a search</h3>
-          <p class="text-sm text-muted-foreground max-w-prose mb-4">
-            A review begins by collecting candidate papers. Add a search source — a
-            database like PubMed or OpenAlex, or a file you exported from one — and
-            CoLRev pulls the results in, cleans them up and removes duplicates.
-          </p>
-          <Button data-testid="overview-add-first-source" @click="router.push(searchRoute)">
-            <Search class="h-4 w-4 mr-2" />
-            Add a search source
-          </Button>
+          <h3 class="text-lg font-medium mb-4">Get started</h3>
+          <ol class="space-y-5">
+            <li class="flex gap-4" data-testid="overview-step-definition" :data-state="definitionState">
+              <div
+                class="h-6 w-6 shrink-0 rounded-full flex items-center justify-center text-xs font-medium"
+                :class="definitionState === 'defined' ? 'text-green-600' : 'bg-muted text-muted-foreground'"
+              >
+                <CheckCircle2 v-if="definitionState === 'defined'" class="h-5 w-5" />
+                <span v-else>1</span>
+              </div>
+              <div class="min-w-0 flex-1">
+                <h4 class="text-sm font-medium mb-1">Define your review</h4>
+                <p class="text-sm text-muted-foreground max-w-prose mb-3">
+                  <template v-if="definitionState === 'defined'">
+                    Your research question and criteria are written down. You can refine
+                    them at any time.
+                  </template>
+                  <template v-else>
+                    Write down your research question and the inclusion and exclusion
+                    criteria. They shape what you search for and what you keep when
+                    screening.
+                  </template>
+                </p>
+                <Button
+                  :variant="definitionState === 'defined' ? 'outline' : 'default'"
+                  size="sm"
+                  data-testid="overview-define-review"
+                  @click="router.push(definitionRoute)"
+                >
+                  <FileText class="h-4 w-4 mr-2" />
+                  {{ definitionState === 'defined' ? 'Edit definition' : 'Define review' }}
+                </Button>
+              </div>
+            </li>
+
+            <li class="flex gap-4" data-testid="overview-step-search">
+              <div
+                class="h-6 w-6 shrink-0 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-xs font-medium"
+              >
+                2
+              </div>
+              <div class="min-w-0 flex-1">
+                <h4 class="text-sm font-medium mb-1">Add a search source</h4>
+                <p class="text-sm text-muted-foreground max-w-prose mb-3">
+                  A review begins by collecting candidate papers. Add a search source — a
+                  database like PubMed or OpenAlex, or a file you exported from one — and
+                  CoLRev pulls the results in, cleans them up and removes duplicates.
+                </p>
+                <Button
+                  :variant="definitionState === 'empty' ? 'outline' : 'default'"
+                  size="sm"
+                  data-testid="overview-add-first-source"
+                  @click="router.push(searchRoute)"
+                >
+                  <Search class="h-4 w-4 mr-2" />
+                  Add a search source
+                </Button>
+              </div>
+            </li>
+          </ol>
         </div>
 
         <!-- Publishing section -->
