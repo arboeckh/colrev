@@ -338,7 +338,6 @@ export function createWindowMock(): WindowMock {
       acceptInvitation: vi.fn(async () => okResult()),
       declineInvitation: vi.fn(async () => okResult()),
       createRelease: vi.fn(async () => okResult()),
-      deleteRepo: vi.fn(async () => okResult()),
     } as unknown as MockedObject<GitHubAPI>,
 
     git: {

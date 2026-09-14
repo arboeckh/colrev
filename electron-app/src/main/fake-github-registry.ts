@@ -234,16 +234,4 @@ export class FakeGitHubRegistry {
     this.flush();
     return repo;
   }
-
-  deleteRepo(owner: string, repo: string): boolean {
-    const fullName = `${owner}/${repo}`;
-    const idx = this.data.repos.findIndex((r) => r.fullName === fullName);
-    if (idx === -1) return false;
-    this.data.repos.splice(idx, 1);
-    this.data.collaborators = this.data.collaborators.filter((c) => c.repoFullName !== fullName);
-    this.data.invitations = this.data.invitations.filter((i) => i.repoFullName !== fullName);
-    this.data.releases = this.data.releases.filter((r) => r.repoFullName !== fullName);
-    this.flush();
-    return true;
-  }
 }

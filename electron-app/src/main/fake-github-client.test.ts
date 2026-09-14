@@ -169,16 +169,6 @@ describe('FakeGitHubClient', () => {
     });
   });
 
-  describe('deleteRepo', () => {
-    it('removes a repo', async () => {
-      const result = await client.deleteRepo('tok-alice', 'alice', 'lit-review');
-      expect(result.success).toBe(true);
-
-      const repos = await client.listUserRepos('tok-alice');
-      expect(repos.map((r) => r.name)).not.toContain('lit-review');
-    });
-  });
-
   describe('parseOwnerRepo', () => {
     it('parses HTTPS URLs', () => {
       const result = client.parseOwnerRepo('https://github.com/alice/lit-review.git');

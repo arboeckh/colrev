@@ -290,16 +290,6 @@ export class FakeGitHubClient implements GitHubClient {
     return barePath;
   }
 
-  async deleteRepo(
-    token: string,
-    owner: string,
-    repo: string,
-  ): Promise<{ success: boolean; error?: string }> {
-    const deleted = this.registry.deleteRepo(owner, repo);
-    if (!deleted) return { success: false, error: 'Repository not found' };
-    return { success: true };
-  }
-
   /**
    * The shared parser, plus the fake's one documented extension: its remotes
    * are local bare repositories, not github.com URLs. See `github-url.ts`.

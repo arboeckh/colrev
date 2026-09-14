@@ -19,7 +19,6 @@ import {
   acceptRepoInvitation,
   declineRepoInvitation,
   createRepoAndPush,
-  deleteGitHubRepo,
   parseOwnerRepo,
 } from './github-manager';
 
@@ -106,14 +105,6 @@ export class RealGitHubClient implements GitHubClient {
     description?: string;
   }): Promise<{ success: boolean; repoUrl?: string; htmlUrl?: string; error?: string }> {
     return createRepoAndPush(params);
-  }
-
-  async deleteRepo(
-    token: string,
-    owner: string,
-    repo: string,
-  ): Promise<{ success: boolean; error?: string }> {
-    return deleteGitHubRepo(token, owner, repo);
   }
 
   parseOwnerRepo(remoteUrl: string): { owner: string; repo: string } | null {

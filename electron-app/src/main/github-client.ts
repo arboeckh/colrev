@@ -67,11 +67,5 @@ export interface GitHubClient {
     description?: string;
   }): Promise<{ success: boolean; repoUrl?: string; htmlUrl?: string; error?: string }>;
 
-  deleteRepo(
-    token: string,
-    owner: string,
-    repo: string,
-  ): Promise<{ success: boolean; error?: string }>;
-
   parseOwnerRepo(remoteUrl: string): { owner: string; repo: string } | null;
 }
