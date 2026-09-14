@@ -54,7 +54,9 @@ import HelpSection from '@/components/layout/HelpSection.vue';
       <HelpSection :icon="ArrowRight" title="Where to go next">
         The pipeline runs Definition → Search → Preprocessing → Prescreen → PDFs →
         Screen → Data. The header button takes you directly to the step that still
-        needs work based on current record counts and task state.
+        needs work based on current record counts and task state. In a new review
+        with no records yet, it points to the Definition until you have written one,
+        then to Search.
       </HelpSection>
     </div>
   </HelpDrawer>
