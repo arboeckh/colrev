@@ -322,6 +322,26 @@ export const useGitStore = defineStore('git', () => {
   }
 
   /**
+   * Push a branch by name, whether or not it is checked out — a reviewer
+   * branch whose decisions were saved but never shared (see
+   * `shareUnpublishedReviews`), or dev after a launch, which must not depend on
+   * what HEAD is by then. Leaves the working tree alone.
+   */
+  async function pushBranch(branchName: string): Promise<boolean> {
+    const path = getProjectPath();
+    if (!path) return false;
+    const result = await window.git.pushBranch(path, branchName);
+    if (result.success) {
+      connection.markOnline();
+      // When it is the checked-out branch, its ahead count just changed.
+      if (branchName === currentBranch.value) await refreshStatus();
+      return true;
+    }
+    reportGitFailure('push', result.error);
+    return false;
+  }
+
+  /**
    * Adopt a snapshot from the main process — the only writer of git facts in
    * the renderer. Stored per project, so a late arrival for a project we just
    * left updates that project's entry instead of painting over the current one.
@@ -986,7 +1006,7 @@ export const useGitStore = defineStore('git', () => {
      * Need to sync from new code? Call `useSyncStore().pullNow()` /
      * `.pushNow()` / `.fetchNow()` / `.syncNow()`.
      */
-    __remoteOps: { fetch, pull, push, fastForwardMain, tryAutoResolveDivergence },
+    __remoteOps: { fetch, pull, push, pushBranch, fastForwardMain, tryAutoResolveDivergence },
     refreshStatus,
     refreshSnapshotFor,
     refreshBranches,

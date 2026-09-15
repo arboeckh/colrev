@@ -84,7 +84,9 @@ export interface OverallRecordCounts {
 // colrev/ui_jsonrpc/framework/operation_graph.py). One entry for `search`
 // plus one per pipeline operation (load, prep, dedupe, prescreen, pdf_get,
 // pdf_prep, screen, data).
-export type StatusStepState = 'locked' | 'ready' | 'in_progress' | 'complete';
+// `waiting`: records are pending for the step, but an earlier step still has
+// pending records — the pipeline is at that earlier step, not this one.
+export type StatusStepState = 'locked' | 'ready' | 'in_progress' | 'waiting' | 'complete';
 
 export interface StatusStep {
   operation: string;

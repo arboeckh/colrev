@@ -249,7 +249,13 @@ function appInfo() {
 // --- Registration ----------------------------------------------------------
 
 function setupIPC() {
+  let activeLogin = authManager.getCachedSession()?.user.login ?? null;
   authManager.setAuthUpdateCallback((session) => {
+    const login = session?.user.login ?? null;
+    if (login !== activeLogin) {
+      activeLogin = login;
+      gitState.resetForAccountSwitch();
+    }
     mainWindow?.webContents.send('auth:update', session);
   });
   authManager.setDeviceFlowCallback((status) => {

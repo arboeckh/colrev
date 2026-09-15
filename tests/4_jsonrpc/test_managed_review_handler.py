@@ -891,6 +891,136 @@ class TestManagedReviewJSONRPC:
         assert "error" not in again
         assert again["result"]["task"]["state"] == "aborted"
 
+    def _launch_prescreen_task_with_shared_branches(self) -> dict:
+        """Two md_processed records, a launched task, both branches pushed."""
+        self._commit_records(
+            [
+                {
+                    "ID": "R1",
+                    "origin": "import.bib/R1",
+                    "status": "md_processed",
+                    "title": "Alpha",
+                    "author": "Doe, Jane",
+                    "year": "2021",
+                    "journal": "Journal A",
+                },
+                {
+                    "ID": "R2",
+                    "origin": "import.bib/R2",
+                    "status": "md_processed",
+                    "title": "Beta",
+                    "author": "Doe, John",
+                    "year": "2022",
+                    "journal": "Journal B",
+                },
+            ],
+            "Add prescreen records",
+        )
+        create_response = _request(
+            "create_managed_review_task",
+            self.project_id,
+            self.base_path,
+            kind="prescreen",
+            reviewer_logins=["alice", "bob"],
+            created_by="owner",
+        )
+        assert "error" not in create_response
+        task = create_response["result"]["task"]
+        self._create_local_review_branches(task, create_response["result"]["launch_ref"])
+        for reviewer in task["reviewers"]:
+            self.repo.git.push("origin", reviewer["branch_name"])
+        return task
+
+    def _decide_on_branch(self, branch_name: str, message: str) -> None:
+        self.repo.git.checkout(branch_name)
+        self._commit_records(
+            [
+                {
+                    "ID": "R1",
+                    "origin": "import.bib/R1",
+                    "status": "rev_prescreen_included",
+                    "title": "Alpha",
+                    "author": "Doe, Jane",
+                    "year": "2021",
+                    "journal": "Journal A",
+                },
+                {
+                    "ID": "R2",
+                    "origin": "import.bib/R2",
+                    "status": "rev_prescreen_excluded",
+                    "title": "Beta",
+                    "author": "Doe, John",
+                    "year": "2022",
+                    "journal": "Journal B",
+                },
+            ],
+            message,
+        )
+
+    def _progress_by_login(self, task_id: str) -> dict:
+        listed = _request(
+            "list_managed_review_tasks",
+            self.project_id,
+            self.base_path,
+            kind="prescreen",
+        )["result"]["tasks"]
+        task = next(t for t in listed if t["id"] == task_id)
+        return {p["github_login"]: p for p in task["reviewer_progress"]}
+
+    def test_progress_reads_the_remote_copy_when_a_local_copy_is_stale(self):
+        # Bob decided and pushed from his machine. This clone still has its
+        # own copy of bob's branch at the launch commit — the launcher's
+        # checkout, or one an older app left behind. Preferring that copy
+        # pinned bob at 0/2 however far he had got.
+        task = self._launch_prescreen_task_with_shared_branches()
+        bob_branch = task["reviewers"][1]["branch_name"]
+        launch_commit = self.repo.commit(bob_branch).hexsha
+        self._decide_on_branch(bob_branch, "Bob decisions")
+        self.repo.git.push("origin", bob_branch)
+        self.repo.git.checkout("dev")
+        self.repo.git.branch("-f", bob_branch, launch_commit)
+
+        progress = self._progress_by_login(task["id"])
+
+        assert progress["bob"]["completed_count"] == 2
+        assert progress["bob"]["branch_ref"] == f"origin/{bob_branch}"
+        assert progress["bob"]["unpublished_count"] == 0
+        assert progress["alice"]["completed_count"] == 0
+
+    def test_progress_reports_decisions_that_were_never_pushed(self):
+        # Alice saved her decisions on her branch and left it before anything
+        # pushed them: her own progress (local) reads done, but nobody else
+        # can see those decisions until the branch is shared.
+        task = self._launch_prescreen_task_with_shared_branches()
+        alice_branch = task["reviewers"][0]["branch_name"]
+        self._decide_on_branch(alice_branch, "Alice decisions")
+        self.repo.git.checkout("dev")
+
+        progress = self._progress_by_login(task["id"])
+
+        assert progress["alice"]["completed_count"] == 2
+        assert progress["alice"]["branch_ref"] == alice_branch
+        assert progress["alice"]["unpublished_count"] == 1
+        assert progress["bob"]["unpublished_count"] == 0
+
+        self.repo.git.push("origin", alice_branch)
+        assert self._progress_by_login(task["id"])["alice"]["unpublished_count"] == 0
+
+    def test_a_branch_without_a_remote_copy_has_nothing_to_publish(self):
+        # A reviewer branch whose remote copy is gone was retired after
+        # reconciliation; reporting it as unpublished would invite pushing it
+        # back into existence.
+        task = self._launch_prescreen_task_with_shared_branches()
+        alice_branch = task["reviewers"][0]["branch_name"]
+        self._decide_on_branch(alice_branch, "Alice decisions")
+        self.repo.git.checkout("dev")
+        self.repo.git.push("origin", "--delete", alice_branch)
+
+        progress = self._progress_by_login(task["id"])
+
+        assert progress["alice"]["completed_count"] == 2
+        assert progress["alice"]["unpublished_count"] == 0
+
     def test_task_queue_for_an_unknown_task_is_an_error(self):
         response = _request(
             "get_managed_review_task_queue",

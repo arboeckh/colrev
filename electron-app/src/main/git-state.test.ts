@@ -156,6 +156,34 @@ describe('GitStateManager', () => {
     mgr.forget('p');
     expect(mgr.get('p')).toBeNull();
   });
+
+  it('drops every snapshot when the signed-in account changes', async () => {
+    // Project ids repeat across accounts: alice's and carol's `lit-review`
+    // are different clones.
+    const { mgr } = manager();
+    await mgr.refresh('lit-review', '/projects/alice/lit-review');
+
+    mgr.resetForAccountSwitch();
+
+    expect(mgr.get('lit-review')).toBeNull();
+  });
+
+  it('never lets a refresh from the previous account land after the switch', async () => {
+    let answer: (value: unknown) => void = () => {};
+    const { mgr, emitted } = manager({
+      rpc: () => new Promise((resolve) => { answer = resolve; }),
+    });
+
+    const aliceRefresh = mgr.refresh('lit-review', '/projects/alice/lit-review');
+    mgr.resetForAccountSwitch();
+    answer(rpcGit({ branch: 'dev' }));
+    await aliceRefresh;
+
+    // Carol's `lit-review` sits on main; alice's `dev` must not be broadcast
+    // into her renderer or cached for her.
+    expect(emitted).toHaveLength(0);
+    expect(mgr.get('lit-review')).toBeNull();
+  });
 });
 
 describe('stripUrlUserinfo', () => {

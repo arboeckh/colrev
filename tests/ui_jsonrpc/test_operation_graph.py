@@ -127,6 +127,50 @@ class TestStepPayloads:
         for op in ("prep", "dedupe", "prescreen", "pdf_get", "data"):
             assert steps[op]["state"] == "locked", op
 
+    def test_pending_records_behind_an_earlier_pending_step_wait(self):
+        # A second search batch reopened prescreen while the first batch's
+        # included records already sit at screen: the pipeline is back at
+        # prescreen, and screen waits rather than being in progress too.
+        stats = _stats(
+            currently=_counts(
+                md_processed=28,
+                rev_prescreen_excluded=4,
+                pdf_prepared=5,
+            ),
+            overall=_counts(
+                md_imported=37,
+                md_prepared=37,
+                md_processed=37,
+                rev_prescreen_included=5,
+                pdf_imported=5,
+                pdf_prepared=5,
+            ),
+        )
+        steps = self._steps_by_op(stats, total_records=37)
+        assert steps["prescreen"]["state"] == "in_progress"
+        assert steps["pdf_get"]["state"] == "locked"
+        assert steps["pdf_prep"]["state"] == "locked"
+        assert steps["screen"]["state"] == "waiting"
+        assert steps["data"]["state"] == "locked"
+        # Waiting is a status verdict only: the records are still there and
+        # the operation can still run on them.
+        assert steps["screen"]["pending_records"] == 5
+        assert steps["screen"]["runnable"] is True
+
+    def test_waiting_step_is_in_progress_once_earlier_steps_catch_up(self):
+        stats = _stats(
+            currently=_counts(rev_prescreen_excluded=4, pdf_prepared=5),
+            overall=_counts(
+                md_processed=9,
+                rev_prescreen_included=5,
+                pdf_imported=5,
+                pdf_prepared=5,
+            ),
+        )
+        steps = self._steps_by_op(stats, total_records=9)
+        assert steps["prescreen"]["state"] == "complete"
+        assert steps["screen"]["state"] == "in_progress"
+
     def test_step_complete_when_processed_and_nothing_prior_pending(self):
         stats = _stats(
             currently=_counts(md_processed=10),

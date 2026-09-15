@@ -125,6 +125,16 @@ test.describe('divergence-sync', () => {
       '[data-testid="objectives-textarea"] [contenteditable="true"]',
     );
     await objectivesInput.waitFor({ state: 'visible', timeout: 30_000 });
+    // The editor renders before the definition arrives. Typing first let the
+    // save go out with nothing changed, and the load then blanked the editor.
+    await window.waitForFunction(
+      () => {
+        const store = (self as any).__pinia__?._s.get('reviewDefinition');
+        return store?.definition != null && !store.isLoading;
+      },
+      null,
+      { timeout: 30_000 },
+    );
     await objectivesInput.fill(ALICE_OBJECTIVES);
     await clickWhenEnabled(window, '[data-testid="save-definition-btn"]', 10_000);
 

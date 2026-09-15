@@ -16,6 +16,7 @@ import { useGitStore } from '@/stores/git';
 import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
 import { useConnectionStore } from '@/stores/connection';
 import { useReadOnly } from '@/composables/useReadOnly';
+import { useReconcileGate } from '@/composables/useReconcileGate';
 import { mapReadinessIssues, type MappedIssue } from './launch-readiness';
 import { useSyncStore } from '@/stores/sync';
 import type {
@@ -31,6 +32,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   taskCreated: [];
   navigateReview: [];
+  navigateReconcile: [];
 }>();
 
 const backend = useBackendStore();
@@ -42,6 +44,7 @@ const sync = useSyncStore();
 const reviewDefStore = useReviewDefinitionStore();
 const connection = useConnectionStore();
 const { isReadOnly } = useReadOnly();
+const { canNavigateToReconcile } = useReconcileGate();
 
 const offlineTooltip = 'Requires internet';
 
@@ -71,6 +74,13 @@ const launchButtonLabel = computed(() => {
 });
 const activeTask = computed(() => tasks.value.find((task) => task.state === 'active') ?? null);
 const displayTask = computed(() => activeTask.value ?? tasks.value[0] ?? null);
+// Both reviewers are through the queue: what is left is reconciliation.
+const reviewersDone = computed(
+  () =>
+    !!activeTask.value &&
+    activeTask.value.reviewer_progress.length > 0 &&
+    activeTask.value.reviewer_progress.every((r) => r.pending_count === 0),
+);
 const remoteUrl = computed(() => git.remoteUrl);
 
 // Screen-only: criteria are required to launch and editable only on dev
@@ -194,9 +204,12 @@ async function createTask() {
 
     await createBranches(response.task, response.launch_ref);
 
-    // Push dev branch so the other reviewer can see the task manifest
+    // Push dev so the other reviewer can see the task manifest. By name, not
+    // HEAD: the task is visible (and Review clickable) as soon as the launch
+    // commit exists, so the user can already be on their reviewer branch by
+    // the time this runs — pushing HEAD then published that instead of dev.
     if (git.hasRemote) {
-      await sync.pushNow();
+      await sync.pushBranchNow(response.task.base_branch);
     }
 
     const enriched = response.enriched_count ?? 0;
@@ -485,10 +498,14 @@ defineExpose({ refreshData, activeTask, tasks });
       </div>
 
       <!-- Active/completed task display -->
-      <div v-if="displayTask" class="space-y-4 max-w-md">
+      <div v-if="displayTask" class="space-y-4 max-w-md" data-testid="launch-task-card">
         <div class="flex items-center justify-between">
           <div>
-            <h3 class="text-sm font-medium">Active {{ kindLabel.toLowerCase() }} task</h3>
+            <!-- With no task in flight this is the previous round, shown below
+                 the form for the next one — not an "active" task. -->
+            <h3 class="text-sm font-medium">
+              {{ displayTask.state === 'active' ? 'Active' : 'Last' }} {{ kindLabel.toLowerCase() }} task
+            </h3>
             <p class="text-xs text-muted-foreground">Created by {{ displayTask.created_by }} · {{ prettyDate(displayTask.created_at) }}</p>
           </div>
           <Badge :variant="displayTask.state === 'completed' ? 'default' : 'secondary'" class="text-xs">
@@ -511,7 +528,17 @@ defineExpose({ refreshData, activeTask, tasks });
               </Avatar>
               <span class="text-sm font-medium">{{ reviewer.github_login }}</span>
             </div>
-            <span class="text-xs text-muted-foreground tabular-nums">{{ reviewer.completed_count }} / {{ displayTask.record_count }}</span>
+            <span class="flex items-center gap-2 text-xs text-muted-foreground tabular-nums">
+              <span
+                v-if="reviewer.unpublished_count"
+                class="text-amber-600 dark:text-amber-400"
+                title="These decisions are saved on this device but have not reached the remote, so the other reviewer cannot see them yet."
+                :data-testid="`reviewer-unshared-${reviewer.github_login}`"
+              >
+                not shared yet
+              </span>
+              <span :data-testid="`reviewer-progress-${reviewer.github_login}`">{{ reviewer.completed_count }} / {{ displayTask.record_count }}</span>
+            </span>
           </div>
         </div>
 
@@ -524,7 +551,18 @@ defineExpose({ refreshData, activeTask, tasks });
         <!-- Continue to Review CTA + cancel -->
         <div class="flex items-center gap-2">
           <Button
-            v-if="displayTask.state === 'active'"
+            v-if="displayTask.state === 'active' && reviewersDone"
+            size="sm"
+            :disabled="!canNavigateToReconcile"
+            :title="canNavigateToReconcile ? undefined : 'Save and sync your changes first'"
+            data-testid="continue-to-reconcile-btn"
+            @click="emit('navigateReconcile')"
+          >
+            Continue to Reconciliation
+            <ArrowRight class="h-3.5 w-3.5 ml-1" />
+          </Button>
+          <Button
+            v-else-if="displayTask.state === 'active'"
             size="sm"
             data-testid="continue-to-review-btn"
             @click="emit('navigateReview')"

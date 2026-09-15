@@ -297,11 +297,53 @@ describe('sync coordinator', () => {
     const sync = useSyncStore();
 
     const first = sync.pullNow();
-    const second = await sync.pullNow();
+    const second = sync.pullNow();
+    await Promise.resolve();
 
-    expect(second).toBe(false);
+    // The second pull waits its turn instead of running alongside the first.
+    expect(git2.__remoteOps.pull).toHaveBeenCalledTimes(1);
     resolvePull(true);
     await first;
+    await expect.poll(() => (git2.__remoteOps.pull as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
+    resolvePull(true);
+    expect(await second).toBe(true);
+  });
+
+  it('never drops a push that arrives while a background fetch is running', async () => {
+    // A launch pushes dev so the co-reviewer sees the new task; a reviewer's
+    // "Save to remote" pushes their decisions. Either one landing while the
+    // loop happened to be fetching used to return without pushing anything.
+    const git = useGitStore();
+    git.applySnapshot(snapshot({ ahead: 1 }));
+    const ops = stubRemoteOps();
+    let finishFetch: (v: boolean) => void = () => {};
+    ops.fetch.mockImplementation(() => new Promise<boolean>((r) => { finishFetch = r; }));
+    const sync = useSyncStore();
+
+    const fetching = sync.fetchNow();
+    const pushing = sync.pushNow();
+    await Promise.resolve();
+    expect(ops.push).not.toHaveBeenCalled();
+
+    finishFetch(true);
+    await fetching;
+    expect(await pushing).toBe(true);
+    expect(ops.push).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares a fetch that is already running instead of fetching twice', async () => {
+    const ops = stubRemoteOps();
+    let finishFetch: (v: boolean) => void = () => {};
+    ops.fetch.mockImplementation(() => new Promise<boolean>((r) => { finishFetch = r; }));
+    const sync = useSyncStore();
+
+    const first = sync.fetchNow();
+    const second = sync.fetchNow();
+    finishFetch(true);
+
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(ops.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('stop() clears suspensions so a stale hold cannot wedge the next project', () => {

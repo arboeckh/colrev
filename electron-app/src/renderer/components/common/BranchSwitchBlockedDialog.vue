@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { AlertTriangle, Loader2, RotateCcw, Save, X } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { isReviewerBranch, publishReviewerBranch } from '@/composables/useManagedTaskAccess';
 import { useGitStore } from '@/stores/git';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
 
@@ -30,6 +31,20 @@ const targetLabel = computed(() =>
   target.value.startsWith('review/') ? 'your review branch' : `"${target.value}"`,
 );
 
+// Leaving a reviewer branch is leaving a review, not "switching branches":
+// what is unsaved there is the reviewer's decisions, and saving them only
+// counts once they are shared with the co-reviewer. Read when the dialog
+// opens, so the copy does not change under the closing dialog once the switch
+// has moved the user off the branch.
+const leavingReview = ref(false);
+watch(
+  open,
+  (isOpen) => {
+    if (isOpen) leavingReview.value = isReviewerBranch(git.currentBranch);
+  },
+  { immediate: true },
+);
+
 // Prefer the counts git reported at the moment of refusal — pendingChanges may
 // not have refreshed yet when the switch was triggered by navigation.
 const pendingCount = computed(() => {
@@ -37,6 +52,7 @@ const pendingCount = computed(() => {
   if (dirty) return dirty.uncommittedCount + dirty.untrackedCount;
   return pending.pendingCount;
 });
+
 
 async function switchToTarget() {
   const branch = target.value;
@@ -59,6 +75,9 @@ async function saveAndSwitch() {
       const committed = await pending.commit(`Save before switching to ${target.value}`);
       if (!committed) return;
     }
+    // Committed decisions on a reviewer branch reach nobody until they are
+    // pushed, and after the switch nothing would push them.
+    await publishReviewerBranch();
     await switchToTarget();
   } finally {
     busy.value = null;
@@ -92,9 +111,13 @@ function cancel() {
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2 text-orange-500">
           <AlertTriangle class="h-5 w-5" />
-          Save your work before switching
+          {{ leavingReview ? 'Save your decisions before leaving the review' : 'Save your work before switching' }}
         </DialogTitle>
-        <DialogDescription>
+        <DialogDescription v-if="leavingReview">
+          You have decisions on your review copy that are not saved yet. Choose
+          what to do with them before you leave it.
+        </DialogDescription>
+        <DialogDescription v-else>
           You have {{ pendingCount }} unsaved change{{ pendingCount === 1 ? '' : 's' }}.
           Switching to {{ targetLabel }} would leave them behind, so choose what to do
           with them first.
@@ -112,10 +135,16 @@ function cancel() {
           <div class="flex items-center gap-2 text-sm font-medium">
             <Save v-if="busy !== 'save'" class="h-4 w-4" />
             <Loader2 v-else class="h-4 w-4 animate-spin" />
-            Save my changes, then switch
+            {{ leavingReview ? 'Save and share my decisions, then continue' : 'Save my changes, then switch' }}
           </div>
           <div class="mt-1 text-xs text-muted-foreground">
-            Commits your work to the current branch first, then switches. Nothing is lost.
+            <template v-if="leavingReview">
+              Saves your decisions and shares them with your co-reviewer, so
+              reconciliation can use them. Nothing is lost.
+            </template>
+            <template v-else>
+              Commits your work to the current branch first, then switches. Nothing is lost.
+            </template>
           </div>
         </button>
 
@@ -129,11 +158,16 @@ function cancel() {
           <div class="flex items-center gap-2 text-sm font-medium text-destructive">
             <RotateCcw v-if="busy !== 'discard'" class="h-4 w-4" />
             <Loader2 v-else class="h-4 w-4 animate-spin" />
-            Discard my changes, then switch
+            {{ leavingReview ? 'Discard my decisions, then continue' : 'Discard my changes, then switch' }}
           </div>
           <div class="mt-1 text-xs text-muted-foreground">
-            Throws away your {{ pendingCount }} unsaved
-            change{{ pendingCount === 1 ? '' : 's' }}. Cannot be undone.
+            <template v-if="leavingReview">
+              Throws away the decisions you haven't saved. Cannot be undone.
+            </template>
+            <template v-else>
+              Throws away your {{ pendingCount }} unsaved
+              change{{ pendingCount === 1 ? '' : 's' }}. Cannot be undone.
+            </template>
           </div>
         </button>
       </div>
@@ -146,7 +180,7 @@ function cancel() {
           @click="cancel"
         >
           <X class="h-4 w-4" />
-          Stay on this branch
+          {{ leavingReview ? 'Stay in the review' : 'Stay on this branch' }}
         </Button>
       </DialogFooter>
     </DialogContent>

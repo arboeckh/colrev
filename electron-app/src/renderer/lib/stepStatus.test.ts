@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
+  canEnterReviewPhase,
   computeStepStatus,
   computeManagedStepStatus,
   computeReviewPhaseStatus,
   computePdfStages,
   derivePdfCounts,
+  isReviewRoundComplete,
   pdfsAllDone,
   isReviewStepComplete,
   stepForOperation,
@@ -209,6 +211,19 @@ describe('computeStepStatus', () => {
       expect(statusFor('prescreen', context)).toBe('pending');
     });
 
+    it('records waiting behind an earlier pending step do not make a step active', () => {
+      // engine: screen has records, but prescreen (earlier) still has pending
+      const context = ctx({
+        steps: makeSteps({
+          search: { state: 'complete' },
+          prescreen: { state: 'in_progress', pending_records: 28 },
+          screen: { state: 'waiting', pending_records: 5, runnable: true },
+        }),
+        totalRecords: 40,
+      });
+      expect(statusFor('screen', context)).toBe('pending');
+    });
+
     it('grouped pdfs step follows pdf_get/pdf_prep operations', () => {
       const active = ctx({
         steps: makeSteps({
@@ -283,7 +298,17 @@ describe('computeManagedStepStatus', () => {
       computeManagedStepStatus({
         hasActiveTask: true,
         hasCompletedTask: false,
-        eligibleCount: 0,
+        stepState: 'complete',
+      }),
+    ).toBe('active');
+  });
+
+  it('an active task stays in progress even while an earlier step has pending work', () => {
+    expect(
+      computeManagedStepStatus({
+        hasActiveTask: true,
+        hasCompletedTask: true,
+        stepState: 'locked',
       }),
     ).toBe('active');
   });
@@ -293,9 +318,31 @@ describe('computeManagedStepStatus', () => {
       computeManagedStepStatus({
         hasActiveTask: false,
         hasCompletedTask: true,
-        eligibleCount: 3,
+        stepState: 'in_progress',
       }),
     ).toBe('active');
+  });
+
+  it('eligible records waiting behind an earlier pending step are not in progress', () => {
+    // A second search batch reopened prescreen while the first batch's
+    // records sit at screen: the pipeline is back at prescreen.
+    expect(
+      computeManagedStepStatus({
+        hasActiveTask: false,
+        hasCompletedTask: false,
+        stepState: 'waiting',
+      }),
+    ).toBe('pending');
+  });
+
+  it('a finished round is not shown complete while new records are still upstream', () => {
+    expect(
+      computeManagedStepStatus({
+        hasActiveTask: false,
+        hasCompletedTask: true,
+        stepState: 'locked',
+      }),
+    ).toBe('pending');
   });
 
   it('completed task with nothing eligible is complete', () => {
@@ -303,7 +350,7 @@ describe('computeManagedStepStatus', () => {
       computeManagedStepStatus({
         hasActiveTask: false,
         hasCompletedTask: true,
-        eligibleCount: 0,
+        stepState: 'complete',
       }),
     ).toBe('complete');
   });
@@ -313,9 +360,35 @@ describe('computeManagedStepStatus', () => {
       computeManagedStepStatus({
         hasActiveTask: false,
         hasCompletedTask: false,
-        eligibleCount: 0,
+        stepState: 'locked',
       }),
     ).toBe('pending');
+    expect(
+      computeManagedStepStatus({
+        hasActiveTask: false,
+        hasCompletedTask: false,
+        stepState: null,
+      }),
+    ).toBe('pending');
+  });
+});
+
+describe('isReviewRoundComplete', () => {
+  it('is complete only once a task is reconciled and nothing new is eligible', () => {
+    expect(
+      isReviewRoundComplete({ hasActiveTask: false, hasCompletedTask: true, eligibleCount: 0 }),
+    ).toBe(true);
+    // A second search batch opened the next round.
+    expect(
+      isReviewRoundComplete({ hasActiveTask: false, hasCompletedTask: true, eligibleCount: 28 }),
+    ).toBe(false);
+    // The next round's task is in flight.
+    expect(
+      isReviewRoundComplete({ hasActiveTask: true, hasCompletedTask: true, eligibleCount: 28 }),
+    ).toBe(false);
+    expect(
+      isReviewRoundComplete({ hasActiveTask: false, hasCompletedTask: false, eligibleCount: 0 }),
+    ).toBe(false);
   });
 });
 
@@ -323,7 +396,7 @@ describe('computeReviewPhaseStatus', () => {
   const base = {
     currentPhase: 'launch' as const,
     hasActiveTask: false,
-    hasCompletedTask: false,
+    roundComplete: false,
     allReviewersDone: false,
     myProgressDone: null,
     onOwnBranchNothingEligible: false,
@@ -335,8 +408,26 @@ describe('computeReviewPhaseStatus', () => {
       computeReviewPhaseStatus('launch', { ...base, hasActiveTask: true }),
     ).toBe('complete');
     expect(
-      computeReviewPhaseStatus('launch', { ...base, hasCompletedTask: true }),
+      computeReviewPhaseStatus('launch', { ...base, roundComplete: true }),
     ).toBe('complete');
+  });
+
+  it('a second round waiting to be launched starts over at launch', () => {
+    // Round one was reconciled; a new search batch made records eligible.
+    // Nothing of the new round has happened, so nothing is ticked.
+    const roundTwo = { ...base, roundComplete: false };
+    expect(computeReviewPhaseStatus('launch', roundTwo)).toBe('active');
+    expect(computeReviewPhaseStatus('review', roundTwo)).toBe('pending');
+    expect(computeReviewPhaseStatus('reconcile', roundTwo)).toBe('pending');
+  });
+
+  it('a reconciled earlier round does not tick reconcile for the round in flight', () => {
+    const roundTwoLaunched = { ...base, hasActiveTask: true };
+    expect(computeReviewPhaseStatus('launch', roundTwoLaunched)).toBe('complete');
+    expect(computeReviewPhaseStatus('reconcile', roundTwoLaunched)).toBe('pending');
+    expect(
+      computeReviewPhaseStatus('reconcile', { ...roundTwoLaunched, allReviewersDone: true }),
+    ).toBe('pending');
   });
 
   it('review is complete when all reviewers are done', () => {
@@ -399,8 +490,39 @@ describe('computeReviewPhaseStatus', () => {
       }),
     ).toBe('pending');
     expect(
-      computeReviewPhaseStatus('reconcile', { ...base, hasCompletedTask: true }),
+      computeReviewPhaseStatus('reconcile', { ...base, roundComplete: true }),
     ).toBe('complete');
+  });
+});
+
+describe('canEnterReviewPhase', () => {
+  const none = { hasActiveTask: false, roundComplete: false, reconcileGateOpen: true };
+
+  it('launch is always reachable', () => {
+    expect(canEnterReviewPhase('launch', none)).toBe(true);
+  });
+
+  it('review needs a task in flight, or a finished round to look back on', () => {
+    expect(canEnterReviewPhase('review', none)).toBe(false);
+    expect(canEnterReviewPhase('review', { ...none, hasActiveTask: true })).toBe(true);
+    expect(canEnterReviewPhase('review', { ...none, roundComplete: true })).toBe(true);
+  });
+
+  it('reconcile of a round in flight waits for the user’s work to be shared', () => {
+    const inFlight = { ...none, hasActiveTask: true };
+    expect(canEnterReviewPhase('reconcile', inFlight)).toBe(true);
+    expect(canEnterReviewPhase('reconcile', { ...inFlight, reconcileGateOpen: false })).toBe(false);
+  });
+
+  it('an earlier reconciled round does not open reconcile past the gate', () => {
+    // Before: any completed task made reconcile clickable, so a reviewer with
+    // unsaved decisions could head there — straight into the save-or-discard
+    // dialog, whose save never pushed.
+    expect(canEnterReviewPhase('reconcile', none)).toBe(false);
+    expect(
+      canEnterReviewPhase('reconcile', { ...none, hasActiveTask: true, reconcileGateOpen: false }),
+    ).toBe(false);
+    expect(canEnterReviewPhase('reconcile', { ...none, roundComplete: true })).toBe(true);
   });
 });
 
@@ -550,13 +672,13 @@ describe('agreement by construction', () => {
     expect(statusFor('prescreen', context)).toBe('complete');
     // ...page completion verdict...
     expect(isReviewStepComplete(steps.prescreen)).toBe(true);
-    // ...and managed-review sidebar verdict (no tasks) cannot disagree on
-    // eligibility because it reads the same pending_records field.
+    // ...and managed-review sidebar verdict cannot disagree because it reads
+    // the same engine state.
     expect(
       computeManagedStepStatus({
         hasActiveTask: false,
         hasCompletedTask: true,
-        eligibleCount: steps.prescreen.pending_records,
+        stepState: steps.prescreen.state,
       }),
     ).toBe('complete');
   });
@@ -579,9 +701,40 @@ describe('agreement by construction', () => {
       computeManagedStepStatus({
         hasActiveTask: false,
         hasCompletedTask: true,
-        eligibleCount: steps.prescreen.pending_records,
+        stepState: steps.prescreen.state,
       }),
     ).toBe('active');
+  });
+
+  it('a second search batch puts the whole pipeline back at prescreen', () => {
+    // The engine payload after round one (prescreen reconciled, PDFs
+    // prepared) plus a new batch preprocessed: prescreen has pending records,
+    // and so does screen, from round one.
+    const steps = makeSteps({
+      search: { state: 'complete' },
+      load: { state: 'complete', processed_ever: 40 },
+      prep: { state: 'complete', processed_ever: 40 },
+      dedupe: { state: 'complete', processed_ever: 40 },
+      prescreen: { state: 'in_progress', pending_records: 28, processed_ever: 12 },
+      pdf_get: { state: 'locked', processed_ever: 5 },
+      pdf_prep: { state: 'locked', processed_ever: 5 },
+      screen: { state: 'waiting', pending_records: 5, runnable: true },
+      data: { state: 'locked' },
+    });
+    const context = ctx({ steps, totalRecords: 40 });
+    const managed = (kind: 'prescreen' | 'screen') =>
+      computeManagedStepStatus({
+        hasActiveTask: false,
+        hasCompletedTask: kind === 'prescreen',
+        stepState: steps[kind].state,
+      });
+
+    expect(statusFor('search', context)).toBe('complete');
+    expect(statusFor('preprocessing', context)).toBe('complete');
+    expect(statusFor('prescreen', ctx({ steps, totalRecords: 40, managedStepStatus: managed('prescreen') }))).toBe('active');
+    expect(statusFor('pdfs', context)).toBe('pending');
+    expect(statusFor('screen', ctx({ steps, totalRecords: 40, managedStepStatus: managed('screen') }))).toBe('pending');
+    expect(statusFor('data', context)).toBe('pending');
   });
 });
 

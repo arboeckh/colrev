@@ -113,9 +113,21 @@ test.describe('non-reviewer-blocked', () => {
     await window.waitForSelector('[data-testid="workflow-phase-review"]:not([disabled])', {
       timeout: 60_000,
     });
+    // The task is visible as soon as the launch commit exists locally; the
+    // launch is only done once dev carrying it reaches the remote, and
+    // switching accounts reloads the renderer — mid-launch, that push is lost.
+    const alicePath = path.join(workspace.userDataDir, 'projects', ALICE.login, DEFAULT_PROJECT_ID);
+    const bare = workspace.bareRemotePath(ALICE.login, DEFAULT_PROJECT_ID);
+    await expect
+      .poll(() => git(bare, ['rev-parse', 'dev']), { timeout: 60_000 })
+      .toBe(git(alicePath, ['rev-parse', 'dev']));
     await workspace.markPhase(electronApp, 'task-launched');
 
     // --- Carol takes over the session ---------------------------------------
+    // Carol's clone was made before the launch. Opening it checks out dev from
+    // her remote-tracking ref, and background sync (which would pull) is off in
+    // specs — so bring the ref up to date, as her app's next fetch would.
+    execFileSync('git', ['fetch', 'origin'], { cwd: carolProject, stdio: 'pipe' });
     await switchAccount(electronApp, CAROL.login);
     await window.waitForSelector('h2:has-text("Reviews")', { timeout: 30_000 });
     await waitForBackendReady(window);

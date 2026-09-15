@@ -365,6 +365,7 @@ export interface ManagedReviewReviewerProgress {
   last_seen_commit?: string | null;
   pending_count: number;
   role: "reviewer_a" | "reviewer_b";
+  unpublished_count?: number;
   [k: string]: unknown;
 }
 
