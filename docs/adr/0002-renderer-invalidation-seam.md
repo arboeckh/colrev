@@ -35,6 +35,16 @@ switch mid-flight could paint the old context's records into the new view.
   merge apply, and backend restart call `invalidateAll()`: bump the request
   epoch, refresh everything (including branches and the review definition),
   and emit a `full` event.
+- **Refreshes run one at a time and are never dropped.** A request that
+  arrives while a comprehensive refresh is running (a write, `refreshNow`,
+  `invalidateAll`) joins the single refresh queued behind it, which has not
+  read anything yet — so when the caller's promise resolves, the stores
+  reflect every write that completed before it asked. Each refresh's event is
+  delivered without holding up the next refresh: a handler that reacts by
+  invalidating (a branch switch) waits on that next refresh, never on itself.
+  A handler that invalidates on every event is cut off once several of its
+  events are still unfinished; that stops event delivery, not the store
+  refresh.
 - **Request guards.** The seam owns an epoch, bumped on project/branch
   switch (`loadProject`) and full invalidation. Project-scoped loaders
   capture `snapshot()` before their await and discard responses whose epoch

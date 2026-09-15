@@ -15,6 +15,8 @@ import { useProjectDataStore, type ProjectDataEvent } from './projectData';
 import { useProjectsStore } from './projects';
 import { useReviewDefinitionStore } from './reviewDefinition';
 import {
+  makeProjectStatus,
+  makeRecordCounts,
   reviewDefinitionResponse,
   setupRendererTest,
   settingsResponse,
@@ -135,6 +137,87 @@ describe('write -> refresh fan-out', () => {
     expect(events).toHaveLength(2);
     expect(events[0].methods).toHaveLength(1);
     expect(events[1].methods).toHaveLength(2);
+  });
+});
+
+describe('refreshes requested while others are still reading', () => {
+  // A backend slower than the write cadence — a loaded machine, a large
+  // records file — means each write lands while the refreshes for the earlier
+  // ones are still waiting on `get_status`. Every one of those used to count
+  // as re-entrancy, and once four overlapped the seam called it a loop and
+  // dropped the next request outright: `refreshNow()` resolved without
+  // re-reading anything, and the prescreen completion screen showed counts
+  // from before the last decision.
+  it('refreshNow() resolves only once the status has been re-read after the last write', async () => {
+    const projects = useProjectsStore();
+    const seam = useProjectDataStore();
+
+    let decided = 0;
+    let holdReads = true;
+    const heldReads: (() => void)[] = [];
+    ctx.mock.rpc.on('get_status', () => {
+      // What the backend sees is the tree as of when the read is served.
+      const seen = decided;
+      const respond = () =>
+        statusResponse(
+          makeProjectStatus({ currently: makeRecordCounts({ rev_prescreen_included: seen }) }),
+        );
+      if (!holdReads) return respond();
+      return new Promise((resolve) => heldReads.push(() => resolve(respond())));
+    });
+
+    // Longer than the seam's write debounce: every write refreshes on its own.
+    const WRITE_GAP_MS = 500;
+    for (let i = 0; i < 4; i++) {
+      decided += 1;
+      seam.notifyWriteCompleted('prescreen_record');
+      await vi.advanceTimersByTimeAsync(WRITE_GAP_MS);
+    }
+
+    // The last decision lands, and the completion screen asks for fresh counts.
+    decided += 1;
+    seam.notifyWriteCompleted('prescreen_record');
+    let countWhenResolved: number | undefined;
+    const done = seam.refreshNow().then(() => {
+      countWhenResolved = projects.currentStatus?.currently.rev_prescreen_included;
+    });
+
+    holdReads = false;
+    heldReads.splice(0).forEach((release) => release());
+    await vi.runAllTimersAsync();
+    await done;
+
+    expect(countWhenResolved).toBe(5);
+    expect(seam.staleReason).not.toBe('Refresh loop detected');
+  });
+
+  it('re-reads once for everything that queued up behind a running refresh', async () => {
+    const seam = useProjectDataStore();
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reads = 0;
+    ctx.mock.rpc.on('get_status', async () => {
+      reads += 1;
+      if (reads === 1) await gate;
+      return statusResponse();
+    });
+
+    seam.notifyWriteCompleted('prescreen_record');
+    await vi.advanceTimersByTimeAsync(500);
+    seam.notifyWriteCompleted('prescreen_record');
+    await vi.advanceTimersByTimeAsync(500);
+    const now = seam.refreshNow();
+
+    release();
+    await vi.runAllTimersAsync();
+    await now;
+
+    // The first read, then one more for both requests that arrived while it
+    // ran — not one per request.
+    expect(reads).toBe(2);
   });
 });
 
