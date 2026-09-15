@@ -27,6 +27,17 @@ export interface ProjectDataEvent {
 
 type ProjectDataSubscriber = (event: ProjectDataEvent) => void | Promise<void>;
 
+/** One store re-derivation, plus the event it hands to pages afterwards. */
+interface RefreshRequest {
+  methods: string[];
+  full: boolean;
+  /** False for a retry: pages were already told about the write it retries. */
+  emit: boolean;
+  /** Resolves once the stores are re-derived and every handler has returned. */
+  done: Promise<void>;
+  resolve: () => void;
+}
+
 /** Trailing debounce for write-triggered refreshes: rapid successive writes
  * (decision streaks, enrichment batches) collapse into one refresh. */
 const WRITE_REFRESH_DEBOUNCE_MS = 400;
@@ -72,23 +83,27 @@ export const useProjectDataStore = defineStore('projectData', () => {
 
   let pendingMethods: string[] = [];
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let refreshChain: Promise<void> = Promise.resolve();
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let retryAttempt = 0;
   /** When the last write-triggered refresh was dispatched, for the leading edge. */
   let lastDispatchAt = 0;
+  /** The refresh re-deriving store state right now; null when idle. */
+  let runningRefresh: RefreshRequest | null = null;
   /**
-   * Depth of `runRefresh` calls currently on the stack. Non-zero means we are
-   * inside a subscriber handler, which must never chain onto `refreshChain`
-   * (see `enqueueRefresh`).
+   * The refresh that starts when the running one has re-derived the stores.
+   * It has read nothing yet, so a request arriving meanwhile joins it rather
+   * than queueing another behind it — its reads still start after the request.
    */
-  let refreshDepth = 0;
+  let queuedRefresh: RefreshRequest | null = null;
+  /** Events handed to subscribers whose handlers have not all returned. */
+  let pendingEmissions = 0;
   /**
-   * A handler that invalidates on every event would recurse forever. Nothing
-   * legitimately needs more than one level (branch switch inside a handler),
-   * so cut it off well short of a stack overflow.
+   * A handler that invalidates on every event never lets its event finish:
+   * each one waits on the refresh its handler started, whose event waits on
+   * the next. Nothing legitimately nests more than a level (a branch switch
+   * inside a handler), so stop delivering well before that runs away.
    */
-  const MAX_REFRESH_DEPTH = 4;
+  const MAX_PENDING_EMISSIONS = 4;
 
   function bumpEpoch(): void {
     epoch.value += 1;
@@ -150,19 +165,14 @@ export const useProjectDataStore = defineStore('projectData', () => {
     retryAttempt += 1;
     retryTimer = setTimeout(() => {
       retryTimer = null;
-      refreshChain = refreshChain
-        .then(async () => {
-          if (!isStale.value) {
-            retryAttempt = 0;
-            return;
-          }
-          await refreshStores(full);
-          if (isStale.value) scheduleRetry(full);
-          else retryAttempt = 0;
-        })
-        .catch(() => {
-          markStale('Background refresh failed');
-        });
+      if (!isStale.value) {
+        retryAttempt = 0;
+        return;
+      }
+      // A refresh already underway re-derives the stores anyway, and
+      // schedules the next attempt itself if it fails too.
+      if (runningRefresh || queuedRefresh) return;
+      startRefresh(createRefreshRequest([], full, false));
     }, delay);
   }
 
@@ -224,53 +234,90 @@ export const useProjectDataStore = defineStore('projectData', () => {
     }
   }
 
-  async function runRefresh(methods: string[], full: boolean): Promise<void> {
-    const projects = useProjectsStore();
-    const projectId = projects.currentProjectId;
-    if (!projectId) return;
-    refreshDepth += 1;
-    try {
-      await refreshStores(full);
-      // Project switched while refreshing: this batch belongs to the old
-      // context — don't tell pages to reload against it.
-      if (useProjectsStore().currentProjectId !== projectId) return;
-      await emitEvent({ projectId, methods, full });
-      // `refreshStores` reports failure through the staleness flag rather than
-      // throwing, so this is the only place that learns the stores did not
-      // actually catch up with the write that triggered this refresh.
-      if (isStale.value) scheduleRetry(full);
-    } finally {
-      refreshDepth -= 1;
-    }
+  function createRefreshRequest(methods: string[], full: boolean, emit: boolean): RefreshRequest {
+    let resolve!: () => void;
+    const done = new Promise<void>((r) => {
+      resolve = r;
+    });
+    return { methods: [...methods], full, emit, done, resolve };
   }
 
-  /** Serialize refreshes so a full invalidation never races a write refresh. */
+  function startRefresh(request: RefreshRequest): void {
+    runningRefresh = request;
+    void runRefresh(request);
+  }
+
+  /**
+   * Hand an event to the pages. The returned promise settles when every
+   * handler has returned; nothing else in the seam waits for it.
+   */
+  function deliver(event: ProjectDataEvent): Promise<void> {
+    if (pendingEmissions >= MAX_PENDING_EMISSIONS) {
+      markStale('Refresh loop detected');
+      return Promise.resolve();
+    }
+    pendingEmissions += 1;
+    return emitEvent(event).finally(() => {
+      pendingEmissions -= 1;
+    });
+  }
+
+  async function runRefresh(request: RefreshRequest): Promise<void> {
+    let delivered: Promise<void> = Promise.resolve();
+    try {
+      const projectId = useProjectsStore().currentProjectId;
+      if (projectId) {
+        await refreshStores(request.full);
+        // Project switched while refreshing: this batch belongs to the old
+        // context — don't tell pages to reload against it.
+        if (request.emit && useProjectsStore().currentProjectId === projectId) {
+          delivered = deliver({ projectId, methods: request.methods, full: request.full });
+        }
+        // `refreshStores` reports failure through the staleness flag rather
+        // than throwing, so this is the only place that learns the stores did
+        // not actually catch up with the write that triggered this refresh.
+        if (isStale.value) scheduleRetry(request.full);
+        else retryAttempt = 0;
+      }
+    } catch {
+      markStale('Background refresh failed');
+    } finally {
+      // The next refresh starts as soon as the stores are re-derived, without
+      // waiting for this one's handlers. A handler that reacts to its event
+      // by invalidating (a branch switch — see `git.switchBranch`) waits for
+      // that next refresh; had the seam waited for the handler in turn, the
+      // two would have waited on each other forever.
+      runningRefresh = null;
+      const next = queuedRefresh;
+      queuedRefresh = null;
+      if (next) startRefresh(next);
+    }
+    await delivered;
+    request.resolve();
+  }
+
+  /**
+   * Re-derive the stores, then tell pages, and resolve once both are done.
+   *
+   * Store re-derivation is strictly serialized, so a full invalidation never
+   * races a write refresh, and a request is never dropped: whatever arrives
+   * while a refresh is running joins the single refresh queued behind it,
+   * whose reads all start after the request was made. That is what lets a
+   * caller rely on the stores reflecting every write that had completed when
+   * it asked — the completion screen after the last review decision does.
+   */
   function enqueueRefresh(methods: string[], full: boolean): Promise<void> {
     cancelRetry();
     lastDispatchAt = Date.now();
-    // Reentrant call: a subscriber handler reacted to an event by triggering
-    // another invalidation (a branch switch is the real case — see
-    // `git.switchBranch`). Chaining here would deadlock: the link we would
-    // wait for is the one that is awaiting this very handler. Serialization
-    // is already satisfied — nothing else can run while the chain is busy —
-    // so run it inline instead.
-    if (refreshDepth > 0) {
-      if (refreshDepth >= MAX_REFRESH_DEPTH) {
-        markStale('Refresh loop detected');
-        return Promise.resolve();
-      }
-      return runRefresh(methods, full).catch(() => {
-        markStale('Background refresh failed');
-      });
+    if (queuedRefresh) {
+      queuedRefresh.methods.push(...methods);
+      queuedRefresh.full = queuedRefresh.full || full;
+      return queuedRefresh.done;
     }
-    // Failures are surfaced through the staleness flag; never poison the
-    // chain (a rejected link would silently stop all future refreshes).
-    refreshChain = refreshChain
-      .then(() => runRefresh(methods, full))
-      .catch(() => {
-        markStale('Background refresh failed');
-      });
-    return refreshChain;
+    const request = createRefreshRequest(methods, full, true);
+    if (runningRefresh) queuedRefresh = request;
+    else startRefresh(request);
+    return request.done;
   }
 
   /** Dispatch everything queued so far as one refresh. */
@@ -344,7 +391,9 @@ export const useProjectDataStore = defineStore('projectData', () => {
 
   /**
    * Immediate (non-debounced) refresh: header Refresh button, and pages that
-   * need fresh store state before rendering (e.g. a completion screen).
+   * need fresh store state before rendering (e.g. a completion screen). When it
+   * resolves, the stores have been re-read after every write that completed
+   * before the call — even if other refreshes were still running at the time.
    * Absorbs any pending debounced write events so they don't refresh twice.
    */
   async function refreshNow(): Promise<void> {

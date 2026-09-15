@@ -401,6 +401,54 @@ export function createWindowMock(): WindowMock {
   return mock;
 }
 
+/**
+ * Answer the bridge the way production does: one request at a time, in the
+ * order they arrive (ADR-0001), each taking `latencyMs(method)` of timer time.
+ *
+ * The default mock answers every call at once, which hides ordering bugs: in
+ * the app, a read queued behind a write sees that write and a read queued
+ * ahead of it does not, and a slow read holds up everything behind it. A stub
+ * runs when its request reaches the front of the queue — the moment the
+ * backend would read the tree. `gitState.refresh` joins the same queue as
+ * `get_git_status`, which is how the main process serves it. Drive time with
+ * fake timers.
+ */
+export function serveSerially(mock: WindowMock, latencyMs: (method: string) => number): void {
+  const queue: {
+    method: string;
+    serve: () => Promise<unknown>;
+    resolve: (value: unknown) => void;
+    reject: (err: unknown) => void;
+  }[] = [];
+  let busy = false;
+
+  const next = () => {
+    if (busy) return;
+    const entry = queue.shift();
+    if (!entry) return;
+    busy = true;
+    const answer = entry.serve();
+    setTimeout(() => {
+      answer.then(entry.resolve, entry.reject).finally(() => {
+        busy = false;
+        next();
+      });
+    }, latencyMs(entry.method));
+  };
+
+  const enqueue = (method: string, serve: () => Promise<unknown>) =>
+    new Promise((resolve, reject) => {
+      queue.push({ method, serve, resolve, reject });
+      next();
+    });
+
+  mock.colrev.call.mockImplementation(((method: string, params: Record<string, unknown>) =>
+    enqueue(method, () => mock.rpc.dispatch(method, params))) as ColrevAPI['call']);
+  const refresh = mock.gitState.refresh.getMockImplementation()!;
+  mock.gitState.refresh.mockImplementation(((projectId: string, projectPath: string) =>
+    enqueue('get_git_status', async () => refresh(projectId, projectPath))) as GitStateAPI['refresh']);
+}
+
 const BRIDGE_KEYS = [
   'colrev',
   'fileOps',

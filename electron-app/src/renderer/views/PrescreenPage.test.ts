@@ -8,9 +8,21 @@
  * locally and the walkthrough advances immediately; the write is flushed on a
  * background chain that preserves click order and rolls back on failure.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
-import { setupRendererTest, type RendererTestContext } from '@/test/harness';
+import {
+  makeProjectStatus,
+  makeRecordCounts,
+  makeStatusStep,
+  PIPELINE_OPERATIONS,
+  setupRendererTest,
+  settingsResponse,
+  statusResponse,
+  tasksResponse,
+  TEST_PROJECT_ID,
+  type RendererTestContext,
+} from '@/test/harness';
+import { serveSerially } from '@/test/window-mock';
 import PrescreenPage from './PrescreenPage.vue';
 
 vi.mock('@/components/layout/StepPageShell.vue', () => ({
@@ -176,5 +188,120 @@ describe('PrescreenPage decisions', () => {
     expect(currentRecordId(wrapper)).toBe('r2');
     expect(wrapper.find('[data-testid="prescreen-included-count"]').text()).toBe('0');
     expect(wrapper.find('[data-testid="prescreen-remaining-count"]').text()).toBe('3 remaining');
+  });
+});
+
+describe('PrescreenPage completion counts', () => {
+  // The completion screen reports the backend's counts, so it must not render
+  // until they include the decision that finished the queue. On a backend that
+  // lags the streak, the refreshes the earlier decisions triggered were still
+  // reading when the last one landed; the seam dropped the refresh the page
+  // waited on, and the screen showed 5 included / 4 excluded for ten decisions.
+  const IDS = Array.from({ length: 10 }, (_, i) => `r${i + 1}`);
+  let ctx: RendererTestContext;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    ctx = setupRendererTest();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function stubBackend() {
+    const decisions = new Map<string, 'include' | 'exclude'>();
+    const decided = (d: 'include' | 'exclude') =>
+      [...decisions.values()].filter((x) => x === d).length;
+    const undecided = () => IDS.filter((id) => !decisions.has(id));
+
+    ctx.mock.rpc
+      .onError('get_current_managed_review_task', { message: 'not managed' })
+      .on('list_managed_review_tasks', (p) => tasksResponse(p.kind, []))
+      .on('get_settings', settingsResponse())
+      .on('get_status', () =>
+        statusResponse(
+          makeProjectStatus({
+            currently: makeRecordCounts({
+              md_processed: undecided().length,
+              rev_prescreen_included: decided('include'),
+              rev_prescreen_excluded: decided('exclude'),
+            }),
+            steps: PIPELINE_OPERATIONS.map((op) =>
+              op === 'prescreen'
+                ? makeStatusStep(op, {
+                    pending_records: undecided().length,
+                    processed_records: decisions.size,
+                  })
+                : makeStatusStep(op),
+            ),
+          }),
+        ),
+      )
+      .on('get_prescreen_queue', () => ({
+        success: true,
+        project_id: TEST_PROJECT_ID,
+        total_count: undecided().length,
+        records: undecided().map(queueRecord),
+      }))
+      .on('prescreen_record', (params) => {
+        decisions.set(params.record_id, params.decision);
+        return {
+          success: true,
+          project_id: TEST_PROJECT_ID,
+          record: {
+            id: params.record_id,
+            decision: params.decision,
+            new_status:
+              params.decision === 'include' ? 'rev_prescreen_included' : 'rev_prescreen_excluded',
+          },
+          remaining_count: undecided().length,
+          already_decided: false,
+        };
+      });
+  }
+
+  async function advanceUntil(condition: () => boolean, limitMs = 60_000) {
+    for (let waited = 0; !condition(); waited += 5) {
+      if (waited > limitMs) throw new Error('condition not reached');
+      await vi.advanceTimersByTimeAsync(5);
+    }
+  }
+
+  function shownRecordId(wrapper: VueWrapper): string | null {
+    const el = wrapper.find('[data-testid="prescreen-record-id"]');
+    return el.exists() ? el.text() : null;
+  }
+
+  it('includes the last decision when the backend lags the decision streak', async () => {
+    stubBackend();
+    // A loaded machine: status and git reads are slow enough that the
+    // refreshes a streak of decisions triggers overlap on the serial pipe.
+    serveSerially(ctx.mock, (method) =>
+      method === 'get_status' || method === 'get_git_status' ? 300 : 70,
+    );
+    ctx.openProject();
+    // A reviewer branch, as in the managed review this was seen in.
+    ctx.setGitState({ branch: 'review/prescreen/t1/alice' });
+    const wrapper = mount(PrescreenPage);
+    await advanceUntil(() => shownRecordId(wrapper) === 'r1');
+
+    // Decide like a reviewer: click, and read the next record as soon as it
+    // shows — navigation does not wait for the write.
+    const complete = () => wrapper.find('[data-testid="prescreen-complete"]').exists();
+    for (const [i, id] of IDS.entries()) {
+      await vi.advanceTimersByTimeAsync(70);
+      await wrapper
+        .find(`[data-testid="prescreen-btn-${i % 2 === 0 ? 'include' : 'exclude'}"]`)
+        .trigger('click');
+      await advanceUntil(() => complete() || shownRecordId(wrapper) !== id);
+    }
+    await advanceUntil(complete);
+
+    // Read the moment the screen appears, as a reviewer would.
+    expect(wrapper.find('[data-testid="prescreen-complete-included"]').text()).toBe('5');
+    expect(wrapper.find('[data-testid="prescreen-complete-excluded"]').text()).toBe('5');
+    expect(wrapper.find('[data-testid="prescreen-complete-total"]').text()).toBe('10');
+    wrapper.unmount();
   });
 });
