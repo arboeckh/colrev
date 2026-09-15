@@ -55,6 +55,8 @@ const RESOLVE_RETRY_MS = 60_000;
 const AUTO_PULL_KEY = 'sync.autoPull';
 const AUTO_PUSH_KEY = 'sync.autoPush';
 
+type RemoteOperation = 'fetch' | 'pull' | 'push' | 'pushBranch' | 'resolve' | 'fastForwardMain';
+
 function readPreference(key: string): boolean {
   try {
     return localStorage.getItem(key) !== 'false';
@@ -93,6 +95,8 @@ export const useSyncStore = defineStore('sync', () => {
   /** A coordinator-driven git operation is in flight. */
   const busy = ref(false);
   const isRunning = ref(false);
+  /** The operation behind `busy`, so later requests can wait on it. */
+  let inFlight: { kind: RemoteOperation; done: Promise<unknown> } | null = null;
 
   let tickTimer: ReturnType<typeof setInterval> | null = null;
   let pushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -156,12 +160,35 @@ export const useSyncStore = defineStore('sync', () => {
 
   // --- Execution ---
 
-  async function runExclusive<T>(fn: () => Promise<T>): Promise<T | null> {
-    if (busy.value) return null;
+  /**
+   * Run one remote operation at a time.
+   *
+   * A request that arrives while another operation is running waits for it
+   * rather than being dropped. The automatic loop never reaches this while
+   * busy (the policy idles on `busy`), so everyone who does is a caller that
+   * needs the operation to happen: a Push button, a page that needs fresh
+   * refs, the dev push after a managed-review launch. Dropping those whenever
+   * a background fetch happened to be running made the click silently do
+   * nothing — the launch commit never reached the co-reviewer, and a
+   * reviewer's "Save to remote" left their decisions on this device.
+   *
+   * A fetch that finds a fetch already running shares it: a second fetch
+   * would read the same remote a moment later.
+   */
+  async function runExclusive<T>(kind: RemoteOperation, fn: () => Promise<T>): Promise<T> {
+    while (inFlight) {
+      if (kind === 'fetch' && inFlight.kind === 'fetch') {
+        return inFlight.done as Promise<T>;
+      }
+      await inFlight.done.catch(() => undefined);
+    }
     busy.value = true;
     try {
-      return await fn();
+      const done = fn();
+      inFlight = { kind, done };
+      return await done;
     } finally {
+      inFlight = null;
       busy.value = false;
     }
   }
@@ -171,7 +198,7 @@ export const useSyncStore = defineStore('sync', () => {
    * safe at any time and is the one operation allowed while suspended.
    */
   async function fetchNow(): Promise<boolean> {
-    const ok = await runExclusive(() => git.__remoteOps.fetch());
+    const ok = await runExclusive('fetch', () => git.__remoteOps.fetch());
     if (ok) {
       lastFetchAt.value = Date.now();
       // Re-roll so a client that drifted into lockstep with another drifts out.
@@ -186,18 +213,30 @@ export const useSyncStore = defineStore('sync', () => {
    * pull-blocked dialog rather than being forced through here.
    */
   async function pullNow(): Promise<boolean> {
-    const ok = await runExclusive(() => git.__remoteOps.pull());
+    const ok = await runExclusive('pull', () => git.__remoteOps.pull());
     if (ok) lastSyncAt.value = Date.now();
     return ok === true;
   }
 
   async function pushNow(): Promise<boolean> {
-    const ok = await runExclusive(() => git.__remoteOps.push());
+    const ok = await runExclusive('push', () => git.__remoteOps.push());
     if (ok) {
       lastSyncAt.value = Date.now();
       aheadSince.value = null;
     }
     return ok === true;
+  }
+
+  /**
+   * Push a branch by name. The automatic loop only ever pushes the current
+   * branch; this is for work committed on a branch the user has since left (a
+   * reviewer branch), or that must be published regardless of which branch is
+   * checked out by the time the push runs (dev, after a launch).
+   */
+  async function pushBranchNow(branchName: string): Promise<boolean> {
+    const ok = await runExclusive('pushBranch', () => git.__remoteOps.pushBranch(branchName));
+    if (ok) lastSyncAt.value = Date.now();
+    return ok;
   }
 
   /**
@@ -207,23 +246,21 @@ export const useSyncStore = defineStore('sync', () => {
    * coordinator from re-analysing the record set every tick.
    */
   async function resolveNow(): Promise<boolean> {
-    const ok = await runExclusive(() => git.__remoteOps.tryAutoResolveDivergence());
+    const ok = await runExclusive('resolve', () => git.__remoteOps.tryAutoResolveDivergence());
     if (ok) {
       lastSyncAt.value = Date.now();
       lastResolveAttemptAt.value = null;
       // The merge commit is ours to publish; let the push debounce start now.
       aheadSince.value = Date.now();
-    } else if (ok === false) {
-      // `null` means the executor was busy and never tried — not a refusal,
-      // so it must not start a minute of silence.
+    } else {
       lastResolveAttemptAt.value = Date.now();
     }
-    return ok === true;
+    return ok;
   }
 
   /** Fast-forward local `main` to `origin/main` without checking it out. */
   async function fastForwardMainNow(): Promise<boolean> {
-    const ok = await runExclusive(() => git.__remoteOps.fastForwardMain());
+    const ok = await runExclusive('fastForwardMain', () => git.__remoteOps.fastForwardMain());
     if (ok) lastSyncAt.value = Date.now();
     return ok === true;
   }
@@ -428,6 +465,7 @@ export const useSyncStore = defineStore('sync', () => {
     fetchNow,
     pullNow,
     pushNow,
+    pushBranchNow,
     resolveNow,
     fastForwardMainNow,
     syncNow,

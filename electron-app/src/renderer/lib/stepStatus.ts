@@ -1,4 +1,4 @@
-import type { StatusStep, WorkflowStepInfo } from '../types/project';
+import type { StatusStep, StatusStepState, WorkflowStepInfo } from '../types/project';
 
 /**
  * The ONLY renderer status module.
@@ -67,7 +67,9 @@ export function computeStepStatus(
   const opSteps = operations.map((op) => steps[op]).filter(Boolean) as StatusStep[];
   if (opSteps.length === 0) return 'pending';
 
-  if (opSteps.some((s) => s.pending_records > 0)) return 'active';
+  // The pipeline is in progress at one step: the engine says `waiting`, not
+  // `in_progress`, for a step whose records sit behind earlier pending work.
+  if (opSteps.some((s) => s.state === 'in_progress')) return 'active';
   if (opSteps.every((s) => s.state === 'complete')) return 'complete';
   return 'pending';
 }
@@ -79,18 +81,20 @@ export function computeStepStatus(
 export interface ManagedStepInput {
   hasActiveTask: boolean;
   hasCompletedTask: boolean;
-  /** Records currently eligible for this review kind (payload: steps[kind].pending_records). */
-  eligibleCount: number;
+  /** The engine's verdict for this review step (payload: steps[kind].state). */
+  stepState: StatusStepState | null;
 }
 
 export function computeManagedStepStatus(input: ManagedStepInput): StepStatus {
-  // Active task — step is in progress
+  // A task in flight is work in progress, wherever the rest of the pipeline is.
   if (input.hasActiveTask) return 'active';
-  // New eligible records take precedence over a past completed task:
-  // if records are waiting to be screened, the step is active again.
-  if (input.eligibleCount > 0) return 'active';
-  // Completed task and no eligible records — step is done
-  if (input.hasCompletedTask) return 'complete';
+  // Records are ready to be launched, and nothing earlier is still pending.
+  if (input.stepState === 'in_progress') return 'active';
+  // A finished round only stays finished while the pipeline is past it. When
+  // new records are still working their way here (a second search batch
+  // reopening an earlier step), this step is "not yet" again, like every
+  // other step after the one in progress.
+  if (input.hasCompletedTask && input.stepState === 'complete') return 'complete';
   return 'pending';
 }
 
@@ -100,10 +104,33 @@ export function computeManagedStepStatus(input: ManagedStepInput): StepStatus {
 
 export type ReviewPhase = 'launch' | 'review' | 'reconcile';
 
+export interface ReviewRoundInput {
+  hasActiveTask: boolean;
+  hasCompletedTask: boolean;
+  /** Records currently eligible for this review kind (payload: steps[kind].pending_records). */
+  eligibleCount: number;
+}
+
+/**
+ * Whether the latest review round is finished.
+ *
+ * Managed review runs in rounds — launch a task over the eligible records,
+ * both reviewers review, reconcile — and a project can need several: a second
+ * search batch makes new records eligible after the first round is reconciled.
+ * A round is finished once its task is reconciled and nothing new has become
+ * eligible since. Treating "a task was ever completed" as finished instead kept
+ * every phase ticked (and Reconcile clickable past its gate) while the second
+ * round was still being reviewed.
+ */
+export function isReviewRoundComplete(input: ReviewRoundInput): boolean {
+  return !input.hasActiveTask && input.hasCompletedTask && input.eligibleCount === 0;
+}
+
 export interface ReviewPhaseContext {
   currentPhase: ReviewPhase;
   hasActiveTask: boolean;
-  hasCompletedTask: boolean;
+  /** The latest round is finished (see `isReviewRoundComplete`). */
+  roundComplete: boolean;
   /** Every reviewer's committed pending_count is zero. */
   allReviewersDone: boolean;
   /** The current user's committed pending_count is zero (null if unknown). */
@@ -123,19 +150,19 @@ export function computeReviewPhaseStatus(
   const {
     currentPhase,
     hasActiveTask,
-    hasCompletedTask,
+    roundComplete,
     allReviewersDone,
     myProgressDone,
     onOwnBranchNothingEligible,
   } = ctx;
 
   if (phaseId === 'launch') {
-    if (hasActiveTask || hasCompletedTask) return 'complete';
+    if (hasActiveTask || roundComplete) return 'complete';
     return currentPhase === 'launch' ? 'active' : 'pending';
   }
 
   if (phaseId === 'review') {
-    if (hasCompletedTask && !hasActiveTask) return 'complete';
+    if (roundComplete) return 'complete';
     if (hasActiveTask) {
       if (allReviewersDone) return 'complete';
       if (myProgressDone) return 'complete';
@@ -146,9 +173,29 @@ export function computeReviewPhaseStatus(
   }
 
   // reconcile
-  if (hasCompletedTask) return 'complete';
+  if (roundComplete) return 'complete';
   if (hasActiveTask && allReviewersDone && currentPhase === 'reconcile') return 'active';
   return 'pending';
+}
+
+export interface ReviewPhaseAccess {
+  hasActiveTask: boolean;
+  roundComplete: boolean;
+  /** The current user's work is saved and shared (`useReconcileGate`). */
+  reconcileGateOpen: boolean;
+}
+
+/** Whether the workflow stepper lets the user open a phase. */
+export function canEnterReviewPhase(phaseId: ReviewPhase, access: ReviewPhaseAccess): boolean {
+  if (phaseId === 'launch') return true;
+  // There is something to review only while a task is in flight, or to look
+  // back on once its round is finished. New records waiting for a launch are
+  // not reviewable yet: decisions on them must come from reviewer branches.
+  if (phaseId === 'review') return access.hasActiveTask || access.roundComplete;
+  // Reconciliation reads each reviewer's decisions from the remote, so the
+  // current user's must be saved and shared before they head there.
+  if (access.roundComplete) return true;
+  return access.hasActiveTask && access.reconcileGateOpen;
 }
 
 // ---------------------------------------------------------------------------

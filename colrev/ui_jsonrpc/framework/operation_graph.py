@@ -205,7 +205,13 @@ def build_step_payloads(
     status payload) is everything the UI needs to render step status.
 
     ``state`` semantics:
-    - ``in_progress``: records are currently pending for this operation
+    - ``in_progress``: records are pending for this operation and no earlier
+      operation still has pending records — this is where the pipeline is
+    - ``waiting``: records are pending for this operation, but an earlier
+      operation still has pending records, so they wait for the pipeline to
+      catch up. A second search batch reopening prescreen while the first
+      batch's records sit at screen is the common case: the pipeline is back
+      at prescreen, and screen is not "in progress" alongside it.
     - ``complete``: nothing pending, records have passed through, and no
       earlier operation still has pending records
     - ``ready``: nothing has ever passed through, but the operation's inputs
@@ -250,7 +256,7 @@ def build_step_payloads(
         ever = processed_ever_count(op, overall)
 
         if pending > 0:
-            state = "in_progress"
+            state = "waiting" if prior_pending else "in_progress"
         elif ever > 0 and not prior_pending:
             state = "complete"
         elif prior_pending or ever == 0 and total_records == 0:

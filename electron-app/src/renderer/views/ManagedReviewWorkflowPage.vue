@@ -11,11 +11,17 @@ import ScreenPageHelp from '@/views/ScreenPageHelp.vue';
 import { useReconcileGate } from '@/composables/useReconcileGate';
 import { useManagedReviewStore } from '@/stores/managedReview';
 import { useGitStore } from '@/stores/git';
-import { ensureWorkingBranch } from '@/composables/useManagedTaskAccess';
+import { ensureWorkingBranch, shareUnpublishedReviews } from '@/composables/useManagedTaskAccess';
+import { useNotificationsStore } from '@/stores/notifications';
 import { useAuthStore } from '@/stores/auth';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
-import { computeReviewPhaseStatus, type ReviewPhase } from '@/lib/stepStatus';
+import {
+  canEnterReviewPhase,
+  computeReviewPhaseStatus,
+  isReviewRoundComplete,
+  type ReviewPhase,
+} from '@/lib/stepStatus';
 import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 
 type Phase = ReviewPhase;
@@ -26,6 +32,7 @@ const git = useGitStore();
 const auth = useAuthStore();
 const projects = useProjectsStore();
 const backend = useBackendStore();
+const notifications = useNotificationsStore();
 const { canNavigateToReconcile } = useReconcileGate();
 
 const kind = computed<'prescreen' | 'screen'>(() =>
@@ -61,6 +68,19 @@ const phases: { id: Phase; label: string }[] = [
   { id: 'reconcile', label: 'Reconcile' },
 ];
 
+const eligibleCount = computed(() => projects.payloadSteps?.[kind.value]?.pending_records ?? null);
+
+// The stepper describes the current round, not the project's history: a round
+// reconciled earlier says nothing about new records that became eligible since.
+const roundComplete = computed(() =>
+  isReviewRoundComplete({
+    hasActiveTask: activeTask.value != null,
+    hasCompletedTask: completedTask.value != null,
+    // Unknown counts must not declare a round finished.
+    eligibleCount: eligibleCount.value ?? 1,
+  }),
+);
+
 // Data collection only — the phase derivation lives in the shared status
 // module (lib/stepStatus.ts). reviewer_progress reads the branch HEAD
 // (committed state), but review decisions only update the working tree until
@@ -73,54 +93,62 @@ function phaseStatus(phaseId: Phase): 'complete' | 'active' | 'pending' {
     task && login
       ? task.reviewer_progress.find((r) => r.github_login.toLowerCase() === login) ?? null
       : null;
-  const eligibleCount = projects.payloadSteps?.[kind.value]?.pending_records ?? null;
 
   return computeReviewPhaseStatus(phaseId, {
     currentPhase: currentPhase.value,
     hasActiveTask: task != null,
-    hasCompletedTask: completedTask.value != null,
+    roundComplete: roundComplete.value,
     allReviewersDone:
       task != null && task.reviewer_progress.every((r) => r.pending_count === 0),
     myProgressDone: myProgress ? myProgress.pending_count === 0 : null,
     onOwnBranchNothingEligible:
       myProgress != null &&
       git.currentBranch === myProgress.branch_name &&
-      eligibleCount === 0,
+      eligibleCount.value === 0,
   });
 }
 
 function canNavigateToPhase(phaseId: Phase): boolean {
-  const task = activeTask.value;
-  const completed = completedTask.value;
-
-  if (phaseId === 'launch') return true;
-  if (phaseId === 'review') return !!(task || completed);
-  if (phaseId === 'reconcile') {
-    if (completed) return true;
-    return !!task && canNavigateToReconcile.value;
-  }
-  return false;
+  return canEnterReviewPhase(phaseId, {
+    hasActiveTask: activeTask.value != null,
+    roundComplete: roundComplete.value,
+    reconcileGateOpen: canNavigateToReconcile.value,
+  });
 }
 
 const isSwitchingPhase = ref(false);
+const launchPanelRef = ref<InstanceType<typeof ManagedReviewLaunchPanel> | null>(null);
 const reconcilePanelRef = ref<InstanceType<typeof ManagedReviewReconcilePanel> | null>(null);
 
-async function selectPhase(phaseId: Phase) {
-  if (!canNavigateToPhase(phaseId)) return;
-  if (isSwitchingPhase.value) return;
+async function selectPhase(phaseId: Phase): Promise<boolean> {
+  if (!canNavigateToPhase(phaseId)) return false;
+  if (isSwitchingPhase.value) return false;
 
   // Switch branch BEFORE changing phase so the new panel mounts on the right branch.
   // This avoids the new panel's onMounted triggering a competing switchBranch.
   if ((phaseId === 'launch' || phaseId === 'reconcile') && !git.isOnDev) {
     isSwitchingPhase.value = true;
     try {
-      await ensureWorkingBranch();
+      if (!(await ensureWorkingBranch())) {
+        // The switch was refused — unsaved decisions opened the save-or-discard
+        // dialog. Stay on this phase; opening the panel anyway mounted it on
+        // the reviewer branch, where it asked to switch (and opened the dialog)
+        // a second time. Once the user resolves the dialog, carry on to where
+        // they were heading.
+        if (git.showBranchSwitchBlockedDialog) {
+          git.blockedSwitchResume = () => {
+            userOverridePhase.value = phaseId;
+          };
+        }
+        return false;
+      }
     } finally {
       isSwitchingPhase.value = false;
     }
   }
 
   userOverridePhase.value = phaseId;
+  return true;
 }
 
 function onTaskCreated() {
@@ -131,7 +159,7 @@ function onTaskCreated() {
 
 async function onNavigateReconcile() {
   if (!canNavigateToReconcile.value) return;
-  await selectPhase('reconcile');
+  if (!(await selectPhase('reconcile'))) return;
   await nextTick();
   await reconcilePanelRef.value?.tryAutoStart();
 }
@@ -153,6 +181,21 @@ onMounted(async () => {
     // The one place a fetch is worth its latency: arriving at the workflow
     // page is when the user asks "where is the other reviewer at?".
     await managedReview.refresh({ fetch: true });
+
+    // …and when the other reviewer asks it about us: decisions saved on a
+    // reviewer branch but never pushed are invisible to them.
+    const shared = await shareUnpublishedReviews([
+      ...managedReview.prescreenTasks,
+      ...managedReview.screenTasks,
+    ]);
+    if (shared.length > 0) {
+      notifications.success(
+        'Shared your saved decisions',
+        'They had been saved on this device only. Your co-reviewer can see them now.',
+      );
+      await managedReview.refresh();
+      await (launchPanelRef.value ?? reconcilePanelRef.value)?.refreshData();
+    }
   }
 });
 
@@ -187,6 +230,7 @@ onMounted(async () => {
           ]"
           :disabled="!canNavigateToPhase(phase.id)"
           :data-testid="`workflow-phase-${phase.id}`"
+          :data-phase-status="phaseStatus(phase.id)"
           @click="selectPhase(phase.id)"
         >
           <!-- Step indicator -->
@@ -214,9 +258,11 @@ onMounted(async () => {
     <div class="flex-1 min-h-0">
       <ManagedReviewLaunchPanel
         v-if="currentPhase === 'launch'"
+        ref="launchPanelRef"
         :kind="kind"
         @task-created="onTaskCreated"
         @navigate-review="selectPhase('review')"
+        @navigate-reconcile="onNavigateReconcile"
       />
       <template v-else-if="currentPhase === 'review'">
         <PrescreenPage

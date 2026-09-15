@@ -83,6 +83,33 @@ separately (`Save 2 · Push 1`) and says in the tooltip which half is
 automatic. Any future count that auto-sync cannot drain belongs in the same
 split, for the same reason.
 
+### A requested operation waits its turn; it is never dropped
+
+The coordinator runs one remote operation at a time. The automatic loop idles
+while one is running, so everything else that asks for an operation is a
+caller that needs it — a Push button, a page that needs fresh refs, the dev
+push after a managed-review launch. Those callers queue behind the operation in
+flight; a fetch that finds a fetch already running shares it. Returning early
+instead made a click silently do nothing whenever a background fetch happened
+to be running: a launch commit that never reached the co-reviewer, a reviewer's
+"Save to remote" that saved nothing remotely.
+
+### Leaving a reviewer branch shares it
+
+The loop only pushes the checked-out branch, and holds off while a review
+walkthrough is open. A reviewer branch exists to carry one person's decisions
+to reconciliation, which reads it from the remote — so once its reviewer is
+back on dev, nothing would ever push it. Their own progress (read from the
+local branch) said done while their co-reviewer saw them at 0, and neither
+could reconcile. So every way off a reviewer branch pushes it first
+(`publishReviewerBranch`: the working-branch switch, the save-then-switch
+dialog, moving between reviews). A push that fails does not trap the user on
+the branch; `unpublished_count` in the task's reviewer progress keeps the gap
+visible, and the review workflow page pushes the user's own unshared reviewer
+branches when they next arrive (`shareUnpublishedReviews`). Only branches of
+in-flight tasks are pushed: a reviewer branch without a remote copy was
+retired after reconciliation, and pushing it would resurrect it.
+
 ### Interruption happens at operation boundaries, never mid-operation
 
 A modal that appears unprompted while someone is screening record 23 trains

@@ -225,17 +225,59 @@ class ManagedReviewService:
             logger=self.review_manager.logger,
         )
 
-    def _branch_ref(self, *, branch_name: str) -> Optional[str]:
+    def _local_and_remote_refs(
+        self, *, branch_name: str
+    ) -> tuple[Optional[str], Optional[str]]:
         git_repo = self.review_manager.dataset.git_repo.repo
-        local_branch_names = {branch.name for branch in git_repo.heads}
-        if branch_name in local_branch_names:
-            return branch_name
+        local_ref = (
+            branch_name
+            if branch_name in {branch.name for branch in git_repo.heads}
+            else None
+        )
+        remote_ref = next(
+            (
+                ref.name
+                for remote in git_repo.remotes
+                for ref in remote.refs
+                if ref.remote_head == branch_name
+            ),
+            None,
+        )
+        return local_ref, remote_ref
 
-        for remote in git_repo.remotes:
-            for ref in remote.refs:
-                if ref.remote_head == branch_name:
-                    return ref.name
-        return None
+    def _branch_ref(self, *, branch_name: str) -> Optional[str]:
+        """The copy of a reviewer branch that holds the most decisions.
+
+        A reviewer's own branch is freshest locally (it may hold decisions
+        not pushed yet). A local copy of someone else's branch is only ever
+        stale — the launcher's checkout, or one left behind by an older app —
+        and preferring it pinned that reviewer at 0 however far they had got
+        on the remote. So the remote copy wins whenever it is strictly ahead.
+        """
+        local_ref, remote_ref = self._local_and_remote_refs(branch_name=branch_name)
+        if local_ref is None or remote_ref is None:
+            return local_ref or remote_ref
+
+        git_repo = self.review_manager.dataset.git_repo.repo
+        if git_repo.commit(local_ref) != git_repo.commit(remote_ref) and git_repo.is_ancestor(
+            local_ref, remote_ref
+        ):
+            return remote_ref
+        return local_ref
+
+    def _unpublished_commit_count(self, *, branch_name: str) -> int:
+        """Commits on the local reviewer branch that its remote copy lacks.
+
+        Reconciliation on another machine — and the co-reviewer's progress —
+        can only see decisions once they are pushed. A branch with no remote
+        copy counts as nothing to publish: it was retired after reconciliation
+        (or never shared), and pushing it would resurrect it.
+        """
+        local_ref, remote_ref = self._local_and_remote_refs(branch_name=branch_name)
+        if local_ref is None or remote_ref is None:
+            return 0
+        git_repo = self.review_manager.dataset.git_repo.repo
+        return sum(1 for _ in git_repo.iter_commits(f"{remote_ref}..{local_ref}"))
 
     def _find_task(self, *, manifest: Dict[str, Any], task_id: str) -> Dict[str, Any]:
         for task in manifest["managed_tasks"]:
@@ -433,6 +475,7 @@ class ManagedReviewService:
                         "completed_count": completed_count,
                         "pending_count": record_count - completed_count,
                         "available": False,
+                        "unpublished_count": 0,
                     }
                 )
                 continue
@@ -447,6 +490,15 @@ class ManagedReviewService:
                     "completed_count": completed_count,
                     "pending_count": record_count - completed_count,
                     "available": True,
+                    # Only an in-flight task has anything left to share; a
+                    # completed task's branches are retired.
+                    "unpublished_count": (
+                        self._unpublished_commit_count(
+                            branch_name=reviewer["branch_name"]
+                        )
+                        if task["state"] in TASK_STATES_ACTIVE
+                        else 0
+                    ),
                 }
             )
 

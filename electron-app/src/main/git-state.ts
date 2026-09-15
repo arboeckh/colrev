@@ -90,6 +90,8 @@ export function stripUrlUserinfo(url: string): string {
 
 export class GitStateManager {
   private readonly snapshots = new Map<string, GitStateSnapshot>();
+  /** Bumped on account switch; refreshes started before it are discarded. */
+  private generation = 0;
 
   constructor(private readonly deps: GitStateDeps) {}
 
@@ -102,12 +104,26 @@ export class GitStateManager {
   }
 
   /**
+   * The signed-in account changed. Project ids are only unique per account —
+   * alice's `lit-review` and carol's `lit-review` are different clones — so
+   * nothing from the previous account may reach the next one's renderer: not
+   * a cached snapshot, and not a refresh that was still running at the switch
+   * and resolves afterwards. One such late broadcast told a freshly switched
+   * account it was on `dev` while its clone sat on `main`.
+   */
+  resetForAccountSwitch(): void {
+    this.generation += 1;
+    this.snapshots.clear();
+  }
+
+  /**
    * Rebuild the snapshot for one project and push it to the renderer.
    *
    * Throws if the backend call fails — the cached snapshot is left in place so
    * a transient failure doesn't blank the UI; the caller reports staleness.
    */
   async refresh(projectId: string, projectPath: string): Promise<GitStateSnapshot> {
+    const generation = this.generation;
     const [response, hasMergeConflict] = await Promise.all([
       this.deps.callBackend<GitStatusRpcResponse>('get_git_status', {
         // The RPC layer resolves projects as `<base_path>/<project_id>`.
@@ -156,6 +172,8 @@ export class GitStateManager {
       refreshedAt: (this.deps.now ?? Date.now)(),
     };
 
+    // Started under the previous account: it describes a different clone.
+    if (generation !== this.generation) return snapshot;
     this.snapshots.set(projectId, snapshot);
     this.deps.emit(snapshot);
     return snapshot;

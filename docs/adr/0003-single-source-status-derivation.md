@@ -33,7 +33,7 @@ re-summed the engine's totals to patch over a core counting bug.
   independently and fails loudly on drift.
 - **One payload = one truth.** `get_status` ships `status.steps` (one entry
   for `search` plus one per pipeline operation, each with
-  `state: locked|ready|in_progress|complete`, `runnable` + reason,
+  `state: locked|ready|in_progress|waiting|complete`, `runnable` + reason,
   pending/processed/ever counts, and per-state `state_counts`),
   `status.search_stale` + `stale_sources`, and the derived
   `next_operation`. `get_operation_info` answers from the same derivation.
@@ -56,6 +56,18 @@ re-summed the engine's totals to patch over a core counting bug.
   `currently.md_retrieved` accounting was fixed in `colrev/process/status.py`
   (recorded in `colrev/PATCHES.md`); `response_formatter.py` reshapes the
   engine's numbers and never recomputes them.
+
+- **The pipeline is in progress at one step.** A step is `in_progress` only
+  when it has pending records *and* no earlier step does; a step with pending
+  records behind earlier pending work is `waiting`. The case that forced this:
+  a second search batch reopens prescreen while the first batch's records sit
+  at screen. Mapping "has pending records" to in progress lit prescreen and
+  screen at once, with the PDFs step between them blank. `waiting` is a status
+  verdict only — `runnable` and `pending_records` are unchanged, so the step
+  can still be worked, and the sidebar's "waiting at this step" badge still
+  counts its records. The renderer maps `in_progress` to active; a managed
+  review step also stays active while its task is in flight, and shows
+  complete only when the engine says `complete`.
 
 ## Consequences
 

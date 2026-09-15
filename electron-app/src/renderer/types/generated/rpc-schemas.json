@@ -1226,6 +1226,11 @@
                 ],
                 "title": "Role",
                 "type": "string"
+              },
+              "unpublished_count": {
+                "default": 0,
+                "title": "Unpublished Count",
+                "type": "integer"
               }
             },
             "required": [
@@ -1811,6 +1816,11 @@
                 ],
                 "title": "Role",
                 "type": "string"
+              },
+              "unpublished_count": {
+                "default": 0,
+                "title": "Unpublished Count",
+                "type": "integer"
               }
             },
             "required": [
@@ -3101,6 +3111,11 @@
                 ],
                 "title": "Role",
                 "type": "string"
+              },
+              "unpublished_count": {
+                "default": 0,
+                "title": "Unpublished Count",
+                "type": "integer"
               }
             },
             "required": [
@@ -4551,6 +4566,11 @@
                 ],
                 "title": "Role",
                 "type": "string"
+              },
+              "unpublished_count": {
+                "default": 0,
+                "title": "Unpublished Count",
+                "type": "integer"
               }
             },
             "required": [
@@ -6744,6 +6764,11 @@
                 ],
                 "title": "Role",
                 "type": "string"
+              },
+              "unpublished_count": {
+                "default": 0,
+                "title": "Unpublished Count",
+                "type": "integer"
               }
             },
             "required": [

@@ -145,7 +145,11 @@ test.describe('branch-switch-safety', () => {
       { timeout: 60_000 },
     );
 
-    expect(git(aliceProjectPath, ['status', '--porcelain'])).not.toBe('');
+    // Decisions are written after the walkthrough advances (ADR 0006), so the
+    // next record on screen does not mean the write has landed yet.
+    await expect
+      .poll(() => git(aliceProjectPath, ['status', '--porcelain']), { timeout: 30_000 })
+      .not.toBe('');
     await workspace.markPhase(electronApp, 'decision-made-tree-dirty');
 
     // --- Trigger a branch switch: leaving a managedReviewKind route makes
@@ -176,6 +180,13 @@ test.describe('branch-switch-safety', () => {
       'show', '--name-only', '--format=', reviewerBranch,
     ]);
     expect(reviewerHeadFiles).toContain('records.bib');
+    // ...and shared: nothing pushes a reviewer branch once its reviewer is back
+    // on dev, so saving on the way out has to. Left local, the co-reviewer and
+    // reconciliation saw this reviewer at 0.
+    const bare = workspace.bareRemotePath(ALICE.login, DEFAULT_PROJECT_ID);
+    await expect
+      .poll(() => git(bare, ['rev-parse', reviewerBranch]), { timeout: 60_000 })
+      .toBe(git(aliceProjectPath, ['rev-parse', reviewerBranch]));
 
     await workspace.markPhase(electronApp, 'saved-and-switched');
 

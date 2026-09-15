@@ -122,6 +122,8 @@ export function useManagedTaskAccess(kind: ManagedReviewKind) {
       accessState.value = 'switching';
       // Fetch first so the reviewer branch exists locally to check out.
       if (git.hasRemote) await useSyncStore().fetchNow();
+      // Coming off another review (prescreen -> screen) leaves that branch too.
+      await publishReviewerBranch();
       if (!(await git.switchBranch(reviewer.branch_name))) {
         accessState.value = 'blocked';
         return false;
@@ -164,7 +166,70 @@ export async function ensureWorkingBranch(): Promise<boolean> {
   // remote, e.g. a collaborator's fresh clone of the default branch) — the
   // checkout still has to happen, or the user is left on an empty `main`.
   if (!git.hasDevBranch && !(await git.ensureDevBranch())) return false;
+  await publishReviewerBranch();
   return git.switchBranch(WORKING_BRANCH);
+}
+
+/**
+ * Share the reviewer branch the user is standing on, before they leave it.
+ *
+ * A reviewer branch exists to carry one person's decisions to reconciliation,
+ * which — like the co-reviewer's progress view — reads it from the remote. The
+ * sync coordinator only ever pushes the checked-out branch, and holds off while
+ * a review walkthrough is open, so once the user is back on dev nothing would
+ * push it: they saw themselves finished while their co-reviewer saw them at 0,
+ * and reconciliation could not start for either of them.
+ *
+ * Every way off a reviewer branch comes through here — `ensureWorkingBranch`,
+ * the save-then-switch dialog, moving between two reviews.
+ *
+ * A failed push does not stop the user leaving: being offline must not trap
+ * anyone on a reviewer branch. The coordinator reports the failure, and the
+ * workflow page shares the branch on the next visit (`shareUnpublishedReviews`).
+ */
+export async function publishReviewerBranch(): Promise<boolean> {
+  const git = useGitStore();
+  if (!isReviewerBranch(git.currentBranch) || !git.hasRemote) return true;
+  await git.refreshStatus();
+  // Nothing to share — or the branch has diverged, where a push would be
+  // refused and the sync banner owns the resolution.
+  if (git.ahead === 0 || git.behind > 0) return true;
+  return useSyncStore().pushNow();
+}
+
+/**
+ * Share this user's reviewer branches that hold decisions the remote lacks.
+ *
+ * Leaving a reviewer branch shares it (`publishReviewerBranch`), but not every
+ * departure gets that chance: the push can fail while offline, and reviews
+ * worked before that existed already carry decisions that were saved and never
+ * pushed. Such a reviewer sees themselves finished while their co-reviewer sees
+ * them at 0, and neither of them can reconcile. The review workflow page calls
+ * this on arrival, which is when that picture is read.
+ *
+ * Only in-flight tasks and only this user's branches (nobody else commits to
+ * them here) — and never the checked-out branch, which the sync loop pushes.
+ * Returns the branches it shared.
+ */
+export async function shareUnpublishedReviews(tasks: ManagedReviewTask[]): Promise<string[]> {
+  const auth = useAuthStore();
+  const git = useGitStore();
+  const login = auth.user?.login?.toLowerCase();
+  if (!login || !git.hasRemote) return [];
+
+  const shared: string[] = [];
+  for (const task of tasks) {
+    if (task.state !== 'active') continue;
+    for (const reviewer of task.reviewer_progress) {
+      if (reviewer.github_login.toLowerCase() !== login) continue;
+      if (!reviewer.unpublished_count) continue;
+      if (reviewer.branch_name === git.currentBranch) continue;
+      if (await useSyncStore().pushBranchNow(reviewer.branch_name)) {
+        shared.push(reviewer.branch_name);
+      }
+    }
+  }
+  return shared;
 }
 
 /**

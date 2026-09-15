@@ -111,6 +111,9 @@ class ManagedReviewReviewerProgress(ManagedReviewReviewer):
     completed_count: int
     pending_count: int
     available: bool
+    #: Commits on this machine's copy of the reviewer branch that the remote
+    #: lacks — decisions nobody else (and no other reconciler) can see yet.
+    unpublished_count: int = 0
 
 
 class ManagedReviewReconciliationSummary(_ServiceModel):

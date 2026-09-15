@@ -63,7 +63,7 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
     return computeManagedStepStatus({
       hasActiveTask: activeTask != null,
       hasCompletedTask: completedTask != null,
-      eligibleCount: projects.payloadSteps?.[kind]?.pending_records ?? 0,
+      stepState: projects.payloadSteps?.[kind]?.state ?? null,
     });
   }
 

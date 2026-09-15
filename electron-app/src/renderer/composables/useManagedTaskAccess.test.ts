@@ -3,7 +3,9 @@ import {
   ensureWorkingBranch,
   isReviewerBranch,
   leaveReviewerBranch,
+  publishReviewerBranch,
   retireReviewerBranches,
+  shareUnpublishedReviews,
   useManagedTaskAccess,
   WORKING_BRANCH,
 } from './useManagedTaskAccess';
@@ -114,6 +116,140 @@ describe('reviewer-branch invariant (WP-07 §6)', () => {
     const switchBranch = vi.spyOn(git, 'switchBranch');
     expect(await leaveReviewerBranch()).toBe(true);
     expect(switchBranch).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Round-two regression: a reviewer who saved their decisions and left their
+ * branch (via the stepper or the save-then-switch dialog) had them committed
+ * locally and never pushed. The sync loop only pushes the checked-out branch,
+ * so their co-reviewer — and reconciliation — saw them at 0 for good.
+ */
+describe('leaving a reviewer branch shares it', () => {
+  const ALICE_BRANCH = 'review/prescreen/t1/alice';
+
+  beforeEach(() => {
+    ctx = setupRendererTest();
+    ctx.openProject();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function standOnReviewerBranch(overrides: Partial<GitStateSnapshot> = {}) {
+    ctx.setGitState({ branch: ALICE_BRANCH, ...overrides });
+    const git = useGitStore();
+    git.branches = [{ name: 'dev' } as never];
+    return git;
+  }
+
+  it('pushes saved decisions before switching back to dev', async () => {
+    const git = standOnReviewerBranch({ ahead: 1 });
+    const switchBranch = vi.spyOn(git, 'switchBranch').mockResolvedValue(true);
+
+    expect(await ensureWorkingBranch()).toBe(true);
+
+    expect(ctx.mock.git.push).toHaveBeenCalledWith(TEST_PROJECT_PATH);
+    expect(switchBranch).toHaveBeenCalledWith(WORKING_BRANCH);
+    // The push has to happen while the reviewer branch is still HEAD.
+    expect(ctx.mock.git.push.mock.invocationCallOrder[0]).toBeLessThan(
+      switchBranch.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('does not push when there is nothing unshared', async () => {
+    const git = standOnReviewerBranch({ ahead: 0 });
+    vi.spyOn(git, 'switchBranch').mockResolvedValue(true);
+
+    expect(await ensureWorkingBranch()).toBe(true);
+    expect(ctx.mock.git.push).not.toHaveBeenCalled();
+  });
+
+  it('still lets the user leave when the push fails', async () => {
+    const git = standOnReviewerBranch({ ahead: 2 });
+    ctx.mock.git.push.mockResolvedValue({ success: false, error: 'OFFLINE' });
+    const switchBranch = vi.spyOn(git, 'switchBranch').mockResolvedValue(true);
+
+    expect(await ensureWorkingBranch()).toBe(true);
+    expect(switchBranch).toHaveBeenCalledWith(WORKING_BRANCH);
+  });
+
+  it('leaves a diverged reviewer branch to the sync banner', async () => {
+    standOnReviewerBranch({ ahead: 1, behind: 1 });
+    expect(await publishReviewerBranch()).toBe(true);
+    expect(ctx.mock.git.push).not.toHaveBeenCalled();
+  });
+
+  it('never pushes dev on its way through', async () => {
+    ctx.setGitState({ branch: 'dev', ahead: 3 });
+    expect(await publishReviewerBranch()).toBe(true);
+    expect(ctx.mock.git.push).not.toHaveBeenCalled();
+  });
+});
+
+describe('shareUnpublishedReviews', () => {
+  beforeEach(() => {
+    ctx = setupRendererTest();
+    ctx.openProject();
+    ctx.setGitState({ branch: 'dev' });
+    signInAs('alice');
+  });
+
+  function taskWith(
+    state: ManagedReviewTask['state'],
+    unpublished: { alice?: number; bob?: number },
+    id = 't1',
+  ): ManagedReviewTask {
+    return activeTask({
+      id,
+      state,
+      reviewer_progress: (['alice', 'bob'] as const).map((login, i) => ({
+        ...reviewer(login, `review/prescreen/${id}/${login}`),
+        role: i === 0 ? 'reviewer_a' : 'reviewer_b',
+        available: true,
+        completed_count: 10,
+        pending_count: 0,
+        unpublished_count: unpublished[login] ?? 0,
+      })),
+    });
+  }
+
+  it('pushes this user’s reviewer branches that hold unshared decisions', async () => {
+    const shared = await shareUnpublishedReviews([taskWith('active', { alice: 1 })]);
+
+    expect(shared).toEqual(['review/prescreen/t1/alice']);
+    expect(ctx.mock.git.pushBranch).toHaveBeenCalledWith(
+      TEST_PROJECT_PATH,
+      'review/prescreen/t1/alice',
+    );
+    // Nothing was checked out or pushed on the current branch.
+    expect(ctx.mock.git.checkout).not.toHaveBeenCalled();
+    expect(ctx.mock.git.push).not.toHaveBeenCalled();
+  });
+
+  it('leaves other reviewers’ branches, finished tasks and shared branches alone', async () => {
+    const shared = await shareUnpublishedReviews([
+      taskWith('active', { bob: 2 }),
+      taskWith('completed', { alice: 1 }, 't0'),
+      taskWith('active', { alice: 0 }, 't2'),
+    ]);
+
+    expect(shared).toEqual([]);
+    expect(ctx.mock.git.pushBranch).not.toHaveBeenCalled();
+  });
+
+  it('leaves the checked-out reviewer branch to the sync loop', async () => {
+    ctx.setGitState({ branch: 'review/prescreen/t1/alice' });
+
+    expect(await shareUnpublishedReviews([taskWith('active', { alice: 1 })])).toEqual([]);
+    expect(ctx.mock.git.pushBranch).not.toHaveBeenCalled();
+  });
+
+  it('reports nothing shared when the push fails', async () => {
+    ctx.mock.git.pushBranch.mockResolvedValue({ success: false, error: 'OFFLINE' });
+
+    expect(await shareUnpublishedReviews([taskWith('active', { alice: 1 })])).toEqual([]);
   });
 });
 

@@ -250,8 +250,18 @@ defineExpose({ refreshData, tryAutoStart });
             <div class="flex items-center gap-2">
               <span class="text-sm font-medium">{{ reviewer.github_login }}</span>
             </div>
-            <span class="text-xs text-muted-foreground tabular-nums">
-              {{ reviewer.completed_count }} / {{ displayTask.record_count }}
+            <span class="flex items-center gap-2 text-xs text-muted-foreground tabular-nums">
+              <span
+                v-if="reviewer.unpublished_count"
+                class="text-amber-600 dark:text-amber-400"
+                title="These decisions are saved on this device but have not reached the remote, so the other reviewer cannot see them yet."
+                :data-testid="`reviewer-unshared-${reviewer.github_login}`"
+              >
+                not shared yet
+              </span>
+              <span :data-testid="`reviewer-progress-${reviewer.github_login}`">
+                {{ reviewer.completed_count }} / {{ displayTask.record_count }}
+              </span>
             </span>
           </div>
         </div>
