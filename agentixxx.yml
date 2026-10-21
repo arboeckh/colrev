@@ -1,0 +1,11 @@
+version: 1
+
+refresh:
+  # Builds the machine: the Python venv at .venv (colrev and its internal packages,
+  # editable) and the Electron app's node_modules. Safe to run again.
+  command: bash scripts/agentixxx/refresh.sh
+  schedule: "0 5 * * *"
+
+run:
+  # The branch's own dependencies, on top of what the refresh installed.
+  prepare: bash scripts/agentixxx/prepare.sh
