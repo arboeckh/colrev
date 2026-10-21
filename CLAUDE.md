@@ -25,11 +25,9 @@ When work on a branch is complete, always auto-open a PR from that branch target
 
 ### Issue tracker
 
-Issues live in GitHub Issues on `arboeckh/colrev` (use the `gh` CLI). See `docs/agents/issue-tracker.md`.
-
-### Issue workflow labels
-
-This repo uses the global issue workflow defaults from `~/.agents/skills/issue-workflow-conventions/labels.md`: PRDs use `PRD` and may later get `ready-for-review`; implementation issues use exactly one of `autonomous` or `HIL`.
+Issues live in Linear (team `boeckh`, project `ColRev`), not in GitHub Issues. They are worked
+by agentixxx runs: see `AGENTS.md` and the `agentixxx-workflow` skill before filing or working one.
+See `docs/agents/issue-tracker.md` for how the other skills (`to-issues`, `to-prd`, …) map onto it.
 
 ### Domain docs
 
