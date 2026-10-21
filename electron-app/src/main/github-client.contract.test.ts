@@ -267,6 +267,9 @@ describeGitHubClientContract('RealGitHubClient', () => {
     status: 201,
     body: { html_url: `https://github.com/${OWNER}/${REPO}` },
   });
+  routes.set(`PUT https://api.github.com/repos/${OWNER}/${REPO}/actions/permissions`, {
+    status: 204,
+  });
   routes.set(`PUT https://api.github.com/repos/${OWNER}/${REPO}/collaborators/${COLLABORATOR}`, {
     status: 201,
   });
