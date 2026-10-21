@@ -656,6 +656,31 @@ export async function createRepoAndPush(
     const repoData = await createRes.json();
     const htmlUrl: string = repoData.html_url;
     const cleanUrl = `https://github.com/${login}/${repoName}.git`;
+
+    // 2b. Disable GitHub Actions before the first push. CoLRev projects ship
+    // workflow files that would otherwise run CI on every sync. Best-effort:
+    // a failure here must not block publishing.
+    try {
+      const actionsRes = await fetch(
+        `https://api.github.com/repos/${login}/${repoName}/actions/permissions`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ enabled: false }),
+        },
+      );
+      if (!actionsRes.ok) {
+        console.warn(
+          `[github] could not disable Actions on ${login}/${repoName}: HTTP ${actionsRes.status}`,
+        );
+      }
+    } catch (err) {
+      console.warn(`[github] could not disable Actions on ${login}/${repoName}:`, err);
+    }
     const auth = Buffer.from(`x-access-token:${token}`).toString('base64');
     const authArgs = ['-c', `http.extraheader=Authorization: Basic ${auth}`];
 
