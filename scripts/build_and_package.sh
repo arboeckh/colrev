@@ -110,6 +110,8 @@ echo "================================================"
 cd "$REPO_ROOT/electron-app"
 pnpm install
 pnpm run build
+# Git for the target, not the build host (dugite's postinstall downloads the latter).
+bash "$REPO_ROOT/scripts/stage_git.sh" "$PLATFORM"
 
 echo ""
 echo "================================================"
@@ -120,9 +122,15 @@ if [[ "$MODE" == "unsigned" ]]; then
 fi
 pnpm run "$PACKAGE_SCRIPT"
 
+case "$PLATFORM" in
+    mac) PACKAGED_GIT="$REPO_ROOT/electron-app/release/mac-arm64/ColRev.app/Contents/Resources/git" ;;
+    win) PACKAGED_GIT="$REPO_ROOT/electron-app/release/win-unpacked/resources/git" ;;
+esac
+bash "$REPO_ROOT/scripts/check_packaged_git.sh" "$PLATFORM" "$PACKAGED_GIT"
+
 echo ""
 echo "================================================"
 echo "Done. Artifacts:"
 echo "  Python bundle:    $BUNDLE_DIR"
-echo "  Electron package: $REPO_ROOT/electron-app/dist/"
+echo "  Electron package: $REPO_ROOT/electron-app/release/"
 echo "================================================"

@@ -263,6 +263,8 @@ run_stage_package() {
     echo "================================================"
     echo "[3/3] package: BUILD ($PLATFORM, $MODE)"
     echo "================================================"
+    # Git for the target, not the build host (dugite's postinstall downloads the latter).
+    bash "$REPO_ROOT/scripts/stage_git.sh" "$PLATFORM"
     cd "$REPO_ROOT/electron-app"
     if [[ "$MODE" == "unsigned" ]]; then
         export CSC_IDENTITY_AUTO_DISCOVERY=false
@@ -271,6 +273,11 @@ run_stage_package() {
         pnpm run "package:${PLATFORM}"
     fi
     cd "$REPO_ROOT"
+    case "$PLATFORM" in
+        mac) PACKAGED_GIT="$PACKAGE_OUT/Contents/Resources/git" ;;
+        win) PACKAGED_GIT="$PACKAGE_OUT/resources/git" ;;
+    esac
+    bash "$REPO_ROOT/scripts/check_packaged_git.sh" "$PLATFORM" "$PACKAGED_GIT"
     RAN+=("package")
 }
 

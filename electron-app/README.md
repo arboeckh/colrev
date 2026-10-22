@@ -88,7 +88,14 @@ This app uses [dugite](https://github.com/desktop/dugite) to bundle Git binaries
 - **Windows**: ~100MB Git binaries
 - **Linux**: ~50MB Git binaries
 
-For packaged apps, electron-builder automatically includes these via `asar.unpack` for native binaries.
+In dev mode the app runs the git in `node_modules/dugite/git`, which dugite's postinstall downloads
+for the machine it runs on. Packaged apps must ship git for the *target* instead, so a Windows package
+built on macOS or Linux does not carry macOS or Linux git: `scripts/stage_git.sh win|mac` downloads
+the target's archive named in dugite's `embedded-git.json` (checksum-verified, cached under
+`${COLREV_BUILD_CACHE:-~/.cache/colrev-build}/git`) into `resources/git-win32-x64` or
+`resources/git-darwin-arm64`, and electron-builder copies that to `resources/git`. `build_and_package.sh`
+and `build_incremental.sh` run it before packaging, then `scripts/check_packaged_git.sh` fails the build
+if the packaged git is not a Windows (PE) or macOS (Mach-O) binary.
 
 ## Troubleshooting
 
