@@ -70,7 +70,7 @@
       "icon": "resources/icons/icon.icns",
       "extraResources": [
         {
-          "from": "node_modules/dugite/git",
+          "from": "resources/git-darwin-arm64",
           "to": "git"
         },
         {
@@ -86,7 +86,7 @@
       "target": "portable",
       "extraResources": [
         {
-          "from": "node_modules/dugite/git",
+          "from": "resources/git-win32-x64",
           "to": "git"
         },
         {
