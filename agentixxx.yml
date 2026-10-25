@@ -9,3 +9,9 @@ refresh:
 run:
   # The branch's own dependencies, on top of what the refresh installed.
   prepare: bash scripts/agentixxx/prepare.sh
+
+preview:
+  # The Electron app's dev server on a virtual display, served by noVNC (see the script).
+  command: bash scripts/agentixxx/preview.sh
+  port: 6080
+  path: /vnc.html?autoconnect=1&resize=scale

@@ -19,6 +19,14 @@ When a change touches the RPC models, regenerate the types (`pnpm gen-types:full
 `electron-app/`) and commit them. When it touches the UI flow, also run the e2e suite:
 `pnpm build && COLREV_BACKGROUND=1 xvfb-run pnpm test:e2e` in `electron-app/`, with the venv active.
 
+## Previews
+
+`agentixxx preview` runs `scripts/agentixxx/preview.sh`: the Electron app's dev server
+(`electron-vite dev --watch`) on a virtual display, which the preview's link shows through
+noVNC, signed in as the fake GitHub account `preview`. Renderer changes hot-reload; a change
+to the main process or the preload restarts the app. The account is fake, so nothing that
+needs real GitHub (cloning, pushing, invitations) works in a preview.
+
 ## Never
 
 - Edit generated files (`electron-app/src/renderer/types/generated/`): change the Python models and regenerate.
