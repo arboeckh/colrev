@@ -17,7 +17,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { ProjectsGallery } from '@/components/project';
+import { ProjectsGallery, ReviewsHero } from '@/components/project';
 import { EmptyState, RepoVisibilityToggle, UserMenu } from '@/components/common';
 import { useBackendStore } from '@/stores/backend';
 import { useProjectsStore } from '@/stores/projects';
@@ -407,8 +407,11 @@ loadInvitations();
           </template>
         </EmptyState>
 
-        <!-- Projects table -->
-        <ProjectsGallery v-else :projects="projects.projects" />
+        <!-- Projects gallery, under a hero with how many reviews are in progress -->
+        <template v-else>
+          <ReviewsHero :count="projects.projects.length" />
+          <ProjectsGallery :projects="projects.projects" />
+        </template>
 
         <!-- Pending invitations -->
         <div v-if="invitations.length > 0" class="mt-6 mb-2 max-w-2xl" data-testid="pending-invitations">
