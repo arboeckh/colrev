@@ -76,6 +76,8 @@ export function resolveBackendLaunch(input: BackendLaunchInput): BackendLaunchSp
   // registry env var so production is unaffected.
   if (input.env.COLREV_FAKE_GITHUB_REGISTRY) {
     env.HOME = input.userDataDir;
+    // Python on Windows resolves `~` from USERPROFILE and ignores HOME.
+    if (isWindows) env.USERPROFILE = input.userDataDir;
   }
 
   return { command, args, env };

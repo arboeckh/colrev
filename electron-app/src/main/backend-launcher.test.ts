@@ -61,4 +61,13 @@ describe('resolveBackendLaunch', () => {
         .env.HOME,
     ).toBe('/userData');
   });
+
+  it('also redirects USERPROFILE on Windows, which Python uses for ~ there', () => {
+    const fake = { COLREV_FAKE_GITHUB_REGISTRY: '/ws/registry.json' };
+    expect(resolveBackendLaunch(input({ platform: 'win32' })).env.USERPROFILE).toBeUndefined();
+    expect(
+      resolveBackendLaunch(input({ platform: 'win32', env: fake })).env.USERPROFILE,
+    ).toBe('/userData');
+    expect(resolveBackendLaunch(input({ env: fake })).env.USERPROFILE).toBeUndefined();
+  });
 });
