@@ -1,22 +1,49 @@
-name: Electron Windows Build
+name: App release (Windows)
+
+# Builds the unsigned Windows x64 app on a Windows runner and runs the packaged
+# smoke suite against it.
+#
+# - Run by hand (workflow_dispatch): build, smoke test, upload workflow artifacts.
+# - Push a tag app-vX.Y.Z: the same, then create a draft GitHub release named
+#   after the tag with the installer and portable exe attached. The tag must
+#   match "version" in electron-app/package.json. (app-v*, not v*: v* tags are
+#   the Python package's releases.)
+#
+# Signing: none yet (BOE-817 decided unsigned). Azure Artifact Signing would be
+# wired in at the "Build and package" step through win.azureSignOptions and the
+# AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET secrets (BOE-819).
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'app-v*'
 
 defaults:
   run:
     shell: bash
 
 jobs:
-  build:
+  windows:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
+    permissions:
+      contents: write
     env:
       COLREV_BUILD_CACHE: ${{ github.workspace }}/.cache/colrev-build
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Check tag matches app version
+        if: startsWith(github.ref, 'refs/tags/app-v')
+        run: |
+          version="$(node -p "require('./electron-app/package.json').version")"
+          if [[ "${GITHUB_REF_NAME}" != "app-v${version}" ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match electron-app/package.json version ${version} (expected app-v${version})."
+            exit 1
+          fi
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -37,7 +64,8 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          # electron-app/pnpm-workspace.yaml uses the pnpm >= 11 format.
+          version: 11
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -52,12 +80,73 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: bash scripts/build_and_package.sh win unsigned
 
+      # From another directory: the launchers find ..\python.exe relative to
+      # themselves, not to the working directory.
       - name: Smoke test Python bundle
-        run: ./electron-app/resources/python-win-x64/Scripts/colrev-jsonrpc.cmd --help
+        run: |
+          scripts="$PWD/electron-app/resources/python-win-x64/Scripts"
+          cd "$RUNNER_TEMP"
+          "$scripts/colrev-jsonrpc.exe" --help
+          "$scripts/pre-commit.exe" --version
 
-      - name: Upload portable exe
+      - name: Upload installer and portable exe
         uses: actions/upload-artifact@v4
         with:
-          name: colrev-win-x64-portable
-          path: electron-app/release/*.exe
+          name: colrev-win-x64
+          path: |
+            electron-app/release/ColRev-*.exe
           retention-days: 14
+          if-no-files-found: error
+
+      - name: Smoke test packaged app
+        working-directory: electron-app
+        env:
+          COLREV_TEST_MODE: packaged
+        run: npx playwright test --project=smoke
+
+      # The e2e workspace is '/tmp/colrev-e2e' on the checkout's drive
+      # (D:\tmp\colrev-e2e). upload-artifact can't take paths outside the
+      # workspace, so copy its logs (backend.log, renderer.log, rpc.jsonl) in.
+      - name: Collect e2e workspace logs
+        if: failure()
+        run: |
+          src=/d/tmp/colrev-e2e
+          dest=electron-app/test-results/e2e-workspace
+          [[ -d "$src" ]] || exit 0
+          for dir in "$src"/*/; do
+            name="$(basename "$dir")"
+            mkdir -p "$dest/$name"
+            cp "$dir"*.log "$dir"*.jsonl "$dir"last-state.json "$dest/$name/" 2>/dev/null || true
+          done
+
+      - name: Upload smoke test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-results
+          path: |
+            electron-app/test-results/
+            electron-app/playwright-report/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Create draft release
+        if: startsWith(github.ref, 'refs/tags/app-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#app-v}"
+          cat > release-notes.md <<EOF
+          ColRev ${version} for Windows (x64).
+
+          **Download \`ColRev-Setup-${version}-x64.exe\`** and run it. It installs ColRev for your user only, so no admin rights are needed.
+          \`ColRev-${version}-x64-portable.exe\` runs without installing, but unpacks the whole app to a temporary folder on every start, so it starts slowly.
+
+          These builds are not code-signed. Windows SmartScreen shows "Windows protected your PC" the first time: click **More info**, then **Run anyway**.
+          Some company-managed PCs block unsigned apps entirely.
+          EOF
+          gh release create "${GITHUB_REF_NAME}" \
+            --draft \
+            --title "ColRev ${version}" \
+            --notes-file release-notes.md \
+            electron-app/release/ColRev-*.exe

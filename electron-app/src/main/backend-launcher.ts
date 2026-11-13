@@ -6,7 +6,7 @@ import * as path from 'path';
  * Dev: run `python -m colrev.ui_jsonrpc.server` against whatever Python is on
  * PATH (typically the conda colrev env).
  * Packaged: spawn the console-script shim from the python-build-standalone
- * bundle. Electron never needs to know about Python — the shim does.
+ * bundle (macOS), or the bundle's python.exe with the module (Windows).
  */
 export interface BackendLaunchInput {
   isPackaged: boolean;
@@ -41,8 +41,17 @@ export function resolveBackendLaunch(input: BackendLaunchInput): BackendLaunchSp
     const platformDir = isWindows ? 'python-win-x64' : 'python-mac-arm64';
     const bundleRoot = path.join(input.resourcesPath, platformDir);
     bundleBinDir = path.join(bundleRoot, isWindows ? 'Scripts' : 'bin');
-    command = path.join(bundleBinDir, isWindows ? 'colrev-jsonrpc.cmd' : 'colrev-jsonrpc');
-    args = [];
+    if (isWindows) {
+      // Not the Scripts\colrev-jsonrpc.cmd shim: Node refuses to spawn .cmd/.bat
+      // files without `shell: true` (EINVAL, CVE-2024-27980), and going through
+      // cmd.exe would mean quoting install paths with spaces. The shim only
+      // runs this interpreter anyway.
+      command = path.join(bundleRoot, 'python.exe');
+      args = ['-m', 'colrev.ui_jsonrpc.server'];
+    } else {
+      command = path.join(bundleBinDir, 'colrev-jsonrpc');
+      args = [];
+    }
   }
 
   const env: Record<string, string> = { ...input.gitEnv };
@@ -67,6 +76,8 @@ export function resolveBackendLaunch(input: BackendLaunchInput): BackendLaunchSp
   // registry env var so production is unaffected.
   if (input.env.COLREV_FAKE_GITHUB_REGISTRY) {
     env.HOME = input.userDataDir;
+    // Python on Windows resolves `~` from USERPROFILE and ignores HOME.
+    if (isWindows) env.USERPROFILE = input.userDataDir;
   }
 
   return { command, args, env };
