@@ -54,3 +54,14 @@ colrev data
 git remote add origin git@github.com:CoLRev-Environment/example.git
 git push --set-upstream origin main -f
 ```
+
+## App release (Windows desktop app)
+
+The desktop app is versioned separately from the Python package, by `version` in `electron-app/package.json`, and released with `app-v*` tags (`v*` tags are the Python package's).
+
+- Bump `version` in `electron-app/package.json` and merge it to `main`.
+- Optional dry run: `gh workflow run electron-win-build.yml --ref main`. It builds, runs the packaged smoke test and uploads the exes as workflow artifacts, without making a release.
+- Tag and push: `git tag app-vX.Y.Z && git push origin app-vX.Y.Z`. The tag must match the `package.json` version or the workflow stops.
+- The "App release (Windows)" workflow builds on `windows-latest`, runs the smoke test against the packaged app and creates a **draft** release `app-vX.Y.Z` with `ColRev-Setup-X.Y.Z-x64.exe` (installer, what users should get) and `ColRev-X.Y.Z-x64-portable.exe`.
+- Install the setup exe on a Windows PC and check it starts, then edit the release notes if needed and publish the draft.
+- The builds are unsigned (BOE-817): the release notes explain SmartScreen's "More info → Run anyway".

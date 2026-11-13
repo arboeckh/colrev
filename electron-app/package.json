@@ -12,7 +12,7 @@
     "package:win": "electron-builder --win",
     "package:linux": "electron-builder --linux",
     "package:mac:unsigned": "electron-builder --mac -c.mac.identity=null",
-    "package:win:unsigned": "electron-builder --win --publish never -c.win.signAndEditExecutable=false",
+    "package:win:unsigned": "electron-builder --win --publish never",
     "package:linux:unsigned": "electron-builder --linux",
     "release": "bash ../scripts/build_and_package.sh",
     "release:mac": "bash ../scripts/build_and_package.sh mac",
@@ -83,7 +83,21 @@
       "size": 1500
     },
     "win": {
-      "target": "portable",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "resources/icons/icon.ico",
       "extraResources": [
         {
           "from": "resources/git-win32-x64",
@@ -94,6 +108,15 @@
           "to": "python-win-x64"
         }
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-${arch}-portable.${ext}"
     },
     "linux": {
       "target": "AppImage",

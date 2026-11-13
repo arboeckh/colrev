@@ -120,7 +120,16 @@ echo "================================================"
 if [[ "$MODE" == "unsigned" ]]; then
     export CSC_IDENTITY_AUTO_DISCOVERY=false
 fi
-pnpm run "$PACKAGE_SCRIPT"
+PACKAGE_ARGS=()
+if [[ "$PLATFORM" == "win" ]]; then
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) ;;
+        # Writing the icon and version info into ColRev.exe (rcedit) needs
+        # Windows or Wine, so a Windows package built elsewhere skips it.
+        *) PACKAGE_ARGS+=("-c.win.signAndEditExecutable=false") ;;
+    esac
+fi
+pnpm run "$PACKAGE_SCRIPT" ${PACKAGE_ARGS[@]+"${PACKAGE_ARGS[@]}"}
 
 case "$PLATFORM" in
     mac) PACKAGED_GIT="$REPO_ROOT/electron-app/release/mac-arm64/ColRev.app/Contents/Resources/git" ;;
