@@ -94,9 +94,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: smoke-test-results
+          # D:/tmp/colrev-e2e is the e2e workspace ('/tmp/colrev-e2e' on the
+          # checkout's drive): backend.log, renderer.log, rpc.jsonl.
           path: |
             electron-app/test-results/
             electron-app/playwright-report/
+            D:/tmp/colrev-e2e/*/*.log
+            D:/tmp/colrev-e2e/*/*.jsonl
+            D:/tmp/colrev-e2e/*/last-state.json
           retention-days: 14
           if-no-files-found: ignore
 

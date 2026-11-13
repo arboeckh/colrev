@@ -86,6 +86,7 @@ test.describe(`smoke (${MODE})`, () => {
         const pinia = window.__pinia__;
         return pinia?._s.get('backend')?.status === 'running';
       },
+      undefined,
       { timeout: BACKEND_TIMEOUT },
     );
 
@@ -100,6 +101,7 @@ test.describe(`smoke (${MODE})`, () => {
     // Creation ends by navigating into the new project.
     await window.waitForFunction(
       () => location.hash.includes('/project/smoke-review'),
+      undefined,
       { timeout: 120_000 },
     );
 
