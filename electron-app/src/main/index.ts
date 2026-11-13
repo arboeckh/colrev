@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, protocol, net, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { pathToFileURL } from 'url';
 import {
   ColrevBackend,
   RpcError,
@@ -341,7 +342,9 @@ app.whenReady().then(() => {
       return new Response('PDF not found', { status: 404 });
     }
 
-    return net.fetch(`file://${filePath}`);
+    // pathToFileURL, not `file://${filePath}`: on Windows that would be
+    // file://D:\…, which is not a valid file URL.
+    return net.fetch(pathToFileURL(filePath).toString());
   });
 
   setupIPC();
