@@ -80,8 +80,14 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: bash scripts/build_and_package.sh win unsigned
 
+      # From another directory: the launchers find ..\python.exe relative to
+      # themselves, not to the working directory.
       - name: Smoke test Python bundle
-        run: ./electron-app/resources/python-win-x64/Scripts/colrev-jsonrpc.cmd --help
+        run: |
+          scripts="$PWD/electron-app/resources/python-win-x64/Scripts"
+          cd "$RUNNER_TEMP"
+          "$scripts/colrev-jsonrpc.exe" --help
+          "$scripts/pre-commit.exe" --version
 
       - name: Upload installer and portable exe
         uses: actions/upload-artifact@v4
