@@ -252,6 +252,30 @@ describe('logout', () => {
   });
 });
 
+describe('cancelLogin', () => {
+  it('stops the main-process flow and clears the device-flow status', async () => {
+    const store = useAuthStore();
+    await store.initialize();
+    ctx.mock.emitDeviceFlowStatus({ status: 'polling', userCode: 'ABCD-1234', verificationUri: 'x' });
+    expect(store.deviceFlowStatus?.status).toBe('polling');
+
+    await store.cancelLogin();
+
+    expect(ctx.mock.auth.cancelLogin).toHaveBeenCalledTimes(1);
+    expect(store.deviceFlowStatus).toBeNull();
+  });
+
+  it('still clears the status when the IPC call fails', async () => {
+    const store = useAuthStore();
+    ctx.mock.auth.cancelLogin.mockRejectedValueOnce(new Error('ipc down'));
+    store.deviceFlowStatus = { status: 'awaiting_code' };
+
+    await store.cancelLogin();
+
+    expect(store.deviceFlowStatus).toBeNull();
+  });
+});
+
 describe('hasMultipleAccounts', () => {
   it('is false for zero or one account and true for two', async () => {
     const auth = useAuthStore();

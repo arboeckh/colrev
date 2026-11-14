@@ -42,6 +42,13 @@ export const useProjectsStore = defineStore('projects', () => {
   const currentProject = ref<Project | null>(null);
   const isLoadingProject = ref(false);
   const projectError = ref<string | null>(null);
+  // Bumped by anything that wants the open review (re)loaded — the header
+  // Refresh when there is nothing loaded to refresh. AppLayout owns the
+  // loading flow (sync, git initialisation) and watches this.
+  const reloadRequest = ref(0);
+  // Which `loadProject` call is the newest. A call that finds a newer one has
+  // taken over the loading state and leaves it alone.
+  let loadSeq = 0;
 
   // Freeze state: held during branch switches to prevent sidebar flicker.
   // Snapshotted before checkout; cleared after loadProject completes.
@@ -117,6 +124,7 @@ export const useProjectsStore = defineStore('projects', () => {
     if (currentProjectId.value === id) {
       currentProjectId.value = null;
       currentProject.value = null;
+      isLoadingProject.value = false;
     }
   }
 
@@ -170,19 +178,24 @@ export const useProjectsStore = defineStore('projects', () => {
     }
   }
 
-  async function loadProject(id: string): Promise<boolean> {
+  async function loadProject(id: string, attempt = 0): Promise<boolean> {
     const debug = useDebugStore();
     debug.logInfo(`Loading project: ${id}`);
 
-    // Only show full loading state for initial load (different project).
-    // Reloading the same project (e.g. after branch switch) should NOT
-    // unmount the page via AppLayout's v-if="isLoadingProject".
-    const isReload = currentProjectId.value === id;
+    // Only show full loading state for initial load (different project, or one
+    // that has nothing loaded yet). Reloading the same project (e.g. after
+    // branch switch) should NOT unmount the page via AppLayout's
+    // v-if="isLoadingProject".
+    const isReload = currentProject.value?.id === id;
     if (!isReload) {
       isLoadingProject.value = true;
+      // The previous project's object must not stay paired with the new id: a
+      // failed load would leave B's id next to A's path and status.
+      currentProject.value = null;
     }
     projectError.value = null;
     currentProjectId.value = id;
+    const seq = ++loadSeq;
 
     // Project switch or branch-switch reload: any in-flight project-scoped
     // load belongs to the previous context — invalidate it.
@@ -206,10 +219,25 @@ export const useProjectsStore = defineStore('projects', () => {
 
       debug.logInfo(`Parallel load complete. Status: ${!!status}, Settings: ${!!settings}`);
 
-      if (!guard.isCurrent()) {
+      if (seq !== loadSeq) {
         // Another loadProject (project or branch switch) superseded this one
-        // mid-flight — let it own the state.
+        // mid-flight — let it own the state, including the spinner.
         return false;
+      }
+
+      if (currentProjectId.value !== id) {
+        // The project was left (back to the list, deleted) while loading.
+        isLoadingProject.value = false;
+        return false;
+      }
+
+      if (!guard.isCurrent()) {
+        // Nobody else is loading, but the epoch moved: a full invalidation
+        // from another flow (a pull finishing) landed mid-flight, and what was
+        // just read may predate it. Read again rather than leave the spinner on
+        // or paint it. Bounded, so a flow that invalidates constantly cannot
+        // keep the load from ever settling.
+        if (attempt < 2) return loadProject(id, attempt + 1);
       }
 
       if (!status) {
@@ -270,11 +298,17 @@ export const useProjectsStore = defineStore('projects', () => {
       isLoadingProject.value = false;
       return true;
     } catch (err) {
+      if (seq !== loadSeq) return false;
       projectError.value = err instanceof Error ? err.message : 'Failed to load project';
       debug.logError(`Project load failed: ${projectError.value}`, err);
       isLoadingProject.value = false;
       return false;
     }
+  }
+
+  /** Ask the open review's layout to load it again (see `reloadRequest`). */
+  function requestReload(): void {
+    reloadRequest.value += 1;
   }
 
   // In-flight coalescing with a "dirty re-run": concurrent callers
@@ -357,6 +391,7 @@ export const useProjectsStore = defineStore('projects', () => {
     currentProjectId.value = null;
     currentProject.value = null;
     projectError.value = null;
+    isLoadingProject.value = false;
     // Invalidate any in-flight project-scoped loads.
     useProjectDataStore().bumpEpoch();
 
@@ -449,6 +484,7 @@ export const useProjectsStore = defineStore('projects', () => {
     currentProject,
     isLoadingProject,
     projectError,
+    reloadRequest,
     // Computed
     hasProjects,
     currentSettings,
@@ -463,6 +499,7 @@ export const useProjectsStore = defineStore('projects', () => {
     loadProjectStatus,
     loadProjectSettings,
     loadProject,
+    requestReload,
     refreshCurrentProject,
     clearCurrentProject,
     // Branch-switch stability

@@ -105,6 +105,8 @@ export interface GitHandlerDeps {
   refreshGitState(projectId: string, projectPath: string): Promise<GitStateSnapshot | null>;
   /** Last snapshot built for this project, if any. Pure cache read. */
   getGitState(projectId: string): GitStateSnapshot | null;
+  /** Drop the cached snapshot of a project that was deleted. */
+  forgetGitState(projectId: string): void;
   /**
    * Call a backend RPC directly, bypassing `colrev:call`. The handler already
    * holds the git mutex, so going through `colrev:call` would deadlock.
@@ -242,6 +244,14 @@ export function createGitHandlers(deps: GitHandlerDeps): IpcHandlerSpec[] {
       handler: async (_event, projectId: string) => deps.getGitState(projectId),
       lockFree: true,
       lockFreeReason: 'returns the last snapshot from memory; performs no repo access',
+    }),
+    defineHandler({
+      channel: 'git-state:forget',
+      handler: async (_event, projectId: string) => {
+        deps.forgetGitState(projectId);
+      },
+      lockFree: true,
+      lockFreeReason: 'drops an in-memory cache entry; performs no repo access',
     }),
   ];
 }
