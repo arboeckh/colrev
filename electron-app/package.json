@@ -60,10 +60,8 @@
       "output": "release"
     },
     "files": [
-      "dist/**/*"
-    ],
-    "asarUnpack": [
-      "node_modules/dugite/git/**/*"
+      "dist/**/*",
+      "!node_modules/dugite/git/**"
     ],
     "mac": {
       "target": "dir",
@@ -129,21 +127,41 @@
     }
   },
   "devDependencies": {
+    "@fontsource-variable/fraunces": "^5.2.9",
+    "@fontsource-variable/inter-tight": "^5.2.7",
+    "@fontsource/dm-mono": "^5.2.7",
+    "@internationalized/date": "^3.12.1",
+    "@lucide/vue": "^1.17.0",
     "@pinia/testing": "^1.0.3",
     "@playwright/test": "^1.50.0",
+    "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/vue-table": "^8.21.3",
+    "@tiptap/extension-placeholder": "^3.22.3",
+    "@tiptap/starter-kit": "^3.22.3",
+    "@tiptap/vue-3": "^3.22.3",
     "@types/node": "^24.12.2",
     "@vitejs/plugin-vue": "^6.0.4",
     "@vue/test-utils": "^2.5.0",
+    "@vueuse/core": "^14.3.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "electron": "^40.1.0",
     "electron-builder": "^26.7.0",
     "electron-vite": "^5.0.0",
     "happy-dom": "^20.12.0",
     "json-schema-to-typescript": "^15.0.4",
+    "lucide-vue-next": "^0.563.0",
+    "pinia": "^3.0.4",
+    "reka-ui": "^2.9.9",
+    "tailwind-merge": "^3.4.0",
+    "tailwindcss": "^4.1.18",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vitest": "^4.1.5",
     "vue": "^3.5.27",
+    "vue-router": "^4.6.4",
+    "vue-sonner": "^2.0.9",
     "vue-tsc": "^3.3.11"
   },
   "pnpm": {
@@ -154,26 +172,6 @@
     ]
   },
   "dependencies": {
-    "@fontsource-variable/fraunces": "^5.2.9",
-    "@fontsource-variable/inter-tight": "^5.2.7",
-    "@fontsource/dm-mono": "^5.2.7",
-    "@internationalized/date": "^3.12.1",
-    "@lucide/vue": "^1.17.0",
-    "@tailwindcss/vite": "^4.1.18",
-    "@tanstack/vue-table": "^8.21.3",
-    "@tiptap/extension-placeholder": "^3.22.3",
-    "@tiptap/starter-kit": "^3.22.3",
-    "@tiptap/vue-3": "^3.22.3",
-    "@vueuse/core": "^14.3.0",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "dugite": "^3.0.0",
-    "lucide-vue-next": "^0.563.0",
-    "pinia": "^3.0.4",
-    "reka-ui": "^2.9.9",
-    "tailwind-merge": "^3.4.0",
-    "tailwindcss": "^4.1.18",
-    "vue-router": "^4.6.4",
-    "vue-sonner": "^2.0.9"
+    "dugite": "^3.0.0"
   }
 }

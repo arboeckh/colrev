@@ -88,6 +88,7 @@ function appDeps(overrides: Partial<AppHandlerDeps> = {}): AppHandlerDeps {
       getSession: noop,
       getCachedSession: () => null,
       startDeviceFlow: noop,
+      cancelDeviceFlow: () => undefined,
       logout: () => undefined,
       getToken: () => 'tok',
       listAccounts: () => [],
@@ -109,6 +110,7 @@ function allSpecs(): IpcHandlerSpec[] {
       callBackend: async () => ({}) as never,
       refreshGitState: async () => null,
       getGitState: () => null,
+      forgetGitState: () => {},
     }),
     ...createGitHubHandlers(githubDeps()),
   ];
@@ -130,6 +132,7 @@ describe('lock classification', () => {
     expect(lockFree).toEqual([
       '__test/switchAccount',
       'app:info',
+      'auth:cancel-login',
       'auth:get-cached-session',
       'auth:get-session',
       'auth:get-token',
@@ -144,6 +147,7 @@ describe('lock classification', () => {
       'file:choose-save-path',
       'file:open-dialog',
       'file:save-dialog',
+      'git-state:forget',
       'git-state:get',
       'github:accept-invitation',
       'github:add-collaborator',
@@ -276,6 +280,7 @@ describe('git handlers', () => {
       callBackend: async () => ({}) as never,
       refreshGitState: async () => null,
       getGitState: () => null,
+      forgetGitState: () => {},
     });
     return new Map(specs.map((s) => [s.channel, s.handler]));
   }

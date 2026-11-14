@@ -275,6 +275,12 @@ class ScreenHandler(BaseHandler):
             req.record_id, req.decision, req.project_id,
         )
 
+        managed_review_utils.require_task_id_for_covered_record(
+            review_manager=self.review_manager,
+            task_id=req.task_id,
+            stage="screen",
+            record_id=req.record_id,
+        )
         task_record_ids = managed_review_utils.task_record_ids(
             review_manager=self.review_manager,
             task_id=req.task_id,

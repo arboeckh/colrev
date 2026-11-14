@@ -31,6 +31,8 @@ export const RPC_ERROR_CODES = {
   RESOURCE_LOCKED: -32006,
   /** Referenced project/record/source does not exist. */
   NOT_FOUND: -32007,
+  /** A decision on a record an active managed review task covers, made without the task's id. */
+  MANAGED_TASK_ACTIVE: -32008,
   // Transport codes (Electron bridge — the server never answered)
   TRANSPORT_CRASHED: -33000,
   TRANSPORT_TIMEOUT: -33001,

@@ -295,6 +295,7 @@ export function createWindowMock(): WindowMock {
     getSession: vi.fn(async () => null),
     getCachedSession: vi.fn(async () => null),
     login: vi.fn(async () => {}),
+    cancelLogin: vi.fn(async () => {}),
     logout: vi.fn(async () => {}),
     getToken: vi.fn(async () => null),
     listAccounts: vi.fn(async () => [] as AccountInfo[]),
@@ -326,6 +327,9 @@ export function createWindowMock(): WindowMock {
         return { success: true, state: snapshots.get(projectId) ?? null };
       }),
       get: vi.fn(async (projectId: string) => snapshots.get(projectId) ?? null),
+      forget: vi.fn(async (projectId: string) => {
+        snapshots.delete(projectId);
+      }),
       onChanged: vi.fn(gitStateChanged.subscribe),
     } as unknown as MockedObject<GitStateAPI>,
 
