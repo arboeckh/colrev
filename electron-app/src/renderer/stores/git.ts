@@ -97,6 +97,18 @@ export const useGitStore = defineStore('git', () => {
   const mainAheadOfDev = ref(0);
 
   // Branch delta (record-level diff between dev and main)
+  /**
+   * The error code (or raw stderr) of the most recent failed push / pull /
+   * `pushBranch`, cleared by the next success. The coordinator reads these to
+   * tell a rejected push (fetch first) from a rejected credential (sign in)
+   * from anything else (back off) — the primitives return a boolean, and a
+   * boolean cannot carry that.
+   */
+  /** The branch to return to once a diverged `main` has been combined. */
+  const returnBranchAfterMerge = ref<string | null>(null);
+  const lastPushError = ref<string | null>(null);
+  const lastPullError = ref<string | null>(null);
+  const lastPushBranchError = ref<string | null>(null);
   const branchDelta = ref<BranchDelta | null>(null);
   const isLoadingDelta = ref(false);
   // Per-state record counts on dev (mirrored from branch delta's source).
@@ -197,13 +209,25 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  async function pull(): Promise<boolean> {
+  /**
+   * Pull the checked-out branch.
+   *
+   * `quiet` is the coordinator's automatic path: it records why a pull failed
+   * in `lastPullError` and otherwise stays out of the way — no dialog, no
+   * divergence flow, no toast. The coordinator surfaces what it cannot do
+   * through the sync banner and indicator, and an unprompted modal mid-review
+   * is what ADR 0004 rules out.
+   */
+  async function pull(options: { quiet?: boolean } = {}): Promise<boolean> {
     const path = getProjectPath();
     if (!path || isPulling.value) return false;
 
     isPulling.value = true;
     try {
       const result = await window.git.pull(path, true);
+      lastPullError.value = result.success ? null : (result.error ?? 'Pull failed');
+      if (!result.success && result.error === 'OFFLINE') connection.markOffline();
+      if (!result.success && options.quiet) return false;
       if (result.success) {
         // The working tree changed wholesale — full invalidation through the
         // seam (bumps the request epoch, refreshes stores, reloads pages).
@@ -286,9 +310,11 @@ export const useGitStore = defineStore('git', () => {
         notifications.success('Main updated', 'Local main is now up to date with the remote.');
         return true;
       } else if (result.error === 'DIVERGED') {
+        // The banner offers the recovery (`resolveDivergedMain`); the toast
+        // only has to say that the click did not do it.
         notifications.error(
           'Cannot fast-forward main',
-          'Local main has diverged from the remote. Switch to main to resolve.',
+          'Local main has diverged from the remote. Use “Review & combine main” in the banner to resolve it.',
         );
         return false;
       } else {
@@ -300,20 +326,28 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  async function push(): Promise<boolean> {
+  /**
+   * Push the checked-out branch. `quiet` leaves the reporting to the caller
+   * (the coordinator's automatic path reports a failure once, not per tick) and
+   * also skips the success toast — a push the user did not ask for does not
+   * need acknowledging.
+   */
+  async function push(options: { quiet?: boolean } = {}): Promise<boolean> {
     const path = getProjectPath();
     if (!path || isPushing.value) return false;
 
     isPushing.value = true;
     try {
       const result = await window.git.push(path);
+      lastPushError.value = result.success ? null : (result.error ?? 'Push failed');
       if (result.success) {
         connection.markOnline();
         await refreshStatus();
-        notifications.success('Changes saved to remote');
+        if (!options.quiet) notifications.success('Changes saved to remote');
         return true;
       } else {
-        reportGitFailure('push', result.error);
+        if (result.error === 'OFFLINE') connection.markOffline();
+        if (!options.quiet) reportGitFailure('push', result.error);
         return false;
       }
     } finally {
@@ -327,17 +361,24 @@ export const useGitStore = defineStore('git', () => {
    * `shareUnpublishedReviews`), or dev after a launch, which must not depend on
    * what HEAD is by then. Leaves the working tree alone.
    */
-  async function pushBranch(branchName: string): Promise<boolean> {
+  async function pushBranch(
+    branchName: string,
+    options: { quiet?: boolean } = {},
+  ): Promise<boolean> {
     const path = getProjectPath();
     if (!path) return false;
     const result = await window.git.pushBranch(path, branchName);
+    lastPushBranchError.value = result.success ? null : (result.error ?? 'Push failed');
     if (result.success) {
       connection.markOnline();
-      // When it is the checked-out branch, its ahead count just changed.
-      if (branchName === currentBranch.value) await refreshStatus();
+      // When it is the checked-out branch, its ahead count just changed. So
+      // does `mainAhead` when it is `main`: the coordinator keeps pushing
+      // main for as long as the snapshot says it is ahead.
+      if (branchName === currentBranch.value || branchName === 'main') await refreshStatus();
       return true;
     }
-    reportGitFailure('push', result.error);
+    if (result.error === 'OFFLINE') connection.markOffline();
+    if (!options.quiet) reportGitFailure('push', result.error);
     return false;
   }
 
@@ -558,9 +599,20 @@ export const useGitStore = defineStore('git', () => {
       return false;
     }
 
-    // Push main
+    // Push main. The merge is already done, so a failed push cannot undo the
+    // publish — but it must not be reported as one that reached the remote.
+    // `loadProject` below moves the user back to dev, and auto-push only
+    // pushes the checked-out branch, so the coordinator retries main itself
+    // (`mainAhead > 0` while main is not checked out).
+    let pushError: string | null = null;
     if (hasRemote.value) {
-      await window.git.push(path);
+      const pushResult = await window.git.push(path);
+      if (pushResult.success) {
+        connection.markOnline();
+      } else {
+        pushError = pushResult.error ?? 'Push failed';
+        if (pushError === 'OFFLINE') connection.markOffline();
+      }
     }
 
     // Reload project data + branches
@@ -570,8 +622,67 @@ export const useGitStore = defineStore('git', () => {
     await refreshBranches();
     await refreshBranchDiff();
 
+    if (pushError !== null) {
+      reportGitFailure('push', pushError);
+      notifications.warning(
+        'Published here, not yet shared',
+        pushError === 'OFFLINE'
+          ? 'The new version is on this computer only. It is uploaded automatically once the connection is back.'
+          : 'The new version is on this computer only. It is uploaded automatically once the problem above is resolved.',
+      );
+      return true;
+    }
+
     notifications.success('Version published', 'Your changes have been published as a stable version.');
     return true;
+  }
+
+  /**
+   * Recover from a `main` that has diverged from `origin/main`: this computer
+   * published, then a collaborator published too, and neither side's `main` is
+   * an ancestor of the other. `fastForwardMain` cannot help, and nothing else
+   * in the UI checks `main` out.
+   *
+   * Switches to `main` and runs the same combine flow as any diverged branch
+   * (`startDivergenceResolution`); once the merge commit exists, `main` is
+   * ahead of `origin/main` only, and the coordinator pushes it. A dirty tree
+   * blocks the switch and gets the usual save-or-discard dialog, which resumes
+   * here.
+   */
+  async function resolveDivergedMain(): Promise<boolean> {
+    const path = getProjectPath();
+    if (!path) return false;
+    const returnTo = currentBranch.value;
+
+    if (!isOnMain.value) {
+      const switched = await switchBranch('main', { promptOnDirty: true });
+      if (!switched) {
+        // A dirty tree opened the save-or-discard dialog; resume here after it.
+        if (showBranchSwitchBlockedDialog.value) {
+          blockedSwitchResume.value = () => void resolveDivergedMain();
+        }
+        return false;
+      }
+    }
+
+    // `ahead`/`behind` now describe main itself.
+    returnBranchAfterMerge.value = returnTo !== 'main' ? returnTo : null;
+    await startDivergenceResolution();
+
+    // A conflict dialog keeps the user on main until they decide
+    // (`applyMergeResolutions` / `cancelMerge` take them back); otherwise the
+    // merge is already done and they go back to where they were working.
+    if (!showConflictDialog.value) await returnToBranchAfterMerge();
+    return true;
+  }
+
+  /** Leave `main` again after `resolveDivergedMain` has finished with it. */
+  async function returnToBranchAfterMerge(): Promise<void> {
+    const target = returnBranchAfterMerge.value;
+    returnBranchAfterMerge.value = null;
+    if (target && currentBranch.value === 'main') {
+      await switchBranch(target, { promptOnDirty: false });
+    }
   }
 
   /**
@@ -843,6 +954,7 @@ export const useGitStore = defineStore('git', () => {
         // The merge rewrote the working tree — full invalidation picks up
         // merged records and settings everywhere.
         await useProjectDataStore().invalidateAll();
+        await returnToBranchAfterMerge();
         return true;
       } else {
         notifications.error('Sync failed', result.error || 'Could not apply changes.');
@@ -860,6 +972,7 @@ export const useGitStore = defineStore('git', () => {
     showConflictDialog.value = false;
     mergeAnalysis.value = null;
     isResolving.value = false;
+    void returnToBranchAfterMerge();
     notifications.info(
       'Sync canceled',
       'Your local changes are preserved. You can resolve this later.',
@@ -1007,12 +1120,17 @@ export const useGitStore = defineStore('git', () => {
      * `.pushNow()` / `.fetchNow()` / `.syncNow()`.
      */
     __remoteOps: { fetch, pull, push, pushBranch, fastForwardMain, tryAutoResolveDivergence },
+    lastPushError,
+    lastPullError,
+    lastPushBranchError,
+    reportGitFailure,
     refreshStatus,
     refreshSnapshotFor,
     refreshBranches,
     switchBranch,
     ensureDevBranch,
     mergeDevIntoMain,
+    resolveDivergedMain,
     refreshBranchDiff,
     refreshBranchDelta,
     loadReleases,

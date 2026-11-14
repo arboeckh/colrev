@@ -195,6 +195,139 @@ describe('pull', () => {
   });
 });
 
+describe('the automatic (quiet) pull', () => {
+  it('opens no dialog on a dirty tree and records why it failed', async () => {
+    const git = useGitStore();
+    ctx.mock.git.pull.mockResolvedValue({ success: false, error: 'DIRTY_WORKTREE' });
+
+    await expect(git.__remoteOps.pull({ quiet: true })).resolves.toBe(false);
+
+    expect(git.showPullBlockedDialog).toBe(false);
+    expect(git.lastPullError).toBe('DIRTY_WORKTREE');
+  });
+
+  it('starts no divergence flow and never toasts', async () => {
+    const git = useGitStore();
+    const error = vi.spyOn(useNotificationsStore(), 'error');
+    ctx.mock.git.pull.mockResolvedValue({ success: false, error: 'DIVERGED' });
+
+    await expect(git.__remoteOps.pull({ quiet: true })).resolves.toBe(false);
+
+    expect(ctx.mock.git.analyzeDivergence).not.toHaveBeenCalled();
+    expect(git.showConflictDialog).toBe(false);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it('does not toast other failures either, but still flips the offline badge', async () => {
+    const git = useGitStore();
+    const error = vi.spyOn(useNotificationsStore(), 'error');
+    ctx.mock.git.pull.mockResolvedValue({ success: false, error: 'OFFLINE' });
+
+    await git.__remoteOps.pull({ quiet: true });
+
+    expect(error).not.toHaveBeenCalled();
+    expect(useConnectionStore().isOnline).toBe(false);
+  });
+});
+
+describe('the automatic (quiet) push', () => {
+  it('records the failure code and leaves reporting to the coordinator', async () => {
+    const git = useGitStore();
+    const error = vi.spyOn(useNotificationsStore(), 'error');
+    ctx.mock.git.push.mockResolvedValue({ success: false, error: 'REJECTED_FETCH_FIRST' });
+
+    await expect(git.__remoteOps.push({ quiet: true })).resolves.toBe(false);
+
+    expect(error).not.toHaveBeenCalled();
+    expect(git.lastPushError).toBe('REJECTED_FETCH_FIRST');
+  });
+
+  it('skips the success toast and clears the recorded failure', async () => {
+    const git = useGitStore();
+    const success = vi.spyOn(useNotificationsStore(), 'success');
+    git.lastPushError = 'AUTH_FAILED';
+
+    await expect(git.__remoteOps.push({ quiet: true })).resolves.toBe(true);
+
+    expect(success).not.toHaveBeenCalled();
+    expect(git.lastPushError).toBeNull();
+  });
+});
+
+describe('mergeDevIntoMain', () => {
+  it('reports a push that failed instead of claiming the version was published', async () => {
+    const git = useGitStore();
+    const notifications = useNotificationsStore();
+    const success = vi.spyOn(notifications, 'success');
+    const warning = vi.spyOn(notifications, 'warning');
+    const error = vi.spyOn(notifications, 'error');
+    ctx.setGitState({ branch: 'dev' });
+    ctx.mock.git.push.mockResolvedValue({ success: false, error: 'AUTH_FAILED' });
+
+    await expect(git.mergeDevIntoMain()).resolves.toBe(true);
+
+    expect(success).not.toHaveBeenCalledWith('Version published', expect.anything());
+    expect(error).toHaveBeenCalledWith('Sign in again', expect.any(String), expect.anything());
+    expect(warning).toHaveBeenCalledWith('Published here, not yet shared', expect.any(String));
+  });
+
+  it('says "offline" once, plainly, when the network was the problem', async () => {
+    const git = useGitStore();
+    const warning = vi.spyOn(useNotificationsStore(), 'warning');
+    ctx.setGitState({ branch: 'dev' });
+    ctx.mock.git.push.mockResolvedValue({ success: false, error: 'OFFLINE' });
+
+    await git.mergeDevIntoMain();
+
+    expect(useConnectionStore().isOnline).toBe(false);
+    expect(warning.mock.calls[0][1]).toContain('connection is back');
+  });
+
+  it('still announces the publish when the push got through', async () => {
+    const git = useGitStore();
+    const success = vi.spyOn(useNotificationsStore(), 'success');
+    ctx.setGitState({ branch: 'dev' });
+
+    await git.mergeDevIntoMain();
+
+    expect(success).toHaveBeenCalledWith('Version published', expect.any(String));
+  });
+});
+
+describe('resolveDivergedMain', () => {
+  it('checks main out, combines it with the remote, and returns to dev', async () => {
+    const git = useGitStore();
+    ctx.setGitState({ branch: 'dev', mainAhead: 1, mainBehind: 1 });
+    ctx.mock.git.checkout.mockImplementation(async (_path: string, branch: string) => {
+      ctx.setGitState({ branch, mainAhead: 1, mainBehind: 1 });
+      return { success: true };
+    });
+
+    await expect(git.resolveDivergedMain()).resolves.toBe(true);
+
+    expect(ctx.mock.git.checkout.mock.calls.map((c) => c[1])).toEqual(['main', 'dev']);
+    expect(ctx.mock.git.analyzeDivergence).toHaveBeenCalled();
+    expect(ctx.mock.git.applyMerge).toHaveBeenCalled();
+  });
+
+  it('stays out of main on a dirty tree and offers the save-or-discard dialog', async () => {
+    const git = useGitStore();
+    ctx.setGitState({ branch: 'dev', mainAhead: 1, mainBehind: 1 });
+    ctx.mock.git.checkout.mockResolvedValue({
+      success: false,
+      error: 'DIRTY_WORKTREE',
+      dirty: { uncommittedCount: 1, untrackedCount: 0 },
+    });
+
+    await expect(git.resolveDivergedMain()).resolves.toBe(false);
+
+    expect(git.showBranchSwitchBlockedDialog).toBe(true);
+    expect(git.blockedSwitchTarget).toBe('main');
+    expect(git.blockedSwitchResume).toBeTypeOf('function');
+    expect(ctx.mock.git.analyzeDivergence).not.toHaveBeenCalled();
+  });
+});
+
 describe('switchBranch', () => {
   it('surfaces a dirty tree as an explicit save-or-discard decision', async () => {
     const git = useGitStore();
@@ -355,7 +488,7 @@ describe('fastForwardMain', () => {
 
     expect(error).toHaveBeenCalledWith(
       'Cannot fast-forward main',
-      'Local main has diverged from the remote. Switch to main to resolve.',
+      'Local main has diverged from the remote. Use “Review & combine main” in the banner to resolve it.',
     );
   });
 });

@@ -20,6 +20,8 @@ const MESSAGES: Record<SyncEscalation, string> = {
     'There are changes waiting from collaborators. Save or discard your local work to receive them first.',
   'behind-auto-disabled':
     'There are changes waiting from collaborators. Pull them before starting.',
+  'main-diverged':
+    'The published version has diverged from the remote. Combine it first (see the banner).',
 };
 
 /**
