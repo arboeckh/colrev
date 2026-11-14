@@ -216,6 +216,7 @@ export interface AuthAPI {
   getSession: () => Promise<AuthSession | null>;
   getCachedSession: () => Promise<AuthSession | null>;
   login: () => Promise<void>;
+  cancelLogin: () => Promise<void>;
   logout: () => Promise<void>;
   getToken: () => Promise<string | null>;
   listAccounts: () => Promise<AccountInfo[]>;

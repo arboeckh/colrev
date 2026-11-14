@@ -126,6 +126,16 @@ export const useAuthStore = defineStore('auth', () => {
     await window.auth.login();
   }
 
+  /** Stop the device flow and clear its status, so the sign-in page starts over. */
+  async function cancelLogin() {
+    deviceFlowStatus.value = null;
+    try {
+      await window.auth.cancelLogin();
+    } catch (err) {
+      console.warn('Failed to cancel device flow:', err);
+    }
+  }
+
   async function logout() {
     await window.auth.logout();
     session.value = null;
@@ -171,6 +181,7 @@ export const useAuthStore = defineStore('auth', () => {
     hasMultipleAccounts,
     initialize,
     login,
+    cancelLogin,
     logout,
     switchAccount,
     removeAccount,

@@ -71,13 +71,14 @@ export interface DeviceFlowStatus {
 const DEVICE_FLOW_NETWORK_FAILURE_THRESHOLD = 3;
 
 /** Thrown when a request to GitHub fails because the network is unreachable
- * or the server returned an unexpected non-auth status. Callers should treat
+ * or the server returned an unexpected non-auth status (including 403). Callers should treat
  * this as transient and avoid mutating the auth store. */
 export class NetworkError extends Error {
   override name = 'NetworkError';
 }
 
-/** Thrown when GitHub explicitly rejected the credentials (401 / 403).
+/** Thrown when GitHub explicitly rejected the token (401 only: a 403 is a
+ * rate limit, a proxy or a captive portal, none of which says the token is bad).
  * Callers should remove the offending account. */
 export class AuthError extends Error {
   override name = 'AuthError';
@@ -131,7 +132,19 @@ export class AuthManager {
   }
 
   private writeStore(data: StoredAuthMulti): void {
-    fs.writeFileSync(this.storePath, JSON.stringify(data, null, 2), 'utf-8');
+    // Write a temp file next to the store and rename it over: a crash mid-write
+    // leaves the old auth.json intact instead of a truncated one that loses
+    // every stored account.
+    const tmpPath = `${this.storePath}.${process.pid}.tmp`;
+    try {
+      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+      fs.renameSync(tmpPath, this.storePath);
+    } catch (err) {
+      try {
+        fs.rmSync(tmpPath, { force: true });
+      } catch { /* ignore */ }
+      throw err;
+    }
   }
 
   /** Keep the stored profile current (name, email, id) after a refresh. */
@@ -196,6 +209,12 @@ export class AuthManager {
     try {
       const user = await this.fetchUserProfile(token);
       this.saveRefreshedProfile(user);
+      if (this.getActiveAccount()?.user.login !== account.user.login) {
+        // The active account changed (switch, removal, new login) while the
+        // request was in flight. The profile is saved, but it is not the active
+        // one: don't write its git identity, and answer with the current session.
+        return this.getCachedSession();
+      }
       this.onActiveUser?.(user);
       return { user, authenticatedAt: account.authenticatedAt };
     } catch (e) {
@@ -314,13 +333,25 @@ export class AuthManager {
 
   // --- Device flow ---
 
-  async startDeviceFlow(): Promise<void> {
+  /** Stop the running device flow, if any. Nothing more is emitted for it. */
+  cancelDeviceFlow(): void {
     this.pollingAbort?.abort();
+    this.pollingAbort = null;
+  }
+
+  async startDeviceFlow(): Promise<void> {
+    // Cancel the previous flow and claim the slot before the first await, so a
+    // second start during the device-code request aborts this one in turn.
+    this.pollingAbort?.abort();
+    const abort = new AbortController();
+    this.pollingAbort = abort;
+    const { signal } = abort;
 
     this.emitDeviceFlowStatus({ status: 'awaiting_code' });
 
     try {
       const res = await fetch(DEVICE_CODE_URL, {
+        signal,
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -333,6 +364,7 @@ export class AuthManager {
       });
 
       const data = await res.json();
+      if (signal.aborted) return;
 
       if (data.error) {
         this.emitDeviceFlowStatus({ status: 'error', error: data.error_description || data.error });
@@ -347,11 +379,12 @@ export class AuthManager {
         verificationUri: verification_uri,
       });
 
-      await this.pollForToken(device_code, interval || 5, expires_in || 900, {
+      await this.pollForToken(device_code, interval || 5, expires_in || 900, signal, {
         userCode: user_code,
         verificationUri: verification_uri,
       });
     } catch (err) {
+      if (signal.aborted) return;
       this.emitDeviceFlowStatus({
         status: 'error',
         error: err instanceof Error ? err.message : 'Failed to start device flow',
@@ -363,10 +396,9 @@ export class AuthManager {
     deviceCode: string,
     interval: number,
     expiresIn: number,
+    signal: AbortSignal,
     display: { userCode?: string; verificationUri?: string } = {},
   ): Promise<void> {
-    this.pollingAbort = new AbortController();
-    const { signal } = this.pollingAbort;
     const deadline = Date.now() + expiresIn * 1000;
     let pollInterval = interval;
     // Swallowing network errors until the code expires reports "expired" for
@@ -378,11 +410,20 @@ export class AuthManager {
     while (Date.now() < deadline) {
       if (signal.aborted) return;
 
-      await new Promise((resolve) => setTimeout(resolve, pollInterval * 1000));
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(done, pollInterval * 1000);
+        function done() {
+          clearTimeout(timer);
+          signal.removeEventListener('abort', done);
+          resolve();
+        }
+        signal.addEventListener('abort', done, { once: true });
+      });
       if (signal.aborted) return;
 
       try {
         const res = await fetch(TOKEN_URL, {
+          signal,
           method: 'POST',
           headers: {
             Accept: 'application/json',
@@ -396,6 +437,8 @@ export class AuthManager {
         });
 
         const data = await res.json();
+        // A cancel, logout or newer flow during the request: drop the answer.
+        if (signal.aborted) return;
 
         if (networkErrorReported) {
           // Reachable again — put the code back on screen.
@@ -410,12 +453,15 @@ export class AuthManager {
           try {
             user = await this.fetchUserProfile(data.access_token);
           } catch (err) {
+            if (signal.aborted) return;
             this.emitDeviceFlowStatus({
               status: 'error',
               error: err instanceof Error ? `Failed to fetch user profile: ${err.message}` : 'Failed to fetch user profile',
             });
             return;
           }
+          // Cancelled or logged out while the profile was loading: don't store it.
+          if (signal.aborted) return;
 
           const session: AuthSession = {
             user,
@@ -459,6 +505,7 @@ export class AuthManager {
           return;
         }
       } catch (err) {
+        if (signal.aborted) return;
         // Transient by assumption: keep polling, but stop pretending nothing
         // is wrong once the failures pile up.
         consecutiveNetworkFailures += 1;
@@ -477,6 +524,7 @@ export class AuthManager {
       }
     }
 
+    if (signal.aborted) return;
     if (consecutiveNetworkFailures >= DEVICE_FLOW_NETWORK_FAILURE_THRESHOLD) {
       // The window closed while offline — "expired" would send the user off to
       // request another code that will fail the same way.
@@ -521,8 +569,17 @@ export class AuthManager {
       );
     }
 
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
       throw new AuthError(`GitHub rejected token (${res.status})`);
+    }
+    if (res.status === 403) {
+      // Rate limits, proxies and captive portals answer 403; none of them says
+      // the token is bad, so this is transient and must not remove the account.
+      const remaining = res.headers?.get?.('x-ratelimit-remaining');
+      const retryAfter = res.headers?.get?.('retry-after');
+      const reason =
+        remaining === '0' || retryAfter ? 'GitHub rate limit reached' : 'GitHub refused the request (403)';
+      throw new NetworkError(reason);
     }
     if (!res.ok) {
       throw new NetworkError(`GitHub returned ${res.status}`);
@@ -539,7 +596,7 @@ export class AuthManager {
   }
 
   async logout(): Promise<void> {
-    this.pollingAbort?.abort();
+    this.cancelDeviceFlow();
     // Remove only the active account
     const store = this.readStore();
     if (store.activeLogin) {
