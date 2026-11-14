@@ -39,7 +39,6 @@ function fakeGitOps(): GitOps {
     })),
     abortMerge: vi.fn(ok),
     hasMergeConflict: vi.fn(async () => false),
-    addAndCommit: vi.fn(ok),
     revListCount: vi.fn(async () => ({ success: true, count: 0 })),
     getBranchAndUpstream: vi.fn(async () => ({ branch: 'dev', upstream: 'origin/dev' })),
   } as unknown as GitOps;
@@ -181,6 +180,10 @@ describe('lock classification', () => {
     expect(() =>
       defineHandler({ channel: 'git:danger', handler: async () => null, lockFree: true }),
     ).toThrow(/lockFreeReason/);
+  });
+
+  it('does not exempt delete_project — a fetch may be running on that project', () => {
+    expect(isLockFreeRpcMethod('delete_project')).toBe(false);
   });
 
   it('does not exempt get_git_status — it opens a git.Repo', () => {
@@ -347,6 +350,23 @@ describe('github handlers', () => {
         remoteUrl: 'https://github.com/a/b',
       }),
     ).toEqual({ success: false, error: 'rate limited', collaborators: [] });
+  });
+
+  it('reports an API request that timed out as OFFLINE', async () => {
+    const handlers = handlersFor(
+      githubDeps({
+        gh: fakeGitHubClient({
+          listRepoCollaborators: async () => {
+            throw new DOMException('The operation timed out.', 'TimeoutError');
+          },
+        }),
+      }),
+    );
+    expect(
+      await handlers.get('github:list-collaborators')!(noEvent, {
+        remoteUrl: 'https://github.com/a/b',
+      }),
+    ).toEqual({ success: false, error: 'OFFLINE', collaborators: [] });
   });
 
   it('clones into the active account projects root and returns the resolved path', async () => {

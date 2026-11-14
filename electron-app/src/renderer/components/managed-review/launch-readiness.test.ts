@@ -1,9 +1,9 @@
 /**
  * "Save & sync" before launching a managed review. It must commit through the
  * same RPC as every other save in the app and say so when the commit fails; the
- * main-process `addAndCommit` runs the repo's git hooks, which a packaged app
- * cannot resolve, so the commit used to abort and the tree stayed dirty with
- * nothing said.
+ * old main-process `addAndCommit` ran the repo's git hooks, which a packaged
+ * app cannot resolve, so the commit used to abort and the tree stayed dirty
+ * with nothing said.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
@@ -50,7 +50,6 @@ describe('Save & sync', () => {
     expect(ctx.mock.rpc.callsTo('commit_changes')[0].params.message).toBe(
       'Save changes before review launch',
     );
-    expect(ctx.mock.git.addAndCommit).not.toHaveBeenCalled();
     expect(refreshData).toHaveBeenCalled();
   });
 
