@@ -63,9 +63,21 @@ watch(() => props.criterion, (newCriterion) => {
   }
 }, { immediate: true });
 
+// colrev stores a record's criteria as `name=in;other=out`, so a name with
+// `;` or `=` would corrupt how every record's criteria are read back.
+const nameError = computed(() => {
+  const name = formData.value.name;
+  if (props.mode !== 'add' || !/[;=]/.test(name)) return '';
+  return "Names can't contain ';' or '='; they separate criteria in each record's screening result.";
+});
+
 const isFormValid = computed(() => {
   if (props.mode === 'add') {
-    return formData.value.name.trim() && formData.value.explanation.trim();
+    return (
+      formData.value.name.trim() &&
+      !nameError.value &&
+      formData.value.explanation.trim()
+    );
   }
   return formData.value.explanation.trim();
 });
@@ -180,7 +192,8 @@ function cancel() {
           class="mt-1.5"
           @blur="touchedName = true"
         />
-        <p v-if="touchedName && !formData.name.trim()" class="text-xs text-destructive mt-1">Required</p>
+        <p v-if="nameError" class="text-xs text-destructive mt-1" data-testid="criterion-name-error">{{ nameError }}</p>
+        <p v-else-if="touchedName && !formData.name.trim()" class="text-xs text-destructive mt-1">Required</p>
       </div>
 
       <div>

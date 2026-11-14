@@ -20,7 +20,7 @@ and the `.report.log` truncation that any CoLRev operation constructor performs
 
 | method | was | now | why |
 |---|---|---|---|
-| `get_data_extraction_queue` | `false` | `true` | despite the `get_` name it creates/backfills `data/data/data.csv` on read |
+| `get_data_extraction_queue` | `false` | `false` | it used to create/backfill `data/data/data.csv` on read (briefly `true`); it now builds the table in memory and `save_data_extraction` / `configure_structured_endpoint` write and stage it |
 | `restore_pdf_file` | `false` | `true` | writes PDF bytes to the record's `file` path under `data/pdfs` |
 | `validate` | `false` | `true` | conservative: `filter_setting="dedupe"`/`"all"` (caller-controlled) writes `data/dedupe/merge_candidates_file.txt`; the UI's settings are pure reads, but a spurious refresh is cheaper than a stale UI |
 | `get_connector_api_key_status`, `set_connector_api_key` | absent | `false` | new methods; env-var only, nothing persisted |
@@ -28,11 +28,11 @@ and the `.report.log` truncation that any CoLRev operation constructor performs
 Post-merge addition (WP-04): `apply_merge` is a writer (merges, reconciles,
 and commits); `analyze_merge` stays read-only (analysis restores repo state).
 
-## Flags confirmed (writes=True, 45 methods)
+## Flags confirmed (writes=True)
 
 init_project, delete_project, commit_changes, discard_changes,
 reset_to_remote, load, prep, dedupe, pdf_prep, prep_man_update_record, data,
-get_data_extraction_queue, save_data_extraction,
+save_data_extraction,
 configure_structured_endpoint, search, add_source, upload_search_file,
 remove_source, update_source, update_record, prescreen_record, prescreen,
 update_prescreen_decisions, enrich_record_metadata, batch_enrich_records,

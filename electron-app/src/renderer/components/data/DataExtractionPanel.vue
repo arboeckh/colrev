@@ -21,6 +21,7 @@ const props = defineProps<{
   incompleteFields: string[];
   queueRecords: Array<ExtractionRecord & { _completed: boolean }>;
   currentIndex: number;
+  isEditing?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -29,6 +30,7 @@ const emit = defineEmits<{
   'skip-to-next': [];
   navigate: [index: number];
   'configure-fields': [];
+  'finish-editing': [];
 }>();
 
 const remainingCount = computed(() => props.totalCount - props.completedCount);
@@ -242,6 +244,15 @@ function displayValue(fieldName: string): string {
         >
           {{ isSaving ? 'Saving...' : 'Save & Next' }}
           <ChevronRight class="h-4 w-4 ml-1" />
+        </Button>
+        <Button
+          v-if="isEditing"
+          variant="outline"
+          :disabled="isSaving"
+          data-testid="data-finish-editing-btn"
+          @click="emit('finish-editing')"
+        >
+          Done editing
         </Button>
       </div>
     </div>
