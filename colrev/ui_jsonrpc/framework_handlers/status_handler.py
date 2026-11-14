@@ -389,11 +389,10 @@ class StatusHandler(BaseHandler):
         source_branch = req.source_branch or current_branch
 
         if source_branch == current_branch:
-            try:
-                self.review_manager.get_status_operation()
-                source_records = self.review_manager.dataset.load_records_dict()
-            except Exception:  # noqa: BLE001
-                source_records = {}
+            # A load failure must surface: an empty dict here would make the
+            # delta report every record of the other branch as "removed".
+            self.review_manager.get_status_operation()
+            source_records = self.review_manager.dataset.load_records_dict()
         else:
             source_records = self._load_records_from_branch(
                 git_repo, source_branch

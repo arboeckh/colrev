@@ -4,10 +4,14 @@ from typing import Any
 from typing import Dict
 from typing import Optional
 
+import git
+
 import colrev.exceptions as colrev_exceptions
+from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.errors import ManagedTaskActiveError
 from colrev.ui_jsonrpc.errors import MethodNotFoundError
 from colrev.ui_jsonrpc.errors import NotFoundError
+from colrev.ui_jsonrpc.errors import ProjectFileUnreadableError
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +41,12 @@ COLREV_NOT_FOUND = -32007
 # A decision was made on a record that an active managed review task covers,
 # without that task's id (so it would bypass reconciliation).
 COLREV_MANAGED_TASK_ACTIVE = -32008
+# The request is well-formed but the project is in the wrong state for it
+# (record not ready for screening, wrong branch, merge blocked, ...).
+COLREV_INVALID_STATE = -32009
+# A project file (settings.json, a search history JSON) cannot be read or
+# parsed. The message names the file.
+COLREV_PROJECT_FILE_UNREADABLE = -32010
 
 _PRECONDITION_EXCEPTIONS = (
     colrev_exceptions.UnstagedGitChangesError,
@@ -46,6 +56,31 @@ _PRECONDITION_EXCEPTIONS = (
     colrev_exceptions.ProcessOrderViolation,
     colrev_exceptions.NoRecordsError,
 )
+
+
+_GIT_STATE_MARKERS = (
+    "your local changes to the following files would be overwritten",
+    "would be overwritten by merge",
+    "not possible because you have unmerged files",
+    "you have unmerged paths",
+    "needs merge",
+    "unresolved conflict",
+    "merge_head exists",
+    "you have not concluded your merge",
+    "please commit your changes or stash them",
+    "untracked working tree files would be overwritten",
+)
+
+
+def _map_git_command_error(exception: git.GitCommandError) -> int:
+    """A git command that refused because of the repository's state is a
+    precondition failure (-32005), a held lock is -32006; the rest stays internal."""
+    text = f"{exception.stderr or ''} {exception.stdout or ''} {exception}".lower()
+    if "index.lock" in text:
+        return COLREV_RESOURCE_LOCKED
+    if any(marker in text for marker in _GIT_STATE_MARKERS):
+        return COLREV_PRECONDITION_FAILED
+    return INTERNAL_ERROR
 
 
 def map_exception_to_error_code(exception: Exception) -> int:
@@ -64,8 +99,14 @@ def map_exception_to_error_code(exception: Exception) -> int:
         return COLREV_NOT_FOUND
     elif isinstance(exception, ManagedTaskActiveError):
         return COLREV_MANAGED_TASK_ACTIVE
+    elif isinstance(exception, InvalidStateError):
+        return COLREV_INVALID_STATE
+    elif isinstance(exception, ProjectFileUnreadableError):
+        return COLREV_PROJECT_FILE_UNREADABLE
     elif isinstance(exception, colrev_exceptions.GitNotAvailableError):
         return COLREV_RESOURCE_LOCKED
+    elif isinstance(exception, git.GitCommandError):
+        return _map_git_command_error(exception)
     elif isinstance(exception, _PRECONDITION_EXCEPTIONS):
         return COLREV_PRECONDITION_FAILED
     elif isinstance(exception, colrev_exceptions.RepoSetupError):

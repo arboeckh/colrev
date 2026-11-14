@@ -24,3 +24,26 @@ class ManagedTaskActiveError(ValueError):
 
 class NotFoundError(ValueError):
     """A referenced resource (project, record, source) does not exist."""
+
+
+class InvalidStateError(ValueError):
+    """The project (or record) is in the wrong state for this call.
+
+    The request itself is well-formed; the state it meets is not: a record is
+    not ready for screening, the project is on the wrong branch, a merge is
+    blocked, a required endpoint is not configured (→ -32009).
+    """
+
+
+class ProjectFileUnreadableError(ValueError):
+    """A project file cannot be read or parsed (→ -32010).
+
+    ``path`` names the file (relative to the project when possible), so the UI
+    can say which one is broken (conflict markers in ``settings.json``, a
+    truncated ``*_search_history.json``).
+    """
+
+    def __init__(self, path: str, reason: str) -> None:
+        super().__init__(f"Cannot read {path}: {reason}")
+        self.path = path
+        self.reason = reason
