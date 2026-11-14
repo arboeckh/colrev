@@ -29,6 +29,8 @@ from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import operation_graph
 from colrev.ui_jsonrpc.framework import rpc_method
 from colrev.ui_jsonrpc.framework.search_staleness import stale_source_entries
+from colrev.ui_jsonrpc.framework.source_files import posix
+from colrev.ui_jsonrpc.framework.source_files import status_stats_isolated
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +162,7 @@ class StatusHandler(BaseHandler):
         assert self.review_manager is not None
         logger.info("Getting status for project %s", req.project_id)
 
-        status_stats = self.review_manager.get_status_stats()
+        status_stats, unreadable_sources = status_stats_isolated(self.review_manager)
         has_changes = self.review_manager.dataset.git_repo.has_changes(Path("."))
         next_operation = operation_graph.next_operation(status_stats.currently)
 
@@ -186,6 +188,9 @@ class StatusHandler(BaseHandler):
         )
         # format_comprehensive_status_response already returns the full dict
         # shape. Feed it through the response model so extras ride along.
+        # Search files colrev cannot parse are left out of the counts; name
+        # them so the UI can say which source is broken.
+        payload["status"]["unreadable_sources"] = unreadable_sources
         return GetStatusResponse(
             project_id=req.project_id,
             path=payload["path"],
@@ -256,7 +261,7 @@ class StatusHandler(BaseHandler):
             req.operation, req.project_id,
         )
 
-        status_stats = self.review_manager.get_status_stats()
+        status_stats, _ = status_stats_isolated(self.review_manager)
         can_run, reason, affected_records = self._check_operation_runnable(
             canonical_operation, status_stats
         )
@@ -292,7 +297,8 @@ class StatusHandler(BaseHandler):
             "Getting preprocessing summary for project %s", req.project_id
         )
 
-        status_stats = self.review_manager.get_status_stats()
+        status_stats, unreadable = status_stats_isolated(self.review_manager)
+        unreadable_by_file = {u["filename"]: u["error"] for u in unreadable}
         currently = status_stats.currently
 
         sources_list = []
@@ -321,14 +327,16 @@ class StatusHandler(BaseHandler):
             except Exception:  # noqa: BLE001
                 pass
 
-            sources_list.append(
-                {
-                    "platform": source.platform,
-                    "filename": str(source.search_results_path),
-                    "search_record_count": search_record_count,
-                    "loaded_record_count": loaded_record_count,
-                }
-            )
+            filename = posix(source.search_results_path)
+            entry = {
+                "platform": source.platform,
+                "filename": filename,
+                "search_record_count": search_record_count,
+                "loaded_record_count": loaded_record_count,
+            }
+            if filename in unreadable_by_file:
+                entry["error"] = unreadable_by_file[filename]
+            sources_list.append(entry)
 
         pipeline_counts = {
             "md_retrieved": currently.md_retrieved,

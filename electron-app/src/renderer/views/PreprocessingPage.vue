@@ -27,6 +27,7 @@ import type { SearchSource } from '@/types';
 import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 import { formatSourceName } from '@/lib/displayNames';
 import { formatCount, countTextSizeClass } from '@/lib/utils';
+import { baseName } from '@/lib/files';
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
@@ -91,7 +92,7 @@ const visibleSources = computed(() => {
 function getSourceDisplayName(source: SearchSource): string {
   if (source.search_type === 'DB') {
     const path = source.filename || source.search_results_path || '';
-    const basename = path.split('/').pop() || '';
+    const basename = baseName(path);
     return basename.replace(/\.[^/.]+$/, '') || 'unknown';
   }
   return formatSourceName(source.endpoint || source.platform);
