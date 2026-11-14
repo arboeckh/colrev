@@ -212,3 +212,83 @@ class TestManualPDFRetrieval:
         )
         # match is a read: it suggests, the user decides.
         assert self._status_of("R1") == before
+
+
+class TestPdfGetQuarantineRetry:
+    """A corrupt PDF in a batch is quarantined and the run carries on.
+
+    A failed attempt persists the workers that did finish with a partial save,
+    which stages ``records.bib``. The retry must not trip the clean-repo
+    precondition on that: the RPC has to succeed and report the quarantine.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup_project(self, tmp_path, mocker):
+        self.project_path = tmp_path / PROJECT_ID
+        self.project_path.mkdir()
+        self.handler = JSONRPCHandler()
+        self.params = {"project_id": PROJECT_ID, "base_path": str(tmp_path)}
+        self.mocker = mocker
+
+        mocker.patch(
+            "colrev.env.environment_manager.EnvironmentManager.get_name_mail_from_git",
+            return_value=("Test User", "test@example.com"),
+        )
+        mocker.patch.object(
+            colrev.constants.Filepaths, "REGISTRY_FILE", self.project_path / "reg.json"
+        )
+        original_cwd = os.getcwd()
+        os.chdir(self.project_path)
+        try:
+            colrev.ops.init.Initializer(
+                review_type="literature_review",
+                target_path=self.project_path,
+                light=True,
+            )
+        finally:
+            os.chdir(original_cwd)
+
+        entries = [
+            {**SEEDED_RECORDS[0], "status": "rev_prescreen_included"},
+            {**SEEDED_RECORDS[1], "status": "rev_prescreen_included"},
+        ]
+        records_path = self.project_path / "data" / "records.bib"
+        records_path.parent.mkdir(parents=True, exist_ok=True)
+        records_path.write_text(_records_bib(entries), encoding="utf-8")
+        self.repo = git.Repo(self.project_path)
+        self.repo.git.add("data/records.bib")
+        self.repo.git.commit("-m", "Seed prescreen-included records")
+
+        # R2 has a corrupt PDF on disk; R1's worker succeeds.
+        # (Outside data/pdfs/, which core scans for unlinked PDFs on its own.)
+        scratch = self.project_path / "scratch"
+        scratch.mkdir()
+        self.corrupt = scratch / "R2.pdf"
+        self.corrupt.write_bytes(b"not a pdf")
+
+    def _fake_get_pdf(self, item: dict) -> dict:
+        import pymupdf  # pylint: disable=import-outside-toplevel
+
+        record = dict(item["record"])
+        if record["ID"] == "R2" and self.corrupt.exists():
+            raise pymupdf.FileDataError(f"Failed to open file '{self.corrupt}'.")
+        record["colrev_status"] = colrev.constants.RecordState.pdf_needs_manual_retrieval
+        return record
+
+    def test_one_corrupt_pdf_is_quarantined_and_the_rpc_succeeds(self) -> None:
+        import colrev.ops.pdf_get  # pylint: disable=import-outside-toplevel
+
+        self.mocker.patch.object(
+            colrev.ops.pdf_get.PDFGet,
+            "get_pdf",
+            lambda _self, item: self._fake_get_pdf(item),
+        )
+
+        response = _request(self.handler, "pdf_get", dict(self.params))
+
+        assert "error" not in response, response
+        details = response["result"]["details"]
+        assert len(details["quarantined"]) == 1
+        assert details["quarantined"][0].endswith("_quarantine/R2.pdf")
+        assert not self.corrupt.exists()
+        assert (self.project_path / "data" / "pdfs" / "_quarantine" / "R2.pdf").exists()
