@@ -12,6 +12,7 @@ Covers:
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
 import subprocess
@@ -24,6 +25,7 @@ import yaml
 import colrev.constants
 import colrev.loader.load_utils
 import colrev.ops.init
+import colrev.settings
 from colrev.constants import Fields
 from colrev.constants import RecordState
 from colrev.ui_jsonrpc.framework_handlers.merge_handler import merge_settings
@@ -461,7 +463,243 @@ class TestApplyMerge:
         merge_project.assert_no_merge_in_progress()
 
 
+def _criterion(explanation: str) -> dict:
+    return {
+        "explanation": explanation,
+        "comment": None,
+        "criterion_type": "inclusion_criterion",
+    }
+
+
+def _loads_settings(fixture: MergeProjectFixture) -> None:
+    colrev.settings.load_settings(settings_path=fixture.project_path / "settings.json")
+
+
+class TestOneSidedStatusChanges:
+    def _forty_records(self) -> dict:
+        records = {}
+        for i in range(1, 41):
+            rid = f"Rec{i:02d}"
+            records[rid] = {
+                Fields.ID: rid,
+                Fields.ENTRYTYPE: "article",
+                Fields.ORIGIN: [f"manual_import.bib/{rid}"],
+                Fields.STATUS: RecordState.md_processed,
+                Fields.AUTHOR: f"Author{i}, A",
+                Fields.TITLE: f"Title {i}",
+                Fields.JOURNAL: "Journal of Testing",
+                Fields.YEAR: "2020",
+            }
+        return records
+
+    def _diverge_forty(self, merge_project) -> None:
+        merge_project.seed_records(self._forty_records())
+
+        def ours_edit(p):
+            records = p.load_records()
+            for i in range(1, 11):
+                records[f"Rec{i:02d}"][Fields.STATUS] = RecordState.rev_prescreen_included
+            p.write_records(records)
+
+        def theirs_edit(p):
+            records = p.load_records()
+            records["Rec10"][Fields.STATUS] = RecordState.rev_prescreen_excluded
+            for i in range(21, 41):
+                records[f"Rec{i:02d}"][Fields.STATUS] = RecordState.rev_prescreen_excluded
+            p.write_records(records)
+
+        merge_project.diverge(ours_edit, theirs_edit)
+
+    def test_only_the_record_changed_on_both_sides_is_a_conflict(self, merge_project):
+        self._diverge_forty(merge_project)
+        response = _call(JSONRPCHandler(), "analyze_merge", _params(merge_project))
+        assert "error" not in response, response.get("error")
+        result = response["result"]
+        assert [c["id"] for c in result["status_conflicts"]] == ["Rec10"]
+        assert result["auto_mergeable"] is False
+        merge_project.assert_no_merge_in_progress()
+
+    def test_apply_keeps_both_one_sided_decisions(self, merge_project):
+        self._diverge_forty(merge_project)
+        response = _call(
+            JSONRPCHandler(),
+            "apply_merge",
+            # a stale client may still send choices for one-sided records
+            _params(
+                merge_project,
+                resolutions={"Rec10": "theirs", "Rec01": "theirs", "Rec25": "ours"},
+            ),
+        )
+        assert "error" not in response, response.get("error")
+        assert merge_project.head_parents() == 2
+        records = merge_project.load_records()
+        for i in range(1, 10):
+            assert (
+                records[f"Rec{i:02d}"][Fields.STATUS] == RecordState.rev_prescreen_included
+            )
+        assert records["Rec10"][Fields.STATUS] == RecordState.rev_prescreen_excluded
+        for i in range(11, 21):
+            assert records[f"Rec{i:02d}"][Fields.STATUS] == RecordState.md_processed
+        for i in range(21, 41):
+            assert (
+                records[f"Rec{i:02d}"][Fields.STATUS] == RecordState.rev_prescreen_excluded
+            )
+        merge_project.assert_no_merge_in_progress()
+
+    def test_apply_needs_a_choice_only_for_the_real_conflict(self, merge_project):
+        self._diverge_forty(merge_project)
+        head_before = merge_project.repo.head.commit.hexsha
+        response = _call(JSONRPCHandler(), "apply_merge", _params(merge_project))
+        assert "error" in response
+        assert "Rec10" in json.dumps(response["error"])
+        assert merge_project.repo.head.commit.hexsha == head_before
+        merge_project.assert_no_merge_in_progress()
+
+
+class TestSettingsDeleteVersusEdit:
+    def _diverge(self, merge_project, ours_edit, theirs_edit) -> None:
+        merge_project.edit_settings(
+            lambda s: s["screen"]["criteria"].update({"lang": _criterion("English")})
+        )
+        merge_project.commit_all("Add criterion")
+        merge_project.diverge(
+            lambda p: p.edit_settings(ours_edit), lambda p: p.edit_settings(theirs_edit)
+        )
+
+    def _delete_vs_edit(self, merge_project) -> None:
+        self._diverge(
+            merge_project,
+            lambda s: s["screen"]["criteria"].pop("lang"),
+            lambda s: s["screen"]["criteria"]["lang"].update(
+                {"explanation": "English or German"}
+            ),
+        )
+
+    def test_conflict_is_at_the_entry(self, merge_project):
+        self._delete_vs_edit(merge_project)
+        response = _call(JSONRPCHandler(), "analyze_merge", _params(merge_project))
+        assert "error" not in response, response.get("error")
+        conflicts = response["result"]["settings_conflicts"]
+        assert [c["path"] for c in conflicts] == ["screen.criteria.lang"]
+        assert conflicts[0]["ours"] is None
+        assert conflicts[0]["theirs"]["explanation"] == "English or German"
+
+    def test_entry_gone(self, merge_project):
+        self._delete_vs_edit(merge_project)
+        response = _call(
+            JSONRPCHandler(),
+            "apply_merge",
+            _params(
+                merge_project, settings_resolutions={"screen.criteria.lang": "ours"}
+            ),
+        )
+        assert "error" not in response, response.get("error")
+        _loads_settings(merge_project)
+        settings = json.loads((merge_project.project_path / "settings.json").read_text())
+        assert settings["screen"]["criteria"] == {}
+
+    def test_entry_kept_with_the_edit(self, merge_project):
+        self._delete_vs_edit(merge_project)
+        response = _call(
+            JSONRPCHandler(),
+            "apply_merge",
+            _params(
+                merge_project, settings_resolutions={"screen.criteria.lang": "theirs"}
+            ),
+        )
+        assert "error" not in response, response.get("error")
+        _loads_settings(merge_project)
+        settings = json.loads((merge_project.project_path / "settings.json").read_text())
+        assert settings["screen"]["criteria"]["lang"]["explanation"] == (
+            "English or German"
+        )
+
+    def test_edit_versus_delete_is_symmetric(self, merge_project):
+        self._diverge(
+            merge_project,
+            lambda s: s["screen"]["criteria"]["lang"].update({"explanation": "Edited"}),
+            lambda s: s["screen"]["criteria"].pop("lang"),
+        )
+        response = _call(
+            JSONRPCHandler(),
+            "apply_merge",
+            _params(
+                merge_project, settings_resolutions={"screen.criteria.lang": "theirs"}
+            ),
+        )
+        assert "error" not in response, response.get("error")
+        _loads_settings(merge_project)
+
+    def test_one_sided_delete_removes_the_entry_whole(self, merge_project):
+        self._diverge(
+            merge_project,
+            lambda s: s["screen"]["criteria"].pop("lang"),
+            lambda s: s["project"].update({"title": "Theirs Title"}),
+        )
+        response = _call(JSONRPCHandler(), "apply_merge", _params(merge_project))
+        assert "error" not in response, response.get("error")
+        _loads_settings(merge_project)
+
+    def test_invalid_merged_settings_abort_the_merge(self, merge_project, mocker):
+        # the shape the old merge produced: an entry reduced to {}
+        def broken_merge(base, ours, theirs, decisions=None):
+            merged = copy.deepcopy(ours)
+            merged["screen"]["criteria"] = {"lang": {}}
+            return merged, []
+
+        self._diverge(
+            merge_project,
+            lambda s: s["project"].update({"title": "Ours Title"}),
+            lambda s: s["project"].update({"title": "Theirs Title"}),
+        )
+        mocker.patch(
+            "colrev.ui_jsonrpc.framework_handlers.merge_handler.merge_settings",
+            broken_merge,
+        )
+        head_before = merge_project.repo.head.commit.hexsha
+        analysis = _call(JSONRPCHandler(), "analyze_merge", _params(merge_project))
+        assert analysis["result"]["auto_mergeable"] is False
+        assert any(b["id"] == "settings.json" for b in analysis["result"]["blockers"])
+        response = _call(JSONRPCHandler(), "apply_merge", _params(merge_project))
+        assert "error" in response
+        assert merge_project.repo.head.commit.hexsha == head_before
+        merge_project.assert_no_merge_in_progress()
+        _loads_settings(merge_project)
+
+
 class TestMergeSettings:
+    def test_deleted_entry_edited_on_other_side_is_one_conflict(self):
+        base = {"criteria": {"lang": {"explanation": "a", "type": "t"}}}
+        ours = {"criteria": {}}
+        theirs = {"criteria": {"lang": {"explanation": "b", "type": "t"}}}
+        merged, conflicts = merge_settings(base, ours, theirs)
+        assert conflicts == [
+            {
+                "path": "criteria.lang",
+                "ours": None,
+                "theirs": {"explanation": "b", "type": "t"},
+            }
+        ]
+        assert merged == {"criteria": {}}
+        for decision, expected in (
+            ("ours", {"criteria": {}}),
+            ("theirs", {"criteria": {"lang": {"explanation": "b", "type": "t"}}}),
+        ):
+            merged, conflicts = merge_settings(
+                base, ours, theirs, decisions={"criteria.lang": decision}
+            )
+            assert conflicts == []
+            assert merged == expected
+
+    def test_theirs_entry_deletion_removes_entry_whole(self):
+        base = {"criteria": {"lang": {"explanation": "a"}, "x": {"explanation": "x"}}}
+        ours = copy.deepcopy(base)
+        theirs = {"criteria": {"x": {"explanation": "x"}}}
+        merged, conflicts = merge_settings(base, ours, theirs)
+        assert merged == theirs
+        assert conflicts == []
+
+
     def test_theirs_only_change_auto_applies(self):
         base = {"a": 1, "b": {"c": 2}}
         ours = {"a": 1, "b": {"c": 2}}

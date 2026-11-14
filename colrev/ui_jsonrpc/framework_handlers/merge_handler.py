@@ -28,7 +28,10 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+import colrev.loader.load_utils
 import colrev.ops.merge
+import colrev.settings
+from colrev.constants import Fields
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
@@ -50,29 +53,60 @@ _MISSING = object()
 _PATH_SEP = "."
 
 
-def _flatten_settings(
-    obj: Any, prefix: Tuple[str, ...] = ()
-) -> Dict[Tuple[str, ...], Any]:
-    """Flatten nested dicts to {path_tuple: value}. Lists are atomic values."""
-    if isinstance(obj, dict) and obj:
-        out: Dict[Tuple[str, ...], Any] = {}
-        for key, value in obj.items():
-            out.update(_flatten_settings(value, prefix + (str(key),)))
-        return out
-    return {prefix: obj} if prefix else {}
+def _merge_node(
+    base: Any,
+    ours: Any,
+    theirs: Any,
+    path: Tuple[str, ...],
+    decisions: Dict[str, str],
+    conflicts: List[dict],
+) -> Any:
+    """3-way merge one value; returns the merged value (or _MISSING).
 
+    Dicts are merged key by key. Anything else (scalars, lists, and a dict
+    against a deletion) is atomic: when both sides changed it differently,
+    that is a conflict at this path, so deleting an entry removes it whole
+    and editing a deleted entry conflicts at the entry itself.
+    """
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
+    if _values_equal(ours, theirs):
+        return ours
+    if _values_equal(ours, base):
+        return theirs
+    if _values_equal(theirs, base):
+        return ours
+    if isinstance(ours, dict) and isinstance(theirs, dict):
+        base_dict = base if isinstance(base, dict) else {}
+        merged: Dict[str, Any] = {}
+        keys = list(ours)
+        keys += [k for k in theirs if k not in ours]
+        for key in keys:
+            value = _merge_node(
+                base_dict.get(key, _MISSING),
+                ours.get(key, _MISSING),
+                theirs.get(key, _MISSING),
+                path + (str(key),),
+                decisions,
+                conflicts,
+            )
+            if value is not _MISSING:
+                merged[key] = value
+        return merged
 
-def _set_settings_path(obj: dict, path: Tuple[str, ...], value: Any) -> None:
-    """Set (or delete, when value is _MISSING) a value at a nested dict path."""
-    current = obj
-    for segment in path[:-1]:
-        if not isinstance(current.get(segment), dict):
-            current[segment] = {}
-        current = current[segment]
-    if value is _MISSING:
-        current.pop(path[-1], None)
-    else:
-        current[path[-1]] = value
+    dotted = _PATH_SEP.join(path)
+    decision = decisions.get(dotted)
+    if decision == "theirs":
+        return theirs
+    if decision == "ours":
+        return ours
+    conflicts.append(
+        {
+            "path": dotted,
+            "ours": None if ours is _MISSING else ours,
+            "theirs": None if theirs is _MISSING else theirs,
+        }
+    )
+    return ours
 
 
 def merge_settings(
@@ -81,56 +115,39 @@ def merge_settings(
     theirs: dict,
     decisions: Optional[Dict[str, str]] = None,
 ) -> Tuple[dict, List[dict]]:
-    """3-way field-level merge of settings.json contents.
+    """3-way merge of settings.json contents.
 
     Returns (merged, conflicts). ``merged`` starts from ours and applies
     theirs-only changes plus any ``decisions`` ({dotted_path: "ours"|"theirs"}).
     ``conflicts`` lists both-changed-differently paths that have no decision:
     [{path, ours, theirs}] with values as parsed JSON (None when the side
-    deleted the field).
+    deleted the entry). Dicts are merged key by key; lists and scalars are
+    atomic. An entry one side deleted and the other edited is a conflict at
+    the entry itself, with two outcomes: entry gone, or entry kept with the
+    edit.
     """
-    # pylint: disable=too-many-locals
-    decisions = decisions or {}
-    base_flat = _flatten_settings(base)
-    ours_flat = _flatten_settings(ours)
-    theirs_flat = _flatten_settings(theirs)
-
-    merged = copy.deepcopy(ours)
     conflicts: List[dict] = []
+    merged = _merge_node(base, ours, theirs, (), decisions or {}, conflicts)
+    if not isinstance(merged, dict):
+        merged = copy.deepcopy(ours)
+    return copy.deepcopy(merged), sorted(conflicts, key=lambda c: c["path"])
 
-    all_paths = sorted(set(base_flat) | set(ours_flat) | set(theirs_flat))
-    for path in all_paths:
-        base_val = base_flat.get(path, _MISSING)
-        ours_val = ours_flat.get(path, _MISSING)
-        theirs_val = theirs_flat.get(path, _MISSING)
 
-        ours_changed = not _values_equal(ours_val, base_val)
-        theirs_changed = not _values_equal(theirs_val, base_val)
+def validate_merged_settings(merged: dict) -> Optional[str]:
+    """Load ``merged`` through colrev's settings model.
 
-        if not theirs_changed:
-            continue  # ours (possibly changed) already in merged
-        if not ours_changed:
-            _set_settings_path(merged, path, theirs_val)
-            continue
-        if _values_equal(ours_val, theirs_val):
-            continue  # both changed to the same value
-
-        dotted = _PATH_SEP.join(path)
-        decision = decisions.get(dotted)
-        if decision == "theirs":
-            _set_settings_path(merged, path, theirs_val)
-        elif decision == "ours":
-            continue
-        else:
-            conflicts.append(
-                {
-                    "path": dotted,
-                    "ours": None if ours_val is _MISSING else ours_val,
-                    "theirs": None if theirs_val is _MISSING else theirs_val,
-                }
-            )
-
-    return merged, conflicts
+    Returns None when it loads, else the error. ``sources`` is dropped
+    first: ``load_settings`` rebuilds it from the search history files.
+    """
+    candidate = copy.deepcopy(merged)
+    candidate["sources"] = []
+    try:
+        colrev.settings._load_settings_from_dict(  # pylint: disable=protected-access
+            candidate
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        return str(exc)
+    return None
 
 
 def _values_equal(a: Any, b: Any) -> bool:
@@ -263,6 +280,60 @@ class MergeHandler(BaseHandler):
                 f"{active!r}. Refresh and retry."
             )
 
+    def _load_side_records(self, ref: str) -> Optional[dict]:
+        """Records of ``ref`` (None when it has no records.bib)."""
+        assert self.review_manager is not None
+        repo = git.Repo(str(self.review_manager.path))
+        try:
+            content = repo.git.show(
+                f"{ref}:{self.review_manager.paths.RECORDS_FILE_GIT}"
+            )
+        except git.GitCommandError:
+            return None
+        return colrev.loader.load_utils.loads(
+            load_string=content,
+            implementation="bib",
+            logger=self.review_manager.logger,
+        )
+
+    def _one_sided_decisions(self, theirs: str) -> Dict[str, str]:
+        """Records whose status changed on one side only since the merge base.
+
+        Core compares our side with theirs and never reads the merge base, so
+        it reports every status difference as a conflict. Returns
+        {record_id: "ours"|"theirs"} naming the side that changed the status;
+        records changed on both sides, added on both, or without a base are
+        left out, since those are real conflicts.
+        """
+        assert self.review_manager is not None
+        repo = git.Repo(str(self.review_manager.path))
+        try:
+            base_ref = repo.git.merge_base("HEAD", theirs).strip()
+        except git.GitCommandError:
+            return {}
+        if not base_ref:
+            return {}
+        base = self._load_side_records(base_ref)
+        ours = self._load_side_records("HEAD")
+        other = self._load_side_records(theirs)
+        if base is None or ours is None or other is None:
+            return {}
+
+        decisions: Dict[str, str] = {}
+        for record_id, base_record in base.items():
+            if record_id not in ours or record_id not in other:
+                continue
+            base_status = str(base_record[Fields.STATUS])
+            ours_status = str(ours[record_id][Fields.STATUS])
+            theirs_status = str(other[record_id][Fields.STATUS])
+            if ours_status == theirs_status:
+                continue
+            if ours_status == base_status:
+                decisions[record_id] = "theirs"
+            elif theirs_status == base_status:
+                decisions[record_id] = "ours"
+        return decisions
+
     @rpc_method(
         name="analyze_merge",
         request=AnalyzeMergeRequest,
@@ -280,6 +351,10 @@ class MergeHandler(BaseHandler):
         report = merge_op.analyze(theirs=req.theirs)
 
         blockers = list(report["blockers"])
+        one_sided = self._one_sided_decisions(req.theirs)
+        status_conflicts = [
+            c for c in report["status_conflicts"] if c["id"] not in one_sided
+        ]
         settings_conflicts: List[dict] = []
         settings_conflict = report["settings_stages"] is not None
         if settings_conflict:
@@ -287,18 +362,24 @@ class MergeHandler(BaseHandler):
             if parsed is None:
                 blockers.append({"id": "settings.json", "reason": reason})
             else:
-                _, settings_conflicts = merge_settings(*parsed)
+                merged_settings, settings_conflicts = merge_settings(*parsed)
+                if not settings_conflicts:
+                    error = validate_merged_settings(merged_settings)
+                    if error:
+                        blockers.append(
+                            {
+                                "id": "settings.json",
+                                "reason": "The merged settings.json would not "
+                                f"load: {error}",
+                            }
+                        )
 
-        auto_mergeable = (
-            not blockers and not report["status_conflicts"] and not settings_conflicts
-        )
+        auto_mergeable = not blockers and not status_conflicts and not settings_conflicts
 
         return AnalyzeMergeResponse(
             project_id=req.project_id,
             auto_mergeable=auto_mergeable,
-            status_conflicts=[
-                StatusConflictItem(**c) for c in report["status_conflicts"]
-            ],
+            status_conflicts=[StatusConflictItem(**c) for c in status_conflicts],
             settings_conflicts=[SettingsConflictItem(**c) for c in settings_conflicts],
             blockers=[MergeBlockerItem(**b) for b in blockers],
             settings_conflict=settings_conflict,
@@ -323,7 +404,9 @@ class MergeHandler(BaseHandler):
         )
 
         merge_op = self._merge_operation()
-        result = merge_op.apply(theirs=req.theirs, decisions=dict(req.resolutions))
+        decisions = dict(req.resolutions)
+        decisions.update(self._one_sided_decisions(req.theirs))
+        result = merge_op.apply(theirs=req.theirs, decisions=decisions)
 
         # From here the merge is in progress; any failure must roll it back.
         try:
@@ -365,6 +448,11 @@ class MergeHandler(BaseHandler):
         if conflicts:
             missing = ", ".join(c["path"] for c in conflicts)
             raise ValueError(f"Missing merge resolution for setting(s): {missing}")
+        error = validate_merged_settings(merged)
+        if error:
+            raise ValueError(
+                f"Merge aborted: the merged settings.json would not load: {error}"
+            )
 
         settings_path = self.review_manager.paths.settings
         with open(settings_path, "w", encoding="utf-8") as file:
