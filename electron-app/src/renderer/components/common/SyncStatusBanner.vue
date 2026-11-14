@@ -68,6 +68,17 @@ const banner = computed<BannerView | null>(() => {
           git.showPullBlockedDialog = true;
         },
       };
+    case 'main-diverged':
+      return {
+        tone: 'destructive',
+        icon: GitMerge,
+        message:
+          'The published version (main) has diverged: you published, and so did a collaborator. ' +
+          'The two need to be combined before either reaches the other.',
+        actionLabel: 'Review & combine main',
+        testId: 'resolve-main-divergence-button',
+        onAction: () => void git.resolveDivergedMain(),
+      };
     case 'behind-auto-disabled':
       return {
         tone: 'info',

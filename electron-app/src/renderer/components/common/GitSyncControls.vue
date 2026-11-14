@@ -11,7 +11,7 @@ import {
 import { useGitStore } from '@/stores/git';
 import { useSyncStore } from '@/stores/sync';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
-import { computeGitSyncState } from '@/lib/gitSyncState';
+import { computeGitSyncState, isPushEnabled } from '@/lib/gitSyncState';
 import SyncStatusIndicator from './SyncStatusIndicator.vue';
 
 const git = useGitStore();
@@ -33,13 +33,15 @@ const syncState = computed(() =>
 
 async function handlePush() {
   const push = syncState.value.push;
-  if (push.status !== 'active') return;
+  if (!isPushEnabled(push)) return;
   if (pending.hasPending) {
     const committed = await pending.commit('Save changes');
     if (!committed) return;
     await git.refreshStatus();
   }
-  if (git.ahead > 0) {
+  // Offline, the save above is all that can happen; auto-push uploads it when
+  // the connection returns, and a push now would only fail and say so.
+  if (git.ahead > 0 && !git.isOffline) {
     await sync.pushNow();
   }
 }
@@ -53,7 +55,7 @@ async function handlePull() {
   }
 }
 
-const pushDisabled = computed(() => syncState.value.push.status !== 'active');
+const pushDisabled = computed(() => !isPushEnabled(syncState.value.push));
 
 const pullDisabled = computed(() => {
   const s = syncState.value.pull.status;

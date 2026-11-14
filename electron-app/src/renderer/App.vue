@@ -4,6 +4,7 @@ import { onMounted, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { Toaster } from '@/components/ui/sonner';
 import AppLayout from '@/components/layout/AppLayout.vue';
+import AppRouterView from '@/components/layout/AppRouterView.vue';
 import DebugPanel from '@/components/common/DebugPanel.vue';
 import ConflictResolutionDialog from '@/components/common/ConflictResolutionDialog.vue';
 import PullBlockedDialog from '@/components/common/PullBlockedDialog.vue';
@@ -132,7 +133,7 @@ watch(
 
     <!-- Main content with conditional layout -->
     <AppLayout v-if="useProjectLayout">
-      <router-view />
+      <AppRouterView />
     </AppLayout>
 
     <router-view v-else />

@@ -202,21 +202,30 @@ async function loadRecord() {
     }
   } catch (err) {
     console.error('Failed to load record:', err);
-    saveError.value = 'Failed to load record';
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    saveError.value = `Failed to load record: ${message}`;
   } finally {
     isLoading.value = false;
   }
 }
 
-// Compute changed fields
-function getChangedFields(): globalThis.Record<string, string> {
+// Compute changed fields. A field the user emptied is sent as null: the
+// backend removes it from the record (an empty string would stay behind as a
+// present-but-blank value).
+function getChangedFields(): globalThis.Record<string, string | null> {
   if (!record.value) return {};
-  const changed: globalThis.Record<string, string> = {};
+  const changed: globalThis.Record<string, string | null> = {};
   for (const fieldDef of EDITABLE_FIELDS) {
     const original = record.value[fieldDef.key];
     const originalStr = original != null ? String(original) : '';
     const current = editFields.value[fieldDef.key] || '';
-    if (current !== originalStr && current !== '') {
+    if (current.trim() === '') {
+      // Emptied a field that had a value. The entry type is always set: it can
+      // be changed but not cleared.
+      if (originalStr.trim() !== '' && fieldDef.key !== 'ENTRYTYPE') {
+        changed[fieldDef.key] = null;
+      }
+    } else if (current !== originalStr) {
       changed[fieldDef.key] = current;
     }
   }
@@ -307,6 +316,20 @@ watch(
       <!-- Loading -->
       <div v-if="isLoading" class="flex items-center justify-center py-12">
         <Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+
+      <!-- Load failure: without this the dialog is a header and nothing else -->
+      <div
+        v-if="!isLoading && !record && saveError"
+        class="flex flex-col gap-3 py-6 items-start"
+        data-testid="record-edit-load-error"
+      >
+        <div class="text-sm p-2 w-full rounded bg-destructive/10 text-destructive border border-destructive/30">
+          {{ saveError }}
+        </div>
+        <Button variant="outline" data-testid="record-edit-retry-button" @click="loadRecord">
+          Retry
+        </Button>
       </div>
 
       <!-- Content -->
