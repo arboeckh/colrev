@@ -140,6 +140,17 @@ class TestListProjects:
         response = _request(handler, "list_projects", {"base_path": str(projects_root)})
         assert response["result"]["projects"][0]["title"] == "broken"
 
+    def test_one_undecodable_settings_file_does_not_fail_the_list(
+        self, handler, projects_root, initialized_project
+    ) -> None:
+        broken = projects_root / "latin1"
+        broken.mkdir()
+        (broken / "settings.json").write_bytes(b'{"project": {"title": "caf\xe9"}}')
+
+        response = _request(handler, "list_projects", {"base_path": str(projects_root)})
+        titles = {p["id"]: p["title"] for p in response["result"]["projects"]}
+        assert titles == {"review_one": "Review One", "latin1": "latin1"}
+
     def test_returns_an_empty_list_for_a_missing_root(self, handler, tmp_path) -> None:
         response = _request(
             handler, "list_projects", {"base_path": str(tmp_path / "nope")}

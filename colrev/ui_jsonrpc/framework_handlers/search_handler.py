@@ -628,7 +628,11 @@ class SearchHandler(BaseHandler):
             safe_filename = Path(safe_filename).stem + ".bib"
             target_path = search_dir / safe_filename
 
-        with open(target_path, write_mode) as f:
+        with open(
+            target_path,
+            write_mode,
+            encoding=None if "b" in write_mode else "utf-8",
+        ) as f:
             f.write(file_content)
 
         detected_format = self._detect_file_format(target_path)

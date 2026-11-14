@@ -23,6 +23,16 @@ describe('resolveBackendLaunch', () => {
     expect(resolveBackendLaunch(input({ platform: 'win32' })).command).toBe('python.exe');
   });
 
+  it('forces UTF-8 for the backend in dev and packaged mode on every platform', () => {
+    for (const platform of ['darwin', 'win32', 'linux'] as const) {
+      for (const isPackaged of [false, true]) {
+        const { env } = resolveBackendLaunch(input({ platform, isPackaged }));
+        expect(env.PYTHONUTF8).toBe('1');
+        expect(env.PYTHONIOENCODING).toBe('utf-8');
+      }
+    }
+  });
+
   it('spawns the bundled shim when packaged, and puts its bin dir first on PATH', () => {
     const spec = resolveBackendLaunch(input({ isPackaged: true }));
     const binDir = path.join('/app/Resources', 'python-mac-arm64', 'bin');
