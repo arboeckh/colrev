@@ -345,7 +345,8 @@ export function createWindowMock(): WindowMock {
     } as unknown as MockedObject<GitHubAPI>,
 
     git: {
-      fetch: vi.fn(async () => okResult()),
+      // Nothing new on the remote by default; tests that need a moved ref say so.
+      fetch: vi.fn(async () => ({ ...okResult(), refsChanged: false })),
       pull: vi.fn(async () => okResult()),
       fastForwardMain: vi.fn(async () => okResult()),
       push: vi.fn(async () => okResult()),

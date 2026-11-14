@@ -182,6 +182,14 @@ export const useGitStore = defineStore('git', () => {
         lastFetchTime.value = Date.now();
         connection.markOnline();
         await refreshStatus();
+        // Another reviewer's progress lives on refs this fetch may have just
+        // moved, and git state alone does not show it (their branch is not the
+        // checked-out one). Task state only changes with remote refs, so only
+        // a fetch that moved some pays for the re-read; panels read the store.
+        if (result.refsChanged !== false) {
+          const { useManagedReviewStore } = await import('./managedReview');
+          await useManagedReviewStore().refresh();
+        }
         return true;
       } else {
         // Offline is classified in the main process (dugite's parseError plus
@@ -383,6 +391,17 @@ export const useGitStore = defineStore('git', () => {
       lastRefreshError.value = err instanceof Error ? err.message : 'Failed to read git state';
       return false;
     }
+  }
+
+  /**
+   * Make sure the current project has a snapshot before anyone decides from
+   * `currentBranch`. Without one the branch reads as `main`, so a caller that
+   * ran before `initialize` (project load does) mistook a repo on `dev` or on a
+   * reviewer branch for one on `main` and switched it.
+   */
+  async function ensureSnapshot(): Promise<void> {
+    if (snapshot.value) return;
+    await refreshStatus();
   }
 
   /**
@@ -1008,6 +1027,7 @@ export const useGitStore = defineStore('git', () => {
      */
     __remoteOps: { fetch, pull, push, pushBranch, fastForwardMain, tryAutoResolveDivergence },
     refreshStatus,
+    ensureSnapshot,
     refreshSnapshotFor,
     refreshBranches,
     switchBranch,

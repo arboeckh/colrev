@@ -10,7 +10,15 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
-import { setupRendererTest, type RendererTestContext } from '@/test/harness';
+import {
+  branchDeltaResponse,
+  setupRendererTest,
+  settingsResponse,
+  statusResponse,
+  tasksResponse,
+  type RendererTestContext,
+} from '@/test/harness';
+import { useProjectDataStore } from '@/stores/projectData';
 import PrescreenPage from './PrescreenPage.vue';
 
 vi.mock('@/components/layout/StepPageShell.vue', () => ({
@@ -62,7 +70,7 @@ describe('PrescreenPage decisions', () => {
     ctx = setupRendererTest();
     // Access control is out of scope here: no managed task, no branch switch.
     ctx.mock.rpc.onError('get_current_managed_review_task', { message: 'not managed' });
-    ctx.mock.rpc.onError('list_managed_review_tasks', { message: 'not managed' });
+    ctx.mock.rpc.on('list_managed_review_tasks', () => tasksResponse('prescreen'));
     stubQueue(ctx);
   });
 
@@ -176,5 +184,61 @@ describe('PrescreenPage decisions', () => {
     expect(currentRecordId(wrapper)).toBe('r2');
     expect(wrapper.find('[data-testid="prescreen-included-count"]').text()).toBe('0');
     expect(wrapper.find('[data-testid="prescreen-remaining-count"]').text()).toBe('3 remaining');
+  });
+});
+
+describe('PrescreenPage managed access', () => {
+  let ctx: RendererTestContext;
+
+  beforeEach(() => {
+    ctx = setupRendererTest();
+    ctx.mock.rpc.onError('get_current_managed_review_task', { message: 'not managed' });
+    stubQueue(ctx);
+  });
+
+  it('fails closed with a Retry when the task list cannot be read', async () => {
+    ctx.mock.rpc.onError('list_managed_review_tasks', { message: 'backend down' });
+
+    const wrapper = await mountPage(ctx);
+
+    // No queue, so no decision can land on dev during an active task.
+    expect(wrapper.text()).toContain('Could not check your review assignment');
+    expect(wrapper.find('[data-testid="prescreen-btn-include"]').exists()).toBe(false);
+
+    ctx.mock.rpc.on('list_managed_review_tasks', () => tasksResponse('prescreen'));
+    await wrapper.get('[data-testid="managed-access-retry"]').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="managed-access-retry"]').exists()).toBe(false);
+    expect(currentRecordId(wrapper)).toBe('r1');
+  });
+
+  it('runs a full invalidation that arrived mid-pass once the pass is done', async () => {
+    ctx.mock.rpc.on('list_managed_review_tasks', () => tasksResponse('prescreen'));
+    ctx.mock.rpc
+      .on('get_status', statusResponse())
+      .on('get_settings', settingsResponse())
+      .on('get_branch_delta', branchDeltaResponse());
+    let first = true;
+    ctx.mock.rpc.on('get_prescreen_queue', async () => {
+      if (first) {
+        first = false;
+        // A pull lands while the page is still loading its queue: the epoch
+        // bump discards this response, so only a second pass can fill the queue.
+        await useProjectDataStore().invalidateAll();
+      }
+      return {
+        success: true,
+        project_id: 'lit-review',
+        total_count: 1,
+        records: [queueRecord('r1')],
+      };
+    });
+
+    const wrapper = await mountPage(ctx);
+    await vi.waitFor(() => expect(ctx.mock.rpc.countOf('get_prescreen_queue')).toBe(2));
+    await flushPromises();
+
+    expect(currentRecordId(wrapper)).toBe('r1');
   });
 });

@@ -35,7 +35,18 @@ const sync = useSyncStore();
 
 const isLoading = ref(false);
 const isExporting = ref(false);
-const tasks = ref<ManagedReviewTask[]>([]);
+// Tasks come from the store so a fetch or write elsewhere updates this panel.
+// `appliedTaskIds` overlays the one change the store has not caught up with yet:
+// a task this panel just reconciled.
+const appliedTaskIds = ref<string[]>([]);
+const tasks = computed<ManagedReviewTask[]>(() => {
+  const fromStore =
+    props.kind === 'screen' ? managedReview.screenTasks : managedReview.prescreenTasks;
+  if (appliedTaskIds.value.length === 0) return fromStore;
+  return fromStore.map((task) =>
+    appliedTaskIds.value.includes(task.id) ? { ...task, state: 'completed' } : task,
+  );
+});
 const showWalkthrough = ref(false);
 
 const kindLabel = computed(() => (props.kind === 'screen' ? 'Screen' : 'Prescreen'));
@@ -82,14 +93,7 @@ async function refreshData() {
   isLoading.value = true;
   try {
     await git.refreshStatus();
-    const tasksResponse = await backend.call(
-      'list_managed_review_tasks',
-      {
-        project_id: projects.currentProjectId,
-        kind: props.kind,
-      },
-    );
-    tasks.value = tasksResponse.tasks;
+    await managedReview.refresh();
   } catch (err) {
     notifications.error(
       `${kindLabel.value} reconcile failed`,
@@ -129,9 +133,7 @@ async function onWalkthroughApplied(response: ApplyReconciliationResponse) {
   // anything slow runs: `tasks` still holds the pre-apply snapshot (active,
   // every reviewer finished), which would re-offer "Start Reconciliation"
   // against reviewer branches that are about to be deleted.
-  tasks.value = tasks.value.map((task) =>
-    task.id === response.task_id ? { ...task, state: 'completed' } : task,
-  );
+  appliedTaskIds.value = [...appliedTaskIds.value, response.task_id];
   showWalkthrough.value = false;
 
   // Store-level state (status, managed review tasks) refreshes via the
