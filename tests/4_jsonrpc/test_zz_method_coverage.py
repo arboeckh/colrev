@@ -43,15 +43,12 @@ from colrev.ui_jsonrpc.framework import registry
 HAPPY_PATH_GAPS: dict[str, str] = {
     # --- reach the network or a heavy package chain ------------------------
     "data": "runs the data operation (paper_md endpoint) — covered by e2e 07-data",
-    "pdf_get": "retrieves PDFs over the network — covered by e2e 04-pdf-get",
     "pdf_prep": "runs the OCR/grobid package chain — covered by e2e 04-pdf-get",
     "prep": "runs metadata prep against external APIs — covered by e2e 02-preprocessing",
     # --- need a project carried far down the pipeline ----------------------
     "export_data_csv": "needs a populated data/data.csv — covered by e2e 07-data",
-    "save_data_extraction": "runs the data operation on rev_included records — e2e 07-data",
     "prescreen": "batch prescreen over a loaded dataset — covered by e2e 03-prescreen",
     "screen": "batch screen over a loaded dataset — covered by e2e 06-screen",
-    "screen_record": "needs records at pdf_prepared — covered by e2e 06-screen",
     "enrich_record_metadata": "enriches from external metadata APIs — e2e 03-prescreen",
     "restore_pdf_file": "needs a record whose metadata already references a file — e2e 04",
 }

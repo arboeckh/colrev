@@ -32,8 +32,6 @@ AUDITED_WRITERS = {
     "delete_project",
     "discard_changes",
     "enrich_record_metadata",
-    # Despite the get_ prefix, it creates/backfills data/data/data.csv.
-    "get_data_extraction_queue",
     "import_pdfs",
     "include_all_screen",
     "init_project",

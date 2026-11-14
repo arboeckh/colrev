@@ -11,12 +11,14 @@ import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
 import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 import { useGitStore } from '@/stores/git';
+import { useProjectsStore } from '@/stores/projects';
 import { StepPageShell } from '@/components/layout';
 import DefinitionPageHelp from './DefinitionPageHelp.vue';
 
 const store = useReviewDefinitionStore();
 const notifications = useNotificationsStore();
 const gitStore = useGitStore();
+const projects = useProjectsStore();
 const { isReadOnly } = useReadOnly();
 
 // Local form state
@@ -30,8 +32,14 @@ const objectives = ref('');
 const seededProtocolUrl = ref('');
 const seededObjectives = ref('');
 
+// The store may still hold the previously opened project's definition. The
+// form only ever shows, and saves, a definition that was loaded for this one.
+const isLoaded = computed(
+  () => !!store.definition && store.loadedProjectId === projects.currentProjectId,
+);
+
 function seedFromStore() {
-  const definition = store.definition;
+  const definition = isLoaded.value ? store.definition : null;
   if (!definition) return;
   protocolUrl.value = definition.protocol_url;
   objectives.value = definition.objectives;
@@ -44,9 +52,6 @@ const isValidProtocolUrl = computed(() => {
   return url.startsWith('http://') || url.startsWith('https://');
 });
 
-// Tracks criteria changes staged to git but not yet committed
-const hasPendingCriteriaChanges = ref(false);
-
 // Dirty tracking. Measured against the seeded values, not against
 // `store.definition` — the two differ exactly when the definition was
 // reloaded under an untouched form, which is not an edit.
@@ -56,9 +61,9 @@ const hasTextChanges = computed(
     objectives.value !== seededObjectives.value,
 );
 
-const isDirty = computed(() => {
-  return hasTextChanges.value || hasPendingCriteriaChanges.value;
-});
+// Criteria edits are committed by the backend as they are made, so only the
+// text fields can be unsaved.
+const isDirty = computed(() => hasTextChanges.value);
 
 onMounted(async () => {
   await store.loadDefinition();
@@ -93,26 +98,19 @@ onBeforeRouteLeave((_to, _from, next) => {
 
 // Save all pending changes in a single commit
 async function saveAll() {
+  if (!isLoaded.value || !store.definition) return;
   const updates: { protocol_url?: string; objectives?: string; keywords?: string[] } = {};
 
-  if (store.definition) {
-    if (protocolUrl.value !== store.definition.protocol_url) {
-      updates.protocol_url = protocolUrl.value;
-    }
-    if (objectives.value !== store.definition.objectives) {
-      updates.objectives = objectives.value;
-    }
+  if (protocolUrl.value !== store.definition.protocol_url) {
+    updates.protocol_url = protocolUrl.value;
   }
-
-  // If only criteria changed, send current values to trigger a commit
-  if (Object.keys(updates).length === 0 && hasPendingCriteriaChanges.value) {
+  if (objectives.value !== store.definition.objectives) {
     updates.objectives = objectives.value;
   }
 
   const success = await store.updateDefinition(updates);
   if (success) {
     seedFromStore();
-    hasPendingCriteriaChanges.value = false;
     notifications.success('Saved', 'Review definition updated');
     gitStore.refreshStatus();
   } else {
@@ -120,7 +118,7 @@ async function saveAll() {
   }
 }
 
-// Criteria: each change stages immediately; the user commits via the header's Commit dialog
+// Criteria: the backend commits each change as it is made
 async function handleAddCriterion(data: {
   name: string;
   explanation: string;
@@ -129,7 +127,7 @@ async function handleAddCriterion(data: {
 }) {
   const success = await store.addCriterion(data);
   if (success) {
-    hasPendingCriteriaChanges.value = true;
+    gitStore.refreshStatus();
   } else {
     notifications.error('Failed', 'Could not add criterion');
   }
@@ -145,7 +143,7 @@ async function handleUpdateCriterion(name: string, data: {
     ...data,
   });
   if (success) {
-    hasPendingCriteriaChanges.value = true;
+    gitStore.refreshStatus();
   } else {
     notifications.error('Failed', 'Could not update criterion');
   }
@@ -154,7 +152,7 @@ async function handleUpdateCriterion(name: string, data: {
 async function handleDeleteCriterion(name: string) {
   const success = await store.removeCriterion(name);
   if (success) {
-    hasPendingCriteriaChanges.value = true;
+    gitStore.refreshStatus();
   } else {
     notifications.error('Failed', 'Could not remove criterion');
   }
@@ -177,7 +175,7 @@ async function handleDeleteCriterion(name: string) {
         <div class="max-w-6xl mx-auto px-8 py-4 flex items-center gap-6">
           <div class="min-w-0 flex-1">
             <h1 class="text-2xl font-semibold tracking-tight-heading leading-tight truncate">
-              {{ store.definition?.title || 'Untitled Review' }}
+              {{ (isLoaded && store.definition?.title) || 'Untitled Review' }}
             </h1>
           </div>
           <div v-if="!isReadOnly" class="shrink-0 flex items-center gap-3">
@@ -187,7 +185,7 @@ async function handleDeleteCriterion(name: string) {
             <Button
               size="sm"
               data-testid="save-definition-btn"
-              :disabled="!isDirty || store.isSaving"
+              :disabled="!isLoaded || !isDirty || store.isSaving"
               class="gap-1.5"
               @click="saveAll"
             >
@@ -199,6 +197,14 @@ async function handleDeleteCriterion(name: string) {
       </header>
 
       <div class="max-w-6xl mx-auto px-8 pt-10 pb-20">
+        <p
+          v-if="!isLoaded && store.loadError && !store.isLoading"
+          class="mb-6 text-sm text-destructive"
+          role="alert"
+          data-testid="definition-load-error"
+        >
+          Could not load the review definition: {{ store.loadError }}
+        </p>
         <!-- Metadata row -->
         <section class="pb-8 border-b border-border">
           <div class="flex items-center gap-2 mb-2">
@@ -221,7 +227,7 @@ async function handleDeleteCriterion(name: string) {
             v-model="protocolUrl"
             placeholder="https://... (e.g., PROSPERO registration)"
             data-testid="protocol-url-input"
-            :disabled="isReadOnly"
+            :disabled="isReadOnly || !isLoaded"
             class="max-w-xl"
           />
         </section>
@@ -241,7 +247,7 @@ async function handleDeleteCriterion(name: string) {
               placeholder="Describe the research question or objectives of this review..."
               data-testid="objectives-textarea"
               min-height="26rem"
-              :disabled="isReadOnly"
+              :disabled="isReadOnly || !isLoaded"
             />
           </section>
 
@@ -257,9 +263,9 @@ async function handleDeleteCriterion(name: string) {
             </div>
 
             <CriteriaList
-              :criteria="store.definition?.criteria || {}"
+              :criteria="(isLoaded && store.definition?.criteria) || {}"
               :is-saving="store.isSaving"
-              :read-only="isReadOnly"
+              :read-only="isReadOnly || !isLoaded"
               @add-criterion="handleAddCriterion"
               @update-criterion="handleUpdateCriterion"
               @delete-criterion="handleDeleteCriterion"

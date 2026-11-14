@@ -51,7 +51,7 @@ const projects = useProjectsStore();
 const backend = useBackendStore();
 const notifications = useNotificationsStore();
 
-type Phase = 'SELECT_FILES' | 'ANALYZING' | 'REVIEW_MATCHES' | 'UPLOADING';
+type Phase = 'SELECT_FILES' | 'ANALYZING' | 'REVIEW_MATCHES' | 'UPLOADING' | 'DONE';
 
 interface FileAssignment {
   file: File;
@@ -75,6 +75,10 @@ const phase = ref<Phase>('SELECT_FILES');
 const assignments = ref<FileAssignment[]>([]);
 const analyzeIndex = ref(0);
 const cancelAnalysis = ref(false);
+// Bumped whenever the dialog is reset (opened, closed, new file selection).
+// A loop that started under an older run sees the mismatch after its next
+// await and stops without touching the new state.
+let runId = 0;
 const batchFileInput = ref<HTMLInputElement | null>(null);
 
 const matchedCount = computed(
@@ -98,6 +102,9 @@ const medConfCount = computed(
 const canUpload = computed(
   () => matchedCount.value > 0 && phase.value === 'REVIEW_MATCHES',
 );
+const failedCount = computed(
+  () => assignments.value.filter((a) => a.uploadStatus === 'error').length,
+);
 
 const analyzeProgress = computed(() => {
   if (assignments.value.length === 0) return 0;
@@ -116,26 +123,49 @@ const uploadProgress = computed(() => {
   return Math.round((done / toUpload.length) * 100);
 });
 
-// Available records for dropdown (not already assigned to another file)
-function availableRecordsFor(currentIndex: number): PdfRecord[] {
-  const assignedIds = new Set(
+function assignedIdsExcept(currentIndex: number): Set<string | null> {
+  return new Set(
     assignments.value
       .filter((a, i) => i !== currentIndex && a.recordId !== null)
       .map((a) => a.recordId),
   );
+}
+
+// Available records for dropdown (not already assigned to another file)
+function availableRecordsFor(currentIndex: number): PdfRecord[] {
+  const assignedIds = assignedIdsExcept(currentIndex);
   return props.records.filter((r) => !assignedIds.has(r.ID));
+}
+
+function availableAlternativesFor(currentIndex: number): PDFMatchCandidate[] {
+  const assignedIds = assignedIdsExcept(currentIndex);
+  return (assignments.value[currentIndex]?.alternativeMatches ?? []).filter(
+    (c) => !assignedIds.has(c.record_id),
+  );
+}
+
+function resetDialog() {
+  runId++;
+  phase.value = 'SELECT_FILES';
+  assignments.value = [];
+  analyzeIndex.value = 0;
+  cancelAnalysis.value = false;
+}
+
+// A dialog that is mid-upload cannot be dismissed (the footer button is
+// disabled too); every other phase can, and closing drops the analysis loop.
+function onOpenChange(value: boolean) {
+  if (!value && phase.value === 'UPLOADING') return;
+  if (!value) runId++;
+  emit('update:open', value);
 }
 
 // Reset when dialog opens
 watch(
   () => props.open,
   (isOpen) => {
-    if (isOpen) {
-      phase.value = 'SELECT_FILES';
-      assignments.value = [];
-      analyzeIndex.value = 0;
-      cancelAnalysis.value = false;
-    }
+    if (isOpen) resetDialog();
+    else runId++;
   },
 );
 
@@ -173,6 +203,7 @@ function handleFileSelection(files: FileList | null) {
     return;
   }
 
+  runId++;
   assignments.value = pdfFiles.map((file) => ({
     file,
     recordId: null,
@@ -204,19 +235,23 @@ function readFileAsBase64(file: File): Promise<string> {
 async function startAnalysis() {
   if (!projects.currentProjectId) return;
 
+  const myRun = ++runId;
+  const batch = assignments.value;
   phase.value = 'ANALYZING';
   cancelAnalysis.value = false;
   analyzeIndex.value = 0;
 
-  for (let i = 0; i < assignments.value.length; i++) {
+  for (let i = 0; i < batch.length; i++) {
     if (cancelAnalysis.value) break;
+    if (myRun !== runId) return;
 
     analyzeIndex.value = i;
-    const assignment = assignments.value[i];
+    const assignment = batch[i];
     assignment.analysisStatus = 'analyzing';
 
     try {
       const content = await readFileAsBase64(assignment.file);
+      if (myRun !== runId) return;
       const response = await backend.call(
         'match_pdf_to_records',
         {
@@ -225,6 +260,7 @@ async function startAnalysis() {
           content,
         },
       );
+      if (myRun !== runId) return;
 
       if (response.success) {
         assignment.extractedMetadata = response.extracted_metadata
@@ -237,7 +273,9 @@ async function startAnalysis() {
           : null;
         assignment.alternativeMatches = response.matches;
 
-        if (response.best_match) {
+        // Auto-assign only a record no other file has claimed; the rest stay
+        // unassigned (their alternatives and the dropdown remain available).
+        if (response.best_match && !isClaimed(batch, response.best_match.record_id)) {
           assignment.recordId = response.best_match.record_id;
           assignment.matchConfidence = response.best_match.similarity;
 
@@ -252,23 +290,29 @@ async function startAnalysis() {
         assignment.analysisStatus = 'done';
       } else {
         assignment.analysisStatus = 'error';
-        applyClientFallback(assignment);
+        applyClientFallback(assignment, batch);
       }
     } catch (err) {
+      if (myRun !== runId) return;
       assignment.analysisStatus = 'error';
-      applyClientFallback(assignment);
+      applyClientFallback(assignment, batch);
     }
   }
 
+  if (myRun !== runId) return;
   phase.value = 'REVIEW_MATCHES';
 }
 
-function applyClientFallback(assignment: FileAssignment) {
+function isClaimed(batch: FileAssignment[], recordId: string): boolean {
+  return batch.some((a) => a.recordId === recordId);
+}
+
+function applyClientFallback(assignment: FileAssignment, batch: FileAssignment[]) {
   const stem = assignment.file.name.replace(/\.pdf$/i, '').toLowerCase();
 
   // Exact match on record ID
   const exactMatch = props.records.find((r) => r.ID.toLowerCase() === stem);
-  if (exactMatch) {
+  if (exactMatch && !isClaimed(batch, exactMatch.ID)) {
     assignment.recordId = exactMatch.ID;
     assignment.matchType = 'filename';
     assignment.matchConfidence = 0.9;
@@ -284,7 +328,8 @@ function applyClientFallback(assignment: FileAssignment) {
       authorLastName &&
       year &&
       stem.includes(authorLastName) &&
-      stem.includes(year)
+      stem.includes(year) &&
+      !isClaimed(batch, record.ID)
     ) {
       assignment.recordId = record.ID;
       assignment.matchType = 'filename';
@@ -304,6 +349,7 @@ function stopAnalysisEarly() {
 // --- Phase 3: REVIEW_MATCHES ---
 
 function assignRecord(index: number, recordId: string | null) {
+  if (recordId && assignedIdsExcept(index).has(recordId)) return;
   if (index >= 0 && index < assignments.value.length) {
     assignments.value[index].recordId = recordId;
     assignments.value[index].matchType = recordId ? 'manual' : 'none';
@@ -312,6 +358,7 @@ function assignRecord(index: number, recordId: string | null) {
 }
 
 function selectAlternative(index: number, candidate: PDFMatchCandidate) {
+  if (assignedIdsExcept(index).has(candidate.record_id)) return;
   if (index >= 0 && index < assignments.value.length) {
     assignments.value[index].recordId = candidate.record_id;
     assignments.value[index].matchConfidence = candidate.similarity;
@@ -354,14 +401,18 @@ function confidenceVariant(
 async function uploadAll() {
   if (!projects.currentProjectId) return;
 
+  const myRun = ++runId;
+  const batch = assignments.value;
   phase.value = 'UPLOADING';
   let successCount = 0;
   let errorCount = 0;
 
-  for (const assignment of assignments.value) {
-    if (!assignment.recordId) continue;
+  for (const assignment of batch) {
+    // On a retry, files that already went through are not sent again.
+    if (!assignment.recordId || assignment.uploadStatus === 'success') continue;
 
     assignment.uploadStatus = 'uploading';
+    assignment.uploadError = undefined;
     try {
       const content = await readFileAsBase64(assignment.file);
       const response = await backend.call('upload_pdf', {
@@ -394,14 +445,18 @@ async function uploadAll() {
     );
   }
 
+  if (myRun !== runId) return;
   if (errorCount === 0) {
     emit('complete');
+  } else {
+    // Failures stay visible with a way to retry them or to close.
+    phase.value = 'DONE';
   }
 }
 </script>
 
 <template>
-  <Dialog :open="open" @update:open="emit('update:open', $event)">
+  <Dialog :open="open" @update:open="onOpenChange">
     <DialogContent class="max-w-4xl max-h-[85vh] flex flex-col">
       <input
         ref="batchFileInput"
@@ -653,7 +708,7 @@ async function uploadAll() {
                       </p>
                       <div class="space-y-1">
                         <div
-                          v-for="candidate in assignment.alternativeMatches"
+                          v-for="candidate in availableAlternativesFor(index)"
                           :key="candidate.record_id"
                           class="flex items-center gap-2 text-xs"
                         >
@@ -689,11 +744,16 @@ async function uploadAll() {
 
         <!-- Phase 4: UPLOADING -->
         <div
-          v-else-if="phase === 'UPLOADING'"
+          v-else-if="phase === 'UPLOADING' || phase === 'DONE'"
           class="flex flex-col gap-4 py-4"
         >
           <div class="flex items-center justify-between text-sm">
-            <span>Uploading PDFs...</span>
+            <span>
+              <template v-if="phase === 'DONE'">
+                {{ failedCount }} upload(s) failed. Retry them or close.
+              </template>
+              <template v-else>Uploading PDFs...</template>
+            </span>
             <span class="text-muted-foreground">{{ uploadProgress }}%</span>
           </div>
           <Progress :model-value="uploadProgress" class="h-2" />
@@ -741,9 +801,20 @@ async function uploadAll() {
         <Button
           variant="outline"
           :disabled="phase === 'UPLOADING'"
-          @click="emit('update:open', false)"
+          data-testid="batch-upload-close"
+          @click="onOpenChange(false)"
         >
-          {{ phase === 'UPLOADING' ? 'Please wait...' : 'Cancel' }}
+          {{
+            phase === 'UPLOADING' ? 'Please wait...' : phase === 'DONE' ? 'Close' : 'Cancel'
+          }}
+        </Button>
+        <Button
+          v-if="phase === 'DONE'"
+          data-testid="batch-upload-retry"
+          @click="uploadAll"
+        >
+          <FileUp class="h-4 w-4 mr-2" />
+          Retry {{ failedCount }} failed
         </Button>
         <Button
           v-if="phase === 'REVIEW_MATCHES'"

@@ -412,6 +412,7 @@ export interface StructuredFieldSpec {
   name: string;
   optional?: boolean | null;
   options?: unknown[] | null;
+  previous_name?: string | null;
   [k: string]: unknown;
 }
 

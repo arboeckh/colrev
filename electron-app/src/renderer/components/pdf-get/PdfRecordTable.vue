@@ -59,7 +59,7 @@ const props = withDefaults(
     showStatus?: boolean;
     showActions?: boolean;
     testId?: string;
-    uploadingRecordId?: string | null;
+    uploadingRecordIds?: string[];
     markingRecordId?: string | null;
     undoingRecordId?: string | null;
     uploadResults?: globalThis.Record<string, UploadResult>;
@@ -75,6 +75,10 @@ const props = withDefaults(
     defectsAsProse: false,
   },
 );
+
+function isUploading(recordId: string): boolean {
+  return props.uploadingRecordIds?.includes(recordId) ?? false;
+}
 
 defineEmits<{
   upload: [recordId: string];
@@ -413,7 +417,7 @@ function defectTooltip(record: PdfRecord): string {
                 <TableCell v-if="showActions" class="py-1 pl-4 pr-3 text-right overflow-hidden">
                   <div class="flex items-center justify-end gap-1">
                     <template v-if="record.colrev_status === 'pdf_needs_manual_retrieval'">
-                      <Button v-if="uploadingRecordId === record.ID" size="sm" variant="ghost" disabled
+                      <Button v-if="isUploading(record.ID)" size="sm" variant="ghost" disabled
                         class="h-7 px-2.5 text-xs" :data-testid="`pdf-upload-btn-${record.ID}`">
                         <Loader2 class="h-3 w-3 mr-1 animate-spin" />
                         Uploading
@@ -440,10 +444,10 @@ function defectTooltip(record: PdfRecord): string {
                       <TooltipProvider v-else-if="uploadResults?.[record.ID]?.status === 'error'">
                         <Tooltip>
                           <TooltipTrigger as-child>
-                            <Button size="sm" variant="ghost" disabled class="h-7 px-2.5 text-xs text-red-600"
-                              :data-testid="`pdf-upload-btn-${record.ID}`">
+                            <Button size="sm" variant="ghost" class="h-7 px-2.5 text-xs text-red-600"
+                              :data-testid="`pdf-upload-btn-${record.ID}`" @click="$emit('upload', record.ID)">
                               <AlertTriangle class="h-3 w-3 mr-1" />
-                              Error
+                              Retry
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>
@@ -476,9 +480,9 @@ function defectTooltip(record: PdfRecord): string {
                         Undo
                       </Button>
                       <Button size="sm" variant="ghost" class="h-7 px-2.5 text-xs"
-                        :disabled="uploadingRecordId === record.ID || undoingRecordId === record.ID"
+                        :disabled="isUploading(record.ID) || undoingRecordId === record.ID"
                         :data-testid="`pdf-upload-btn-${record.ID}`" @click="$emit('upload', record.ID)">
-                        <Loader2 v-if="uploadingRecordId === record.ID" class="h-3 w-3 mr-1 animate-spin" />
+                        <Loader2 v-if="isUploading(record.ID)" class="h-3 w-3 mr-1 animate-spin" />
                         <Upload v-else class="h-3 w-3 mr-1" />
                         Upload
                       </Button>
@@ -486,12 +490,12 @@ function defectTooltip(record: PdfRecord): string {
 
                     <template v-else-if="record.colrev_status === 'pdf_needs_manual_preparation'">
                       <Button size="sm" variant="outline" class="h-7 px-2.5 text-xs"
-                        :disabled="uploadingRecordId === record.ID || markingRecordId === record.ID"
+                        :disabled="isUploading(record.ID) || markingRecordId === record.ID"
                         :data-testid="`pdf-review-btn-${record.ID}`" @click="$emit('preview', record.ID)">
                         <ScanSearch class="h-3 w-3 mr-1" />
                         Review PDF
                       </Button>
-                      <Button v-if="uploadingRecordId === record.ID" size="sm" variant="ghost" disabled
+                      <Button v-if="isUploading(record.ID)" size="sm" variant="ghost" disabled
                         class="h-7 px-2.5 text-xs" :data-testid="`pdf-reupload-btn-${record.ID}`">
                         <Loader2 class="h-3 w-3 mr-1 animate-spin" />
                         Uploading
@@ -505,10 +509,10 @@ function defectTooltip(record: PdfRecord): string {
                       <TooltipProvider v-else-if="uploadResults?.[record.ID]?.status === 'error'">
                         <Tooltip>
                           <TooltipTrigger as-child>
-                            <Button size="sm" variant="ghost" disabled class="h-7 px-2.5 text-xs text-red-600"
-                              :data-testid="`pdf-reupload-btn-${record.ID}`">
+                            <Button size="sm" variant="ghost" class="h-7 px-2.5 text-xs text-red-600"
+                              :data-testid="`pdf-reupload-btn-${record.ID}`" @click="$emit('upload', record.ID)">
                               <AlertTriangle class="h-3 w-3 mr-1" />
-                              Error
+                              Retry
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>
@@ -523,7 +527,7 @@ function defectTooltip(record: PdfRecord): string {
                       </Button>
                       <Button size="sm" variant="ghost"
                         class="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
-                        :disabled="markingRecordId === record.ID || uploadingRecordId === record.ID"
+                        :disabled="markingRecordId === record.ID || isUploading(record.ID)"
                         :data-testid="`pdf-not-available-btn-${record.ID}`"
                         @click="$emit('mark-not-available', record.ID)">
                         <Loader2 v-if="markingRecordId === record.ID" class="h-3 w-3 mr-1 animate-spin" />
@@ -533,7 +537,7 @@ function defectTooltip(record: PdfRecord): string {
                     </template>
 
                     <template v-else-if="record.file_on_disk === false">
-                      <Button v-if="uploadingRecordId === record.ID" size="sm" variant="ghost" disabled
+                      <Button v-if="isUploading(record.ID)" size="sm" variant="ghost" disabled
                         class="h-7 px-2.5 text-xs" :data-testid="`pdf-upload-missing-btn-${record.ID}`">
                         <Loader2 class="h-3 w-3 mr-1 animate-spin" />
                         Uploading

@@ -143,3 +143,165 @@ describe('PdfsPage — per-record actions', () => {
     expect(rowIds(wrapper)).toEqual([NEEDS_UPLOAD[1]]);
   });
 });
+
+// -- every record reachable, uploads retryable, concurrent uploads ----------
+
+function pagedResponse(ids: string[], offset: number, hasMore: boolean) {
+  return {
+    ...recordsResponse(ids),
+    offset,
+    limit: 500,
+    pagination: { offset, limit: 500, has_more: hasMore },
+  };
+}
+
+async function pickFile(wrapper: VueWrapper, recordId: string, name = 'paper.pdf') {
+  await wrapper.get(`[data-testid="pdf-upload-btn-${recordId}"]`).trigger('click');
+  await choosePickedFile(wrapper, name);
+}
+
+async function choosePickedFile(wrapper: VueWrapper, name = 'paper.pdf') {
+  const input = wrapper.get('[data-testid="pdf-file-input"]');
+  Object.defineProperty(input.element, 'files', {
+    value: [new File(['%PDF-1.4'], name, { type: 'application/pdf' })],
+    configurable: true,
+  });
+  await input.trigger('change');
+}
+
+/** The file is read with a FileReader (a macrotask), so `flushPromises` alone is not enough. */
+async function untilUploadCalls(ctx: RendererTestContext, count: number) {
+  await vi.waitFor(() => expect(ctx.mock.rpc.countOf('upload_pdf')).toBe(count));
+  await flushPromises();
+}
+
+describe('PdfsPage — loading, retry and concurrent uploads', () => {
+  let ctx: RendererTestContext;
+
+  beforeEach(() => {
+    ctx = setupRendererTest();
+    ctx.mock.rpc
+      .on('get_status', statusResponse(pdfStatus()))
+      .on('get_settings', settingsResponse())
+      .on('list_managed_review_tasks', (params) => tasksResponse(params.kind))
+      .on('get_records', recordsResponse(NEEDS_UPLOAD) as never);
+  });
+
+  async function mountPage(): Promise<VueWrapper> {
+    ctx.openProject();
+    useProjectsStore().currentProject!.status = pdfStatus();
+    ctx.setGitState({ branch: 'dev' });
+    const wrapper = mount(PdfsPage);
+    await flushPromises();
+    return wrapper;
+  }
+
+  it('pages through get_records until has_more is false', async () => {
+    const first = Array.from({ length: 500 }, (_, i) => `First${i}`);
+    ctx.mock.rpc.on('get_records', ((params: { pagination: { offset: number } }) =>
+      params.pagination.offset === 0
+        ? pagedResponse(first, 0, true)
+        : pagedResponse(['Beyond500'], 500, false)) as never);
+
+    const wrapper = await mountPage();
+
+    const offsets = ctx.mock.rpc
+      .callsTo('get_records')
+      .map((c) => (c.params as { pagination: { offset: number; limit: number } }).pagination);
+    expect(offsets).toEqual([
+      { offset: 0, limit: 500 },
+      { offset: 500, limit: 500 },
+    ]);
+    expect(rowIds(wrapper)).toContain('Beyond500');
+  }, 30_000);
+
+  it('turns a failed upload into a Retry button that can be used again', async () => {
+    ctx.mock.rpc.onError('upload_pdf', { message: 'disk full' });
+    const wrapper = await mountPage();
+
+    await pickFile(wrapper, NEEDS_UPLOAD[0]);
+    await untilUploadCalls(ctx, 1);
+
+    const retry = wrapper.get(`[data-testid="pdf-upload-btn-${NEEDS_UPLOAD[0]}"]`);
+    expect(retry.attributes('disabled')).toBeUndefined();
+    expect(retry.text()).toContain('Retry');
+
+    ctx.mock.rpc.on('upload_pdf', {
+      success: true,
+      project_id: TEST_PROJECT_ID,
+      record_id: NEEDS_UPLOAD[0],
+      file_path: 'data/pdfs/RecordA2024.pdf',
+      new_status: 'pdf_imported',
+      prep_status: 'pdf_prepared',
+    } as never);
+    await pickFile(wrapper, NEEDS_UPLOAD[0]);
+    await untilUploadCalls(ctx, 2);
+
+    expect(ctx.mock.rpc.countOf('upload_pdf')).toBe(2);
+    // The retry went through: the record left the needs-upload list.
+    expect(rowIds(wrapper)).toEqual([NEEDS_UPLOAD[1]]);
+  });
+
+  it('uploads for B even while A is still in flight', async () => {
+    const resolvers: Record<string, () => void> = {};
+    ctx.mock.rpc.on('upload_pdf', ((params: { record_id: string }) =>
+      new Promise((resolve) => {
+        resolvers[params.record_id] = () =>
+          resolve({
+            success: true,
+            project_id: TEST_PROJECT_ID,
+            record_id: params.record_id,
+            file_path: `data/pdfs/${params.record_id}.pdf`,
+            new_status: 'pdf_imported',
+            prep_status: 'pdf_prepared',
+          } as never);
+      })) as never);
+    const wrapper = await mountPage();
+    const [a, b] = NEEDS_UPLOAD;
+
+    await pickFile(wrapper, a);
+    await untilUploadCalls(ctx, 1);
+    // A is in flight; B's Upload click arrives before A finishes.
+    await wrapper.get(`[data-testid="pdf-upload-btn-${b}"]`).trigger('click');
+    resolvers[a]();
+    await flushPromises();
+    // A's completion must not swallow B's file selection or B's spinner.
+    await choosePickedFile(wrapper, 'b.pdf');
+    await untilUploadCalls(ctx, 2);
+
+    expect(ctx.mock.rpc.callsTo('upload_pdf').map((c) => c.params.record_id)).toEqual([a, b]);
+    expect(wrapper.get(`[data-testid="pdf-upload-btn-${b}"]`).text()).toContain('Uploading');
+    resolvers[b]();
+    await flushPromises();
+    expect(rowIds(wrapper)).toEqual([]);
+  });
+
+  it("keeps A's spinner and B's when both uploads overlap", async () => {
+    const resolvers: Record<string, () => void> = {};
+    ctx.mock.rpc.on('upload_pdf', ((params: { record_id: string }) =>
+      new Promise((resolve) => {
+        resolvers[params.record_id] = () =>
+          resolve({
+            success: true,
+            project_id: TEST_PROJECT_ID,
+            record_id: params.record_id,
+            file_path: 'x',
+            new_status: 'pdf_imported',
+            prep_status: 'pdf_prepared',
+          } as never);
+      })) as never);
+    const wrapper = await mountPage();
+    const [a, b] = NEEDS_UPLOAD;
+
+    await pickFile(wrapper, a);
+    await untilUploadCalls(ctx, 1);
+    await pickFile(wrapper, b);
+    await untilUploadCalls(ctx, 2);
+    resolvers[a]();
+    await flushPromises();
+
+    // A is done and gone; B's spinner is still there.
+    expect(rowIds(wrapper)).toEqual([b]);
+    expect(wrapper.get(`[data-testid="pdf-upload-btn-${b}"]`).text()).toContain('Uploading');
+  });
+});

@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, toRaw } from 'vue';
 import { Database } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
-import { EmptyState } from '@/components/common';
+import { EmptyState, LoadErrorState } from '@/components/common';
 import {
   PdfViewerPanel,
   ScreenSplitPanel,
@@ -19,7 +19,8 @@ import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
 import { useReadOnly } from '@/composables/useReadOnly';
 import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
-// notifications removed — progress bar provides sufficient feedback
+import { useSyncSuspense } from '@/composables/useSyncSuspense';
+import { useNotificationsStore } from '@/stores/notifications';
 import type {
   FieldDefinition,
   ExtractionRecord,
@@ -34,6 +35,15 @@ interface EnrichedRecord extends ExtractionRecord {
 const projects = useProjectsStore();
 const backend = useBackendStore();
 const { isReadOnly } = useReadOnly();
+const notifications = useNotificationsStore();
+
+// A clean-tree auto-pull would reset an unsaved extraction form underneath the
+// user, so hold automatic pulls while the page is open.
+useSyncSuspense('data-extraction');
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'Unknown error';
+}
 
 const overviewRoute = computed(() =>
   projects.currentProjectId ? `/project/${projects.currentProjectId}` : undefined,
@@ -48,6 +58,7 @@ const totalCount = ref(0);
 const completedCount = ref(0);
 const localValues = ref<Record<string, string>>({});
 const isLoading = ref(false);
+const loadError = ref<string | null>(null);
 const isSaving = ref(false);
 const isSavingFields = ref(false);
 const isExporting = ref(false);
@@ -85,6 +96,7 @@ async function loadQueue() {
   if (!projects.currentProjectId || !backend.isRunning) return;
 
   isLoading.value = true;
+  loadError.value = null;
   try {
     const response = await backend.call(
       'get_data_extraction_queue',
@@ -115,7 +127,9 @@ async function loadQueue() {
       syncLocalValues();
     }
   } catch (err) {
-    console.error('Failed to load data extraction queue:', err);
+    // Not "unconfigured": the page must not offer first-time setup (and so
+    // risk overwriting an existing configuration) when it could not read it.
+    loadError.value = errorMessage(err);
   } finally {
     isLoading.value = false;
   }
@@ -150,9 +164,13 @@ async function saveExtraction() {
       currentRecord.value.extraction_values = { ...localValues.value };
       completedCount.value = totalCount.value - response.remaining_count;
 
-      // If all complete, go to completion page
-      if (response.remaining_count === 0 && completedCount.value >= totalCount.value) {
-        isEditing.value = false;
+      // All complete: the completion screen takes over, unless the user is
+      // editing, in which case they carry on with the next record.
+      if (
+        !isEditing.value &&
+        response.remaining_count === 0 &&
+        completedCount.value >= totalCount.value
+      ) {
         return;
       }
 
@@ -160,8 +178,7 @@ async function saveExtraction() {
       skipToNextPending();
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('Save failed:', message);
+    notifications.error('Could not save extraction', errorMessage(err));
   } finally {
     isSaving.value = false;
   }
@@ -202,6 +219,10 @@ function skipToNextPending() {
   }
 }
 
+function finishEditing() {
+  isEditing.value = false;
+}
+
 function updateValue(fieldName: string, value: string) {
   localValues.value[fieldName] = value;
 }
@@ -225,8 +246,7 @@ async function handleFieldsConfigured(configuredFields: FieldDefinition[]) {
       await loadQueue();
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('Configuration failed:', message);
+    notifications.error('Could not save extraction fields', errorMessage(err));
   } finally {
     isSavingFields.value = false;
   }
@@ -251,7 +271,7 @@ async function exportCsv() {
       });
     }
   } catch (err) {
-    console.error('Export failed:', err);
+    notifications.error('Could not export the data', errorMessage(err));
   } finally {
     isExporting.value = false;
   }
@@ -279,9 +299,18 @@ onMounted(async () => {
     next-label="Back to Overview"
   >
   <div class="h-full flex flex-col" data-testid="data-page">
+    <!-- Load failure: retry UI, distinguishable from "not configured" -->
+    <LoadErrorState
+      v-if="!isLoading && loadError"
+      title="Failed to load data extraction"
+      :message="loadError"
+      test-id="data-load-error"
+      @retry="loadQueue"
+    />
+
     <!-- Not configured state -->
     <EmptyState
-      v-if="!isLoading && !isConfigured"
+      v-else-if="!isLoading && !isConfigured"
       :icon="Database"
       title="Configure data extraction"
       description="Set up extraction fields to begin structured data extraction from your included records."
@@ -356,11 +385,13 @@ onMounted(async () => {
           :incomplete-fields="incompleteFields"
           :queue-records="queue"
           :current-index="currentIndex"
+          :is-editing="isEditing"
           @update-value="updateValue"
           @save="saveExtraction"
           @skip-to-next="skipToNextPending"
           @navigate="goToRecord"
           @configure-fields="showFieldsDialog = true"
+          @finish-editing="finishEditing"
         />
       </template>
     </ScreenSplitPanel>
