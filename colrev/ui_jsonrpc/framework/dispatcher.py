@@ -36,7 +36,7 @@ from colrev.ui_jsonrpc import validation
 from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework.context import HandlerContext
 from colrev.ui_jsonrpc.framework.lazy_git import IndexLockedError
-from colrev.ui_jsonrpc.framework.lazy_git import LazyWriteGitRepo
+from colrev.ui_jsonrpc.framework.lazy_git import close_lazy_git_repo
 from colrev.ui_jsonrpc.framework.lazy_git import install_lazy_git_repo
 from colrev.ui_jsonrpc.framework.project_files import build_review_manager
 from colrev.ui_jsonrpc.framework.registry import MethodSpec
@@ -288,14 +288,7 @@ class Dispatcher:
         finally:
             for ctx in built:
                 ctx.close_repos()
-                review_manager = ctx.review_manager
-                lazy = (
-                    review_manager.dataset.__dict__.get("git_repo")
-                    if review_manager is not None
-                    else None
-                )
-                if isinstance(lazy, LazyWriteGitRepo):
-                    lazy.close()
+                close_lazy_git_repo(ctx.review_manager)
             portability.close_log_handlers(project_path)
 
 

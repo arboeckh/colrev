@@ -558,11 +558,13 @@ class TestDeleteProject:
     def test_no_git_child_process_outlives_the_requests(self, call, project) -> None:
         # Children left by creating the project (core's Initializer) are not ours.
         before = set(_cat_file_children(project))
-        _add_db_source(call)
         for method in ("get_status", "get_git_status", "get_records", "get_sources"):
             _ok(call(method))
+            assert set(_cat_file_children(project)) - before == set(), method
+        _add_db_source(call)
+        assert set(_cat_file_children(project)) - before == set(), "add_source"
         _ok(call("commit_changes", message="save"))
-        assert set(_cat_file_children(project)) - before == set()
+        assert set(_cat_file_children(project)) - before == set(), "commit_changes"
 
     def test_deletes_a_project_with_read_only_git_objects(
         self, handler, call, project, root

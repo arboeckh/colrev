@@ -31,6 +31,7 @@ from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import rpc_method
 from colrev.ui_jsonrpc.framework.lazy_git import ensure_index_unlocked
+from colrev.ui_jsonrpc.framework.lazy_git import close_lazy_git_repo
 from colrev.ui_jsonrpc.framework.lazy_git import install_lazy_git_repo
 from colrev.ui_jsonrpc.framework.project_files import build_review_manager
 
@@ -577,7 +578,10 @@ class GitHandler(BaseHandler):
                 "commit_changes: project not loadable (%s); plain git commit", exc
             )
         if review_manager is not None:
-            review_manager.create_commit(msg=message, skip_hooks=True)
+            try:
+                review_manager.create_commit(msg=message, skip_hooks=True)
+            finally:
+                close_lazy_git_repo(review_manager)
             return
         # No hooks at all (``--no-verify`` leaves prepare-commit-msg running,
         # and the project's hooks load the project, which is what is broken).

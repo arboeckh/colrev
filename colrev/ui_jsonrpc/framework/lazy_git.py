@@ -271,6 +271,17 @@ class LazyWriteGitRepo:
         return call
 
 
+def close_lazy_git_repo(review_manager: Any) -> None:
+    """Close the ``LazyWriteGitRepo`` installed on ``review_manager``, if any."""
+    lazy = (
+        review_manager.dataset.__dict__.get("git_repo")
+        if review_manager is not None
+        else None
+    )
+    if isinstance(lazy, LazyWriteGitRepo):
+        lazy.close()
+
+
 def install_lazy_git_repo(
     review_manager: colrev.review_manager.ReviewManager,
     project_path: Path,
