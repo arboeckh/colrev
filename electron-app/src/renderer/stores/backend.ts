@@ -64,6 +64,14 @@ export const useBackendStore = defineStore('backend', () => {
   // can say "waiting on: search" instead of freezing silently.
   const rpcInFlight = ref<string | null>(null);
   const rpcQueued = ref<string[]>([]);
+  // When the current in-flight call was first seen (renderer clock), so the UI
+  // can stay quiet for fast calls and only speak up once one is slow.
+  const rpcInFlightSince = ref<number | null>(null);
+  let rpcInFlightKey: string | null = null;
+
+  // True once start() has been tried. Distinguishes "not started yet" (app
+  // boot) from "was started and is not running now" (needs a Retry).
+  const hasStarted = ref(false);
 
   // A writer RPC is in flight. Operation-triggering buttons disable off this
   // so double-clicks (and concurrent triggers from different surfaces) fire
@@ -84,6 +92,31 @@ export const useBackendStore = defineStore('backend', () => {
   let unsubRestartFailed: (() => void) | null = null;
   let unsubLateResponse: (() => void) | null = null;
   let unsubRpcQueue: (() => void) | null = null;
+
+  function setRpcQueue(state: { inFlight: { method: string; startedAt: number } | null; queued: string[] }) {
+    const key = state.inFlight ? `${state.inFlight.method}@${state.inFlight.startedAt}` : null;
+    if (key !== rpcInFlightKey) {
+      rpcInFlightKey = key;
+      rpcInFlightSince.value = key ? Date.now() : null;
+    }
+    rpcInFlight.value = state.inFlight?.method ?? null;
+    rpcQueued.value = state.queued;
+  }
+
+  function unsubscribeAll() {
+    unsubLog?.();
+    unsubError?.();
+    unsubClose?.();
+    unsubProgress?.();
+    unsubRestarting?.();
+    unsubRestarted?.();
+    unsubRestartFailed?.();
+    unsubLateResponse?.();
+    unsubRpcQueue?.();
+    unsubLog = unsubError = unsubClose = unsubProgress = null;
+    unsubRestarting = unsubRestarted = unsubRestartFailed = null;
+    unsubLateResponse = unsubRpcQueue = null;
+  }
 
   // Computed
   const isRunning = computed(() => status.value === 'running');
@@ -170,11 +203,14 @@ export const useBackendStore = defineStore('backend', () => {
     if (!canStart.value) return false;
 
     status.value = 'starting';
+    hasStarted.value = true;
     error.value = null;
     addLog('Starting backend...');
 
     try {
-      // Setup event listeners
+      // Setup event listeners. A Retry calls start() again: drop the previous
+      // set first, or every event would be handled once per call.
+      unsubscribeAll();
       unsubLog = window.colrev.onLog((msg) => {
         addLog(`[backend] ${msg}`);
       });
@@ -216,17 +252,17 @@ export const useBackendStore = defineStore('backend', () => {
         if (info.ok) void refreshAfterRestart();
       });
       unsubRpcQueue = window.colrev.onRpcQueue((state) => {
-        rpcInFlight.value = state.inFlight?.method ?? null;
-        rpcQueued.value = state.queued;
+        setRpcQueue(state);
       });
 
       const result = await window.colrev.start();
 
       if (result.success) {
-        status.value = 'running';
         addLog('Backend started successfully');
 
-        // Load app info to get projects path
+        // Load app info to get projects path. Done before the status flips
+        // to 'running': whatever reacts to `running` (project discovery)
+        // must see the right basePath.
         try {
           const appInfo = await window.appInfo.get();
           if (appInfo.projectsPath) {
@@ -237,6 +273,7 @@ export const useBackendStore = defineStore('backend', () => {
           addLog('Could not load app info');
         }
 
+        status.value = 'running';
         return true;
       } else {
         status.value = 'error';
@@ -256,22 +293,40 @@ export const useBackendStore = defineStore('backend', () => {
     addLog('Stopping backend...');
     await window.colrev.stop();
     status.value = 'stopped';
-
-    // Cleanup listeners
-    unsubLog?.();
-    unsubError?.();
-    unsubClose?.();
-    unsubProgress?.();
-    unsubRestarting?.();
-    unsubRestarted?.();
-    unsubRestartFailed?.();
-    unsubLateResponse?.();
-    unsubRpcQueue?.();
-    unsubLateResponse = null;
-    unsubLog = unsubError = unsubClose = unsubProgress = null;
-    unsubRestarting = unsubRestarted = unsubRestartFailed = unsubRpcQueue = null;
-
+    setRpcQueue({ inFlight: null, queued: [] });
+    unsubscribeAll();
     addLog('Backend stopped');
+  }
+
+  /**
+   * Stop the backend and start it again, then re-derive everything the old
+   * process could have left stale — the same full refresh a supervised
+   * restart runs. This is the way out of a hung call: slow methods have no
+   * timeout by design, so the running operation is interrupted.
+   */
+  let restartInFlight: Promise<boolean> | null = null;
+  function restart(): Promise<boolean> {
+    if (restartInFlight) return restartInFlight;
+    restartInFlight = (async () => {
+      addLog('Restarting backend on request...');
+      status.value = 'restarting';
+      error.value = null;
+      try {
+        await stop();
+      } catch (err) {
+        // Stopping a backend that is already gone can fail; starting anyway
+        // is the point of the action.
+        addLog(`Stop failed: ${err instanceof Error ? err.message : String(err)}`);
+        unsubscribeAll();
+        status.value = 'stopped';
+      }
+      const started = await start();
+      if (started) await refreshAfterRestart();
+      return started;
+    })().finally(() => {
+      restartInFlight = null;
+    });
+    return restartInFlight;
   }
 
   /**
@@ -418,6 +473,8 @@ export const useBackendStore = defineStore('backend', () => {
     operationProgress,
     rpcInFlight,
     rpcQueued,
+    rpcInFlightSince,
+    hasStarted,
     runningOperation,
     // Computed
     isRunning,
@@ -426,6 +483,7 @@ export const useBackendStore = defineStore('backend', () => {
     // Actions
     start,
     stop,
+    restart,
     call,
     callUntyped,
     ping,
