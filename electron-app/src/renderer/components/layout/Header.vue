@@ -37,6 +37,12 @@ function goToProjects() {
 // replacement for the interval polling that used to run.
 async function refresh() {
   if (isRefreshingManual.value) return;
+  // Nothing loaded (the load failed): there is nothing to refresh in place,
+  // so Refresh means "try opening it again".
+  if (projects.currentProjectId && !projects.currentProject) {
+    projects.requestReload();
+    return;
+  }
   isRefreshingManual.value = true;
   try {
     await Promise.all([

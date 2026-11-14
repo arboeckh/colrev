@@ -285,6 +285,7 @@ function setupIPC() {
         session.callBackend<T>(method, params),
       refreshGitState: (projectId, projectPath) => gitState.refresh(projectId, projectPath),
       getGitState: (projectId) => gitState.get(projectId),
+      forgetGitState: (projectId) => gitState.forget(projectId),
     }),
     ...createGitHubHandlers({
       gh: getGitHubClient(),

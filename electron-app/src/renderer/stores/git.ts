@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ref, computed, toRaw } from 'vue';
+import { ref, computed, toRaw, watch } from 'vue';
 import { useProjectsStore } from './projects';
 import { useNotificationsStore } from './notifications';
 import { useConnectionStore } from './connection';
@@ -480,7 +480,11 @@ export const useGitStore = defineStore('git', () => {
     const path = getProjectPath();
     if (!path) return;
 
+    const projectId = projects.currentProjectId;
     const result = await window.git.listBranches(path);
+    // Another review was opened while this was in flight: these are its
+    // predecessor's branches.
+    if (projects.currentProjectId !== projectId) return;
     if (result.success) {
       // `result.currentBranch` is deliberately ignored: the branch comes from
       // the snapshot, which has exactly one writer.
@@ -707,6 +711,7 @@ export const useGitStore = defineStore('git', () => {
   /**
    * Refresh the commit difference between dev and main.
    */
+  let branchDiffSeq = 0;
   async function refreshBranchDiff(): Promise<void> {
     const path = getProjectPath();
     if (!path || !hasDevBranch.value) {
@@ -715,17 +720,22 @@ export const useGitStore = defineStore('git', () => {
       return;
     }
 
+    const projectId = projects.currentProjectId;
+    const seq = ++branchDiffSeq;
+    let counts: [number, number] = [0, 0];
     try {
       const [devAhead, mainAhead] = await Promise.all([
         window.git.revListCount(path, 'main', 'dev'),
         window.git.revListCount(path, 'dev', 'main'),
       ]);
-      devAheadOfMain.value = devAhead.success ? devAhead.count : 0;
-      mainAheadOfDev.value = mainAhead.success ? mainAhead.count : 0;
+      counts = [devAhead.success ? devAhead.count : 0, mainAhead.success ? mainAhead.count : 0];
     } catch {
-      devAheadOfMain.value = 0;
-      mainAheadOfDev.value = 0;
+      // Leave the zeros.
     }
+    // Newest read wins, and a read for a review that is no longer open is
+    // dropped.
+    if (seq !== branchDiffSeq || projects.currentProjectId !== projectId) return;
+    [devAheadOfMain.value, mainAheadOfDev.value] = counts;
   }
 
   /**
@@ -757,17 +767,21 @@ export const useGitStore = defineStore('git', () => {
     }
 
     const backend = useBackendStore();
+    const projectId = projects.currentProjectId;
     isLoadingDelta.value = true;
     try {
       const response = await backend.call('get_branch_delta', {
-        project_id: projects.currentProjectId,
+        project_id: projectId,
         ...(sourceBranch ? { source_branch: sourceBranch } : {}),
       });
+      // Written only for the review that asked.
+      if (projects.currentProjectId !== projectId) return;
       if (response.success) {
         branchDelta.value = response;
         devRecordCounts.value = response.source_branch_counts ?? null;
       }
     } catch {
+      if (projects.currentProjectId !== projectId) return;
       branchDelta.value = null;
       devRecordCounts.value = null;
     } finally {
@@ -789,9 +803,11 @@ export const useGitStore = defineStore('git', () => {
       return;
     }
 
+    const projectId = projects.currentProjectId;
     isLoadingReleases.value = true;
     try {
       const result = await window.github.listReleases({ remoteUrl: remote });
+      if (projects.currentProjectId !== projectId) return;
       if (result.success) {
         releases.value = result.releases;
       }
@@ -799,7 +815,9 @@ export const useGitStore = defineStore('git', () => {
       // Silently fail — releases are non-critical
     } finally {
       isLoadingReleases.value = false;
-      releasesLoaded.value = true;
+      // Only for the review that asked: the flag belongs to whichever review
+      // is open now, and it has not loaded its own releases.
+      if (projects.currentProjectId === projectId) releasesLoaded.value = true;
     }
   }
 
@@ -831,6 +849,9 @@ export const useGitStore = defineStore('git', () => {
         // Optimistically prepend the new release so it appears instantly
         if (result.release) {
           releases.value = [result.release, ...releases.value];
+          // The panel waits on this flag, and an empty list that was never
+          // loaded must not keep it spinning behind a release that exists.
+          releasesLoaded.value = true;
         } else {
           // Fallback: reload from GitHub if response didn't include release data
           await loadReleases();
@@ -1044,6 +1065,47 @@ export const useGitStore = defineStore('git', () => {
     });
   });
 
+  // The remote appears after the review was opened ("Push to GitHub" on a
+  // local-only review) or changes: `initialize` loaded releases only if a
+  // remote existed at that moment, so the Releases panel would spin forever.
+  // A project switch is `initialize`'s business, hence the project check.
+  watch(
+    () => [projects.currentProjectId, remoteUrl.value] as const,
+    ([projectId, remote], [prevProjectId, prevRemote]) => {
+      if (!projectId || projectId !== prevProjectId || remote === prevRemote) return;
+      void loadReleases();
+    },
+  );
+
+  // Commits, pulls, merges and branch switches all rebuild the snapshot in the
+  // main process, so a new tip is the one signal that covers every path that
+  // can change how far dev is ahead of main. Without it the Publish button
+  // only learned of a commit when the review was reopened.
+  watch(
+    () =>
+      snapshot.value
+        ? `${snapshot.value.projectId}|${snapshot.value.branch}|${snapshot.value.lastCommit?.hash ?? ''}|${snapshot.value.mainAhead}|${snapshot.value.mainBehind}`
+        : null,
+    (key) => {
+      if (key !== null) void refreshBranchDiff();
+    },
+  );
+
+  /**
+   * Drop what is held for a project that no longer exists, in the renderer and
+   * in the main process. A project cloned again under the same id must not
+   * start from the deleted one's branch, remote and counts.
+   */
+  async function forgetProject(projectId: string): Promise<void> {
+    const { [projectId]: _dropped, ...rest } = snapshots.value;
+    snapshots.value = rest;
+    try {
+      await window.gitState.forget(projectId);
+    } catch {
+      // Nothing to forget in main if the bridge is unavailable.
+    }
+  }
+
   function cleanup(): void {
     // `snapshots` deliberately survives: the landing page shows branch and
     // cleanliness for projects that have been opened this session.
@@ -1146,6 +1208,7 @@ export const useGitStore = defineStore('git', () => {
     refreshStatus,
     ensureSnapshot,
     refreshSnapshotFor,
+    forgetProject,
     refreshBranches,
     switchBranch,
     ensureDevBranch,

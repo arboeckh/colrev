@@ -78,17 +78,30 @@ export const useProjectDataStore = defineStore('projectData', () => {
   /** When the last write-triggered refresh was dispatched, for the leading edge. */
   let lastDispatchAt = 0;
   /**
-   * Depth of `runRefresh` calls currently on the stack. Non-zero means we are
-   * inside a subscriber handler, which must never chain onto `refreshChain`
-   * (see `enqueueRefresh`).
+   * Number of events whose subscribers are running right now. Only the emit
+   * phase counts, not the store reads before it: a call that arrives while a
+   * handler may be on the stack (or awaiting) is the only one that can be
+   * re-entrant. A refresh that merely overlaps the *store reads* of another
+   * is an ordinary overlap and is chained (see `enqueueRefresh`).
    */
-  let refreshDepth = 0;
+  let emitDepth = 0;
   /**
    * A handler that invalidates on every event would recurse forever. Nothing
    * legitimately needs more than one level (branch switch inside a handler),
    * so cut it off well short of a stack overflow.
    */
-  const MAX_REFRESH_DEPTH = 4;
+  const MAX_EMIT_DEPTH = 4;
+  /**
+   * The refresh waiting in the chain that has not started yet. A caller that
+   * arrives while one is waiting joins it instead of queueing another: it will
+   * read everything those callers wrote, so nothing is dropped and a burst of N
+   * overlapping requests costs at most one refresh after the running one.
+   */
+  let queuedRefresh: {
+    methods: string[];
+    full: boolean;
+    promise: Promise<void>;
+  } | null = null;
 
   function bumpEpoch(): void {
     epoch.value += 1;
@@ -228,34 +241,42 @@ export const useProjectDataStore = defineStore('projectData', () => {
     const projects = useProjectsStore();
     const projectId = projects.currentProjectId;
     if (!projectId) return;
-    refreshDepth += 1;
+    await refreshStores(full);
+    // Project switched while refreshing: this batch belongs to the old
+    // context — don't tell pages to reload against it.
+    if (useProjectsStore().currentProjectId !== projectId) return;
+    emitDepth += 1;
     try {
-      await refreshStores(full);
-      // Project switched while refreshing: this batch belongs to the old
-      // context — don't tell pages to reload against it.
-      if (useProjectsStore().currentProjectId !== projectId) return;
       await emitEvent({ projectId, methods, full });
-      // `refreshStores` reports failure through the staleness flag rather than
-      // throwing, so this is the only place that learns the stores did not
-      // actually catch up with the write that triggered this refresh.
-      if (isStale.value) scheduleRetry(full);
     } finally {
-      refreshDepth -= 1;
+      emitDepth -= 1;
     }
+    // `refreshStores` reports failure through the staleness flag rather than
+    // throwing, so this is the only place that learns the stores did not
+    // actually catch up with the write that triggered this refresh.
+    if (isStale.value) scheduleRetry(full);
   }
 
-  /** Serialize refreshes so a full invalidation never races a write refresh. */
-  function enqueueRefresh(methods: string[], full: boolean): Promise<void> {
+  /**
+   * Run refreshes one after another, so a full invalidation never races a
+   * write refresh.
+   *
+   * `background` callers (the write path) are never awaited by a subscriber, so
+   * they can always wait their turn. Awaited callers (`invalidateAll`,
+   * `refreshNow`) can be a subscriber handler reacting to an event — a branch
+   * switch is the real case, see `git.switchBranch` — and chaining one of those
+   * would deadlock: the link it waits for is the one awaiting that very
+   * handler. While subscribers are running they are therefore run inline.
+   */
+  function enqueueRefresh(
+    methods: string[],
+    full: boolean,
+    options: { background?: boolean } = {},
+  ): Promise<void> {
     cancelRetry();
     lastDispatchAt = Date.now();
-    // Reentrant call: a subscriber handler reacted to an event by triggering
-    // another invalidation (a branch switch is the real case — see
-    // `git.switchBranch`). Chaining here would deadlock: the link we would
-    // wait for is the one that is awaiting this very handler. Serialization
-    // is already satisfied — nothing else can run while the chain is busy —
-    // so run it inline instead.
-    if (refreshDepth > 0) {
-      if (refreshDepth >= MAX_REFRESH_DEPTH) {
+    if (!options.background && emitDepth > 0) {
+      if (emitDepth >= MAX_EMIT_DEPTH) {
         markStale('Refresh loop detected');
         return Promise.resolve();
       }
@@ -263,14 +284,31 @@ export const useProjectDataStore = defineStore('projectData', () => {
         markStale('Background refresh failed');
       });
     }
+    // A refresh that has not started yet will read everything this caller
+    // wrote: join it rather than queueing another.
+    if (queuedRefresh) {
+      queuedRefresh.methods.push(...methods);
+      queuedRefresh.full = queuedRefresh.full || full;
+      return queuedRefresh.promise;
+    }
+    const entry = {
+      methods: [...methods],
+      full,
+      promise: Promise.resolve(),
+    };
     // Failures are surfaced through the staleness flag; never poison the
     // chain (a rejected link would silently stop all future refreshes).
-    refreshChain = refreshChain
-      .then(() => runRefresh(methods, full))
+    entry.promise = refreshChain
+      .then(() => {
+        queuedRefresh = null;
+        return runRefresh(entry.methods, entry.full);
+      })
       .catch(() => {
         markStale('Background refresh failed');
       });
-    return refreshChain;
+    queuedRefresh = entry;
+    refreshChain = entry.promise;
+    return entry.promise;
   }
 
   /** Dispatch everything queued so far as one refresh. */
@@ -281,7 +319,7 @@ export const useProjectDataStore = defineStore('projectData', () => {
     }
     const methods = pendingMethods;
     pendingMethods = [];
-    void enqueueRefresh(methods, full);
+    void enqueueRefresh(methods, full, { background: true });
   }
 
   /**

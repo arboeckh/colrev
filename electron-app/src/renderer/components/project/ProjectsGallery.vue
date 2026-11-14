@@ -82,6 +82,8 @@ async function confirmDelete() {
 
     if (response.success) {
       notifications.success('Review deleted', `Deleted ${projectToDelete.value.id}`);
+      // A repo cloned again under this id must not inherit its snapshot.
+      await git.forgetProject(projectToDelete.value.id);
       projectsStore.removeProject(projectToDelete.value.id);
     }
   } catch (err) {
