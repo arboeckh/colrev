@@ -29,8 +29,10 @@ from pydantic import ValidationError
 
 import colrev.exceptions as colrev_exceptions
 import colrev.review_manager
+from colrev.ui_jsonrpc import transport
 from colrev.ui_jsonrpc import validation
 from colrev.ui_jsonrpc.framework.context import HandlerContext
+from colrev.ui_jsonrpc.framework.lazy_git import IndexLockedError
 from colrev.ui_jsonrpc.framework.lazy_git import install_lazy_git_repo
 from colrev.ui_jsonrpc.framework.registry import MethodSpec
 from colrev.ui_jsonrpc.framework.registry import registry
@@ -54,6 +56,7 @@ _T = TypeVar("_T")
 def _is_lock_error(exc: BaseException) -> bool:
     if isinstance(exc, colrev_exceptions.GitNotAvailableError):
         return True
+    # GitPython's own lock failure is an OSError/IOError naming the lock file.
     message = str(exc)
     return any(pat.search(message) for pat in _LOCK_ERROR_PATTERNS)
 
@@ -66,7 +69,13 @@ def _retry_on_lock(method_name: str, fn: Callable[[], _T]) -> _T:
             time.sleep(backoff)
         try:
             return fn()
-        except (GitCommandError, colrev_exceptions.GitNotAvailableError) as exc:
+        except IndexLockedError:
+            raise  # already waited a bounded time in lazy_git; do not wait again
+        except (
+            GitCommandError,
+            colrev_exceptions.GitNotAvailableError,
+            OSError,
+        ) as exc:
             if not _is_lock_error(exc):
                 raise
             last_exc = exc
@@ -77,7 +86,10 @@ def _retry_on_lock(method_name: str, fn: Callable[[], _T]) -> _T:
                 exc,
             )
     assert last_exc is not None  # loop always executes at least once
-    raise last_exc
+    if isinstance(last_exc, colrev_exceptions.GitNotAvailableError):
+        raise last_exc
+    # Still locked after the retries: report it as -32006, not -32603.
+    raise IndexLockedError() from last_exc
 
 
 class Dispatcher:
@@ -117,9 +129,10 @@ class Dispatcher:
             project_path=None,
             review_manager=None,
         )
-        handler = spec.handler_cls(ctx)
-        response_obj = spec.handler(handler, request_obj)
-        return _serialize(spec, response_obj)
+        with transport.stdout_to_devnull():
+            handler = spec.handler_cls(ctx)
+            response_obj = spec.handler(handler, request_obj)
+            return _serialize(spec, response_obj)
 
     def _dispatch_project_scoped(
         self,
@@ -131,18 +144,21 @@ class Dispatcher:
         params_dict = request_obj.model_dump()
         project_path = validation.validate_existing_project(params_dict)
 
-        original_cwd = os.getcwd()
-
         # OS-level fd 1 redirect so child processes (and Python-level prints)
         # can't pollute the JSON-RPC stream. Responses and progress events are
         # written through the private wire handle captured at server startup
         # (see colrev.ui_jsonrpc.transport), so this redirect only silences
         # writers that were never supposed to touch the wire.
-        saved_stdout_fd = os.dup(1)
-        devnull_fd = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull_fd, 1)
-        os.close(devnull_fd)
+        with transport.stdout_to_devnull():
+            return self._run_project_scoped(spec, request_obj, project_path)
 
+    def _run_project_scoped(
+        self,
+        spec: MethodSpec,
+        request_obj,
+        project_path,
+    ) -> Dict[str, Any]:
+        original_cwd = os.getcwd()
         try:
             os.chdir(project_path)
             review_manager = colrev.review_manager.ReviewManager(
@@ -169,8 +185,6 @@ class Dispatcher:
             return _serialize(spec, response_obj)
 
         finally:
-            os.dup2(saved_stdout_fd, 1)
-            os.close(saved_stdout_fd)
             os.chdir(original_cwd)
 
 
