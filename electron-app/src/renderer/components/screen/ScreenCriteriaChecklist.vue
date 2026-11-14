@@ -10,9 +10,12 @@ const props = withDefaults(
     decisions: Record<string, 'in' | 'out' | 'TODO'>;
     reviewers?: ReconciliationPreviewItem['reviewers'];
     testIdPrefix?: string;
+    /** Show the ticks but do not let them change. */
+    readonly?: boolean;
   }>(),
   {
     testIdPrefix: 'criterion-check',
+    readonly: false,
   },
 );
 
@@ -29,6 +32,7 @@ const exclusionCriteria = computed(() =>
 );
 
 function handleToggle(name: string) {
+  if (props.readonly) return;
   const current = props.decisions[name] || 'TODO';
   const criterion = props.criteria[name];
   const isExclusion = criterion?.criterion_type === 'exclusion_criterion';
@@ -71,7 +75,8 @@ function reviewersWhoSelected(name: string, expectedValue: 'in' | 'out') {
           :key="name"
           role="button"
           tabindex="0"
-          class="group flex gap-2.5 px-3 py-2.5 rounded-md cursor-pointer transition-colors border"
+          :aria-disabled="readonly || undefined"
+          class="group flex gap-2.5 px-3 py-2.5 rounded-md cursor-pointer aria-disabled:cursor-default transition-colors border"
           :class="
             criterionState(name) === 'in'
               ? 'bg-green-600/15 border-green-600/30'
@@ -144,7 +149,8 @@ function reviewersWhoSelected(name: string, expectedValue: 'in' | 'out') {
           :key="name"
           role="button"
           tabindex="0"
-          class="group flex gap-2.5 px-3 py-2.5 rounded-md cursor-pointer transition-colors border"
+          :aria-disabled="readonly || undefined"
+          class="group flex gap-2.5 px-3 py-2.5 rounded-md cursor-pointer aria-disabled:cursor-default transition-colors border"
           :class="
             criterionState(name) === 'out'
               ? 'bg-destructive/15 border-destructive/30'

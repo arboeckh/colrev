@@ -451,3 +451,53 @@ describe('session caches', () => {
     expect(out.map((u) => u.login)).toEqual(['dave']);
   });
 });
+
+// --- timeouts ----------------------------------------------------------------
+
+describe('GitHub HTTP timeouts', () => {
+  it('gives every API request an abort signal', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await listReleases('tok', 'alice', 'lit-review');
+
+    const init = (fetchMock.mock.calls[0] as unknown as [string, { signal?: AbortSignal }])[1];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('reports a request that timed out as OFFLINE while publishing', async () => {
+    stubGit({ origin: null, pushExit: 0, log: [] });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new DOMException('The operation timed out.', 'TimeoutError');
+      }),
+    );
+
+    const result = await createRepoAndPush({
+      token: 'tok',
+      repoName: 'lit-review',
+      projectPath: '/unused',
+      isPrivate: true,
+    });
+
+    expect(result).toEqual({ success: false, error: 'OFFLINE' });
+  });
+
+  it('a timeout while probing a repo is a failed list, not "not a CoLRev repo"', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/contents/settings.json')) {
+          throw new DOMException('The operation timed out.', 'TimeoutError');
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ name: 'r', full_name: 'o/r', owner: { login: 'o' } }],
+        };
+      }),
+    );
+    await expect(listColrevRepos('t')).rejects.toMatchObject({ name: 'TimeoutError' });
+  });
+});

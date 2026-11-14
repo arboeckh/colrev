@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import types
 from pathlib import Path
 
@@ -18,6 +19,8 @@ sys.modules.setdefault("docker", docker_module)
 sys.modules.setdefault("docker.errors", docker_errors_module)
 
 import colrev.constants
+import colrev.dataset
+import colrev.loader.bib
 import colrev.ops.init
 import colrev.review_manager
 from colrev.ui_jsonrpc.handler import JSONRPCHandler
@@ -1030,3 +1033,240 @@ class TestManagedReviewJSONRPC:
         )
         assert "error" in response
         assert "not found" in response["error"]["message"].lower()
+
+    # -- BOE-982: status calls, temp files, cancel branch, unmanaged decisions --
+
+    def _launch_large_prescreen_task(self, count: int = 3000) -> dict:
+        """A launched prescreen task over ``count`` records, both branches decided."""
+
+        def entries(status: str) -> list[dict]:
+            return [
+                {
+                    "ID": f"R{i}",
+                    "origin": f"import.bib/R{i}",
+                    "status": status,
+                    "title": f"Title {i}",
+                    "author": "Doe, Jane",
+                    "year": "2021",
+                    "journal": "Journal A",
+                }
+                for i in range(count)
+            ]
+
+        self._commit_records(entries("md_processed"), "Add many records")
+        create_response = _request(
+            "create_managed_review_task",
+            self.project_id,
+            self.base_path,
+            kind="prescreen",
+            reviewer_logins=["alice", "bob"],
+            created_by="owner",
+        )
+        assert "error" not in create_response
+        task = create_response["result"]["task"]
+        self._create_local_review_branches(task, create_response["result"]["launch_ref"])
+        for reviewer in task["reviewers"]:
+            self.repo.git.checkout(reviewer["branch_name"])
+            self._commit_records(entries("rev_prescreen_included"), "decisions")
+        self.repo.git.checkout("dev")
+        return task
+
+    @staticmethod
+    def _temp_files() -> set[str]:
+        return set(os.listdir(tempfile.gettempdir()))
+
+    def test_status_calls_parse_each_branch_once_and_leave_no_temp_files(self, mocker):
+        task = self._launch_large_prescreen_task()
+        parse = mocker.spy(colrev.loader.bib, "process_lines")
+        files_before = self._temp_files()
+
+        first = _request(
+            "list_managed_review_tasks", self.project_id, self.base_path, kind="prescreen"
+        )["result"]["tasks"]
+        parses_after_first = parse.call_count
+        # The two reviewer branches hold different blobs only if their content
+        # differs; both are parsed at most once.
+        assert 1 <= parses_after_first <= 2
+        for progress in first[0]["reviewer_progress"]:
+            assert progress["completed_count"] == 3000
+
+        second = _request(
+            "list_managed_review_tasks", self.project_id, self.base_path, kind="prescreen"
+        )["result"]["tasks"]
+        current = _request(
+            "get_current_managed_review_task",
+            self.project_id,
+            self.base_path,
+            kind="prescreen",
+        )
+        assert "error" not in current
+        # Unchanged branches are served from the cache: no further parse.
+        assert parse.call_count == parses_after_first
+        assert second == first
+        assert self._temp_files() - files_before == set()
+
+        # A new commit on a branch is a new blob and is parsed again.
+        self.repo.git.checkout(task["reviewers"][0]["branch_name"])
+        self._commit_records(
+            [
+                {
+                    "ID": f"R{i}",
+                    "origin": f"import.bib/R{i}",
+                    "status": "rev_prescreen_excluded" if i == 0 else "rev_prescreen_included",
+                    "title": f"Title {i}",
+                    "author": "Doe, Jane",
+                    "year": "2021",
+                    "journal": "Journal A",
+                }
+                for i in range(3000)
+            ],
+            "Revise one decision",
+        )
+        self.repo.git.checkout("dev")
+        _request("list_managed_review_tasks", self.project_id, self.base_path, kind="prescreen")
+        assert parse.call_count > parses_after_first
+
+    def test_full_ref_parse_leaves_no_temp_files_and_matches_the_loader(self):
+        self._launch_prescreen_task_with_shared_branches()
+        review_manager = colrev.review_manager.ReviewManager(path_str=str(self.test_dir))
+        from colrev.ui_jsonrpc.managed_review import ManagedReviewService
+
+        service = ManagedReviewService(review_manager=review_manager)
+        files_before = self._temp_files()
+        from_ref = service._load_records_from_ref(ref="dev", kind="prescreen")
+        headers = service._load_records_from_ref(ref="dev", kind="prescreen", header_only=True)
+        assert self._temp_files() - files_before == set()
+
+        review_manager.get_prescreen_operation(notify_state_transition_operation=False)
+        from_disk = review_manager.dataset.load_records_dict()
+        assert from_ref == from_disk
+        assert set(headers) == set(from_disk)
+        assert {i: r["colrev_status"] for i, r in headers.items()} == {
+            i: r["colrev_status"] for i, r in from_disk.items()
+        }
+
+    def test_aborted_task_is_listed_without_parsing_its_branches(self, mocker):
+        task = self._launch_prescreen_task_with_shared_branches()
+        self._decide_on_branch(task["reviewers"][0]["branch_name"], "Alice decisions")
+        self.repo.git.checkout("dev")
+        cancel = _request(
+            "cancel_managed_review_task",
+            self.project_id,
+            self.base_path,
+            task_id=task["id"],
+            canceled_by="owner",
+        )
+        assert "error" not in cancel
+
+        parse = mocker.spy(colrev.loader.bib, "process_lines")
+        progress = self._progress_by_login(task["id"])
+        assert parse.call_count == 0
+        assert progress["alice"]["completed_count"] == 2
+        assert progress["bob"]["completed_count"] == 0
+
+    def test_cancel_from_a_reviewer_branch_is_refused(self):
+        task = self._launch_prescreen_task_with_shared_branches()
+        self.repo.git.checkout(task["reviewers"][0]["branch_name"])
+        head_before = self.repo.head.commit.hexsha
+
+        response = _request(
+            "cancel_managed_review_task",
+            self.project_id,
+            self.base_path,
+            task_id=task["id"],
+            canceled_by="alice",
+        )
+        assert "error" in response
+        assert "dev branch" in response["error"]["message"]
+        # Nothing was committed on the reviewer branch, and dev still has the
+        # task active.
+        assert self.repo.head.commit.hexsha == head_before
+        self.repo.git.checkout("dev")
+        listed = _request(
+            "list_managed_review_tasks", self.project_id, self.base_path, kind="prescreen"
+        )["result"]["tasks"]
+        assert [t["state"] for t in listed if t["id"] == task["id"]] == ["active"]
+
+    def test_apply_reconciliation_saves_the_records_once_and_reports_progress(
+        self, mocker
+    ):
+        from colrev.ui_jsonrpc import framework
+
+        task = self._launch_prescreen_task_with_shared_branches()
+        for reviewer in task["reviewers"]:
+            self._decide_on_branch(reviewer["branch_name"], "decisions")
+        self.repo.git.checkout("dev")
+
+        events = []
+        framework.events.set_emitter(events.append)
+        try:
+            save = mocker.spy(colrev.dataset.Dataset, "save_records_dict")
+            response = _request(
+                "apply_reconciliation",
+                self.project_id,
+                self.base_path,
+                task_id=task["id"],
+                resolved_by="owner",
+                resolutions=[],
+            )
+        finally:
+            framework.events.set_emitter(None)
+        assert "error" not in response, response
+        assert response["result"]["resolved_count"] == 2
+        assert save.call_count == 1
+        reconcile_events = [
+            e for e in events if (e.source or "").endswith("_reconcile")
+        ]
+        assert [e.current for e in reconcile_events][-1] == 2
+        assert all(e.total == 2 for e in reconcile_events)
+
+        review_manager = colrev.review_manager.ReviewManager(path_str=str(self.test_dir))
+        review_manager.get_prescreen_operation(notify_state_transition_operation=False)
+        records = review_manager.dataset.load_records_dict()
+        assert records["R1"]["colrev_status"].name == "rev_prescreen_included"
+        assert records["R2"]["colrev_status"].name == "rev_prescreen_excluded"
+
+    def test_unmanaged_decision_on_a_covered_record_is_refused(self):
+        task = self._launch_prescreen_task_with_shared_branches()
+
+        for branch in ("dev", task["reviewers"][0]["branch_name"]):
+            self.repo.git.checkout(branch)
+            response = _request(
+                "prescreen_record",
+                self.project_id,
+                self.base_path,
+                record_id="R1",
+                decision="include",
+            )
+            assert response["error"]["code"] == -32008, response
+            assert task["id"] in response["error"]["message"]
+
+        # With the task id, on a reviewer branch, the decision is accepted.
+        response = _request(
+            "prescreen_record",
+            self.project_id,
+            self.base_path,
+            record_id="R1",
+            decision="include",
+            task_id=task["id"],
+        )
+        assert "error" not in response, response
+
+    def test_decision_on_a_record_no_task_covers_is_not_refused(self):
+        task = self._launch_prescreen_task_with_shared_branches()
+        _request(
+            "cancel_managed_review_task",
+            self.project_id,
+            self.base_path,
+            task_id=task["id"],
+            canceled_by="owner",
+        )
+        # An aborted task covers nothing: decisions on dev work again.
+        response = _request(
+            "prescreen_record",
+            self.project_id,
+            self.base_path,
+            record_id="R1",
+            decision="include",
+        )
+        assert "error" not in response, response

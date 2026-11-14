@@ -146,6 +146,8 @@ export class ColrevBackend extends EventEmitter {
   private requestId = 0;
   private queue: QueuedRequest[] = [];
   private inFlight: QueuedRequest | null = null;
+  /** Resolvers of `whenTimedOutCallSettled` waiters, run when `inFlight` clears. */
+  private inFlightWaiters: Array<() => void> = [];
   private rl: readline.Interface | null = null;
   private stopping = false;
   private supervising = false;
@@ -563,10 +565,31 @@ export class ColrevBackend extends EventEmitter {
   private failInFlight(makeError: (method: string) => Error): void {
     const entry = this.inFlight;
     if (!entry) return;
-    this.inFlight = null;
+    this.clearInFlight();
     if (entry.timer) clearTimeout(entry.timer);
     if (!entry.timedOut) entry.reject(makeError(entry.method));
     this.emitQueueState();
+  }
+
+  private clearInFlight(): void {
+    this.inFlight = null;
+    const waiters = this.inFlightWaiters;
+    this.inFlightWaiters = [];
+    for (const wake of waiters) wake();
+  }
+
+  /**
+   * Resolves once a request whose caller was already released by its timeout
+   * has actually finished server-side (its late response arrived, or the
+   * process went away). Resolves at once when nothing like that is in flight.
+   *
+   * A timed-out request keeps running in the Python server. Whoever holds the
+   * git mutex around it must keep holding it until then, or a dugite write can
+   * race the call's repository access.
+   */
+  whenTimedOutCallSettled(): Promise<void> {
+    if (!this.inFlight?.timedOut) return Promise.resolve();
+    return new Promise((resolve) => this.inFlightWaiters.push(resolve));
   }
 
   /** Current queue snapshot (also pushed via 'rpc-queue' events). */
@@ -585,7 +608,7 @@ export class ColrevBackend extends EventEmitter {
 
   private rejectAllPending(makeError: (method: string) => Error): void {
     const entries = [...(this.inFlight ? [this.inFlight] : []), ...this.queue];
-    this.inFlight = null;
+    this.clearInFlight();
     this.queue = [];
     for (const entry of entries) {
       if (entry.timer) clearTimeout(entry.timer);
@@ -693,7 +716,7 @@ export class ColrevBackend extends EventEmitter {
       }
 
       if (entry.timer) clearTimeout(entry.timer);
-      this.inFlight = null;
+      this.clearInFlight();
 
       const durationMs = Date.now() - (entry.sentAt ?? Date.now());
       const traceBase = {

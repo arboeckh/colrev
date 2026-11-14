@@ -13,6 +13,8 @@ import csv
 import io
 import json
 import re
+import threading
+from collections import OrderedDict
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -21,7 +23,7 @@ from typing import Any
 from typing import Dict
 from typing import Optional
 
-import colrev.loader.load_utils
+import colrev.loader.bib
 import colrev.record.record
 import colrev.review_manager
 from colrev.constants import Fields
@@ -68,6 +70,40 @@ INCLUSION_STATE_NAMES = {
 # RPC failed halfway — leaving the task wedged in a state nothing clears.
 TASK_STATES_ACTIVE = {"active"}
 REVIEWER_ROLES = ("reviewer_a", "reviewer_b")
+
+
+class _StringBibLoader(colrev.loader.bib.BIBLoader):
+    """BibTeX loader over a string, so no temporary copy of the file exists.
+
+    ``colrev.loader.load_utils.loads`` writes its input to a
+    ``NamedTemporaryFile(delete=False)`` that nothing removes, which leaked a
+    copy of ``records.bib`` on every parse of a git ref. This parses the same
+    way (``process_lines`` plus the base loader's id/entry-type/field checks)
+    from memory instead.
+    """
+
+    def __init__(self, *, load_string: str, logger: Any) -> None:
+        super().__init__(filename=Path("records.bib"), logger=logger)
+        self._load_string = load_string
+
+    def load_records_list(  # type: ignore[override]
+        self, header_only: bool = False
+    ) -> list[Dict[str, Any]]:
+        records_list = colrev.loader.bib.process_lines(
+            io.StringIO(self._load_string), header_only=header_only
+        )
+        records_list.sort(key=lambda record: record[Fields.ID])
+        return records_list
+
+
+# Reviewer progress only needs each record's status. The content of a git
+# blob never changes, so the statuses parsed from one are cached by blob sha
+# (a reviewer branch that has not moved costs nothing on the next call, and
+# neither does a second branch with identical content). Module-level because
+# the service is built per request.
+_STATUS_CACHE_SIZE = 32
+_status_cache: "OrderedDict[str, Dict[str, str]]" = OrderedDict()
+_status_cache_lock = threading.Lock()
 
 
 @dataclass
@@ -207,6 +243,25 @@ class ManagedReviewService:
             )
         raise ValueError(f"Unsupported managed review kind: {kind}")
 
+    def _ref_blob(self, *, ref: str) -> Any:
+        git_repo = self.review_manager.dataset.git_repo.repo
+        commit = git_repo.commit(ref)
+        return commit.tree / self.review_manager.paths.RECORDS_FILE_GIT
+
+    def _parse_ref_blob(
+        self, *, blob: Any, header_only: bool
+    ) -> Dict[str, Dict[str, Any]]:
+        load_string = blob.data_stream.read().decode("utf-8")
+        loader = _StringBibLoader(
+            load_string=load_string, logger=self.review_manager.logger
+        )
+        if header_only:
+            return {
+                str(record[Fields.ID]): record
+                for record in loader.load_records_list(header_only=True)
+            }
+        return loader.load()
+
     def _load_records_from_ref(
         self, *, ref: Optional[str], kind: str, header_only: bool = False
     ) -> Dict[str, Dict[str, Any]]:
@@ -215,15 +270,32 @@ class ManagedReviewService:
             records = self.review_manager.dataset.load_records_dict(header_only=header_only)
             return records or {}
 
-        git_repo = self.review_manager.dataset.git_repo.repo
-        commit = git_repo.commit(ref)
-        blob = commit.tree / self.review_manager.paths.RECORDS_FILE_GIT
-        load_string = blob.data_stream.read().decode("utf-8")
-        return colrev.loader.load_utils.loads(
-            load_string=load_string,
-            implementation="bib",
-            logger=self.review_manager.logger,
+        return self._parse_ref_blob(
+            blob=self._ref_blob(ref=ref), header_only=header_only
         )
+
+    def _statuses_at_ref(self, *, ref: str) -> Dict[str, str]:
+        """Record id -> status name at a git ref, cached per records.bib blob."""
+
+        blob = self._ref_blob(ref=ref)
+        key = blob.hexsha
+        with _status_cache_lock:
+            cached = _status_cache.get(key)
+            if cached is not None:
+                _status_cache.move_to_end(key)
+                return cached
+
+        records = self._parse_ref_blob(blob=blob, header_only=True)
+        statuses = {
+            record_id: self._normalize_status(record.get(Fields.STATUS, ""))
+            for record_id, record in records.items()
+        }
+        with _status_cache_lock:
+            _status_cache[key] = statuses
+            _status_cache.move_to_end(key)
+            while len(_status_cache) > _STATUS_CACHE_SIZE:
+                _status_cache.popitem(last=False)
+        return statuses
 
     def _local_and_remote_refs(
         self, *, branch_name: str
@@ -425,15 +497,11 @@ class ManagedReviewService:
         """Records in the task this reviewer has moved out of the eligible state."""
 
         eligible_state = task["eligible_state"]
-        records = self._load_records_from_ref(
-            ref=branch_ref, kind=task["kind"], header_only=True
-        )
+        statuses = self._statuses_at_ref(ref=branch_ref)
         completed_count = 0
         for record_id in task["record_ids"]:
-            if record_id not in records:
-                continue
-            status = self._normalize_status(records[record_id].get(Fields.STATUS, ""))
-            if status != eligible_state:
+            status = statuses.get(record_id)
+            if status is not None and status != eligible_state:
                 completed_count += 1
         return completed_count
 
@@ -480,9 +548,14 @@ class ManagedReviewService:
                 )
                 continue
 
-            completed_count = self._count_reviewer_decisions(
-                task=task, branch_ref=branch_ref
-            )
+            if task["state"] not in TASK_STATES_ACTIVE and reviewer["role"] in final_counts:
+                # Completed or aborted: the count was frozen when the task
+                # ended, so its branches are not parsed again.
+                completed_count = final_counts[reviewer["role"]]
+            else:
+                completed_count = self._count_reviewer_decisions(
+                    task=task, branch_ref=branch_ref
+                )
             reviewer_progress.append(
                 {
                     **reviewer,
@@ -688,6 +761,9 @@ class ManagedReviewService:
     def cancel_task(self, *, task_id: str, canceled_by: str) -> Dict[str, Any]:
         """Cancel an existing managed-review task."""
 
+        # The abort is committed to the manifest on the current branch; from a
+        # reviewer branch `dev` would keep the task active.
+        self._require_dev_branch(action="Canceling a managed review task")
         manifest = self.load_manifest()
         task = self._find_task(manifest=manifest, task_id=task_id)
 
@@ -696,6 +772,9 @@ class ManagedReviewService:
         if task["state"] == "aborted":
             return {"success": True, "task": self._serialize_task(task=task)}
 
+        # Freeze reviewer progress now, so listing the aborted task later does
+        # not have to parse the branches it leaves behind.
+        task["final_reviewer_counts"] = self._snapshot_reviewer_completion(task=task)
         task["state"] = "aborted"
         task["canceled_at"] = self._now()
         task["canceled_by"] = canceled_by
@@ -1019,35 +1098,61 @@ class ManagedReviewService:
         # the same operation methods the live per-record decision RPCs use.
         decision_op = self._decision_operation(kind=kind)
         audit_rows = []
-        for decision in decisions:
-            item = decision["item"]
-            resolved_status = decision["resolved_status"]
-            record = colrev.record.record.Record(current_records[item["id"]])
-            if kind == "prescreen":
-                decision_op.prescreen(
-                    record=record,
-                    prescreen_inclusion=resolved_status in INCLUSION_STATE_NAMES,
-                )
-            else:
-                decision_op.screen(
-                    record=record,
-                    screen_inclusion=resolved_status in INCLUSION_STATE_NAMES,
-                    screening_criteria=decision["resolved_criteria_string"] or "NA",
-                )
+        # The engine saves each decision on its own, and a partial save
+        # rewrites records.bib (~100 ms at 5,000 records, so minutes for a few
+        # thousand decisions). Collect those saves and write the file once.
+        # The records are still produced by the engine's own methods.
+        dataset = self.review_manager.dataset
+        pending_saves: Dict[str, Dict[str, Any]] = {}
 
-            audit_rows.append(
-                {
-                    "record_id": item["id"],
-                    "title": item["title"],
-                    "author": item["author"],
-                    "year": item["year"],
-                    "resolution_type": decision["resolution_type"],
-                    "selected_reviewer": decision["selected_role"],
-                    "resolved_status": resolved_status,
-                    "resolved_criteria_string": decision["resolved_criteria_string"],
-                    "reviewers": item["reviewers"],
-                }
-            )
+        def collect_save(records: Dict[str, Any], *, partial: bool = False) -> None:
+            assert partial, "reconciliation decisions are saved as partial updates"
+            pending_saves.update(records)
+
+        total = len(decisions)
+        progress_step = max(1, total // 50)
+        # Instance attribute shadows the method; removed again in `finally`.
+        dataset.save_records_dict = collect_save  # type: ignore[method-assign]
+        try:
+            for index, decision in enumerate(decisions, 1):
+                item = decision["item"]
+                resolved_status = decision["resolved_status"]
+                record = colrev.record.record.Record(current_records[item["id"]])
+                if kind == "prescreen":
+                    decision_op.prescreen(
+                        record=record,
+                        prescreen_inclusion=resolved_status in INCLUSION_STATE_NAMES,
+                    )
+                else:
+                    decision_op.screen(
+                        record=record,
+                        screen_inclusion=resolved_status in INCLUSION_STATE_NAMES,
+                        screening_criteria=decision["resolved_criteria_string"] or "NA",
+                    )
+
+                if index % progress_step == 0 or index == total:
+                    self._emit_reconcile_progress(kind=kind, current=index, total=total)
+
+                audit_rows.append(
+                    {
+                        "record_id": item["id"],
+                        "title": item["title"],
+                        "author": item["author"],
+                        "year": item["year"],
+                        "resolution_type": decision["resolution_type"],
+                        "selected_reviewer": decision["selected_role"],
+                        "resolved_status": resolved_status,
+                        "resolved_criteria_string": decision["resolved_criteria_string"],
+                        "reviewers": item["reviewers"],
+                    }
+                )
+        finally:
+            del dataset.save_records_dict
+        # One full save: the partial save is quadratic in the number of
+        # replaced records (it rewrites the file tail once per record).
+        # `current_records` holds every record in the file.
+        current_records.update(pending_saves)
+        dataset.save_records_dict(current_records)
 
         manifest = self.load_manifest()
         manifest_task = self._find_task(manifest=manifest, task_id=task_id)
@@ -1078,8 +1183,8 @@ class ManagedReviewService:
             }
         )
 
-        # Record writes already happened per decision via the operation's
-        # save path; only the manifest remains to be staged.
+        # The record writes were saved in one batch above; only the manifest
+        # remains to be staged.
         self.save_manifest(manifest=manifest, add_to_git=True)
         self.review_manager.create_commit(
             msg=f"Managed {manifest_task['kind']} reconciliation: {task_id}",
@@ -1098,6 +1203,24 @@ class ManagedReviewService:
                 reviewer["branch_name"] for reviewer in manifest_task["reviewers"]
             ],
         }
+
+    @staticmethod
+    def _emit_reconcile_progress(*, kind: str, current: int, total: int) -> None:
+        # Lazy import: avoids a module-load cycle with the framework package.
+        # Best-effort, like the launch enrichment's progress channel.
+        from colrev.ui_jsonrpc.framework import ProgressEvent
+        from colrev.ui_jsonrpc.framework import ProgressEventKind
+        from colrev.ui_jsonrpc.framework import emit_progress
+
+        emit_progress(
+            ProgressEvent(
+                kind=ProgressEventKind.prep_progress,
+                message=f"Applying reconciliation ({current}/{total})",
+                current=current,
+                total=total,
+                source=f"managed_{kind}_reconcile",
+            )
+        )
 
     def export_reconciliation_audit(
         self, *, task_id: str, export_format: str

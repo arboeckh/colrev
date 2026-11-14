@@ -145,8 +145,15 @@ jobs:
           These builds are not code-signed. Windows SmartScreen shows "Windows protected your PC" the first time: click **More info**, then **Run anyway**.
           Some company-managed PCs block unsigned apps entirely.
           EOF
-          gh release create "${GITHUB_REF_NAME}" \
-            --draft \
-            --title "ColRev ${version}" \
-            --notes-file release-notes.md \
-            electron-app/release/ColRev-*.exe
+          # Re-running the job for the same tag finds the draft already there:
+          # replace its files instead of failing.
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" --clobber \
+              electron-app/release/ColRev-*.exe
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --draft \
+              --title "ColRev ${version}" \
+              --notes-file release-notes.md \
+              electron-app/release/ColRev-*.exe
+          fi

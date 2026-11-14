@@ -216,6 +216,7 @@ export interface AuthAPI {
   getSession: () => Promise<AuthSession | null>;
   getCachedSession: () => Promise<AuthSession | null>;
   login: () => Promise<void>;
+  cancelLogin: () => Promise<void>;
   logout: () => Promise<void>;
   getToken: () => Promise<string | null>;
   listAccounts: () => Promise<AccountInfo[]>;
@@ -282,6 +283,8 @@ export interface GitStateRefreshResult {
 export interface GitStateAPI {
   refresh: (projectId: string, projectPath: string) => Promise<GitStateRefreshResult>;
   get: (projectId: string) => Promise<GitStateSnapshot | null>;
+  /** Drop the main process's cached snapshot of a deleted project. */
+  forget: (projectId: string) => Promise<void>;
   onChanged: (callback: (snapshot: GitStateSnapshot) => void) => () => void;
 }
 
@@ -364,7 +367,6 @@ export interface GitAPI {
   dirtyState: (projectPath: string) => Promise<GitDirtyState>;
   abortMerge: (projectPath: string) => Promise<GitOperationResult>;
   hasMergeConflict: (projectPath: string) => Promise<boolean>;
-  addAndCommit: (projectPath: string, message: string) => Promise<GitOperationResult>;
   revListCount: (projectPath: string, from: string, to: string) => Promise<{ success: boolean; count: number; error?: string }>;
   analyzeDivergence: (
     projectPath: string,

@@ -39,7 +39,6 @@ function fakeGitOps(): GitOps {
     })),
     abortMerge: vi.fn(ok),
     hasMergeConflict: vi.fn(async () => false),
-    addAndCommit: vi.fn(ok),
     revListCount: vi.fn(async () => ({ success: true, count: 0 })),
     getBranchAndUpstream: vi.fn(async () => ({ branch: 'dev', upstream: 'origin/dev' })),
   } as unknown as GitOps;
@@ -89,6 +88,7 @@ function appDeps(overrides: Partial<AppHandlerDeps> = {}): AppHandlerDeps {
       getSession: noop,
       getCachedSession: () => null,
       startDeviceFlow: noop,
+      cancelDeviceFlow: () => undefined,
       logout: () => undefined,
       getToken: () => 'tok',
       listAccounts: () => [],
@@ -110,6 +110,7 @@ function allSpecs(): IpcHandlerSpec[] {
       callBackend: async () => ({}) as never,
       refreshGitState: async () => null,
       getGitState: () => null,
+      forgetGitState: () => {},
     }),
     ...createGitHubHandlers(githubDeps()),
   ];
@@ -131,6 +132,7 @@ describe('lock classification', () => {
     expect(lockFree).toEqual([
       '__test/switchAccount',
       'app:info',
+      'auth:cancel-login',
       'auth:get-cached-session',
       'auth:get-session',
       'auth:get-token',
@@ -145,6 +147,7 @@ describe('lock classification', () => {
       'file:choose-save-path',
       'file:open-dialog',
       'file:save-dialog',
+      'git-state:forget',
       'git-state:get',
       'github:accept-invitation',
       'github:add-collaborator',
@@ -177,6 +180,10 @@ describe('lock classification', () => {
     expect(() =>
       defineHandler({ channel: 'git:danger', handler: async () => null, lockFree: true }),
     ).toThrow(/lockFreeReason/);
+  });
+
+  it('does not exempt delete_project — a fetch may be running on that project', () => {
+    expect(isLockFreeRpcMethod('delete_project')).toBe(false);
   });
 
   it('does not exempt get_git_status — it opens a git.Repo', () => {
@@ -273,6 +280,7 @@ describe('git handlers', () => {
       callBackend: async () => ({}) as never,
       refreshGitState: async () => null,
       getGitState: () => null,
+      forgetGitState: () => {},
     });
     return new Map(specs.map((s) => [s.channel, s.handler]));
   }
@@ -342,6 +350,23 @@ describe('github handlers', () => {
         remoteUrl: 'https://github.com/a/b',
       }),
     ).toEqual({ success: false, error: 'rate limited', collaborators: [] });
+  });
+
+  it('reports an API request that timed out as OFFLINE', async () => {
+    const handlers = handlersFor(
+      githubDeps({
+        gh: fakeGitHubClient({
+          listRepoCollaborators: async () => {
+            throw new DOMException('The operation timed out.', 'TimeoutError');
+          },
+        }),
+      }),
+    );
+    expect(
+      await handlers.get('github:list-collaborators')!(noEvent, {
+        remoteUrl: 'https://github.com/a/b',
+      }),
+    ).toEqual({ success: false, error: 'OFFLINE', collaborators: [] });
   });
 
   it('clones into the active account projects root and returns the resolved path', async () => {

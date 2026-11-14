@@ -3,6 +3,25 @@
  * Handles creating repos, pushing local projects, listing CoLRev repos, and cloning.
  */
 import { parseOwnerRepo } from './github-url';
+import { execNetworkGit } from './git-network';
+import { OFFLINE } from './git-manager';
+
+/** Longest any single GitHub API request may take before it is aborted. */
+export const GITHUB_HTTP_TIMEOUT_MS = 30_000;
+
+/**
+ * `fetch` with a timeout. Several callers hold the git mutex across these
+ * requests, so a connection that stalls (laptop wake, VPN drop) must fail
+ * instead of queueing every other git operation behind it.
+ */
+function githubFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(GITHUB_HTTP_TIMEOUT_MS) });
+}
+
+/** True for the error `githubFetch` throws when its timeout fires. */
+export function isHttpTimeoutError(err: unknown): boolean {
+  return err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+}
 
 /** An HTTP failure from the GitHub API. Thrown by list calls so that an
  * expired token or a rate limit is not mistaken for "no results". */
@@ -119,7 +138,7 @@ async function fetchUserRepos(token: string): Promise<GitHubRepo[]> {
   const perPage = 100;
 
   while (true) {
-    const res = await fetch(
+    const res = await githubFetch(
       `https://api.github.com/user/repos?per_page=${perPage}&sort=updated&affiliation=owner,collaborator&page=${page}`,
       {
         headers: {
@@ -163,7 +182,7 @@ export async function checkIsColrevRepo(
   repo: string,
 ): Promise<boolean> {
   try {
-    const res = await fetch(
+    const res = await githubFetch(
       `https://api.github.com/repos/${owner}/${repo}/contents/settings.json`,
       {
         headers: {
@@ -182,7 +201,7 @@ export async function checkIsColrevRepo(
     }
     return false;
   } catch (err) {
-    if (err instanceof GitHubApiError) throw err;
+    if (err instanceof GitHubApiError || isHttpTimeoutError(err)) throw err;
     return false;
   }
 }
@@ -242,7 +261,7 @@ export async function listReleases(
   owner: string,
   repo: string,
 ): Promise<GitHubRelease[]> {
-  const res = await fetch(
+  const res = await githubFetch(
     `https://api.github.com/repos/${owner}/${repo}/releases?per_page=30`,
     {
       headers: {
@@ -281,7 +300,7 @@ export async function listRepoCollaborators(
   const perPage = 100;
 
   while (true) {
-    const res = await fetch(
+    const res = await githubFetch(
       `https://api.github.com/repos/${owner}/${repo}/collaborators?per_page=${perPage}&page=${page}`,
       {
         headers: {
@@ -325,7 +344,7 @@ async function listOrgMembers(token: string, org: string): Promise<GitHubCollabo
   const perPage = 100;
 
   while (true) {
-    const res = await fetch(
+    const res = await githubFetch(
       `https://api.github.com/orgs/${org}/members?per_page=${perPage}&page=${page}`,
       {
         headers: {
@@ -367,7 +386,7 @@ export async function searchGitHubUsers(
   if (trimmed.length < SEARCH_MIN_QUERY_LENGTH) return [];
 
   const encoded = encodeURIComponent(`${trimmed} in:login type:user`);
-  const res = await fetch(
+  const res = await githubFetch(
     `https://api.github.com/search/users?q=${encoded}&per_page=${limit}`,
     {
       headers: {
@@ -426,7 +445,7 @@ async function gatherSuggestionCandidates(
   };
 
   try {
-    const ownerRes = await fetch(`https://api.github.com/users/${owner}`, {
+    const ownerRes = await githubFetch(`https://api.github.com/users/${owner}`, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/json',
@@ -502,7 +521,7 @@ export async function addRepoCollaborator(
   username: string,
   permission: 'pull' | 'push' | 'admin' = 'push',
 ): Promise<{ success: boolean; invited: boolean; error?: string }> {
-  const res = await fetch(
+  const res = await githubFetch(
     `https://api.github.com/repos/${owner}/${repo}/collaborators/${username}`,
     {
       method: 'PUT',
@@ -548,7 +567,7 @@ export async function listPendingRepoInvitations(
   owner: string,
   repo: string,
 ): Promise<PendingRepoInvitation[]> {
-  const res = await fetch(
+  const res = await githubFetch(
     `https://api.github.com/repos/${owner}/${repo}/invitations?per_page=100`,
     {
       headers: {
@@ -586,7 +605,7 @@ export interface RepoInvitation {
  * List pending repository invitations for the authenticated user.
  */
 export async function listRepoInvitations(token: string): Promise<RepoInvitation[]> {
-  const res = await fetch('https://api.github.com/user/repository_invitations?per_page=100', {
+  const res = await githubFetch('https://api.github.com/user/repository_invitations?per_page=100', {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/json',
@@ -616,7 +635,7 @@ export async function acceptRepoInvitation(
   token: string,
   invitationId: number,
 ): Promise<{ success: boolean; error?: string }> {
-  const res = await fetch(
+  const res = await githubFetch(
     `https://api.github.com/user/repository_invitations/${invitationId}`,
     {
       method: 'PATCH',
@@ -645,7 +664,7 @@ export async function declineRepoInvitation(
   token: string,
   invitationId: number,
 ): Promise<{ success: boolean; error?: string }> {
-  const res = await fetch(
+  const res = await githubFetch(
     `https://api.github.com/user/repository_invitations/${invitationId}`,
     {
       method: 'DELETE',
@@ -676,7 +695,7 @@ export async function createGitHubRelease(
   repo: string,
   params: { tagName: string; name: string; body: string },
 ): Promise<{ success: boolean; release?: GitHubRelease; error?: string }> {
-  const res = await fetch(
+  const res = await githubFetch(
     `https://api.github.com/repos/${owner}/${repo}/releases`,
     {
       method: 'POST',
@@ -800,7 +819,7 @@ async function findReusableEmptyRepo(
   name: string,
 ): Promise<{ data: any } | { reason: string }> {
   const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
-  const repoRes = await fetch(`https://api.github.com/repos/${login}/${name}`, { headers });
+  const repoRes = await githubFetch(`https://api.github.com/repos/${login}/${name}`, { headers });
   if (!repoRes.ok) {
     return { reason: `GitHub returned HTTP ${repoRes.status} when looking up ${login}/${name}` };
   }
@@ -808,7 +827,7 @@ async function findReusableEmptyRepo(
   if (String(data.owner?.login ?? '').toLowerCase() !== login.toLowerCase()) {
     return { reason: `${login}/${name} is not owned by this account` };
   }
-  const branchesRes = await fetch(
+  const branchesRes = await githubFetch(
     `https://api.github.com/repos/${login}/${name}/branches?per_page=1`,
     { headers },
   );
@@ -849,8 +868,11 @@ export async function createRepoAndPush(
       : "The project's 'origin' remote was removed again.";
   };
 
-  const fail = async (message: string): Promise<CreateRepoAndPushResult> => {
-    if (!created) return { success: false, error: message };
+  // `offline`: the failure was a timeout. Before anything exists on GitHub it is
+  // reported as the OFFLINE code the UI understands; afterwards the state
+  // of the empty repository matters more, so it is spelled out.
+  const fail = async (message: string, offline = false): Promise<CreateRepoAndPushResult> => {
+    if (!created) return { success: false, error: offline ? OFFLINE : message };
     const originNote = await restoreOrigin();
     return {
       success: false,
@@ -868,7 +890,7 @@ export async function createRepoAndPush(
     const { branch } = resolved;
 
     // 1. Get the authenticated user's login
-    const userRes = await fetch('https://api.github.com/user', {
+    const userRes = await githubFetch('https://api.github.com/user', {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/json',
@@ -889,7 +911,7 @@ export async function createRepoAndPush(
       return { success: false, error: `"${repoName}" is not a valid repository name.` };
     }
 
-    const createRes = await fetch('https://api.github.com/user/repos', {
+    const createRes = await githubFetch('https://api.github.com/user/repos', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -937,7 +959,7 @@ export async function createRepoAndPush(
     // workflow files that would otherwise run CI on every sync. Best-effort:
     // a failure here must not block publishing.
     try {
-      const actionsRes = await fetch(
+      const actionsRes = await githubFetch(
         `https://api.github.com/repos/${repoOwner}/${actualName}/actions/permissions`,
         {
           method: 'PUT',
@@ -957,8 +979,6 @@ export async function createRepoAndPush(
     } catch (err) {
       console.warn(`[github] could not disable Actions on ${repoOwner}/${actualName}:`, err);
     }
-    const auth = Buffer.from(`x-access-token:${token}`).toString('base64');
-    const authArgs = ['-c', `http.extraheader=Authorization: Basic ${auth}`];
 
     // 3. Set origin to the clean URL — token never lands in .git/config.
     const currentOrigin = await exec(['remote', 'get-url', 'origin'], projectPath);
@@ -981,16 +1001,21 @@ export async function createRepoAndPush(
     // PyInstaller bundle (`colrev-jsonrpc`) — not a real Python — so the hook
     // crashes with "unrecognized arguments: -mpre_commit ...". The UI publish
     // flow isn't a developer workflow gate; skip the hook entirely.
-    const pushResult = await exec(
-      [...authArgs, 'push', '--no-verify', '-u', 'origin', branch],
+    const pushResult = await execNetworkGit(
+      ['push', '--no-verify', '-u', 'origin', branch],
       projectPath,
+      { token, kind: 'pushPull' },
     );
+    if (pushResult.timedOut) {
+      return fail('GitHub did not answer in time while pushing.', true);
+    }
     if (pushResult.exitCode !== 0) {
       return fail(`Git push failed (branch ${branch}): ${pushResult.stderr || pushResult.stdout}`);
     }
 
     return { success: true, repoUrl: cleanUrl, htmlUrl };
   } catch (err) {
+    if (isHttpTimeoutError(err)) return fail('GitHub did not answer in time.', true);
     return fail(err instanceof Error ? err.message : 'Unknown error creating repository');
   }
 }

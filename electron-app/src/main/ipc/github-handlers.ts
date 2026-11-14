@@ -1,7 +1,8 @@
 import * as path from 'path';
 import type { GitHubClient } from '../github-client';
 import type { GitResult } from '../git-manager';
-import { gitClone, gitCreateTag, gitPushTag } from '../git-manager';
+import { gitClone, gitCreateTag, gitPushTag, OFFLINE } from '../git-manager';
+import { isHttpTimeoutError } from '../github-manager';
 import { defineHandler, type IpcHandlerSpec } from './registry';
 
 export interface GitHubHandlerDeps {
@@ -50,7 +51,12 @@ async function withToken<T extends object, E extends object>(
   } catch (err) {
     return {
       success: false,
-      error: err instanceof Error ? err.message : options.failureMessage,
+      // A request that timed out is the same failure as a dropped connection.
+      error: isHttpTimeoutError(err)
+        ? OFFLINE
+        : err instanceof Error
+          ? err.message
+          : options.failureMessage,
       ...options.empty,
     };
   }

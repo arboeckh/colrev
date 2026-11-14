@@ -289,6 +289,26 @@ describe('ColrevBackend', () => {
     expect(sawRestarting).toBe(false);
   });
 
+  it('whenTimedOutCallSettled waits for the late response of a timed-out call', async () => {
+    const b = makeBackend({ timeoutClasses: { slow: 'fast' }, fastTimeoutMs: 100 });
+    await b.start();
+
+    // Nothing in flight: resolves at once.
+    await b.whenTimedOutCallSettled();
+
+    const err = await expectRejection(b.call('slow', { delayMs: 300 }));
+    expect(err.code).toBe(RPC_TRANSPORT_TIMEOUT);
+
+    // The caller was released, but the server is still running the request.
+    let settled = false;
+    const waiting = b.whenTimedOutCallSettled().then(() => (settled = true));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(settled).toBe(false);
+
+    await waiting;
+    expect(settled).toBe(true);
+  });
+
   it('caps fast methods, reconciles the late response, and keeps the queue moving', async () => {
     const b = makeBackend({
       timeoutClasses: { slow: 'fast' },

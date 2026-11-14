@@ -11,6 +11,7 @@ import {
   TEST_PROJECT_ID,
   type RendererTestContext,
 } from '@/test/harness';
+import { useGitStore } from '@/stores/git';
 import { useProjectsStore } from '@/stores/projects';
 import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
 import ProjectOverview from './ProjectOverview.vue';
@@ -101,5 +102,54 @@ describe('ProjectOverview — get started', () => {
     const wrapper = await mountPage();
 
     expect(wrapper.find('[data-testid="overview-get-started"]').exists()).toBe(false);
+  });
+});
+
+describe('ProjectOverview — Publish', () => {
+  let ctx: RendererTestContext;
+
+  beforeEach(() => {
+    push.mockReset();
+    ctx = setupRendererTest();
+    ctx.openProject();
+    ctx.setGitState({ branch: 'dev' });
+    useGitStore().branches = [{ name: 'main' }, { name: 'dev' }] as never;
+    ctx.mock.rpc.on('get_review_definition', reviewDefinitionResponse());
+    useProjectsStore().currentProject!.status = makeProjectStatus({ total_records: 12 });
+    useGitStore().branchDelta = {
+      new_record_count: 3,
+      removed_record_count: 0,
+      changed_record_count: 0,
+      delta_by_state: {},
+    } as never;
+  });
+
+  it('offers Publish once a commit lands in the session, without reopening the review', async () => {
+    const wrapper = await mountPage();
+    expect(wrapper.find('[data-testid="publish-version"]').exists()).toBe(false);
+
+    // Save: dev moves one commit ahead of main, and main pushes the new snapshot.
+    ctx.mock.git.revListCount.mockImplementation(async (_path, from) => ({
+      success: true,
+      count: from === 'main' ? 1 : 0,
+    }));
+    ctx.mock.pushGitSnapshot(
+      ctx.setGitState({
+        branch: 'dev',
+        lastCommit: {
+          hash: 'c1',
+          shortHash: 'c1',
+          message: 'Save',
+          author: 'a',
+          timestamp: 't',
+        },
+      }),
+    );
+    await vi.waitFor(() => expect(useGitStore().devAheadOfMain).toBe(1));
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="publish-version"]').text()).toContain(
+      '1 unpublished change',
+    );
   });
 });

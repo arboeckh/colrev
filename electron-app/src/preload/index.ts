@@ -141,6 +141,7 @@ contextBridge.exposeInMainWorld('auth', {
   getSession: () => ipcRenderer.invoke('auth:get-session'),
   getCachedSession: () => ipcRenderer.invoke('auth:get-cached-session'),
   login: () => ipcRenderer.invoke('auth:login'),
+  cancelLogin: () => ipcRenderer.invoke('auth:cancel-login'),
   logout: () => ipcRenderer.invoke('auth:logout'),
   getToken: () => ipcRenderer.invoke('auth:get-token'),
   listAccounts: () => ipcRenderer.invoke('auth:list-accounts'),
@@ -223,8 +224,6 @@ contextBridge.exposeInMainWorld('git', {
   dirtyState: (projectPath: string) => ipcRenderer.invoke('git:dirty-state', projectPath),
   abortMerge: (projectPath: string) => ipcRenderer.invoke('git:abort-merge', projectPath),
   hasMergeConflict: (projectPath: string) => ipcRenderer.invoke('git:has-merge-conflict', projectPath),
-  addAndCommit: (projectPath: string, message: string) =>
-    ipcRenderer.invoke('git:add-and-commit', projectPath, message),
   revListCount: (projectPath: string, from: string, to: string) =>
     ipcRenderer.invoke('git:rev-list-count', projectPath, from, to),
   analyzeDivergence: (projectPath: string, projectId: string) =>
@@ -242,6 +241,7 @@ contextBridge.exposeInMainWorld('gitState', {
   refresh: (projectId: string, projectPath: string) =>
     ipcRenderer.invoke('git-state:refresh', projectId, projectPath),
   get: (projectId: string) => ipcRenderer.invoke('git-state:get', projectId),
+  forget: (projectId: string) => ipcRenderer.invoke('git-state:forget', projectId),
   onChanged: (callback: (snapshot: unknown) => void) => {
     const handler = (_e: unknown, snapshot: unknown) => callback(snapshot);
     ipcRenderer.on('git-state-changed', handler);

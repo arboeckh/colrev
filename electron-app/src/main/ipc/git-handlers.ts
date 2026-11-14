@@ -8,7 +8,6 @@ import type {
 } from '../git-manager';
 import {
   gitAbortMerge,
-  gitAddAndCommit,
   gitCheckout,
   gitCreateBranch,
   gitCreateLocalBranch,
@@ -62,7 +61,6 @@ export interface GitOps {
   dirtyState(projectPath: string): Promise<GitDirtyState>;
   abortMerge(projectPath: string): Promise<GitResult>;
   hasMergeConflict(projectPath: string): Promise<boolean>;
-  addAndCommit(projectPath: string, message: string): Promise<GitResult>;
   revListCount(
     projectPath: string,
     from: string,
@@ -89,7 +87,6 @@ export const realGitOps: GitOps = {
   dirtyState: gitGetDirtyState,
   abortMerge: gitAbortMerge,
   hasMergeConflict: gitHasMergeConflict,
-  addAndCommit: gitAddAndCommit,
   revListCount: gitRevListCount,
   getBranchAndUpstream: gitGetBranchAndUpstream,
 };
@@ -105,6 +102,8 @@ export interface GitHandlerDeps {
   refreshGitState(projectId: string, projectPath: string): Promise<GitStateSnapshot | null>;
   /** Last snapshot built for this project, if any. Pure cache read. */
   getGitState(projectId: string): GitStateSnapshot | null;
+  /** Drop the cached snapshot of a project that was deleted. */
+  forgetGitState(projectId: string): void;
   /**
    * Call a backend RPC directly, bypassing `colrev:call`. The handler already
    * holds the git mutex, so going through `colrev:call` would deadlock.
@@ -200,9 +199,6 @@ export function createGitHandlers(deps: GitHandlerDeps): IpcHandlerSpec[] {
     handler('git:dirty-state', (projectPath: string) => git.dirtyState(projectPath)),
     mutating('git:abort-merge', (projectPath: string) => git.abortMerge(projectPath)),
     handler('git:has-merge-conflict', (projectPath: string) => git.hasMergeConflict(projectPath)),
-    mutating('git:add-and-commit', (projectPath: string, message: string) =>
-      git.addAndCommit(projectPath, message),
-    ),
     handler('git:rev-list-count', (projectPath: string, from: string, to: string) =>
       git.revListCount(projectPath, from, to),
     ),
@@ -242,6 +238,14 @@ export function createGitHandlers(deps: GitHandlerDeps): IpcHandlerSpec[] {
       handler: async (_event, projectId: string) => deps.getGitState(projectId),
       lockFree: true,
       lockFreeReason: 'returns the last snapshot from memory; performs no repo access',
+    }),
+    defineHandler({
+      channel: 'git-state:forget',
+      handler: async (_event, projectId: string) => {
+        deps.forgetGitState(projectId);
+      },
+      lockFree: true,
+      lockFreeReason: 'drops an in-memory cache entry; performs no repo access',
     }),
   ];
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { Github, Copy, ExternalLink, Loader2, AlertCircle, Check, ClipboardCheck } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
@@ -36,6 +36,26 @@ onMounted(() => {
     auth.login();
   }
 });
+
+// Leaving the page by any route (Cancel, history back, a menu link) must not
+// leave the device flow polling: approving the code later would add and
+// activate an account without the user being here.
+onBeforeUnmount(() => {
+  const status = auth.deviceFlowStatus?.status;
+  if (status === 'awaiting_code' || status === 'polling' || status === 'network_error') {
+    void auth.cancelLogin();
+  }
+});
+
+// Cancel / Back. Adding an account returns to the page the user came from;
+// on a fresh sign-in it only stops the flow and shows the sign-in button again.
+async function cancel() {
+  await auth.cancelLogin();
+  if (isAddingAccount.value) {
+    if (window.history.state?.back) router.back();
+    else router.replace('/');
+  }
+}
 
 // `network_error` while the code is still on screen means polling continues
 // and may recover; without a code it is terminal (the window closed offline).
@@ -154,6 +174,10 @@ function openGitHub() {
               <Loader2 class="h-3 w-3 animate-spin" />
               Waiting for authorization...
             </div>
+
+            <Button variant="ghost" class="w-full" data-testid="login-cancel-button" @click="cancel">
+              {{ isAddingAccount ? 'Back' : 'Cancel' }}
+            </Button>
           </div>
         </template>
 
@@ -162,6 +186,9 @@ function openGitHub() {
           <div class="flex items-center justify-center py-8">
             <Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
+          <Button variant="ghost" class="w-full" data-testid="login-cancel-button" @click="cancel">
+            {{ isAddingAccount ? 'Back' : 'Cancel' }}
+          </Button>
         </template>
 
         <!-- Error state -->
@@ -174,6 +201,15 @@ function openGitHub() {
             <Button class="w-full" data-testid="login-github-button" @click="auth.login()">
               <Github class="h-4 w-4 mr-2" />
               Try again
+            </Button>
+            <Button
+              v-if="isAddingAccount"
+              variant="ghost"
+              class="w-full"
+              data-testid="login-cancel-button"
+              @click="cancel"
+            >
+              Back
             </Button>
           </div>
         </template>

@@ -209,6 +209,7 @@ describe('git snapshot refresh after mutations', () => {
       callBackend: async () => ({}) as never,
       refreshGitState,
       getGitState: () => null,
+      forgetGitState: () => {},
     });
     const handlers = new Map(specs.map((s) => [s.channel, s.handler]));
     const noEvent = undefined as unknown as Electron.IpcMainInvokeEvent;

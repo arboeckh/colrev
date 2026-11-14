@@ -206,3 +206,80 @@ describe('epoch guarding across a project switch', () => {
     expect(events).toHaveLength(0);
   });
 });
+
+describe('refreshes that overlap', () => {
+  /** Hold the first git read; count how many are in flight at once. */
+  function holdFirstGitRead(): { release: () => void; reads: () => number; maxInFlight: () => number } {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const original = ctx.mock.gitState.refresh.getMockImplementation()!;
+    let reads = 0;
+    let inFlight = 0;
+    let max = 0;
+    ctx.mock.gitState.refresh.mockImplementation(async (...args) => {
+      reads += 1;
+      inFlight += 1;
+      max = Math.max(max, inFlight);
+      try {
+        if (reads === 1) await gate;
+        return await original(...args);
+      } finally {
+        inFlight -= 1;
+      }
+    });
+    return { release, reads: () => reads, maxInFlight: () => max };
+  }
+
+  // Overlap is not re-entrancy. Counting every refresh in flight as a nested
+  // one ran them concurrently, and a stream of writes during a slow refresh
+  // tripped the loop guard, which dropped the last request and left the
+  // screen on stale counts.
+  it('chains them, never reports a loop, and does not drop the last', async () => {
+    const seam = useProjectDataStore();
+    const events: ProjectDataEvent[] = [];
+    seam.subscribe((e) => void events.push(e));
+    const held = holdFirstGitRead();
+
+    const first = seam.refreshNow();
+    await vi.advanceTimersByTimeAsync(10);
+    // Writer calls keep completing while that refresh is still reading.
+    const rest: Promise<void>[] = [];
+    for (let i = 0; i < 8; i++) rest.push(seam.refreshNow());
+    seam.notifyWriteCompleted('prescreen_record');
+    await vi.advanceTimersByTimeAsync(10);
+
+    // No loop is reported, and nothing ran alongside the held refresh but the
+    // write's own immediate git read (the 2nd), which is not a seam refresh.
+    expect(seam.isStale).toBe(false);
+    expect(held.maxInFlight()).toBeLessThanOrEqual(2);
+
+    held.release();
+    await vi.runAllTimersAsync();
+    await Promise.all([first, ...rest]);
+
+    expect(seam.isStale).toBe(false);
+    // A refresh started after the last request, so it saw the last write.
+    const last = events[events.length - 1];
+    expect(last.methods).toContain('prescreen_record');
+  });
+
+  it('makes a refreshNow that arrives mid-refresh wait for its own turn', async () => {
+    const seam = useProjectDataStore();
+    const held = holdFirstGitRead();
+    const first = seam.refreshNow();
+    await vi.advanceTimersByTimeAsync(10);
+    let settled = false;
+    const second = seam.refreshNow().then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(settled).toBe(false);
+    held.release();
+    await vi.runAllTimersAsync();
+    await Promise.all([first, second]);
+    expect(settled).toBe(true);
+    expect(held.reads()).toBeGreaterThanOrEqual(2);
+  });
+});
