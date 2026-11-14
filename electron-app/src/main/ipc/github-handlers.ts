@@ -1,7 +1,7 @@
 import * as path from 'path';
 import type { GitHubClient } from '../github-client';
 import type { GitResult } from '../git-manager';
-import { gitClone, gitCreateTag, gitPushTags, OFFLINE } from '../git-manager';
+import { gitClone, gitCreateTag, gitPushTag, OFFLINE } from '../git-manager';
 import { isHttpTimeoutError } from '../github-manager';
 import { defineHandler, type IpcHandlerSpec } from './registry';
 
@@ -13,7 +13,7 @@ export interface GitHubHandlerDeps {
   git: {
     clone(cloneUrl: string, targetPath: string, token: string | null): Promise<GitResult>;
     createTag(projectPath: string, tagName: string, message: string): Promise<GitResult>;
-    pushTags(projectPath: string, token: string | null): Promise<GitResult>;
+    pushTag(projectPath: string, tagName: string, token: string | null): Promise<GitResult>;
   };
   fs: {
     existsSync(p: string): boolean;
@@ -24,7 +24,7 @@ export interface GitHubHandlerDeps {
 export const realGitHubGitOps: GitHubHandlerDeps['git'] = {
   clone: gitClone,
   createTag: gitCreateTag,
-  pushTags: gitPushTags,
+  pushTag: gitPushTag,
 };
 
 type Failure<E> = { success: false; error: string } & E;
@@ -151,7 +151,7 @@ export function createGitHubHandlers(deps: GitHubHandlerDeps): IpcHandlerSpec[] 
             const tagResult = await git.createTag(params.projectPath, params.tagName, params.name);
             if (!tagResult.success) return tagResult;
 
-            const pushResult = await git.pushTags(params.projectPath, token);
+            const pushResult = await git.pushTag(params.projectPath, params.tagName, token);
             if (!pushResult.success) return pushResult;
 
             return gh.createRelease(token, owner, repo, {

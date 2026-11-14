@@ -319,6 +319,26 @@ describe('FakeGitHubClient with bare remotes', () => {
       expect(result.error).toBeDefined();
     });
 
+    it('can be retried with the same name after a failed publish', async () => {
+      const projectPath = path.join(tmpDir, 'project');
+      fs.mkdirSync(projectPath, { recursive: true }); // not a git repository yet
+      const params = { token: 'tok-alice', repoName: 'my-review', projectPath, isPrivate: true };
+
+      const first = await client.createRepoAndPush(params);
+      expect(first.success).toBe(false);
+      expect(registry.read().repos.filter((r) => r.name === 'my-review')).toHaveLength(0);
+
+      makeProjectWithCommit(projectPath);
+      const retry = await client.createRepoAndPush(params);
+
+      expect(retry.success).toBe(true);
+      expect(registry.read().repos.filter((r) => r.name === 'my-review')).toHaveLength(1);
+      const bare = path.join(bareRemoteDir, 'alice', 'my-review.git');
+      expect(execSync('git log --all --oneline', { cwd: bare }).toString()).toContain(
+        'initial commit',
+      );
+    });
+
     it('multiple projects per account each get their own bare remote', async () => {
       const project1 = path.join(tmpDir, 'project1');
       const project2 = path.join(tmpDir, 'project2');

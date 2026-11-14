@@ -207,10 +207,10 @@ class InitHandler(BaseHandler):
         writes=True,
     )
     def init_project(self, req: InitProjectRequest) -> InitProjectResponse:
-        # Reuse validation/sanitization helpers for path traversal protection.
+        # Reuse the validation helpers for path traversal protection.
         params = {"project_id": req.project_id, "base_path": req.base_path}
         target_path = validation.validate_project_path(params)
-        project_id = validation.sanitize_project_id(req.project_id)
+        project_id = req.project_id
         title = req.title if req.title else project_id
 
         logger.info("Initializing project %s at %s", project_id, target_path)
@@ -325,7 +325,9 @@ class InitHandler(BaseHandler):
         writes=True,
     )
     def delete_project(self, req: DeleteProjectRequest) -> DeleteProjectResponse:
-        project_id = req.project_id
+        # Same rule as every other project call: an id that could leave the
+        # base path must never reach rmtree.
+        project_id = validation.validate_project_id(req.project_id)
         base_path = Path(req.base_path)
         project_path = base_path / project_id
 

@@ -532,12 +532,48 @@ export async function gitAbortMerge(
   return { success: true };
 }
 
+/** A tag name git accepts, and that cannot be read as an option. */
+async function validateTagName(
+  exec: typeof import('dugite').exec,
+  projectPath: string,
+  tagName: string,
+): Promise<GitResult | null> {
+  if (!tagName || tagName.startsWith('-')) {
+    return { success: false, error: `"${tagName}" is not a valid tag name` };
+  }
+  const check = await exec(['check-ref-format', `refs/tags/${tagName}`], projectPath);
+  if (check.exitCode !== 0) {
+    return { success: false, error: `"${tagName}" is not a valid tag name` };
+  }
+  return null;
+}
+
+/**
+ * Tag HEAD with an annotated tag. Retry-safe: a tag of that name that already
+ * points at HEAD (an earlier attempt got this far) is reused; one that points
+ * elsewhere is an error, never moved.
+ */
 export async function gitCreateTag(
   projectPath: string,
   tagName: string,
   message: string,
 ): Promise<GitResult> {
   const { exec } = await import('dugite');
+  const invalid = await validateTagName(exec, projectPath, tagName);
+  if (invalid) return invalid;
+
+  const existing = await exec(['rev-parse', '--verify', '--quiet', `refs/tags/${tagName}^{commit}`], projectPath);
+  if (existing.exitCode === 0) {
+    const head = await exec(['rev-parse', '--verify', 'HEAD^{commit}'], projectPath);
+    if (head.exitCode === 0 && head.stdout.trim() === existing.stdout.trim()) {
+      return { success: true };
+    }
+    return {
+      success: false,
+      error: `Tag ${tagName} already exists and points at a different commit than the current one. Choose another tag name.`,
+    };
+  }
+
   const result = await exec(['tag', '-a', tagName, '-m', message], projectPath);
   if (result.exitCode !== 0) {
     return { success: false, error: result.stderr || `Failed to create tag ${tagName}` };
@@ -545,12 +581,18 @@ export async function gitCreateTag(
   return { success: true };
 }
 
-export async function gitPushTags(
+/** Push one tag — not every local tag. Pushing a tag the remote already has at the same commit succeeds. */
+export async function gitPushTag(
   projectPath: string,
+  tagName: string,
   token: string | null = null,
 ): Promise<GitResult> {
+  const { exec } = await import('dugite');
+  const invalid = await validateTagName(exec, projectPath, tagName);
+  if (invalid) return invalid;
+
   const result = await execNetworkGit(
-    ['push', '--no-verify', 'origin', '--tags'],
+    ['push', '--no-verify', 'origin', `refs/tags/${tagName}:refs/tags/${tagName}`],
     projectPath,
     { token, kind: 'pushPull' },
   );
