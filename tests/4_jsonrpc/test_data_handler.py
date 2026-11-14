@@ -13,8 +13,10 @@ package chain, and is covered by the Playwright pipeline instead — see
 """
 from __future__ import annotations
 
+import csv
 import json
 import os
+import subprocess
 from pathlib import Path
 from typing import Generator
 
@@ -43,7 +45,7 @@ def _request(handler: JSONRPCHandler, method: str, params: dict) -> dict:
     )
 
 
-class TestStructuredDataConfiguration:
+class _DataProject:
     @pytest.fixture(autouse=True)
     def setup_project(self, tmp_path, mocker) -> Generator[None, None, None]:
         self.project_path = tmp_path / PROJECT_ID
@@ -77,6 +79,9 @@ class TestStructuredDataConfiguration:
 
     def _settings(self) -> dict:
         return json.loads((self.project_path / "settings.json").read_text())
+
+
+class TestStructuredDataConfiguration(_DataProject):
 
     def test_queue_reports_unconfigured_before_any_setup(self) -> None:
         result = self._call("get_data_extraction_queue")["result"]
@@ -151,3 +156,167 @@ class TestStructuredDataConfiguration:
     def test_save_reports_a_missing_configuration(self) -> None:
         response = self._call("save_data_extraction", record_id="R1", values={"a": "b"})
         assert "error" in response
+
+
+def _records_bib(ids: list[str]) -> str:
+    return "\n\n".join(
+        f"@article{{{rid},\n"
+        f"   colrev_origin = {{import.bib/{rid}}},\n"
+        f"   colrev_status = {{rev_included}},\n"
+        f"   title = {{Title {rid}}},\n"
+        f"   author = {{Doe, Jane}},\n"
+        f"   year = {{2023}},\n"
+        f"   journal = {{Journal A}},\n"
+        "}"
+        for rid in ids
+    ) + "\n"
+
+
+class TestExtractionDataIntegrity(_DataProject):
+    """Reads must not write, and values the user typed must survive."""
+
+    IDS = ["R1", "R2"]
+    NA_FIELDS = [
+        {"name": "sample_size", "explanation": "n"},
+        {"name": "note", "explanation": "free text", "optional": True},
+    ]
+
+    def _git(self, *args: str) -> str:
+        return subprocess.run(
+            ["git", *args],
+            cwd=self.project_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+
+    def _commit_all(self) -> None:
+        self._git("add", "-A")
+        self._git(
+            "-c", "user.name=t", "-c", "user.email=t@example.com",
+            "commit", "-q", "-m", "snapshot", "--allow-empty",
+        )
+
+    def _include_records(self) -> None:
+        (self.project_path / "data").mkdir(exist_ok=True)
+        (self.project_path / "data" / "records.bib").write_text(
+            _records_bib(self.IDS)
+        )
+        self._commit_all()
+
+    def _csv_rows(self) -> dict[str, dict[str, str]]:
+        path = self.project_path / "data" / "data" / "data.csv"
+        with path.open(newline="", encoding="utf-8") as fh:
+            return {row["ID"]: row for row in csv.DictReader(fh)}
+
+    def _queue_values(self) -> dict[str, dict[str, str]]:
+        result = self._call("get_data_extraction_queue")["result"]
+        return {r["id"]: r["extraction_values"] for r in result["records"]}
+
+    def test_loading_the_queue_leaves_git_status_unchanged(self) -> None:
+        self._include_records()
+        assert "error" not in self._call(
+            "configure_structured_endpoint", fields=self.NA_FIELDS
+        )
+        csv_path = self.project_path / "data" / "data" / "data.csv"
+        csv_path.unlink()
+        self._commit_all()
+        before = self._git("status", "--porcelain")
+        assert before == ""
+
+        values = self._queue_values()
+
+        # Rows for the included records are reported ...
+        assert set(values) == set(self.IDS)
+        assert values["R1"]["sample_size"] == "TODO"
+        # ... without anything being written, staged or created.
+        assert self._git("status", "--porcelain") == before
+        assert not csv_path.exists()
+
+    def test_the_queue_is_not_declared_a_writer(self) -> None:
+        from colrev.ui_jsonrpc.framework import registry
+
+        assert registry.get("get_data_extraction_queue").writes is False
+
+    def test_configure_stages_the_csv_it_creates(self) -> None:
+        self._include_records()
+        self._call("configure_structured_endpoint", fields=self.NA_FIELDS)
+
+        status = self._git("status", "--porcelain")
+        assert "data/data/data.csv" in status
+        # Staged, not left as an unstaged change to a tracked file.
+        assert all(
+            line[1] == " " for line in status.splitlines() if "data.csv" in line
+        )
+
+    def test_na_values_round_trip_and_survive_another_records_save(self) -> None:
+        self._include_records()
+        self._call("configure_structured_endpoint", fields=self.NA_FIELDS)
+
+        for rid, value in (("R1", "NA"), ("R2", "N/A")):
+            response = self._call(
+                "save_data_extraction",
+                record_id=rid,
+                values={"sample_size": value, "note": ""},
+            )
+            assert "error" not in response, response
+
+        values = self._queue_values()
+        assert values["R1"] == {"sample_size": "NA", "note": ""}
+        assert values["R2"] == {"sample_size": "N/A", "note": ""}
+
+        # Saving R2 again must not erase R1's "NA" (nor turn blanks into nan).
+        self._call(
+            "save_data_extraction",
+            record_id="R2",
+            values={"sample_size": "None", "note": "null"},
+        )
+        rows = self._csv_rows()
+        assert rows["R1"]["sample_size"] == "NA"
+        assert rows["R1"]["note"] == ""
+        assert rows["R2"] == {"ID": "R2", "sample_size": "None", "note": "null"}
+
+    def test_renaming_a_field_keeps_its_values(self) -> None:
+        self._include_records()
+        self._call("configure_structured_endpoint", fields=self.NA_FIELDS)
+        self._call(
+            "save_data_extraction",
+            record_id="R1",
+            values={"sample_size": "120", "note": "x"},
+        )
+
+        self._call(
+            "configure_structured_endpoint",
+            fields=[
+                {"name": "n_participants", "previous_name": "sample_size"},
+                {"name": "note", "optional": True},
+            ],
+        )
+
+        rows = self._csv_rows()
+        assert rows["R1"]["n_participants"] == "120"
+        assert rows["R1"]["note"] == "x"
+        assert rows["R2"]["n_participants"] == "TODO"
+        assert "sample_size" not in rows["R1"]
+
+    def test_removing_a_field_keeps_its_values(self) -> None:
+        self._include_records()
+        self._call("configure_structured_endpoint", fields=self.NA_FIELDS)
+        self._call(
+            "save_data_extraction",
+            record_id="R1",
+            values={"sample_size": "120", "note": "keep me"},
+        )
+
+        self._call("configure_structured_endpoint", fields=[{"name": "sample_size"}])
+        assert self._csv_rows()["R1"]["note"] == "keep me"
+        # The removed field is not part of the extraction any more ...
+        fields = self._call("get_data_extraction_queue")["result"]["fields"]
+        assert [f["name"] for f in fields] == ["sample_size"]
+
+        # ... and re-adding it brings the values back.
+        self._call(
+            "configure_structured_endpoint",
+            fields=[{"name": "sample_size"}, {"name": "note", "optional": True}],
+        )
+        assert self._queue_values()["R1"]["note"] == "keep me"
