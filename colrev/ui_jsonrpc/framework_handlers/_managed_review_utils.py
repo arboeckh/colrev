@@ -12,6 +12,8 @@ from typing import Optional
 from typing import Set
 
 import colrev.review_manager
+from colrev.ui_jsonrpc.errors import ManagedTaskActiveError
+from colrev.ui_jsonrpc.managed_review import TASK_STATES_ACTIVE
 from colrev.ui_jsonrpc.managed_review import ManagedReviewService
 
 
@@ -48,3 +50,37 @@ def task_record_ids(
             "assigned reviewer branch."
         )
     return set(task["record_ids"])
+
+
+def require_task_id_for_covered_record(
+    *,
+    review_manager: colrev.review_manager.ReviewManager,
+    task_id: Optional[str],
+    stage: str,
+    record_id: str,
+) -> None:
+    """Refuse an unmanaged decision on a record an active task covers.
+
+    A decision made without ``task_id`` lands on the current branch as an
+    ordinary decision. For a record that an active managed task covers, that
+    would bypass reconciliation (on ``dev`` it would change the record behind
+    the task's back). The check reads the manifest of the current branch, so
+    it does not depend on the renderer's own access check, which fails open
+    when listing tasks errors.
+
+    Raises:
+        ManagedTaskActiveError: ``task_id`` is missing and an active task of
+            this ``stage`` covers ``record_id``.
+    """
+    if task_id:
+        return
+    service = ManagedReviewService(review_manager=review_manager)
+    for task in service.load_manifest()["managed_tasks"]:
+        if task["kind"] != stage or task["state"] not in TASK_STATES_ACTIVE:
+            continue
+        if record_id in task["record_ids"]:
+            raise ManagedTaskActiveError(
+                f"Record '{record_id}' is part of the active managed {stage} task "
+                f"{task['id']}. Decide it on your reviewer branch with that task's "
+                "id; the decisions are reconciled on dev."
+            )

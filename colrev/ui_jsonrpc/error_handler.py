@@ -5,6 +5,7 @@ from typing import Dict
 from typing import Optional
 
 import colrev.exceptions as colrev_exceptions
+from colrev.ui_jsonrpc.errors import ManagedTaskActiveError
 from colrev.ui_jsonrpc.errors import MethodNotFoundError
 from colrev.ui_jsonrpc.errors import NotFoundError
 
@@ -33,6 +34,9 @@ COLREV_PRECONDITION_FAILED = -32005
 COLREV_RESOURCE_LOCKED = -32006
 # A referenced resource (project, record, source) does not exist.
 COLREV_NOT_FOUND = -32007
+# A decision was made on a record that an active managed review task covers,
+# without that task's id (so it would bypass reconciliation).
+COLREV_MANAGED_TASK_ACTIVE = -32008
 
 _PRECONDITION_EXCEPTIONS = (
     colrev_exceptions.UnstagedGitChangesError,
@@ -58,6 +62,8 @@ def map_exception_to_error_code(exception: Exception) -> int:
         return METHOD_NOT_FOUND
     elif isinstance(exception, NotFoundError):
         return COLREV_NOT_FOUND
+    elif isinstance(exception, ManagedTaskActiveError):
+        return COLREV_MANAGED_TASK_ACTIVE
     elif isinstance(exception, colrev_exceptions.GitNotAvailableError):
         return COLREV_RESOURCE_LOCKED
     elif isinstance(exception, _PRECONDITION_EXCEPTIONS):
