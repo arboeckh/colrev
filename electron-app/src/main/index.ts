@@ -1,9 +1,10 @@
-import { app, BrowserWindow, dialog, protocol, net, shell } from 'electron';
+import { app, BrowserWindow, dialog, protocol, net, safeStorage, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { pathToFileURL } from 'url';
 import { ColrevBackend } from './colrev-backend';
 import { BackendSession } from './backend-session';
+import { ConnectorKeyStore } from './connector-keys';
 import { acquireSingleInstance } from './single-instance';
 import { setupGitEnvironment } from './git-env';
 import { writeGitIdentity } from './git-identity';
@@ -143,6 +144,12 @@ function forwardBackendEvents(b: ColrevBackend): void {
   b.on('late-response', (info) => mainWindow?.webContents.send('colrev:late-response', info));
 }
 
+// Connector API keys outlive the backend process (and the app): see connector-keys.ts.
+const connectorKeys = new ConnectorKeyStore(
+  path.join(app.getPath('userData'), 'connector-keys.json'),
+  safeStorage,
+);
+
 const session = new BackendSession<ColrevBackend>({
   create: () => {
     const launch = resolveBackendLaunch({
@@ -153,7 +160,10 @@ const session = new BackendSession<ColrevBackend>({
       userDataDir: app.getPath('userData'),
       env: process.env,
     });
-    const backend = new ColrevBackend(launch.command, launch.args, launch.env);
+    const backend = new ColrevBackend(launch.command, launch.args, launch.env, {
+      // The backend keeps connector API keys only in its own process.
+      handshakeCalls: () => connectorKeys.handshakeCalls(),
+    });
     forwardBackendEvents(backend);
     return backend;
   },
@@ -255,7 +265,11 @@ function setupIPC() {
         await session.stop();
         return { success: true };
       },
-      callRpc: (method, params) => session.callRpc(method, params),
+      callRpc: async (method, params) => {
+        const response = await session.callRpc(method, params);
+        if (response.ok) connectorKeys.rememberFromRpc(method, params);
+        return response;
+      },
       saveFileDialog,
       chooseSavePath,
       openFileDialog,

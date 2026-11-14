@@ -81,6 +81,13 @@ rl.on('line', (line) => {
     case 'pid':
       respond({ jsonrpc: '2.0', result: { pid: process.pid }, id });
       break;
+    case 'set_connector_api_key':
+      process.env.FAKE_KEY = params.api_key;
+      respond({ jsonrpc: '2.0', result: { configured: true }, id });
+      break;
+    case 'get_key':
+      respond({ jsonrpc: '2.0', result: { key: process.env.FAKE_KEY ?? null }, id });
+      break;
     default:
       respond({ jsonrpc: '2.0', error: { code: -32601, message: 'not found' }, id });
   }
@@ -227,6 +234,23 @@ describe('ColrevBackend', () => {
     const during = b.call('echo', { queued: 'during-restart' });
     await restarted;
     expect(await during).toEqual({ queued: 'during-restart' });
+  });
+
+  it('sends its handshake calls to every fresh process before any queued call', async () => {
+    const b = makeBackend({
+      handshakeCalls: () => [
+        { method: 'set_connector_api_key', params: { connector: 'openalex', api_key: 'k-1' } },
+      ],
+    });
+    await b.start();
+    expect(await b.call('get_key', {})).toEqual({ key: 'k-1' });
+
+    const restarted = once(b, 'restarted');
+    await b.call('die', {}).catch(() => {});
+    // Queued while the process is down: it must see the key of the new process.
+    const during = b.call('get_key', {});
+    await restarted;
+    expect(await during).toEqual({ key: 'k-1' });
   });
 
   it('gives up after exhausting restart attempts and emits restart-failed', async () => {

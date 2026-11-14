@@ -37,6 +37,7 @@ import { useProjectsStore } from '@/stores/projects';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { SearchSource } from '@/types';
 import { formatSourceName } from '@/lib/displayNames';
+import { baseName, fileToBase64 } from '@/lib/files';
 
 /**
  * Where this source sits in a run.
@@ -82,6 +83,10 @@ const isUploadingUpdate = ref(false);
 // so an existing source is re-tuned with the controls it was created with.
 const editQuery = ref<ApiQueryValue>(emptyApiQuery());
 const editShowAdvanced = ref(false);
+// A connector's API key can be entered here too: it is not kept by the backend
+// across restarts, and the Add dialog is gone once the source exists.
+const apiKeyInput = ref('');
+const apiKeyConfigured = ref(false);
 
 // Update file form state (for DB sources)
 const updateFile = ref<File | null>(null);
@@ -107,7 +112,7 @@ const endpoint = computed(
 const sourceName = computed(() => {
   if (props.source.search_type === 'DB') {
     const path = props.source.filename || props.source.search_results_path || '';
-    const basename = path.split('/').pop() || '';
+    const basename = baseName(path);
     return basename.replace(/\.[^/.]+$/, '') || 'unknown';
   }
   return endpoint.value.split('.').pop() || endpoint.value || 'unknown';
@@ -227,7 +232,24 @@ function openEditDialog() {
     props.source.search_string,
   );
   editShowAdvanced.value = !!editQuery.value.rawApiUrl;
+  apiKeyInput.value = '';
   showEditDialog.value = true;
+  void refreshApiKeyStatus();
+}
+
+// The backend keeps a key for OpenAlex only.
+const needsApiKey = computed(
+  () => endpoint.value === 'colrev.open_alex' && !!connector.value?.requiresApiKey,
+);
+
+async function refreshApiKeyStatus() {
+  if (!needsApiKey.value) return;
+  try {
+    const status = await backend.call('get_connector_api_key_status', {});
+    apiKeyConfigured.value = status.openalex;
+  } catch {
+    apiKeyConfigured.value = false;
+  }
 }
 
 const supportsQueryOptions = computed(
@@ -235,7 +257,10 @@ const supportsQueryOptions = computed(
 );
 
 const canSaveEdit = computed(
-  () => !isUpdating.value && apiQueryIsComplete(editQuery.value, supportsQueryOptions.value),
+  () =>
+    !isUpdating.value &&
+    apiQueryIsComplete(editQuery.value, supportsQueryOptions.value) &&
+    (!needsApiKey.value || apiKeyConfigured.value || !!apiKeyInput.value.trim()),
 );
 
 async function handleDelete() {
@@ -265,6 +290,15 @@ async function handleUpdate() {
   isUpdating.value = true;
 
   try {
+    if (needsApiKey.value && apiKeyInput.value.trim()) {
+      await backend.call('set_connector_api_key', {
+        connector: 'openalex',
+        api_key: apiKeyInput.value.trim(),
+      });
+      apiKeyConfigured.value = true;
+      apiKeyInput.value = '';
+    }
+
     const response = await backend.call('update_source', {
       project_id: props.projectId,
       filename: filename.value,
@@ -308,23 +342,18 @@ async function handleUpdateFile() {
   isUploadingUpdate.value = true;
 
   try {
-    // Read file content
-    const fileContent = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsText(updateFile.value!);
-    });
+    // The bytes, not text: an .xlsx or a Latin-1 export must reach disk unchanged.
+    const fileContent = await fileToBase64(updateFile.value);
 
     // Get just the filename from the source path (e.g., "data/search/scopus.ris" -> "scopus.ris")
-    const sourceFilename = filename.value.split('/').pop() || filename.value;
+    const sourceFilename = baseName(filename.value) || filename.value;
 
     // Upload the file with the same filename to overwrite
     const uploadResponse = await backend.call('upload_search_file', {
       project_id: props.projectId,
       filename: sourceFilename,
       content: fileContent,
-      encoding: 'utf-8',
+      encoding: 'base64',
     });
 
     if (!uploadResponse.success) {
@@ -577,7 +606,27 @@ async function handleUpdateFile() {
           search again to refill it.
         </DialogDescription>
       </DialogHeader>
-      <div class="py-2">
+      <div class="py-2 space-y-4">
+        <div
+          v-if="needsApiKey"
+          class="space-y-2 rounded-md border border-border p-3"
+        >
+          <label class="text-sm font-medium" for="source-api-key">
+            {{ sourceLabel }} API key
+            <span v-if="!apiKeyConfigured" class="text-destructive">*</span>
+          </label>
+          <Input
+            id="source-api-key"
+            v-model="apiKeyInput"
+            type="password"
+            :placeholder="apiKeyConfigured ? 'Saved — paste a new key to replace it' : 'Paste your API key'"
+            :disabled="isUpdating"
+            data-testid="edit-api-key-input"
+          />
+          <p class="text-xs text-muted-foreground">
+            Kept in this computer's system keychain when it has one, never in the project.
+          </p>
+        </div>
         <ApiQueryForm
           v-if="connector"
           v-model="editQuery"

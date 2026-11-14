@@ -81,6 +81,8 @@ const existingApiEndpoints = computed(() => {
     .filter(Boolean);
 });
 
+const existingSearchPaths = computed(() => sources.value.map(sourceKey).filter(Boolean));
+
 // Dialog state — single unified Add Source dialog
 const showAddSourceDialog = ref(false);
 
@@ -293,6 +295,7 @@ onUnmounted(() => {
       v-model:open="showAddSourceDialog"
       :project-id="projects.currentProjectId"
       :existing-api-endpoints="existingApiEndpoints"
+      :existing-search-paths="existingSearchPaths"
     />
     </div>
   </StepPageShell>

@@ -492,7 +492,7 @@ def _history_path(source_project: Path) -> Path:
 
 
 class TestUpdateSource:
-    def test_query_edit_persists_and_clears_stale_results(
+    def test_query_edit_persists_and_keeps_an_uploaded_file(
         self, source_handler, source_params, source_project
     ) -> None:
         results_file = source_project / SOURCE_PROJECT_ID / SOURCE_FILENAME
@@ -514,10 +514,9 @@ class TestUpdateSource:
         history = json.loads(_history_path(source_project).read_text(encoding="utf-8"))
         assert history["search_string"] == "revised query"
 
-        # A changed query invalidates old results: the file is emptied so the
-        # next search starts fresh.
-        assert results_file.exists()
-        assert results_file.read_text(encoding="utf-8") == ""
+        # An uploaded export is the data, not the result of the query: editing
+        # the query text must leave the file alone.
+        assert results_file.read_text(encoding="utf-8") == SOURCE_BIB
 
         # A fresh settings load (get_sources builds a new ReviewManager)
         # reflects the edit.

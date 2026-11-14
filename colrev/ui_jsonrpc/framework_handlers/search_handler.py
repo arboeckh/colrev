@@ -27,10 +27,13 @@ from pydantic import ConfigDict
 from colrev.constants import OperationsType
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProgressEventKind
-from colrev.ui_jsonrpc.framework.search_staleness import check_source_staleness
 from colrev.ui_jsonrpc.framework.search_staleness import preserve_last_run_snapshot
 from colrev.ui_jsonrpc.framework.search_staleness import restore_last_run_snapshot
 from colrev.ui_jsonrpc.framework.search_staleness import run_config_snapshot
+from colrev.ui_jsonrpc.framework.search_staleness import source_staleness
+from colrev.ui_jsonrpc.framework.source_files import posix
+from colrev.ui_jsonrpc.framework.source_files import stage_removal
+from colrev.ui_jsonrpc.framework.source_files import stage_source_files
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import make_progress_callback
@@ -205,6 +208,8 @@ def _source_payload(source: Any) -> Dict[str, Any]:
     """
 
     payload = source.model_dump()
+    if payload.get("search_results_path") is not None:
+        payload["search_results_path"] = posix(payload["search_results_path"])
     parameters = getattr(source, "search_parameters", None)
     if parameters:
         payload["search_parameters"] = parameters
@@ -224,6 +229,29 @@ _OPENALEX_QUERY_FIELDS: Dict[str, Any] = {
     "has_abstract": False,
     "raw_url": None,
 }
+
+
+def _find_source(sources: List[Any], filename: str) -> Optional[Any]:
+    """The source whose results file is ``filename`` (or ends with it).
+
+    Compared as POSIX paths: the renderer sends ``/``, a Windows ``str(Path)``
+    has ``\\``.
+    """
+
+    wanted = posix(filename)
+    for source in sources:
+        candidate = posix(source.search_results_path)
+        if candidate == wanted or candidate.endswith(wanted):
+            return source
+    return None
+
+
+def _decode_table_bytes(data: bytes) -> str:
+    """Text of an uploaded table: UTF-8 (BOM allowed), else Windows-1252."""
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return data.decode("cp1252", errors="replace")
 
 
 def _is_openalex_api_url(value: Any) -> bool:
@@ -397,11 +425,11 @@ class SearchHandler(BaseHandler):
         self.review_manager.settings = self.review_manager.load_settings()
         sources_to_mark = self.review_manager.settings.sources
         if req.source != "all":
+            # The same selection colrev's search operation applies: a
+            # comma-separated list of file names, matched exactly.
+            selected_names = {Path(f).name for f in req.source.split(",")}
             sources_to_mark = [
-                s
-                for s in sources_to_mark
-                if str(s.search_results_path) == req.source
-                or s.search_results_path.name in req.source
+                s for s in sources_to_mark if s.search_results_path.name in selected_names
             ]
 
         for src in sources_to_mark:
@@ -449,7 +477,9 @@ class SearchHandler(BaseHandler):
             history_path = (
                 self.review_manager.path / source.get_search_history_path()
             )
-            is_stale, stale_reason = check_source_staleness(source, history_path)
+            is_stale, stale_reason = source_staleness(
+                self.review_manager.path, source
+            )
 
             last_run_timestamp: Optional[str] = None
             if history_path.is_file():
@@ -550,6 +580,7 @@ class SearchHandler(BaseHandler):
 
         self.review_manager.settings.sources.append(new_source)
         self.review_manager.save_settings()
+        stage_source_files(self.review_manager)
 
         # For file-based (DB) sources, the file already contains results — mark
         # as run immediately.
@@ -617,7 +648,7 @@ class SearchHandler(BaseHandler):
             csv_text = (
                 file_content
                 if isinstance(file_content, str)
-                else file_content.decode("utf-8", errors="replace")
+                else _decode_table_bytes(file_content)
             )
             logger.info(
                 "Applying CSV source template '%s'", req.source_template
@@ -635,11 +666,15 @@ class SearchHandler(BaseHandler):
         ) as f:
             f.write(file_content)
 
+        # Replacing a tracked file leaves an unstaged change that makes the
+        # next engine operation (load) refuse; stage it like add_source does.
+        self.review_manager.dataset.git_repo.add_changes(target_path)
+
         detected_format = self._detect_file_format(target_path)
 
         return UploadSearchFileResponse(
             project_id=req.project_id,
-            path=str(target_path.relative_to(self.review_manager.path)),
+            path=posix(target_path.relative_to(self.review_manager.path)),
             detected_format=detected_format,
             message=f"Uploaded search file: {safe_filename}",
         )
@@ -663,22 +698,12 @@ class SearchHandler(BaseHandler):
         )
 
         sources = self.review_manager.settings.sources
-        source_to_remove = None
-        source_index = None
-
-        for i, source in enumerate(sources):
-            source_filename = str(source.search_results_path)
-            if source_filename == req.filename or source_filename.endswith(
-                req.filename
-            ):
-                source_to_remove = source
-                source_index = i
-                break
+        source_to_remove = _find_source(sources, req.filename)
 
         if source_to_remove is None:
             raise ValueError(f"Source with filename '{req.filename}' not found")
 
-        self.review_manager.settings.sources.pop(source_index)
+        sources.remove(source_to_remove)
 
         # Sources are re-loaded by scanning *_search_history.json files, so
         # removing that file is required for permanent removal.
@@ -687,9 +712,11 @@ class SearchHandler(BaseHandler):
         )
         if search_history_path.exists():
             search_history_path.unlink()
+            stage_removal(self.review_manager, search_history_path)
             logger.info("Deleted search history file: %s", search_history_path)
 
         self.review_manager.save_settings()
+        stage_source_files(self.review_manager)
 
         if req.delete_file:
             file_path = (
@@ -697,6 +724,7 @@ class SearchHandler(BaseHandler):
             )
             if file_path.exists():
                 file_path.unlink()
+                stage_removal(self.review_manager, file_path)
                 logger.info("Deleted search file: %s", file_path)
 
         return RemoveSourceResponse(
@@ -728,15 +756,9 @@ class SearchHandler(BaseHandler):
 
         from colrev.constants import SearchType
 
-        sources = self.review_manager.settings.sources
-        source_to_update = None
-        for source in sources:
-            source_filename = str(source.search_results_path)
-            if source_filename == req.filename or source_filename.endswith(
-                req.filename
-            ):
-                source_to_update = source
-                break
+        source_to_update = _find_source(
+            self.review_manager.settings.sources, req.filename
+        )
 
         if source_to_update is None:
             raise ValueError(f"Source with filename '{req.filename}' not found")
@@ -813,27 +835,32 @@ class SearchHandler(BaseHandler):
         new_url = str(parameters.get("url") or "")
         query_changed = search_string_changed or new_url != previous_url
 
-        # If the query changed, wipe results so the next search starts fresh.
-        if query_changed:
-            results_path = (
-                self.review_manager.path / source_to_update.search_results_path
-            )
-            if results_path.exists():
-                logger.info(
-                    "Query changed, clearing results file: %s", results_path
-                )
-                results_path.unlink()
-                results_path.touch()
+        # If the query of an API source changed, wipe its results so the next
+        # search starts fresh. An uploaded export (DB) has no query to re-run:
+        # its file *is* the data, and the query text is only a label.
+        results_path = self.review_manager.path / source_to_update.search_results_path
+        if query_changed and is_api and results_path.exists():
+            logger.info("Query changed, clearing results file: %s", results_path)
+            results_path.unlink()
+            results_path.touch()
+            self.review_manager.dataset.git_repo.add_changes(results_path)
 
         self.review_manager.save_settings()
 
-        if query_changed:
+        if query_changed and is_api:
             restore_last_run_snapshot(
                 history_path, preserved_snapshot, preserved_last_run
             )
+        elif query_changed and preserved_last_run:
+            # Nothing re-runs an uploaded file: the edited label is the new
+            # baseline, not a reason to call the source stale.
+            self._save_source_history(source_to_update, preserved_last_run)
 
         if req.run_date and source_to_update.search_type == SearchType.DB:
             self._save_source_history(source_to_update, req.run_date)
+
+        # save_settings() rewrote the history files without staging them.
+        stage_source_files(self.review_manager)
 
         return UpdateSourceResponse(
             project_id=req.project_id,
@@ -868,14 +895,7 @@ class SearchHandler(BaseHandler):
             req.project_id,
         )
 
-        source = None
-        for s in self.review_manager.settings.sources:
-            source_filename = str(s.search_results_path)
-            if source_filename == req.filename or source_filename.endswith(
-                req.filename
-            ):
-                source = s
-                break
+        source = _find_source(self.review_manager.settings.sources, req.filename)
 
         if source is None:
             raise ValueError(f"Source with filename '{req.filename}' not found")
