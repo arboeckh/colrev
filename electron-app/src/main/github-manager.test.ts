@@ -4,7 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { exec } from 'dugite';
-import { createRepoAndPush } from './github-manager';
+import { createRepoAndPush, listReleases } from './github-manager';
 
 vi.mock('dugite', () => ({ exec: vi.fn() }));
 
@@ -72,5 +72,40 @@ describe('createRepoAndPush: GitHub Actions', () => {
 
     expect(result.success).toBe(true);
     expect(calls).toContain('git push');
+  });
+});
+
+describe('GitHub HTTP timeouts', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('gives every API request an abort signal', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await listReleases('tok', 'alice', 'lit-review');
+
+    const init = (fetchMock.mock.calls[0] as unknown as [string, { signal?: AbortSignal }])[1];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('reports a request that timed out as OFFLINE while publishing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new DOMException('The operation timed out.', 'TimeoutError');
+      }),
+    );
+
+    const result = await createRepoAndPush({
+      token: 'tok',
+      repoName: 'lit-review',
+      projectPath: '/unused',
+      isPrivate: true,
+    });
+
+    expect(result).toEqual({ success: false, error: 'OFFLINE' });
   });
 });

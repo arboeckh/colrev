@@ -63,6 +63,12 @@ export function setupGitEnvironment(): Record<string, string> {
   const xdgConfigHome = gitConfigHome(app.getPath('userData'));
   process.env.XDG_CONFIG_HOME = xdgConfigHome;
 
+  // Never let a dugite call from the main process block on a credential
+  // prompt (a terminal in dev, an askpass dialog elsewhere) while it holds the
+  // git mutex. Network commands also get a full no-prompt environment and an
+  // empty credential.helper from git-network.ts; this covers the rest.
+  process.env.GIT_TERMINAL_PROMPT = '0';
+
   return {
     PATH: newPath,
     GIT_EXEC_PATH: gitExecPath,

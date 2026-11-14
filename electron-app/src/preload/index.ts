@@ -223,8 +223,6 @@ contextBridge.exposeInMainWorld('git', {
   dirtyState: (projectPath: string) => ipcRenderer.invoke('git:dirty-state', projectPath),
   abortMerge: (projectPath: string) => ipcRenderer.invoke('git:abort-merge', projectPath),
   hasMergeConflict: (projectPath: string) => ipcRenderer.invoke('git:has-merge-conflict', projectPath),
-  addAndCommit: (projectPath: string, message: string) =>
-    ipcRenderer.invoke('git:add-and-commit', projectPath, message),
   revListCount: (projectPath: string, from: string, to: string) =>
     ipcRenderer.invoke('git:rev-list-count', projectPath, from, to),
   analyzeDivergence: (projectPath: string, projectId: string) =>

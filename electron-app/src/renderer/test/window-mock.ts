@@ -367,7 +367,6 @@ export function createWindowMock(): WindowMock {
       })),
       abortMerge: vi.fn(async () => okResult()),
       hasMergeConflict: vi.fn(async () => false),
-      addAndCommit: vi.fn(async () => okResult()),
       revListCount: vi.fn(async () => ({ success: true, count: 0 })),
       analyzeDivergence: vi.fn(async () => ({
         success: true,
