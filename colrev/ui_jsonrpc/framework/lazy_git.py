@@ -22,6 +22,7 @@ import git as gitmodule
 import colrev.exceptions as colrev_exceptions
 import colrev.review_manager
 from colrev.constants import FileSets
+from colrev.ui_jsonrpc.framework import portability
 
 logger = logging.getLogger(__name__)
 
@@ -224,6 +225,25 @@ class LazyWriteGitRepo:
             self._full = self._core()
         return self._full
 
+    def add_changes(self, path: Path, **kwargs: Any) -> None:
+        """Stage ``path``, as LF when colrev's text-mode write made it CRLF.
+
+        ``index.add`` stores the bytes as they are and bypasses
+        ``core.autocrlf``, so a file core wrote on Windows is made LF first:
+        the committed bytes are the ones macOS would commit.
+        """
+        if portability.crlf_platform():
+            absolute = path if path.is_absolute() else self.path / path
+            if portability.is_owned_text_file(absolute):
+                portability.normalize_text_file(absolute)
+        full = self._ensure_full()
+        ensure_index_unlocked(self.path)
+        full.add_changes(path, **kwargs)
+
+    def close(self) -> None:
+        """Release the ``git cat-file`` child GitPython keeps for the repository."""
+        self.repo.close()
+
     def repo_initialized(self) -> bool:
         try:
             self.repo.head.commit
@@ -249,6 +269,17 @@ class LazyWriteGitRepo:
             return fn(*args, **kwargs)
 
         return call
+
+
+def close_lazy_git_repo(review_manager: Any) -> None:
+    """Close the ``LazyWriteGitRepo`` installed on ``review_manager``, if any."""
+    lazy = (
+        review_manager.dataset.__dict__.get("git_repo")
+        if review_manager is not None
+        else None
+    )
+    if isinstance(lazy, LazyWriteGitRepo):
+        lazy.close()
 
 
 def install_lazy_git_repo(

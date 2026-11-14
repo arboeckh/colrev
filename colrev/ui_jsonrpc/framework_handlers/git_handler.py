@@ -26,10 +26,12 @@ from pydantic import Field
 
 from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import rpc_method
 from colrev.ui_jsonrpc.framework.lazy_git import ensure_index_unlocked
+from colrev.ui_jsonrpc.framework.lazy_git import close_lazy_git_repo
 from colrev.ui_jsonrpc.framework.lazy_git import install_lazy_git_repo
 from colrev.ui_jsonrpc.framework.project_files import build_review_manager
 
@@ -256,6 +258,7 @@ class GitHandler(BaseHandler):
         # A failed ``add -A`` must fail the call: carrying on would commit
         # whatever happened to be staged already and report a partial commit
         # as the whole save.
+        portability.lf_sweep(self._project_path())
         repo.git.add("-A")
 
         # Detect staged changes. For a repo with no HEAD yet, any index entries
@@ -474,6 +477,7 @@ class GitHandler(BaseHandler):
             # Commit the working tree onto the backup branch without moving
             # the user's branch: check it out, commit, then come back.
             repo.git.checkout("-b", backup_ref)
+            portability.lf_sweep(Path(repo.working_tree_dir))
             repo.git.add("-A")
             repo.git.commit(
                 "-m",
@@ -501,8 +505,11 @@ class GitHandler(BaseHandler):
         return Path(self.ctx.project_path)
 
     def _repo(self) -> git.Repo:
-        """A fresh ``git.Repo`` on the project (these methods are git-only)."""
-        return git.Repo(str(self._project_path()))
+        """A fresh ``git.Repo`` on the project (these methods are git-only).
+
+        Closed by the dispatcher when the request ends.
+        """
+        return self.ctx.open_repo(self._project_path())
 
     def _discard_paths(
         self, repo: git.Repo, req: DiscardChangesRequest
@@ -571,7 +578,10 @@ class GitHandler(BaseHandler):
                 "commit_changes: project not loadable (%s); plain git commit", exc
             )
         if review_manager is not None:
-            review_manager.create_commit(msg=message, skip_hooks=True)
+            try:
+                review_manager.create_commit(msg=message, skip_hooks=True)
+            finally:
+                close_lazy_git_repo(review_manager)
             return
         # No hooks at all (``--no-verify`` leaves prepare-commit-msg running,
         # and the project's hooks load the project, which is what is broken).

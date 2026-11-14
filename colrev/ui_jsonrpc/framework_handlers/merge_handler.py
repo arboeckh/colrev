@@ -34,6 +34,7 @@ import colrev.settings
 from colrev.constants import Fields
 from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import rpc_method
@@ -273,7 +274,7 @@ class MergeHandler(BaseHandler):
         if ours is None:
             return
         assert self.review_manager is not None
-        repo = git.Repo(str(self.review_manager.path))
+        repo = self.ctx.open_repo(self.review_manager.path)
         active = repo.active_branch.name
         if active != ours:
             raise InvalidStateError(
@@ -284,7 +285,7 @@ class MergeHandler(BaseHandler):
     def _load_side_records(self, ref: str) -> Optional[dict]:
         """Records of ``ref`` (None when it has no records.bib)."""
         assert self.review_manager is not None
-        repo = git.Repo(str(self.review_manager.path))
+        repo = self.ctx.open_repo(self.review_manager.path)
         try:
             content = repo.git.show(
                 f"{ref}:{self.review_manager.paths.RECORDS_FILE_GIT}"
@@ -307,7 +308,7 @@ class MergeHandler(BaseHandler):
         left out, since those are real conflicts.
         """
         assert self.review_manager is not None
-        repo = git.Repo(str(self.review_manager.path))
+        repo = self.ctx.open_repo(self.review_manager.path)
         try:
             base_ref = repo.git.merge_base("HEAD", theirs).strip()
         except git.GitCommandError:
@@ -421,7 +422,8 @@ class MergeHandler(BaseHandler):
                 if result["reconciled"]
                 else MERGE_COMMIT_MESSAGE
             )
-            repo = git.Repo(str(self.review_manager.path))
+            repo = self.ctx.open_repo(self.review_manager.path)
+            portability.lf_sweep(self.review_manager.path)
             repo.git.add("-A")
             repo.git.commit("-m", message, "--no-verify")
             commit_sha = repo.head.commit.hexsha
@@ -456,6 +458,6 @@ class MergeHandler(BaseHandler):
             )
 
         settings_path = self.review_manager.paths.settings
-        with open(settings_path, "w", encoding="utf-8") as file:
+        with open(settings_path, "w", encoding="utf-8", newline="\n") as file:
             json.dump(merged, file, indent=4)
             file.write("\n")

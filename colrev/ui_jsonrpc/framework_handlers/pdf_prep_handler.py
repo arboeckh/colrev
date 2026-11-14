@@ -14,6 +14,7 @@ from colrev.constants import OperationsType
 from colrev.constants import RecordState
 from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import rpc_method
@@ -116,7 +117,7 @@ class PDFPrepHandler(BaseHandler):
         file_value = record_dict.get(Fields.FILE)
         if not file_value:
             raise InvalidStateError(f"Record '{req.record_id}' has no linked PDF")
-        pdf_path = self.review_manager.path / Path(str(file_value))
+        pdf_path = portability.project_file(self.review_manager.path, file_value)
         if not pdf_path.is_file():
             raise InvalidStateError(
                 f"The PDF for record '{req.record_id}' is not on this machine"

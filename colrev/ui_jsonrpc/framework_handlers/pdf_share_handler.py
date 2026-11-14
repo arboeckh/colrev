@@ -24,9 +24,11 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+import colrev.ops.pdf_get_man
 from colrev.constants import Fields
 from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import rpc_method
@@ -256,6 +258,12 @@ class PDFShareHandler(BaseHandler):
         """
         assert self.review_manager is not None
 
+        # Notify the review manager (``load_records_dict`` refuses to run
+        # before an operation was instantiated); no state transition happens.
+        colrev.ops.pdf_get_man.PDFGetMan(
+            review_manager=self.review_manager,
+            notify_state_transition_operation=False,
+        )
         records = self.review_manager.dataset.load_records_dict()
         if req.record_id not in records:
             raise ValueError(f"Record '{req.record_id}' not found")
@@ -273,9 +281,8 @@ class PDFShareHandler(BaseHandler):
         except Exception as exc:
             raise ValueError(f"Invalid base64 content: {exc}") from exc
 
-        target = Path(str(file_value))
-        if not target.is_absolute():
-            target = self.review_manager.path / target
+        # A ``file`` saved on Windows has backslashes: read both forms.
+        target = portability.project_file(self.review_manager.path, file_value)
 
         pdf_dir: Path = self.review_manager.paths.pdf
         try:

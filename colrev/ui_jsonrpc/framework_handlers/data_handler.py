@@ -24,6 +24,7 @@ from colrev.constants import OperationsType
 from colrev.constants import RecordState
 from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import rpc_method
@@ -237,7 +238,7 @@ class DataHandler(BaseHandler):
                     year=record_data.get(Fields.YEAR, ""),
                     journal=record_data.get(Fields.JOURNAL, ""),
                     booktitle=record_data.get(Fields.BOOKTITLE, ""),
-                    pdf_path=record_data.get(Fields.FILE, ""),
+                    pdf_path=portability.to_posix(record_data.get(Fields.FILE, "")),
                     extraction_values=extraction_values,
                 )
             )
@@ -526,7 +527,9 @@ class DataHandler(BaseHandler):
         assert self.review_manager is not None
         data_path = self._get_structured_data_path(ep_settings)
         data_path.parent.mkdir(parents=True, exist_ok=True)
-        data_df.to_csv(data_path, index=False, quoting=csv.QUOTE_ALL)
+        data_df.to_csv(
+            data_path, index=False, quoting=csv.QUOTE_ALL, lineterminator="\n"
+        )
         self.review_manager.dataset.git_repo.add_changes(
             Path(ep_settings.get("data_path_relative", "data/data/data.csv")),
             ignore_missing=True,

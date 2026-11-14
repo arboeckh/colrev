@@ -34,6 +34,7 @@ from colrev.constants import RecordState
 from colrev.package_manager.package_manager import PackageManager
 from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import ProgressEventKind
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
@@ -356,6 +357,8 @@ class PDFGetHandler(BaseHandler):
             record = colrev.record.record.Record(record_dict)
             pdf_get_man.pdf_get_man_record(record=record, filepath=target_path)
 
+        self._store_posix_file(req.record_id)
+
         # Auto-run PDF prep on the uploaded record
         prep_status = "skipped"
         prep_message: Optional[str] = None
@@ -428,6 +431,23 @@ class PDFGetHandler(BaseHandler):
             new_status=final_status,
             prep_status=prep_status,
             prep_message=prep_message,
+        )
+
+    def _store_posix_file(self, record_id: str) -> None:
+        """Make the record's ``file`` field ``data/pdfs/ID.pdf`` on every platform.
+
+        Core links the PDF with ``str(Path)``, which on Windows holds
+        backslashes: on a collaborator's Mac that names no file.
+        """
+        assert self.review_manager is not None
+        records = self.review_manager.dataset.load_records_dict()
+        record = records.get(record_id)
+        file_value = record.get(Fields.FILE) if record else None
+        if not file_value or "\\" not in str(file_value):
+            return
+        record[Fields.FILE] = portability.to_posix(file_value)
+        self.review_manager.dataset.save_records_dict(
+            {record_id: record}, partial=True
         )
 
     # -- mark_pdf_not_available --------------------------------------------

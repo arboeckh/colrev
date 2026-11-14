@@ -50,7 +50,6 @@ HAPPY_PATH_GAPS: dict[str, str] = {
     "prescreen": "batch prescreen over a loaded dataset — covered by e2e 03-prescreen",
     "screen": "batch screen over a loaded dataset — covered by e2e 06-screen",
     "enrich_record_metadata": "enriches from external metadata APIs — e2e 03-prescreen",
-    "restore_pdf_file": "needs a record whose metadata already references a file — e2e 04",
 }
 
 #: Methods with no reachable failure mode: no required params, no lookup that

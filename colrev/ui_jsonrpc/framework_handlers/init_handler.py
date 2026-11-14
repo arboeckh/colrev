@@ -16,7 +16,10 @@ import json
 import logging
 import os
 import shutil
+import stat
 import subprocess
+import sys
+import uuid
 from pathlib import Path
 from typing import List
 from typing import Optional
@@ -28,6 +31,7 @@ import colrev.exceptions as colrev_exceptions
 import colrev.ops.init
 from colrev.ui_jsonrpc import validation
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import NoProjectRequest
 from colrev.ui_jsonrpc.framework import SuccessResponse
 from colrev.ui_jsonrpc.framework import rpc_method
@@ -59,6 +63,85 @@ def _ensure_main_branch(target_path: Path) -> None:
             target_path,
             result.stderr.strip(),
         )
+
+
+def _ensure_gitattributes(target_path: Path) -> None:
+    """Pin LF line endings for the project's text files, and renormalise them.
+
+    ``* text=auto eol=lf`` makes git store LF whatever the platform's text
+    mode wrote (core colrev writes CRLF on Windows), so what a Windows
+    collaborator commits is what a Mac one would. ``--renormalize`` converts
+    the files the initial commits already hold. Best effort: a project
+    without the file still works, the RPC layer writes LF itself.
+    """
+    try:
+        portability.write_gitattributes(target_path)
+        for args in (
+            ["git", "add", ".gitattributes"],
+            ["git", "add", "--renormalize", "."],
+            ["git", "commit", "--no-verify", "-m", "Add .gitattributes (LF line endings)"],
+        ):
+            if args[1] == "commit":
+                staged = subprocess.run(
+                    ["git", "diff", "--cached", "--quiet"],
+                    cwd=str(target_path),
+                    capture_output=True,
+                )
+                if staged.returncode == 0:
+                    return
+            result = subprocess.run(
+                args, cwd=str(target_path), capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    "%s failed at %s: %s",
+                    " ".join(args[:2]),
+                    target_path,
+                    result.stderr.strip(),
+                )
+                return
+    except OSError as exc:
+        logger.warning("Could not add .gitattributes at %s: %s", target_path, exc)
+
+
+# A project being deleted is first renamed to ``<TRASH_PREFIX><id>-<random>``
+# (hidden, and never a valid project id: ids hold no dots), then removed.
+TRASH_PREFIX = ".colrev-trash-"
+
+
+def _clear_readonly_and_retry(func, path, _exc) -> None:  # type: ignore[no-untyped-def]
+    """``rmtree`` error handler: clear the read-only bit and retry.
+
+    Git writes its objects read-only, which Windows refuses to unlink.
+    """
+    for target in (os.path.dirname(path), path):
+        try:
+            os.chmod(target, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
+        except OSError:
+            pass
+    func(path)
+
+
+def remove_tree(path: Path) -> None:
+    """``shutil.rmtree`` that also removes read-only files (git objects)."""
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=_clear_readonly_and_retry)
+    else:  # pragma: no cover — onexc is 3.12+
+        shutil.rmtree(
+            path, onerror=lambda func, p, exc_info: _clear_readonly_and_retry(func, p, exc_info)
+        )
+
+
+def purge_trash(base_path: Path) -> None:
+    """Remove what an earlier ``delete_project`` could not (best effort)."""
+    if not base_path.is_dir():
+        return
+    for item in base_path.iterdir():
+        if item.name.startswith(TRASH_PREFIX) and item.is_dir():
+            try:
+                remove_tree(item)
+            except OSError as exc:
+                logger.warning("Could not remove leftover %s: %s", item, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +240,7 @@ class InitHandler(BaseHandler):
                 with open(settings_path, encoding="utf-8") as f:
                     settings = json.load(f)
                 settings["project"]["title"] = title
-                with open(settings_path, "w", encoding="utf-8") as f:
+                with open(settings_path, "w", encoding="utf-8", newline="\n") as f:
                     json.dump(settings, f, indent=4)
 
                 subprocess.run(
@@ -170,6 +253,8 @@ class InitHandler(BaseHandler):
                     cwd=str(target_path),
                     capture_output=True,
                 )
+
+            _ensure_gitattributes(target_path)
 
             return InitProjectResponse(
                 project_id=project_id,
@@ -207,8 +292,9 @@ class InitHandler(BaseHandler):
             logger.info("Base path %s does not exist, returning empty list", base_path)
             return ListProjectsResponse(projects=projects)
 
+        purge_trash(base_path)
         for item in base_path.iterdir():
-            if not item.is_dir():
+            if not item.is_dir() or item.name.startswith(TRASH_PREFIX):
                 continue
 
             settings_file = item / "settings.json"
@@ -261,13 +347,32 @@ class InitHandler(BaseHandler):
         if not settings_file.exists():
             raise ValueError(f"'{project_id}' is not a valid CoLRev project")
 
+        # Close what this process keeps open in the project: Windows cannot
+        # delete or rename a directory that holds an open file.
+        portability.close_log_handlers(project_path)
+
+        # All or nothing for the user: the rename either takes the whole
+        # project out of the list at once or fails and leaves it untouched.
+        # A removal that then fails halfway leaves a hidden leftover that is
+        # never listed and is removed on the next list/delete.
+        trash = base_path / f"{TRASH_PREFIX}{project_id}-{uuid.uuid4().hex[:8]}"
         try:
-            shutil.rmtree(project_path)
-            logger.info("Project %s deleted successfully", project_id)
-            return DeleteProjectResponse(
-                message=f"Project '{project_id}' deleted successfully",
-                project_id=project_id,
-            )
-        except Exception as e:
+            os.rename(project_path, trash)
+        except OSError as e:
             logger.exception("Failed to delete project %s", project_id)
-            raise RuntimeError(f"Failed to delete project: {str(e)}") from e
+            raise RuntimeError(
+                f"Failed to delete project: {e}. "
+                "Close anything using the project's folder and try again."
+            ) from e
+
+        message = f"Project '{project_id}' deleted successfully"
+        try:
+            remove_tree(trash)
+        except OSError:
+            logger.exception("Could not remove all files of project %s", project_id)
+            message += (
+                "; some files could not be removed and will be removed later"
+            )
+        purge_trash(base_path)
+        logger.info("Project %s deleted", project_id)
+        return DeleteProjectResponse(message=message, project_id=project_id)

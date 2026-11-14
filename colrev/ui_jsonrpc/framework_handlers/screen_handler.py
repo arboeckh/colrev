@@ -21,6 +21,7 @@ from colrev.constants import OperationsType
 from colrev.constants import RecordState
 from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import rpc_method
@@ -239,7 +240,7 @@ class ScreenHandler(BaseHandler):
                 if fld in r:
                     payload[fld] = r[fld]
             if Fields.FILE in r:
-                payload["pdf_path"] = r[Fields.FILE]
+                payload["pdf_path"] = portability.to_posix(r[Fields.FILE])
             if Fields.SCREENING_CRITERIA in r:
                 payload["current_criteria"] = _parse_criteria_string(
                     r[Fields.SCREENING_CRITERIA]

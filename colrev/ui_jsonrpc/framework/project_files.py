@@ -17,6 +17,7 @@ from typing import Any
 
 import colrev.review_manager
 from colrev.ui_jsonrpc.errors import ProjectFileUnreadableError
+from colrev.ui_jsonrpc.framework import portability
 
 SETTINGS_FILE = "settings.json"
 
@@ -61,6 +62,9 @@ def build_review_manager(
     fails with ``ProjectFileUnreadableError`` (-32010, naming the file) instead
     of a bare JSON-parser ``ValueError`` (-32602) or a generic setup error.
     """
+    # A source a Windows machine saved with backslash paths reads as another,
+    # missing file here: heal before colrev loads the settings.
+    portability.heal_search_history(Path(project_path))
     check_project_files_readable(Path(project_path))
     return colrev.review_manager.ReviewManager(
         path_str=str(project_path),
@@ -81,7 +85,7 @@ def write_json_atomic(path: Path, data: Any, **dump_kwargs: Any) -> None:
         dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
     )
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as file:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as file:
             json.dump(data, file, **dump_kwargs)
             file.flush()
             os.fsync(file.fileno())

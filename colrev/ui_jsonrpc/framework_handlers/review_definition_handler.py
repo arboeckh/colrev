@@ -25,6 +25,7 @@ import colrev.settings
 from colrev.constants import ScreenCriterionType
 from colrev.settings import ScreenCriterion
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import rpc_method
@@ -153,6 +154,7 @@ def _commit_settings(review_manager: Any, message: str) -> None:
     """
     repo = review_manager.dataset.git_repo.repo
     settings_path = str(review_manager.paths.settings)
+    portability.lf_sweep(review_manager.path)
     repo.git.add("--", settings_path)
     if not repo.git.diff("--cached", "--name-only", "--", settings_path).strip():
         return

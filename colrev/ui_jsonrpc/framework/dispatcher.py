@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 from typing import Callable
 from typing import Dict
+from typing import List
 from typing import TypeVar
 
 from git import GitCommandError
@@ -32,8 +33,10 @@ from pydantic import ValidationError
 import colrev.exceptions as colrev_exceptions
 from colrev.ui_jsonrpc import transport
 from colrev.ui_jsonrpc import validation
+from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework.context import HandlerContext
 from colrev.ui_jsonrpc.framework.lazy_git import IndexLockedError
+from colrev.ui_jsonrpc.framework.lazy_git import close_lazy_git_repo
 from colrev.ui_jsonrpc.framework.lazy_git import install_lazy_git_repo
 from colrev.ui_jsonrpc.framework.project_files import build_review_manager
 from colrev.ui_jsonrpc.framework.registry import MethodSpec
@@ -177,8 +180,13 @@ class Dispatcher:
         spec: MethodSpec,
         request_obj,
         project_path,
+        built: List[HandlerContext],
     ) -> HandlerContext:
-        """Construct the ReviewManager (unless git-only) and the handler context."""
+        """Construct the ReviewManager (unless git-only) and the handler context.
+
+        Every context built is appended to ``built`` so that the request's
+        cleanup (:meth:`_release`) reaches all of them, retried ones too.
+        """
         review_manager = None
         if not spec.git_only:
             review_manager = build_review_manager(
@@ -191,13 +199,16 @@ class Dispatcher:
                 # dirty, mirroring the engine's prep_man precedent.
                 review_manager.manual_decision_mode = True
             install_lazy_git_repo(review_manager, Path(project_path))
+            _keep_history_portable(review_manager, Path(project_path))
 
-        return HandlerContext(
+        ctx = HandlerContext(
             method_name=spec.name,
             project_id=getattr(request_obj, "project_id", None),
             project_path=Path(project_path),
             review_manager=review_manager,
         )
+        built.append(ctx)
+        return ctx
 
     def _call_handler(
         self, spec: MethodSpec, request_obj, ctx: HandlerContext
@@ -227,6 +238,7 @@ class Dispatcher:
         project_path,
     ) -> Dict[str, Any]:
         original_cwd = os.getcwd()
+        built: List[HandlerContext] = []
         try:
             os.chdir(project_path)
             if spec.writes:
@@ -237,7 +249,9 @@ class Dispatcher:
                 # reported (-32006) and the user retries the action.
                 ctx = _retry_on_lock(
                     spec.name,
-                    lambda: self._build_context(spec, request_obj, project_path),
+                    lambda: self._build_context(
+                        spec, request_obj, project_path, built
+                    ),
                 )
                 try:
                     return self._call_handler(spec, request_obj, ctx)
@@ -252,11 +266,47 @@ class Dispatcher:
                 lambda: self._call_handler(
                     spec,
                     request_obj,
-                    self._build_context(spec, request_obj, project_path),
+                    self._build_context(spec, request_obj, project_path, built),
                 ),
             )
         finally:
             os.chdir(original_cwd)
+            self._release(built, Path(project_path), spec.writes)
+
+    @staticmethod
+    def _release(
+        built: List[HandlerContext],
+        project_path: Path,
+        writes: bool,
+    ) -> None:
+        """End-of-request cleanup: LF files, no open handles on the project."""
+        try:
+            if writes:
+                portability.lf_sweep(project_path)
+        except OSError:
+            logger.exception("Could not normalise line endings in %s", project_path)
+        finally:
+            for ctx in built:
+                ctx.close_repos()
+                close_lazy_git_repo(ctx.review_manager)
+            portability.close_log_handlers(project_path)
+
+
+def _keep_history_portable(review_manager: Any, project_path: Path) -> None:
+    """After every ``save_settings``, put the history files' paths in POSIX form.
+
+    Core writes ``str(Path)`` into ``data/search/*_search_history.json``, which
+    on Windows is ``data\\search\\db1.bib``. Pulled onto a Mac that makes the
+    source unreadable (see :mod:`colrev.ui_jsonrpc.framework.portability`).
+    """
+    original = review_manager.save_settings
+
+    def save_settings(*args: Any, **kwargs: Any) -> Any:
+        result = original(*args, **kwargs)
+        portability.normalize_history_files(project_path)
+        return result
+
+    review_manager.save_settings = save_settings
 
 
 def _serialize(spec: MethodSpec, response_obj) -> Dict[str, Any]:

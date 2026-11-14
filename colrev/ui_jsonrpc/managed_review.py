@@ -157,7 +157,7 @@ class ManagedReviewService:
         """Persist the managed-review manifest."""
 
         manifest_path = self._manifest_path()
-        with open(manifest_path, "w", encoding="utf-8") as file:
+        with open(manifest_path, "w", encoding="utf-8", newline="\n") as file:
             json.dump(manifest, file, indent=2, sort_keys=True)
             file.write("\n")
 
