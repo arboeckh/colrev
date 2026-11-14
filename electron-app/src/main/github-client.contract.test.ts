@@ -46,8 +46,6 @@ interface ContractDriver {
   projectPath(): string;
   makeExistingCollaborator(login: string): void;
   seedReleases(tags: string[]): void;
-  /** Arrange: the releases API is unavailable / the repo is unknown. */
-  breakReleases(): void;
   /** Arrange: the push during `createRepoAndPush` fails. */
   breakPush(): void;
 }
@@ -140,10 +138,9 @@ function describeGitHubClientContract(name: string, makeDriver: () => ContractDr
         expect(releases.map((r) => r.tagName).sort()).toEqual(['v1.0', 'v1.1']);
       });
 
-      it('returns an empty list rather than throwing when releases are unavailable', async () => {
-        driver.breakReleases();
-        await expect(driver.client.listReleases(TOKEN, OWNER, REPO)).resolves.toEqual([]);
-      });
+      // An unavailable releases API is NOT reported as an empty list by the
+      // real client: it throws, so the UI can say so. That needs a failing
+      // API, which the fake does not have; see `github-manager.test.ts`.
     });
 
     describe('createRepoAndPush', () => {
@@ -236,10 +233,6 @@ describeGitHubClientContract('FakeGitHubClient', () => {
         registry.createRelease(OWNER, REPO, { tagName, name: tagName, body: '' });
       }
     },
-    breakReleases() {
-      // The fake's equivalent of a 404: nothing recorded for this repo. It
-      // must still answer with an empty list.
-    },
     breakPush() {
       // Not a git repository — the push must surface as an error result.
       fs.rmSync(path.join(project(), '.git'), { recursive: true, force: true });
@@ -265,7 +258,12 @@ describeGitHubClientContract('RealGitHubClient', () => {
   });
   routes.set('POST https://api.github.com/user/repos', {
     status: 201,
-    body: { html_url: `https://github.com/${OWNER}/${REPO}` },
+    body: {
+      name: REPO,
+      owner: { login: OWNER },
+      html_url: `https://github.com/${OWNER}/${REPO}`,
+      clone_url: `https://github.com/${OWNER}/${REPO}.git`,
+    },
   });
   routes.set(`PUT https://api.github.com/repos/${OWNER}/${REPO}/actions/permissions`, {
     status: 204,
@@ -335,12 +333,6 @@ describeGitHubClientContract('RealGitHubClient', () => {
           published_at: new Date(0).toISOString(),
           author: { login: OWNER },
         })),
-      });
-    },
-    breakReleases() {
-      routes.set(`GET https://api.github.com/repos/${OWNER}/${REPO}/releases?per_page=30`, {
-        status: 404,
-        body: { message: 'Not Found' },
       });
     },
     breakPush() {

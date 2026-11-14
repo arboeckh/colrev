@@ -4,6 +4,91 @@
  */
 import { parseOwnerRepo } from './github-url';
 
+/** An HTTP failure from the GitHub API. Thrown by list calls so that an
+ * expired token or a rate limit is not mistaken for "no results". */
+export class GitHubApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'GitHubApiError';
+  }
+}
+
+interface ResponseLike {
+  ok: boolean;
+  status: number;
+  headers?: { get(name: string): string | null };
+  json(): Promise<any>;
+}
+
+function isRateLimited(res: ResponseLike): boolean {
+  if (res.status === 429) return true;
+  return res.status === 403 && res.headers?.get('x-ratelimit-remaining') === '0';
+}
+
+/** Turn a non-OK response into a GitHubApiError with a message a person can act on. */
+async function apiError(res: ResponseLike, what: string): Promise<GitHubApiError> {
+  if (res.status === 401) {
+    return new GitHubApiError(
+      401,
+      `GitHub rejected the sign-in while ${what}. Sign in again and retry.`,
+    );
+  }
+  if (isRateLimited(res)) {
+    return new GitHubApiError(
+      res.status,
+      `GitHub rate limit reached while ${what}. Wait a few minutes and retry.`,
+    );
+  }
+  const body = await res.json().catch(() => ({}));
+  const detail = body?.message ? `: ${body.message}` : '';
+  return new GitHubApiError(res.status, `GitHub returned HTTP ${res.status} while ${what}${detail}`);
+}
+
+async function ensureOk(res: ResponseLike, what: string): Promise<void> {
+  if (!res.ok) throw await apiError(res, what);
+}
+
+// --- Session caches ---------------------------------------------------------
+// Listing repos is 1 + N requests; the suggestion box asks for it again on
+// every focus. Successful results are kept for a short time per token, and
+// concurrent identical requests share one in-flight promise.
+
+const CACHE_TTL_MS = 60_000;
+
+class TtlCache<T> {
+  private entries = new Map<string, { at: number; value: Promise<T> }>();
+
+  async get(key: string, load: () => Promise<T>): Promise<T> {
+    const hit = this.entries.get(key);
+    if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.value;
+    const value = load();
+    this.entries.set(key, { at: Date.now(), value });
+    // Failures are never cached.
+    value.catch(() => {
+      if (this.entries.get(key)?.value === value) this.entries.delete(key);
+    });
+    return value;
+  }
+
+  clear(): void {
+    this.entries.clear();
+  }
+}
+
+const userReposCache = new TtlCache<GitHubRepo[]>();
+const colrevReposCache = new TtlCache<GitHubRepo[]>();
+const suggestionCandidatesCache = new TtlCache<GitHubCollaborator[]>();
+
+/** Drop every cached list (after a change made through this app, and in tests). */
+export function clearGitHubCaches(): void {
+  userReposCache.clear();
+  colrevReposCache.clear();
+  suggestionCandidatesCache.clear();
+}
+
 export interface GitHubRepo {
   name: string;
   fullName: string;
@@ -24,7 +109,11 @@ export interface GitHubCollaborator {
 /**
  * Fetch all repos the authenticated user owns or collaborates on (paginated).
  */
-export async function listUserRepos(token: string): Promise<GitHubRepo[]> {
+export function listUserRepos(token: string): Promise<GitHubRepo[]> {
+  return userReposCache.get(token, () => fetchUserRepos(token));
+}
+
+async function fetchUserRepos(token: string): Promise<GitHubRepo[]> {
   const repos: GitHubRepo[] = [];
   let page = 1;
   const perPage = 100;
@@ -40,7 +129,7 @@ export async function listUserRepos(token: string): Promise<GitHubRepo[]> {
       },
     );
 
-    if (!res.ok) break;
+    await ensureOk(res, 'listing your repositories');
 
     const data = await res.json();
     if (!Array.isArray(data) || data.length === 0) break;
@@ -83,8 +172,17 @@ export async function checkIsColrevRepo(
         },
       },
     );
-    return res.status === 200;
-  } catch {
+    if (res.status === 200) return true;
+    // 404: no settings.json; 409: empty repository; 451/other 403: repo blocked
+    // or not readable. None of those make it a CoLRev repo, and none of them
+    // say anything about the account's access as a whole. A bad token or a
+    // rate limit does, so those surface.
+    if (res.status === 401 || isRateLimited(res)) {
+      throw await apiError(res, `checking ${owner}/${repo}`);
+    }
+    return false;
+  } catch (err) {
+    if (err instanceof GitHubApiError) throw err;
     return false;
   }
 }
@@ -93,7 +191,11 @@ export async function checkIsColrevRepo(
  * List all CoLRev repos for the authenticated user.
  * Checks repos in parallel (chunked, 10 concurrent).
  */
-export async function listColrevRepos(token: string): Promise<GitHubRepo[]> {
+export function listColrevRepos(token: string): Promise<GitHubRepo[]> {
+  return colrevReposCache.get(token, () => fetchColrevRepos(token));
+}
+
+async function fetchColrevRepos(token: string): Promise<GitHubRepo[]> {
   const allRepos = await listUserRepos(token);
   const colrevRepos: GitHubRepo[] = [];
   const chunkSize = 10;
@@ -150,7 +252,7 @@ export async function listReleases(
     },
   );
 
-  if (!res.ok) return [];
+  await ensureOk(res, `listing releases of ${owner}/${repo}`);
 
   const data = await res.json();
   if (!Array.isArray(data)) return [];
@@ -189,7 +291,7 @@ export async function listRepoCollaborators(
       },
     );
 
-    if (!res.ok) break;
+    await ensureOk(res, `listing collaborators of ${owner}/${repo}`);
 
     const data = await res.json();
     if (!Array.isArray(data) || data.length === 0) break;
@@ -233,7 +335,7 @@ async function listOrgMembers(token: string, org: string): Promise<GitHubCollabo
       },
     );
 
-    if (!res.ok) break;
+    await ensureOk(res, `listing members of ${org}`);
 
     const data = await res.json();
     if (!Array.isArray(data) || data.length === 0) break;
@@ -275,7 +377,7 @@ export async function searchGitHubUsers(
     },
   );
 
-  if (!res.ok) return [];
+  await ensureOk(res, 'searching GitHub users');
 
   const data = await res.json();
   if (!Array.isArray(data.items)) return [];
@@ -289,6 +391,10 @@ export async function searchGitHubUsers(
 
 /**
  * Suggest collaborators from org membership and other repositories the user can access.
+ *
+ * The candidate list costs up to 1 + 3 + 15 requests, so it is gathered once per
+ * token and repository and kept for a minute; `excludeLogins` is applied to the
+ * cached list, so it can change between calls.
  */
 export async function listSuggestedCollaborators(
   token: string,
@@ -297,12 +403,25 @@ export async function listSuggestedCollaborators(
   excludeLogins: string[],
 ): Promise<GitHubCollaborator[]> {
   const exclude = new Set(excludeLogins.map((login) => login.toLowerCase()));
+  const candidates = await suggestionCandidatesCache.get(`${token}\n${owner}/${repo}`, () =>
+    gatherSuggestionCandidates(token, owner, repo),
+  );
+  return candidates
+    .filter((c) => !exclude.has(c.login.toLowerCase()))
+    .slice(0, SUGGESTED_USER_LIMIT);
+}
+
+async function gatherSuggestionCandidates(
+  token: string,
+  owner: string,
+  repo: string,
+): Promise<GitHubCollaborator[]> {
   const currentFullName = `${owner}/${repo}`;
   const suggestions = new Map<string, GitHubCollaborator>();
 
   const addSuggestion = (collaborator: GitHubCollaborator) => {
     const key = collaborator.login.toLowerCase();
-    if (exclude.has(key) || suggestions.has(key)) return;
+    if (suggestions.has(key)) return;
     suggestions.set(key, collaborator);
   };
 
@@ -325,6 +444,8 @@ export async function listSuggestedCollaborators(
     // Ignore org lookup failures and fall back to repo-based suggestions.
   }
 
+  // Failing to list the account's repos (expired token, rate limit) is an
+  // error the caller should see, not an empty suggestion box.
   const repos = await listUserRepos(token);
   const otherRepos = repos
     .filter((entry) => entry.fullName !== currentFullName)
@@ -335,19 +456,21 @@ export async function listSuggestedCollaborators(
   for (let i = 0; i < otherRepos.length; i += chunkSize) {
     const chunk = otherRepos.slice(i, i + chunkSize);
     const results = await Promise.all(
-      chunk.map((entry) => listRepoCollaborators(token, entry.owner, entry.name)),
+      chunk.map((entry) =>
+        // Listing collaborators needs push access; repos the user can only read
+        // answer 403, which just means "no suggestions from this one".
+        listRepoCollaborators(token, entry.owner, entry.name).catch(() => []),
+      ),
     );
     for (const collaborators of results) {
       for (const collaborator of collaborators) {
         addSuggestion(collaborator);
-        if (suggestions.size >= SUGGESTED_USER_LIMIT) {
-          return Array.from(suggestions.values()).slice(0, SUGGESTED_USER_LIMIT);
-        }
       }
     }
+    if (suggestions.size >= SUGGESTED_USER_LIMIT * 2) break;
   }
 
-  return Array.from(suggestions.values()).slice(0, SUGGESTED_USER_LIMIT);
+  return Array.from(suggestions.values());
 }
 
 /**
@@ -435,7 +558,7 @@ export async function listPendingRepoInvitations(
     },
   );
 
-  if (!res.ok) return [];
+  await ensureOk(res, `listing pending invitations of ${owner}/${repo}`);
 
   const data = await res.json();
   if (!Array.isArray(data)) return [];
@@ -470,7 +593,7 @@ export async function listRepoInvitations(token: string): Promise<RepoInvitation
     },
   });
 
-  if (!res.ok) return [];
+  await ensureOk(res, 'listing your repository invitations');
 
   const data = await res.json();
   if (!Array.isArray(data)) return [];
@@ -608,13 +731,142 @@ interface CreateRepoAndPushResult {
   error?: string;
 }
 
+/**
+ * The name GitHub will give a repository created from `name`: runs of
+ * characters outside letters, digits, `.`, `-` and `_` become a hyphen
+ * ("My Review" becomes "My-Review"). Used to look a repository up again on a
+ * retry; the URL of a new repository always comes from GitHub's answer.
+ */
+export function normalizeRepoName(name: string): string {
+  return name.trim().replace(/[^A-Za-z0-9._-]+/g, '-');
+}
+
+type ExecFn = (args: string[], cwd: string) => Promise<{
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}>;
+
+/**
+ * Work out which branch to push, recovering a dangling HEAD. Local checks
+ * only: this runs before anything is created on GitHub, so that a project
+ * that cannot be pushed does not leave an empty repository behind.
+ */
+async function resolvePushBranch(
+  exec: ExecFn,
+  projectPath: string,
+): Promise<{ branch: string } | { error: string }> {
+  const branchRes = await exec(['symbolic-ref', '--short', 'HEAD'], projectPath);
+  if (branchRes.exitCode !== 0) {
+    return {
+      error:
+        'Cannot push: the repository has no commits yet. ' +
+        'Initialize the project fully before publishing to GitHub.',
+    };
+  }
+  let branch = branchRes.stdout.trim();
+
+  // Defensive: if HEAD points at a ref that doesn't exist (dangling — can
+  // happen when an upstream rename updated the ref but not HEAD), recover
+  // before pushing. Try `main`; otherwise pick any branch with commits.
+  const refCheck = await exec(['rev-parse', '--verify', `refs/heads/${branch}`], projectPath);
+  if (refCheck.exitCode !== 0) {
+    const branchesRes = await exec(
+      ['for-each-ref', '--format=%(refname:short)', 'refs/heads/'],
+      projectPath,
+    );
+    const localBranches = branchesRes.stdout
+      .trim()
+      .split('\n')
+      .map((b) => b.trim())
+      .filter((b) => b.length > 0);
+    const recoverTo = localBranches.find((b) => b === 'main') ?? localBranches[0];
+    if (!recoverTo) {
+      return { error: 'Cannot push: HEAD is dangling and no local branches have commits.' };
+    }
+    const fix = await exec(['symbolic-ref', 'HEAD', `refs/heads/${recoverTo}`], projectPath);
+    if (fix.exitCode !== 0) {
+      return { error: `Cannot push: could not repair HEAD: ${fix.stderr || fix.stdout}` };
+    }
+    branch = recoverTo;
+  }
+  return { branch };
+}
+
+/** A repository that already exists on the account and has no branches yet. */
+async function findReusableEmptyRepo(
+  token: string,
+  login: string,
+  name: string,
+): Promise<{ data: any } | { reason: string }> {
+  const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+  const repoRes = await fetch(`https://api.github.com/repos/${login}/${name}`, { headers });
+  if (!repoRes.ok) {
+    return { reason: `GitHub returned HTTP ${repoRes.status} when looking up ${login}/${name}` };
+  }
+  const data = await repoRes.json();
+  if (String(data.owner?.login ?? '').toLowerCase() !== login.toLowerCase()) {
+    return { reason: `${login}/${name} is not owned by this account` };
+  }
+  const branchesRes = await fetch(
+    `https://api.github.com/repos/${login}/${name}/branches?per_page=1`,
+    { headers },
+  );
+  if (!branchesRes.ok) {
+    return { reason: `could not check whether ${login}/${name} is empty (HTTP ${branchesRes.status})` };
+  }
+  const branches = await branchesRes.json();
+  if (!Array.isArray(branches) || branches.length > 0) {
+    return { reason: `${login}/${name} already has commits` };
+  }
+  return { data };
+}
+
 export async function createRepoAndPush(
   params: CreateRepoAndPushParams,
 ): Promise<CreateRepoAndPushResult> {
   const { token, repoName, projectPath, isPrivate, description } = params;
-  const { exec } = await import('dugite');
+  const { exec } = (await import('dugite')) as { exec: ExecFn };
+
+  // What is on GitHub once the repository exists; used to say where things
+  // stand if a later step fails.
+  let created: { fullName: string; htmlUrl: string } | null = null;
+  // The project's `origin` as it was before this call, restored on failure.
+  let originBefore: { url: string | null } | null = null;
+  let originChanged = false;
+
+  const restoreOrigin = async (): Promise<string> => {
+    if (!originChanged || !originBefore) return "The project's 'origin' remote was not changed.";
+    const res = originBefore.url
+      ? await exec(['remote', 'set-url', 'origin', originBefore.url], projectPath)
+      : await exec(['remote', 'remove', 'origin'], projectPath);
+    originChanged = res.exitCode !== 0;
+    if (res.exitCode !== 0) {
+      return `The project's 'origin' remote could not be restored (${res.stderr || res.stdout}); check it with "git remote -v".`;
+    }
+    return originBefore.url
+      ? `The project's 'origin' remote was restored to ${originBefore.url}.`
+      : "The project's 'origin' remote was removed again.";
+  };
+
+  const fail = async (message: string): Promise<CreateRepoAndPushResult> => {
+    if (!created) return { success: false, error: message };
+    const originNote = await restoreOrigin();
+    return {
+      success: false,
+      error:
+        `${message}\n\nThe repository ${created.fullName} was created on GitHub (${created.htmlUrl}) ` +
+        `but nothing was pushed to it. ${originNote} ` +
+        `Publish again with the same name to reuse the empty repository.`,
+    };
+  };
 
   try {
+    // 0. Local preflight, before anything exists on GitHub.
+    const resolved = await resolvePushBranch(exec, projectPath);
+    if ('error' in resolved) return { success: false, error: resolved.error };
+    const { branch } = resolved;
+
     // 1. Get the authenticated user's login
     const userRes = await fetch('https://api.github.com/user', {
       headers: {
@@ -630,7 +882,13 @@ export async function createRepoAndPush(
     const userData = await userRes.json();
     const login: string = userData.login;
 
-    // 2. Create the repository on GitHub
+    // 2. Create the repository on GitHub — or, on a retry, reuse the empty one
+    // an earlier attempt left behind.
+    const name = normalizeRepoName(repoName);
+    if (!name || name === '.' || name === '..') {
+      return { success: false, error: `"${repoName}" is not a valid repository name.` };
+    }
+
     const createRes = await fetch('https://api.github.com/user/repos', {
       method: 'POST',
       headers: {
@@ -639,30 +897,48 @@ export async function createRepoAndPush(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        name: repoName,
+        name,
         private: isPrivate,
         description: description || '',
         auto_init: false,
       }),
     });
 
-    if (!createRes.ok) {
-      const errorData = await createRes.json();
+    let repoData: any;
+    if (createRes.ok) {
+      repoData = await createRes.json();
+      clearGitHubCaches();
+    } else {
+      const errorData = await createRes.json().catch(() => ({}));
       const msg =
         errorData.errors?.[0]?.message || errorData.message || 'Failed to create repository';
-      return { success: false, error: msg };
+      if (createRes.status !== 422 || !/already exists/i.test(msg)) {
+        return { success: false, error: msg };
+      }
+      const existing = await findReusableEmptyRepo(token, login, name);
+      if ('reason' in existing) {
+        return {
+          success: false,
+          error: `A repository named "${name}" already exists on this account and cannot be reused (${existing.reason}). Choose another name.`,
+        };
+      }
+      repoData = existing.data;
     }
 
-    const repoData = await createRes.json();
+    // From here on, the names and URLs are the ones GitHub reports: it may
+    // have normalised what the user typed.
+    const repoOwner: string = repoData.owner?.login ?? login;
+    const actualName: string = repoData.name;
     const htmlUrl: string = repoData.html_url;
-    const cleanUrl = `https://github.com/${login}/${repoName}.git`;
+    const cleanUrl: string = repoData.clone_url;
+    created = { fullName: `${repoOwner}/${actualName}`, htmlUrl };
 
     // 2b. Disable GitHub Actions before the first push. CoLRev projects ship
     // workflow files that would otherwise run CI on every sync. Best-effort:
     // a failure here must not block publishing.
     try {
       const actionsRes = await fetch(
-        `https://api.github.com/repos/${login}/${repoName}/actions/permissions`,
+        `https://api.github.com/repos/${repoOwner}/${actualName}/actions/permissions`,
         {
           method: 'PUT',
           headers: {
@@ -675,71 +951,31 @@ export async function createRepoAndPush(
       );
       if (!actionsRes.ok) {
         console.warn(
-          `[github] could not disable Actions on ${login}/${repoName}: HTTP ${actionsRes.status}`,
+          `[github] could not disable Actions on ${repoOwner}/${actualName}: HTTP ${actionsRes.status}`,
         );
       }
     } catch (err) {
-      console.warn(`[github] could not disable Actions on ${login}/${repoName}:`, err);
+      console.warn(`[github] could not disable Actions on ${repoOwner}/${actualName}:`, err);
     }
     const auth = Buffer.from(`x-access-token:${token}`).toString('base64');
     const authArgs = ['-c', `http.extraheader=Authorization: Basic ${auth}`];
 
     // 3. Set origin to the clean URL — token never lands in .git/config.
-    const remoteResult = await exec(['remote'], projectPath);
-    const remotes = remoteResult.stdout
-      .trim()
-      .split('\n')
-      .filter((r) => r.length > 0);
-    const hasOrigin = remotes.includes('origin');
-
-    if (hasOrigin) {
-      await exec(['remote', 'set-url', 'origin', cleanUrl], projectPath);
-    } else {
-      await exec(['remote', 'add', 'origin', cleanUrl], projectPath);
-    }
-
-    // 4. Push the current branch — whatever it's named locally.
-    const branchRes = await exec(['symbolic-ref', '--short', 'HEAD'], projectPath);
-    if (branchRes.exitCode !== 0) {
-      return {
-        success: false,
-        error:
-          'Cannot push: the repository has no commits yet. ' +
-          'Initialize the project fully before publishing to GitHub.',
-      };
-    }
-    let branch = branchRes.stdout.trim();
-
-    // Defensive: if HEAD points at a ref that doesn't exist (dangling — can
-    // happen when an upstream rename updated the ref but not HEAD), recover
-    // before pushing. Try `main`; otherwise pick any branch with commits.
-    const refCheck = await exec(
-      ['rev-parse', '--verify', `refs/heads/${branch}`],
+    const currentOrigin = await exec(['remote', 'get-url', 'origin'], projectPath);
+    const hadOrigin = currentOrigin.exitCode === 0;
+    originBefore = { url: hadOrigin ? currentOrigin.stdout.trim() : null };
+    const remoteResult = await exec(
+      ['remote', hadOrigin ? 'set-url' : 'add', 'origin', cleanUrl],
       projectPath,
     );
-    if (refCheck.exitCode !== 0) {
-      const branchesRes = await exec(
-        ['for-each-ref', '--format=%(refname:short)', 'refs/heads/'],
-        projectPath,
+    if (remoteResult.exitCode !== 0) {
+      return fail(
+        `Could not set the project's 'origin' remote to ${cleanUrl}: ${remoteResult.stderr || remoteResult.stdout}`,
       );
-      const localBranches = branchesRes.stdout
-        .trim()
-        .split('\n')
-        .map((b) => b.trim())
-        .filter((b) => b.length > 0);
-      const recoverTo =
-        localBranches.find((b) => b === 'main') ?? localBranches[0];
-      if (!recoverTo) {
-        return {
-          success: false,
-          error:
-            'Cannot push: HEAD is dangling and no local branches have commits.',
-        };
-      }
-      await exec(['symbolic-ref', 'HEAD', `refs/heads/${recoverTo}`], projectPath);
-      branch = recoverTo;
     }
+    originChanged = true;
 
+    // 4. Push the current branch — whatever it's named locally.
     // --no-verify skips git hooks. CoLRev's init installs pre-commit pre-push
     // hooks that hard-code sys.executable, which in the packaged app is the
     // PyInstaller bundle (`colrev-jsonrpc`) — not a real Python — so the hook
@@ -750,17 +986,11 @@ export async function createRepoAndPush(
       projectPath,
     );
     if (pushResult.exitCode !== 0) {
-      return {
-        success: false,
-        error: `Git push failed (branch ${branch}): ${pushResult.stderr || pushResult.stdout}`,
-      };
+      return fail(`Git push failed (branch ${branch}): ${pushResult.stderr || pushResult.stdout}`);
     }
 
     return { success: true, repoUrl: cleanUrl, htmlUrl };
   } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : 'Unknown error creating repository',
-    };
+    return fail(err instanceof Error ? err.message : 'Unknown error creating repository');
   }
 }

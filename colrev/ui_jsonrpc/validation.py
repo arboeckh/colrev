@@ -1,4 +1,5 @@
 """Parameter validation for JSON-RPC requests."""
+import re
 from pathlib import Path
 from typing import Any
 from typing import Dict
@@ -6,29 +7,40 @@ from typing import Dict
 from colrev.ui_jsonrpc.errors import NotFoundError
 
 
-def sanitize_project_id(project_id: str) -> str:
+# What GitHub accepts in a repository name (letters, digits, ``.``, ``-``,
+# ``_``), minus a leading dot: a project id is a directory name, and a cloned
+# repository's id is its GitHub name.
+_PROJECT_ID_PATTERN = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
+
+
+def validate_project_id(project_id: Any) -> str:
     """
-    Sanitize project_id to prevent path traversal attacks.
+    Validate a project_id, which names a directory directly under the base path.
+
+    The id is checked, never rewritten: rewriting made ``review.v2`` resolve to
+    a different directory (``reviewv2``) than the one that was listed.
 
     Args:
-        project_id: The project identifier to sanitize
+        project_id: The project identifier to validate
 
     Returns:
-        Sanitized project_id containing only alphanumeric characters, hyphens, and underscores
+        The unchanged project_id
 
     Raises:
-        ValueError: If project_id is empty or invalid after sanitization
+        ValueError: If project_id is empty, or contains anything other than
+            letters, digits, ``.``, ``-`` and ``_``, or starts with a dot (which
+            excludes ``.``, ``..`` and path separators).
     """
     if not project_id:
         raise ValueError("project_id is required")
 
-    # Remove any characters that aren't alphanumeric, hyphen, or underscore
-    sanitized = "".join(c for c in project_id if c.isalnum() or c in ("-", "_"))
+    if not isinstance(project_id, str) or not _PROJECT_ID_PATTERN.fullmatch(project_id):
+        raise ValueError(
+            f"Invalid project_id {project_id!r}: use only letters, digits, "
+            "'.', '-' and '_', and do not start with a dot"
+        )
 
-    if not sanitized:
-        raise ValueError("project_id must contain alphanumeric characters")
-
-    return sanitized
+    return project_id
 
 
 def validate_project_path(params: Dict[str, Any]) -> Path:
@@ -48,8 +60,8 @@ def validate_project_path(params: Dict[str, Any]) -> Path:
     if not project_id:
         raise ValueError("project_id is required")
 
-    # Sanitize to prevent path traversal
-    project_id = sanitize_project_id(project_id)
+    # Reject anything that could leave the base path
+    project_id = validate_project_id(project_id)
 
     # Get base path or use default
     base_path = Path(params.get("base_path", "./projects"))
