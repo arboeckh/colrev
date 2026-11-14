@@ -6,10 +6,9 @@ extraction table. Its configuration lives in ``settings.json`` and is written
 through ``configure_structured_endpoint``; the data page then renders whatever
 ``get_data_extraction_queue`` reports. Neither had a test.
 
-Running the extraction itself (``save_data_extraction`` / ``export_data_csv``
-/ ``data``) needs records at ``rev_included`` plus the data operation's
-package chain, and is covered by the Playwright pipeline instead — see
-``HAPPY_PATH_GAPS`` in ``test_zz_method_coverage.py``.
+``save_data_extraction`` is covered at the bottom (records at ``rev_included``);
+``export_data_csv`` / ``data`` are covered by the Playwright pipeline instead —
+see ``HAPPY_PATH_GAPS`` in ``test_zz_method_coverage.py``.
 """
 from __future__ import annotations
 

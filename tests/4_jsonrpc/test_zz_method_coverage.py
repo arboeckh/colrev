@@ -49,7 +49,6 @@ HAPPY_PATH_GAPS: dict[str, str] = {
     "search": "issues live API searches — covered by e2e 01-search (recorded HTTP)",
     # --- need a project carried far down the pipeline ----------------------
     "export_data_csv": "needs a populated data/data.csv — covered by e2e 07-data",
-    "save_data_extraction": "runs the data operation on rev_included records — e2e 07-data",
     "prescreen": "batch prescreen over a loaded dataset — covered by e2e 03-prescreen",
     "screen": "batch screen over a loaded dataset — covered by e2e 06-screen",
     "screen_record": "needs records at pdf_prepared — covered by e2e 06-screen",
