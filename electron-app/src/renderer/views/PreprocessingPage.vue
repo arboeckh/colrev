@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { storeToRefs } from 'pinia';
 import {
   Play,
   Loader2,
@@ -18,6 +19,8 @@ import { Badge } from '@/components/ui/badge';
 import { useProjectsStore } from '@/stores/projects';
 import { computePreprocessingStages } from '@/lib/stepStatus';
 import { useBackendStore } from '@/stores/backend';
+import { usePageRunsStore, type PreprocessingStageId } from '@/stores/pageRuns';
+import { LoadErrorState } from '@/components/common';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useReadOnly } from '@/composables/useReadOnly';
 import PreprocessingResultsModal from '@/components/preprocessing/PreprocessingResultsModal.vue';
@@ -30,11 +33,12 @@ import { formatCount, countTextSizeClass } from '@/lib/utils';
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
+const pageRuns = usePageRunsStore();
 const notifications = useNotificationsStore();
 const { isReadOnly } = useReadOnly();
 
 // Stage definitions
-type StageId = 'load' | 'prep' | 'dedupe';
+type StageId = PreprocessingStageId;
 interface Stage {
   id: StageId;
   label: string;
@@ -72,11 +76,12 @@ const stageDefinitions: Stage[] = [
 ];
 
 // State
-const isRunning = ref(false);
-const currentStage = ref<StageId | null>(null);
-const completedStages = ref<Set<StageId>>(new Set());
+// The run state lives in a store: the run keeps going when the user leaves the
+// page, and the page they come back to must still show it.
+const { isPreprocessing: isRunning, currentStage, completedStages } = storeToRefs(pageRuns);
 const sources = ref<SearchSource[]>([]);
 const isLoadingSources = ref(false);
+const sourcesLoadError = ref<string | null>(null);
 const showResultsModal = ref(false);
 
 // Filter out FILES type sources (like files_dir)
@@ -124,6 +129,9 @@ const needsAttentionCount = computed(() => {
   return projects.currentStatus?.currently?.md_needs_manual_preparation ?? 0;
 });
 
+// Another operation (a search, a prescreen, a sync…) holds the backend.
+const isBackendBusy = computed(() => !isRunning.value && backend.runningOperation !== null);
+
 // Check if we can run preprocessing
 const canRunPreprocessing = computed(() => {
   // Can run if there are records to process at any stage
@@ -143,6 +151,7 @@ async function loadSources() {
   if (!projects.currentProjectId || !backend.isRunning) return;
 
   isLoadingSources.value = true;
+  sourcesLoadError.value = null;
   try {
     const response = await backend.call('get_sources', {
       project_id: projects.currentProjectId,
@@ -152,7 +161,9 @@ async function loadSources() {
     }
   } catch (err) {
     console.error('Failed to load sources:', err);
-    // Keep existing sources on error - don't clear
+    // Keep existing sources on error - don't clear - but say so: an empty
+    // list must not be mistaken for "no sources".
+    sourcesLoadError.value = err instanceof Error ? err.message : 'Unknown error';
   } finally {
     isLoadingSources.value = false;
   }
@@ -178,7 +189,7 @@ async function runStage(stageId: StageId): Promise<boolean> {
     }
 
     await backend.callUntyped(stageId, params);
-    completedStages.value.add(stageId);
+    if (!completedStages.value.includes(stageId)) completedStages.value.push(stageId);
     return true;
   } catch (err) {
     const error = err instanceof Error ? err : new Error('Unknown error');
@@ -189,20 +200,25 @@ async function runStage(stageId: StageId): Promise<boolean> {
 
 // Run all stages sequentially
 async function runAllStages() {
-  if (isRunning.value || !projects.currentProjectId) return;
+  if (isRunning.value || backend.runningOperation !== null || !projects.currentProjectId) return;
 
   isRunning.value = true;
-  completedStages.value.clear();
+  completedStages.value = [];
 
   try {
     // Run each stage in sequence — no gaps between stages.
     // Backend operations handle empty cases gracefully (no-op if nothing to process).
+    let failed = false;
     for (const stage of stageDefinitions) {
       const success = await runStage(stage.id);
-      if (!success) break;
+      if (!success) {
+        // runStage has already shown which stage failed and why.
+        failed = true;
+        break;
+      }
     }
 
-    notifications.success('Preprocessing completed');
+    if (!failed) notifications.success('Preprocessing completed');
   } catch (err) {
     const error = err instanceof Error ? err : new Error('Unknown error');
     notifications.error('Preprocessing failed', error.message);
@@ -227,7 +243,7 @@ const stageVisualStatuses = computed(() => {
   for (const stageId of ['load', 'prep', 'dedupe'] as StageId[]) {
     // Check completedStages FIRST so a finished stage immediately shows 'complete'
     // even while currentStage still points to it (before the next stage starts)
-    if (completedStages.value.has(stageId)) {
+    if (completedStages.value.includes(stageId)) {
       statuses[stageId] = 'complete';
     } else if (currentStage.value === stageId && isRunning.value) {
       statuses[stageId] = 'running';
@@ -279,7 +295,7 @@ watch(
     // Only clear completedStages when switching to a DIFFERENT project
     // Don't clear when refreshing the same project (oldId === newId)
     if (newId !== oldId && oldId !== undefined) {
-      completedStages.value.clear();
+      completedStages.value = [];
     }
   }
 );
@@ -295,7 +311,7 @@ watch(
     <div class="flex items-center justify-end">
       <Button
         v-if="visibleSources.length > 0"
-        :disabled="!canRunPreprocessing || isRunning || isReadOnly"
+        :disabled="!canRunPreprocessing || isRunning || isBackendBusy || isReadOnly"
         data-testid="preprocessing-run-all-button"
         @click="runAllStages"
       >
@@ -307,9 +323,18 @@ watch(
 
     <Separator />
 
+    <!-- Sources failed to load: not the same as having none -->
+    <LoadErrorState
+      v-if="sourcesLoadError && visibleSources.length === 0 && !isLoadingSources"
+      title="Failed to load search sources"
+      :message="sourcesLoadError"
+      test-id="preprocessing-sources-load-error"
+      @retry="loadSources"
+    />
+
     <!-- No sources: prompt -->
     <div
-      v-if="visibleSources.length === 0 && !isLoadingSources"
+      v-else-if="visibleSources.length === 0 && !isLoadingSources"
       class="flex flex-col items-center justify-center py-16 rounded-lg border border-dashed border-border bg-muted/20 text-center"
     >
       <Database class="h-10 w-10 text-muted-foreground mb-3" />
