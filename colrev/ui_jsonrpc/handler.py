@@ -21,6 +21,7 @@ from typing import Optional
 from typing import TYPE_CHECKING
 
 from colrev.ui_jsonrpc import error_handler
+from colrev.ui_jsonrpc import transport
 from colrev.ui_jsonrpc.framework.models import PingResponse
 
 if TYPE_CHECKING:
@@ -45,7 +46,9 @@ class JSONRPCHandler:
         thread in server.py so the heavy import cost is paid while the
         renderer is still painting, not on the first user action."""
         try:
-            self._ensure_dispatcher()
+            # Imports can print; keep that off the JSON-RPC wire.
+            with transport.stdout_to_devnull():
+                self._ensure_dispatcher()
         except Exception:  # noqa: BLE001 — preload is best-effort
             logger.exception("Background handler preload failed")
 

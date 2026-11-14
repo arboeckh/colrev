@@ -21,6 +21,8 @@ from __future__ import annotations
 import os
 import sys
 import threading
+from contextlib import contextmanager
+from typing import Iterator
 from typing import Optional
 from typing import TextIO
 
@@ -51,6 +53,44 @@ def write_line(line: str) -> None:
         out: TextIO = _wire if _wire is not None else sys.stdout
         out.write(line + "\n")
         out.flush()
+
+
+_redirect_lock = threading.Lock()
+_redirect_depth = 0
+_redirect_saved_fd: Optional[int] = None
+
+
+@contextmanager
+def stdout_to_devnull() -> Iterator[None]:
+    """Point OS fd 1 at /dev/null so stray writers cannot reach the wire.
+
+    Re-entrant and thread-safe: the preload thread and the request loop may
+    overlap, so the first entry saves fd 1 and the last exit restores it.
+    Python's own ``sys.stdout`` buffer is flushed *while still redirected*
+    before the restore, so a buffered partial line goes to /dev/null instead
+    of being glued to the next JSON line on the wire.
+    """
+    global _redirect_depth, _redirect_saved_fd
+    with _redirect_lock:
+        if _redirect_depth == 0:
+            _redirect_saved_fd = os.dup(1)
+            devnull_fd = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull_fd, 1)
+            os.close(devnull_fd)
+        _redirect_depth += 1
+    try:
+        yield
+    finally:
+        with _redirect_lock:
+            _redirect_depth -= 1
+            if _redirect_depth == 0 and _redirect_saved_fd is not None:
+                try:
+                    sys.stdout.flush()
+                except (OSError, ValueError):
+                    pass
+                os.dup2(_redirect_saved_fd, 1)
+                os.close(_redirect_saved_fd)
+                _redirect_saved_fd = None
 
 
 def _reset_for_tests() -> None:
