@@ -9,6 +9,7 @@ import {
   serializeRpcError,
 } from './colrev-backend';
 import { setupGitEnvironment } from './git-env';
+import { writeGitIdentity } from './git-identity';
 import { AuthManager } from './auth-manager';
 import { AccountScopedProjectPaths } from './account-scoped-project-paths';
 
@@ -250,6 +251,11 @@ function appInfo() {
 // --- Registration ----------------------------------------------------------
 
 function setupIPC() {
+  // Commits are made as the signed-in GitHub account (see git-identity.ts).
+  const userDataDir = app.getPath('userData');
+  writeGitIdentity(userDataDir, authManager.getCachedSession()?.user ?? null);
+  authManager.setActiveUserCallback((user) => writeGitIdentity(userDataDir, user));
+
   let activeLogin = authManager.getCachedSession()?.user.login ?? null;
   authManager.setAuthUpdateCallback((session) => {
     const login = session?.user.login ?? null;

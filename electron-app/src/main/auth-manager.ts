@@ -38,6 +38,8 @@ export interface GitHubUser {
   name: string | null;
   avatarUrl: string;
   email: string | null;
+  /** GitHub's numeric user id. Missing on accounts stored before it was kept. */
+  id?: number;
 }
 
 export interface AuthSession {
@@ -88,6 +90,7 @@ export class AuthManager {
   private pollingAbort: AbortController | null = null;
   private onAuthUpdate: AuthEventCallback | null = null;
   private onDeviceFlowStatus: DeviceFlowCallback | null = null;
+  private onActiveUser: ((user: GitHubUser | null) => void) | null = null;
 
   private get storePath(): string {
     return path.join(app.getPath('userData'), 'auth.json');
@@ -131,6 +134,15 @@ export class AuthManager {
     fs.writeFileSync(this.storePath, JSON.stringify(data, null, 2), 'utf-8');
   }
 
+  /** Keep the stored profile current (name, email, id) after a refresh. */
+  private saveRefreshedProfile(user: GitHubUser): void {
+    const store = this.readStore();
+    const account = store.accounts.find((a) => a.user.login === user.login);
+    if (!account) return;
+    account.user = user;
+    this.writeStore(store);
+  }
+
   private getActiveAccount(): StoredAccount | null {
     const store = this.readStore();
     if (!store.activeLogin || store.accounts.length === 0) return null;
@@ -147,8 +159,19 @@ export class AuthManager {
     this.onDeviceFlowStatus = cb;
   }
 
+  /**
+   * Called with the active account's profile whenever it is set, changes or
+   * is refreshed from GitHub, and with null when no account is left. Unlike
+   * the auth-update callback this also fires on the boot-time refresh in
+   * getSession(), which the renderer doesn't need to hear about.
+   */
+  setActiveUserCallback(cb: (user: GitHubUser | null) => void) {
+    this.onActiveUser = cb;
+  }
+
   private emitAuthUpdate(session: AuthSession | null) {
     this.onAuthUpdate?.(session);
+    this.onActiveUser?.(session?.user ?? null);
   }
 
   private emitDeviceFlowStatus(status: DeviceFlowStatus) {
@@ -172,6 +195,8 @@ export class AuthManager {
 
     try {
       const user = await this.fetchUserProfile(token);
+      this.saveRefreshedProfile(user);
+      this.onActiveUser?.(user);
       return { user, authenticatedAt: account.authenticatedAt };
     } catch (e) {
       if (e instanceof AuthError) {
@@ -509,6 +534,7 @@ export class AuthManager {
       name: data.name,
       avatarUrl: data.avatar_url,
       email: data.email,
+      id: typeof data.id === 'number' ? data.id : undefined,
     };
   }
 
