@@ -19,6 +19,8 @@ export type AutoSyncAction =
   | { kind: 'fetch' }
   | { kind: 'pull' }
   | { kind: 'push' }
+  /** Push local `main` (not checked out) after a publish that never reached the remote. */
+  | { kind: 'pushMain' }
   | { kind: 'resolve' };
 
 /**
@@ -39,7 +41,48 @@ export type IdleReason =
   | 'auto-pull-disabled'
   | 'auto-push-disabled'
   | 'push-debounce'
+  /** The remote rejected our credentials; automatic pushes wait for a sign-in. */
+  | 'push-auth-failed'
+  /** A push failed; the next attempt waits out a growing delay. */
+  | 'push-backoff'
+  /** A pull failed (or was refused); the next attempt waits out a growing delay. */
+  | 'pull-backoff'
   | 'up-to-date';
+
+/** A remote operation that failed, and how many times in a row. */
+export interface OperationFailure {
+  /** ms since epoch of the most recent failure. */
+  at: number;
+  /** Consecutive failures; drives the backoff. */
+  count: number;
+}
+
+export interface PushFailure extends OperationFailure {
+  /**
+   * `rejected`: the remote moved on (`REJECTED_FETCH_FIRST`) — the fix is to
+   * fetch, not to push again. `auth`: credentials rejected — nothing automatic
+   * can fix it. `other`: anything else (protected branch, server error).
+   */
+  kind: 'rejected' | 'auth' | 'other';
+}
+
+/**
+ * How long to wait after `count` consecutive failures: `base`, then doubling,
+ * capped at `max`. A failure that repeats on every 5s tick is a loop, not a
+ * retry.
+ */
+export function retryDelayMs(count: number, base: number, max: number): number {
+  return Math.min(max, base * 2 ** Math.max(0, count - 1));
+}
+
+function inBackoff(
+  failure: OperationFailure | null,
+  now: number,
+  base: number,
+  max: number,
+): boolean {
+  return failure !== null && now - failure.at < retryDelayMs(failure.count, base, max);
+}
 
 export interface SyncPolicyInput {
   hasRemote: boolean;
@@ -78,6 +121,23 @@ export interface SyncPolicyInput {
   pushDebounceMs: number;
   /** How long a failed auto-resolve suppresses the next attempt. */
   resolveRetryMs: number;
+  /** The last failed push of the checked-out branch; null when there is none. */
+  pushFailure: PushFailure | null;
+  /** The last failed pull; null when there is none. */
+  pullFailure: OperationFailure | null;
+  /** The last failed fetch; null when there is none. Also paces offline probes. */
+  fetchFailure: OperationFailure | null;
+  /** The last failed push of local `main`; null when there is none. */
+  mainPushFailure: PushFailure | null;
+  /**
+   * Local `main` is ahead of `origin/main`, not behind it, and not checked out:
+   * a publish whose push never reached the remote.
+   */
+  mainUnpushed: boolean;
+  /** First retry delay after a failure; doubles with each consecutive one. */
+  retryBaseMs: number;
+  /** Ceiling for the retry delay. */
+  retryMaxMs: number;
 }
 
 /**
@@ -143,25 +203,44 @@ function divergenceBlocker(input: SyncPolicyInput): IdleReason | null {
  * Decide this tick's action.
  *
  * Precedence, highest first:
- *  1. Hard blocks — nothing may run (no remote, offline, mid-merge, busy).
+ *  1. Hard blocks — nothing may run (no remote, mid-merge, busy). Offline is
+ *     not one: it probes with a fetch on a backoff, because a fetch that
+ *     succeeds is the only thing that can clear it.
  *  2. Pull, when it is a strict fast-forward. Reading the collaborator's work
  *     before publishing ours is what keeps the divergence window short.
  *  3. Resolve, when the branches have diverged and combining them is
  *     unambiguous. Divergence blocks both pull and push, so leaving it alone
  *     stalls sync entirely — the one case where doing nothing is the
  *     expensive option.
- *  4. Push, when it is a strict fast-forward and the debounce has elapsed.
+ *  4. Push, when it is a strict fast-forward and the debounce has elapsed. A
+ *     failed push backs off; a rejected one fetches first; an unauthorised one
+ *     waits for a sign-in.
  *  5. Fetch, when the remote counts are stale. Read-only, so it is safe even
  *     while suspended — but it is the lowest priority.
  */
 export function decideAutoSync(input: SyncPolicyInput): AutoSyncAction {
   if (!input.hasRemote) return { kind: 'idle', reason: 'no-remote' };
-  if (!input.isOnline) return { kind: 'idle', reason: 'offline' };
+
+  const backedOff = (f: OperationFailure | null) =>
+    inBackoff(f, input.now, input.retryBaseMs, input.retryMaxMs);
+
+  // A failed fetch waits out its backoff too: without it the stale-counts rule
+  // would re-fetch on every tick for as long as the remote is unreachable.
+  const fetchIsStale =
+    (input.lastFetchAt === null || input.now - input.lastFetchAt >= input.fetchIntervalMs) &&
+    !backedOff(input.fetchFailure);
+
+  // "Offline" is a guess made from one failed operation or a browser event,
+  // not a fact, and the browser stays silent when only the remote went away.
+  // So it never stops the loop from asking: a fetch is read-only and cheap, and
+  // its success is what clears the flag. The probe is paced by the same
+  // backoff as every other failed fetch.
+  if (!input.isOnline) {
+    if (!input.busy && !backedOff(input.fetchFailure)) return { kind: 'fetch' };
+    return { kind: 'idle', reason: 'offline' };
+  }
   if (input.hasMergeConflict) return { kind: 'idle', reason: 'merge-conflict' };
   if (input.busy) return { kind: 'idle', reason: 'busy' };
-
-  const fetchIsStale =
-    input.lastFetchAt === null || input.now - input.lastFetchAt >= input.fetchIntervalMs;
 
   // A writer RPC is mutating the repo, or something on screen asked us to hold
   // off (a walkthrough in progress, a sync dialog open). Neither blocks a
@@ -174,8 +253,24 @@ export function decideAutoSync(input: SyncPolicyInput): AutoSyncAction {
     return fetchIsStale ? { kind: 'fetch' } : { kind: 'idle', reason: 'suspended' };
   }
 
+  // A published `main` the remote never received. It touches no working tree
+  // and is independent of the checked-out branch, so it is decided first.
+  if (
+    input.mainUnpushed &&
+    input.autoPushEnabled &&
+    input.mainPushFailure?.kind !== 'auth' &&
+    !backedOff(input.mainPushFailure)
+  ) {
+    return { kind: 'pushMain' };
+  }
+
   if (isFastForwardPull(input)) {
     if (!input.autoPullEnabled) return { kind: 'idle', reason: 'auto-pull-disabled' };
+    // A pull the engine refused (dirty overlap, diverged on the remote side)
+    // does not succeed a tick later; the sync banner already says why.
+    if (backedOff(input.pullFailure)) {
+      return fetchIsStale ? { kind: 'fetch' } : { kind: 'idle', reason: 'pull-backoff' };
+    }
     return { kind: 'pull' };
   }
 
@@ -193,6 +288,26 @@ export function decideAutoSync(input: SyncPolicyInput): AutoSyncAction {
     const since = input.aheadSince;
     if (since !== null && input.now - since < input.pushDebounceMs) {
       return { kind: 'idle', reason: 'push-debounce' };
+    }
+    const failure = input.pushFailure;
+    if (failure !== null) {
+      // Pushing again cannot fix any of these, so the loop must not return
+      // before it has had its chance to fetch — a fetch is what turns a
+      // rejected push into a pull or a resolve.
+      if (failure.kind === 'auth') {
+        return fetchIsStale ? { kind: 'fetch' } : { kind: 'idle', reason: 'push-auth-failed' };
+      }
+      const fetchedSince = input.lastFetchAt !== null && input.lastFetchAt >= failure.at;
+      if (failure.kind === 'rejected' && !fetchedSince) {
+        // The remote moved on. Learn what it has; a failed fetch is paced by
+        // its own backoff rather than retried every tick.
+        return backedOff(input.fetchFailure)
+          ? { kind: 'idle', reason: 'push-backoff' }
+          : { kind: 'fetch' };
+      }
+      if (backedOff(failure)) {
+        return fetchIsStale ? { kind: 'fetch' } : { kind: 'idle', reason: 'push-backoff' };
+      }
     }
     return { kind: 'push' };
   }
@@ -216,7 +331,12 @@ export type SyncEscalation =
   | 'diverged'
   | 'dirty-blocks-pull'
   | 'behind-auto-disabled'
-  | 'merge-conflict';
+  | 'merge-conflict'
+  /**
+   * Local `main` and `origin/main` have each moved on (this computer published,
+   * then a collaborator did). Fast-forwarding cannot fix it; combining can.
+   */
+  | 'main-diverged';
 
 export interface EscalationInput {
   hasRemote: boolean;
@@ -225,6 +345,10 @@ export interface EscalationInput {
   isClean: boolean;
   hasMergeConflict: boolean;
   autoPullEnabled: boolean;
+  /** Local `main` against `origin/main`. Optional: absent means no signal. */
+  mainAhead?: number;
+  mainBehind?: number;
+  isOnMain?: boolean;
 }
 
 export function computeSyncEscalation(input: EscalationInput): SyncEscalation | null {
@@ -233,6 +357,10 @@ export function computeSyncEscalation(input: EscalationInput): SyncEscalation | 
   if (isDiverged(input)) return 'diverged';
   if (input.behind > 0 && !input.isClean) return 'dirty-blocks-pull';
   if (input.behind > 0 && !input.autoPullEnabled) return 'behind-auto-disabled';
+  // `main` checked out is the branch case above; this is main from afar.
+  if ((input.mainAhead ?? 0) > 0 && (input.mainBehind ?? 0) > 0 && !input.isOnMain) {
+    return 'main-diverged';
+  }
   return null;
 }
 
@@ -253,6 +381,7 @@ export function escalationSeverity(escalation: SyncEscalation): 'banner' | 'gate
       return 'gate';
     case 'dirty-blocks-pull':
     case 'behind-auto-disabled':
+    case 'main-diverged':
       return 'banner';
   }
 }
