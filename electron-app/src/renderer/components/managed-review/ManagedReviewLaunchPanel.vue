@@ -15,6 +15,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useGitStore } from '@/stores/git';
 import { useReviewDefinitionStore } from '@/stores/reviewDefinition';
 import { useConnectionStore } from '@/stores/connection';
+import { useManagedReviewStore } from '@/stores/managedReview';
 import { useReadOnly } from '@/composables/useReadOnly';
 import { useReconcileGate } from '@/composables/useReconcileGate';
 import { mapReadinessIssues, type MappedIssue } from './launch-readiness';
@@ -42,6 +43,7 @@ const auth = useAuthStore();
 const git = useGitStore();
 const sync = useSyncStore();
 const reviewDefStore = useReviewDefinitionStore();
+const managedReview = useManagedReviewStore();
 const connection = useConnectionStore();
 const { isReadOnly } = useReadOnly();
 const { canNavigateToReconcile } = useReconcileGate();
@@ -51,7 +53,12 @@ const offlineTooltip = 'Requires internet';
 const isLoading = ref(false);
 const isCreating = ref(false);
 const readiness = ref<GetManagedReviewTaskReadinessResponse | null>(null);
-const tasks = ref<ManagedReviewTask[]>([]);
+// Tasks come from the store, not a local copy: the store is what the invalidation
+// seam and every background fetch keep current, so a colleague's progress shows
+// without the user leaving and re-entering the page.
+const tasks = computed<ManagedReviewTask[]>(() =>
+  props.kind === 'screen' ? managedReview.screenTasks : managedReview.prescreenTasks,
+);
 const currentBranchTask = ref<ManagedReviewTask | null>(null);
 const collaborators = ref<GitHubCollaborator[]>([]);
 const isLoadingCollaborators = ref(false);
@@ -136,12 +143,8 @@ async function refreshData() {
     if (git.hasRemote) {
       await sync.fetchNow();
     }
-    const [readinessResponse, tasksResponse, currentTaskResponse] = await Promise.all([
+    const [readinessResponse, currentTaskResponse] = await Promise.all([
       backend.call('get_managed_review_task_readiness', {
-        project_id: projects.currentProjectId,
-        kind: props.kind,
-      }),
-      backend.call('list_managed_review_tasks', {
         project_id: projects.currentProjectId,
         kind: props.kind,
       }),
@@ -149,10 +152,10 @@ async function refreshData() {
         project_id: projects.currentProjectId,
         kind: props.kind,
       }),
+      managedReview.refresh(),
     ]);
 
     readiness.value = readinessResponse;
-    tasks.value = tasksResponse.tasks;
     currentBranchTask.value = currentTaskResponse.task ?? null;
   } catch (err) {
     notifications.error(`${kindLabel.value} launch failed`, err instanceof Error ? err.message : 'Unknown error');

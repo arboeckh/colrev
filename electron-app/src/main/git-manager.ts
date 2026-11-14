@@ -136,12 +136,27 @@ function gitAuthArgs(token: string | null): string[] {
   return ['-c', `http.extraheader=Authorization: Basic ${auth}`];
 }
 
+/** A fetch result that also says whether it moved any remote-tracking ref. */
+export interface GitFetchResult extends GitResult {
+  refsChanged?: boolean;
+}
+
+async function remoteRefSnapshot(projectPath: string): Promise<string | null> {
+  const { exec } = await import('dugite');
+  const result = await exec(
+    ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/remotes/origin'],
+    projectPath,
+  );
+  return result.exitCode === 0 ? result.stdout : null;
+}
+
 export async function gitFetch(
   projectPath: string,
   token: string | null = null,
-): Promise<GitResult> {
+): Promise<GitFetchResult> {
   const { exec } = await import('dugite');
 
+  const before = await remoteRefSnapshot(projectPath);
   const result = await exec(
     [...gitAuthArgs(token), 'fetch', '--prune', 'origin'],
     projectPath,
@@ -149,7 +164,9 @@ export async function gitFetch(
   if (result.exitCode !== 0) {
     return remoteFailure(result.stderr, 'Fetch failed');
   }
-  return { success: true };
+  const after = await remoteRefSnapshot(projectPath);
+  // Unknown (a for-each-ref failed) counts as moved: the caller refreshes on it.
+  return { success: true, refsChanged: before === null || after === null || before !== after };
 }
 
 export async function gitPull(
