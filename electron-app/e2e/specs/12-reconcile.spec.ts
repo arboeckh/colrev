@@ -123,7 +123,7 @@ test.describe('reconcile', () => {
     let included = 0;
     let excluded = 0;
     for (let i = 0; i < 40; i++) {
-      // allDecided unmounts the decision bar and mounts the enabled apply bar.
+      // allDecided mounts the enabled apply bar (the decision bar stays, with Change).
       if (await applyBtn.isVisible().catch(() => false)) break;
       await decisionBar.waitFor({ state: 'visible', timeout: 30_000 });
       const recordId = (
@@ -139,8 +139,8 @@ test.describe('reconcile', () => {
         (prev) => {
           const el = document.querySelector('[data-testid="reconcile-record-id"]');
           const txt = (el?.textContent ?? '').trim();
-          const bar = document.querySelector('[data-testid="reconcile-decision-bar"]');
-          return !bar || (txt.length > 0 && txt !== prev);
+          const applyBar = document.querySelector('[data-testid="reconcile-apply-btn"]');
+          return !!applyBar || (txt.length > 0 && txt !== prev);
         },
         recordId,
         { timeout: 30_000 },

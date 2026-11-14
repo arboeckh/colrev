@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { Check, X, Loader2, ArrowRight } from 'lucide-vue-next';
+import { Check, X, Loader2, ArrowRight, Undo2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import type { ReconciliationPreviewItem } from '@/types/generated/rpc';
 import { reviewerStatusToDecision, type ReconcileKind } from './reconcile-utils';
@@ -29,6 +29,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'decide', decision: 'include' | 'exclude'): void;
+  (e: 'change'): void;
   (e: 'skip-to-next'): void;
 }>();
 
@@ -118,6 +119,17 @@ const excludeReviewers = computed(() =>
           {{ decision === 'included' ? 'Included' : 'Excluded' }}
         </span>
       </div>
+
+      <Button
+        variant="outline"
+        size="lg"
+        :disabled="disabled"
+        :data-testid="`${testIdPrefix}-btn-change`"
+        @click="emit('change')"
+      >
+        <Undo2 class="h-4 w-4" />
+        Change
+      </Button>
 
       <Button
         v-if="showSkipToNext"
