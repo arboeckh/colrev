@@ -3,8 +3,10 @@
 Implements review definition and screening-criteria RPC methods atop the typed
 framework.
 
-Writes stage changes via ``save_settings()``; commits are driven explicitly
-via the ``commit_changes`` endpoint in ``git_handler``.
+Each write saves ``settings.json`` and commits it on its own (and only it):
+the per-record screen/prescreen decision calls run under a precondition that
+tolerates only ``data/records.bib`` being dirty, so a staged ``settings.json``
+would block the next decision until the user pressed Save.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from typing import Optional
 from pydantic import BaseModel
 from pydantic import ConfigDict
 
+import colrev.env.environment_manager
 import colrev.settings
 from colrev.constants import ScreenCriterionType
 from colrev.settings import ScreenCriterion
@@ -125,6 +128,62 @@ def _serialize_criteria(
     return result
 
 
+# colrev stores a record's criteria as ``name=in;other=out``, so these two
+# characters in a name would corrupt the parsing of every record's criteria.
+_FORBIDDEN_NAME_CHARS = (";", "=")
+
+
+def _validate_criterion_name(name: str) -> None:
+    if not name.strip():
+        raise ValueError("name parameter is required")
+    bad = [c for c in _FORBIDDEN_NAME_CHARS if c in name]
+    if bad:
+        raise ValueError(
+            f"Invalid criterion name '{name}': it must not contain "
+            + " or ".join(f"'{c}'" for c in bad)
+            + ", which separate criteria in each record's screening result"
+        )
+
+
+def _commit_settings(review_manager: Any, message: str) -> None:
+    """Commit ``settings.json`` alone, leaving other staged changes staged.
+
+    Pending screen decisions (``data/records.bib``) belong to the user's
+    session commit, so they are not swept into this one.
+    """
+    repo = review_manager.dataset.git_repo.repo
+    settings_path = str(review_manager.paths.settings)
+    repo.git.add("--", settings_path)
+    if not repo.git.diff("--cached", "--name-only", "--", settings_path).strip():
+        return
+    name, email = (
+        colrev.env.environment_manager.EnvironmentManager.get_name_mail_from_git()
+    )
+    env = {
+        "GIT_AUTHOR_NAME": name,
+        "GIT_AUTHOR_EMAIL": email,
+        "GIT_COMMITTER_NAME": name,
+        "GIT_COMMITTER_EMAIL": email,
+    }
+    # hooksPath is disabled, not just --no-verify: the prepare-commit-msg hook
+    # still runs under --no-verify and re-enters git while the commit holds
+    # the index lock. ReviewManager.create_commit skips all hooks as well.
+    with repo.git.custom_environment(**env):
+        repo.git.execute(
+            [
+                "git",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "commit",
+                "--only",
+                "-m",
+                message,
+                "--",
+                settings_path,
+            ]
+        )
+
+
 def _parse_criterion_type(criterion_type_str: str) -> ScreenCriterionType:
     try:
         return ScreenCriterionType(criterion_type_str)
@@ -211,6 +270,7 @@ class ReviewDefinitionHandler(BaseHandler):
             updated_fields.append("objectives")
 
         self.review_manager.save_settings()
+        _commit_settings(self.review_manager, "Update review definition")
 
         return UpdateReviewDefinitionResponse(
             project_id=req.project_id,
@@ -257,8 +317,7 @@ class ReviewDefinitionHandler(BaseHandler):
     ) -> AddScreeningCriterionResponse:
         assert self.review_manager is not None
 
-        if not req.name:
-            raise ValueError("name parameter is required")
+        _validate_criterion_name(req.name)
         if not req.explanation:
             raise ValueError("explanation parameter is required")
         if not req.criterion_type:
@@ -286,6 +345,9 @@ class ReviewDefinitionHandler(BaseHandler):
         screen_settings.criteria[req.name] = criterion
 
         self.review_manager.save_settings()
+        _commit_settings(
+            self.review_manager, f"Add screening criterion '{req.name}'"
+        )
 
         return AddScreeningCriterionResponse(
             project_id=req.project_id,
@@ -340,6 +402,10 @@ class ReviewDefinitionHandler(BaseHandler):
             updated_fields.append("criterion_type")
 
         self.review_manager.save_settings()
+        _commit_settings(
+            self.review_manager,
+            f"Update screening criterion '{req.criterion_name}'",
+        )
 
         return UpdateScreeningCriterionResponse(
             project_id=req.project_id,
@@ -382,6 +448,10 @@ class ReviewDefinitionHandler(BaseHandler):
         del screen_settings.criteria[req.criterion_name]
 
         self.review_manager.save_settings()
+        _commit_settings(
+            self.review_manager,
+            f"Remove screening criterion '{req.criterion_name}'",
+        )
 
         return RemoveScreeningCriterionResponse(
             project_id=req.project_id,

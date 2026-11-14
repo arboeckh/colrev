@@ -35,6 +35,13 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
     const projectId = projects.currentProjectId;
     isLoading.value = true;
     loadError.value = null;
+    // Never leave another project's definition in place while this one loads
+    // (or fails to): the Definition page would seed its form from it and let
+    // the user save it into this project.
+    if (loadedProjectId.value !== projectId) {
+      definition.value = null;
+      loadedProjectId.value = null;
+    }
     try {
       const response = await backend.call(
         'get_review_definition',
@@ -44,6 +51,8 @@ export const useReviewDefinitionStore = defineStore('reviewDefinition', () => {
         const { success, project_id, ...data } = response;
         definition.value = data;
         loadedProjectId.value = projectId;
+      } else {
+        loadError.value = 'Failed to load review definition';
       }
 
       // Load visited status from localStorage

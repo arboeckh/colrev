@@ -50,7 +50,6 @@ HAPPY_PATH_GAPS: dict[str, str] = {
     "export_data_csv": "needs a populated data/data.csv — covered by e2e 07-data",
     "prescreen": "batch prescreen over a loaded dataset — covered by e2e 03-prescreen",
     "screen": "batch screen over a loaded dataset — covered by e2e 06-screen",
-    "screen_record": "needs records at pdf_prepared — covered by e2e 06-screen",
     "enrich_record_metadata": "enriches from external metadata APIs — e2e 03-prescreen",
     "restore_pdf_file": "needs a record whose metadata already references a file — e2e 04",
 }
