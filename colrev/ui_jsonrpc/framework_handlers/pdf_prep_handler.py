@@ -12,6 +12,7 @@ import colrev.record.record
 from colrev.constants import Fields
 from colrev.constants import OperationsType
 from colrev.constants import RecordState
+from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
@@ -106,7 +107,7 @@ class PDFPrepHandler(BaseHandler):
 
         record_dict = records[req.record_id]
         if record_dict[Fields.STATUS] != RecordState.pdf_needs_manual_preparation:
-            raise ValueError(
+            raise InvalidStateError(
                 f"Record '{req.record_id}' is not in pdf_needs_manual_preparation "
                 f"state (current: {record_dict[Fields.STATUS]})"
             )
@@ -114,10 +115,10 @@ class PDFPrepHandler(BaseHandler):
         # Accepting a PDF nobody can see would be a blind override.
         file_value = record_dict.get(Fields.FILE)
         if not file_value:
-            raise ValueError(f"Record '{req.record_id}' has no linked PDF")
+            raise InvalidStateError(f"Record '{req.record_id}' has no linked PDF")
         pdf_path = self.review_manager.path / Path(str(file_value))
         if not pdf_path.is_file():
-            raise ValueError(
+            raise InvalidStateError(
                 f"The PDF for record '{req.record_id}' is not on this machine"
             )
 

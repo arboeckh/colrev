@@ -32,6 +32,7 @@ from colrev.constants import FieldsRegex
 from colrev.constants import OperationsType
 from colrev.constants import RecordState
 from colrev.package_manager.package_manager import PackageManager
+from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProgressEventKind
 from colrev.ui_jsonrpc.framework import ProjectResponse
@@ -305,7 +306,7 @@ class PDFGetHandler(BaseHandler):
             RecordState.pdf_needs_manual_preparation,
             RecordState.pdf_not_available,
         ):
-            raise ValueError(
+            raise InvalidStateError(
                 f"Record '{req.record_id}' is not in a state that accepts PDF upload "
                 f"(current: {current_status})"
             )
@@ -465,7 +466,7 @@ class PDFGetHandler(BaseHandler):
             RecordState.pdf_needs_manual_retrieval,
             RecordState.pdf_needs_manual_preparation,
         ):
-            raise ValueError(
+            raise InvalidStateError(
                 f"Record '{req.record_id}' is not in a state that can be marked "
                 f"unavailable (current: {current_status})"
             )
@@ -532,7 +533,7 @@ class PDFGetHandler(BaseHandler):
 
         record_dict = records[req.record_id]
         if record_dict[Fields.STATUS] != RecordState.pdf_not_available:
-            raise ValueError(
+            raise InvalidStateError(
                 f"Record '{req.record_id}' is not in pdf_not_available state "
                 f"(current: {record_dict[Fields.STATUS]})"
             )

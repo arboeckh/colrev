@@ -25,6 +25,7 @@ from colrev.constants import Fields
 from colrev.constants import OperationsType
 from colrev.constants import RecordState
 from colrev.constants import SearchType
+from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework_handlers import _managed_review_utils as managed_review_utils
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProgressEvent
@@ -230,7 +231,7 @@ class PrescreenHandler(BaseHandler):
             RecordState.rev_prescreen_excluded,
         }
         if not already_decided and current_status not in valid_source_states:
-            raise ValueError(
+            raise InvalidStateError(
                 f"Record '{req.record_id}' is not ready for prescreen "
                 f"(current status: {current_status})"
             )

@@ -27,6 +27,7 @@ def rpc_method(
     writes: bool = False,
     timeout_class: str = "slow",
     precondition: PreconditionPolicy = "enforce",
+    git_only: bool = False,
 ) -> Callable:
     """Mark a handler method as an RPC endpoint.
 
@@ -48,8 +49,15 @@ def rpc_method(
             :data:`~colrev.ui_jsonrpc.framework.registry.PreconditionPolicy`).
             "manual_decision" is reserved for per-record prescreen/screen
             decision endpoints; everything else keeps the default "enforce".
+        git_only: The dispatcher builds no ReviewManager for this method (see
+            :attr:`~colrev.ui_jsonrpc.framework.registry.MethodSpec.git_only`):
+            only the project path is validated, and the handler works on the
+            git repository alone. For endpoints that must keep working when
+            ``settings.json`` or a search history file is broken.
     """
 
+    if git_only and not requires_project:
+        raise ValueError("git_only methods operate on a project path")
     if timeout_class not in ("fast", "slow"):
         raise ValueError(
             f"timeout_class must be 'fast' or 'slow', got {timeout_class!r}"
@@ -64,6 +72,7 @@ def rpc_method(
         writes=writes,
         timeout_class=timeout_class,
         precondition=precondition,
+        git_only=git_only,
     )
 
     def decorator(fn: Callable) -> Callable:

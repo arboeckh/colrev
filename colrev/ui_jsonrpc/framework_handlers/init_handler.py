@@ -24,6 +24,7 @@ from typing import Optional
 from pydantic import BaseModel
 from pydantic import ConfigDict
 
+import colrev.exceptions as colrev_exceptions
 import colrev.ops.init
 from colrev.ui_jsonrpc import validation
 from colrev.ui_jsonrpc.framework import BaseHandler
@@ -177,9 +178,15 @@ class InitHandler(BaseHandler):
                 message=f"Project initialized successfully at {target_path}",
             )
 
+        except (ValueError, colrev_exceptions.CoLRevException):
+            # Keep the exception's own type, so that it maps to its own code
+            # (non-empty directory, missing dependency, ...), not to -32602.
+            logger.exception("Failed to initialize project %s", project_id)
+            raise
         except Exception as e:
             logger.exception("Failed to initialize project %s", project_id)
-            raise ValueError(f"Failed to initialize project: {str(e)}") from e
+            # Not the caller's fault: -32603 with the reason, not "invalid params".
+            raise RuntimeError(f"Failed to initialize project: {str(e)}") from e
         finally:
             os.chdir(original_cwd)
 
@@ -263,4 +270,4 @@ class InitHandler(BaseHandler):
             )
         except Exception as e:
             logger.exception("Failed to delete project %s", project_id)
-            raise ValueError(f"Failed to delete project: {str(e)}") from e
+            raise RuntimeError(f"Failed to delete project: {str(e)}") from e

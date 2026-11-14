@@ -45,6 +45,7 @@ class MethodSpecDraft:
     writes: bool = False
     timeout_class: str = "slow"
     precondition: PreconditionPolicy = "enforce"
+    git_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,15 @@ class MethodSpec:
             end in "timed out in the UI but committed on disk".
         precondition: How the engine's operation preconditions apply to this
             method (see :data:`PreconditionPolicy`). Defaults to "enforce".
+        git_only: If True, the dispatcher validates the project path but builds
+            no ``ReviewManager`` (``self.review_manager`` is ``None``,
+            ``self.ctx.project_path`` is set). Loading a ReviewManager parses
+            ``settings.json`` and every ``*_search_history.json``, so a project
+            with conflict markers in settings or a truncated history file would
+            fail every call, including the recovery ones. The git-inspection
+            and recovery endpoints (``get_git_status``, ``commit_changes``,
+            ``discard_changes``, ``reset_to_remote``) therefore work on the
+            repository alone. Implies ``requires_project``.
     """
 
     name: str
@@ -89,6 +99,7 @@ class MethodSpec:
     writes: bool = False
     timeout_class: str = "slow"
     precondition: PreconditionPolicy = "enforce"
+    git_only: bool = False
 
 
 class MethodRegistry:

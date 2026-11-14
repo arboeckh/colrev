@@ -17,6 +17,8 @@ from typing import List
 from typing import Optional
 from typing import Tuple
 
+from colrev.ui_jsonrpc.framework.project_files import write_json_atomic
+
 logger = logging.getLogger(__name__)
 
 # Source types whose staleness is never tracked: FILES sources are local
@@ -149,7 +151,6 @@ def restore_last_run_snapshot(
         history["last_run_config"] = snapshot
         if last_run:
             history["last_run"] = last_run
-        with open(history_path, "w", encoding="utf-8") as f:
-            json.dump(history, f, indent=4, ensure_ascii=False)
+        write_json_atomic(history_path, history, indent=4, ensure_ascii=False)
     except (json.JSONDecodeError, OSError) as exc:
         logger.warning("Error restoring search history %s: %s", history_path, exc)
