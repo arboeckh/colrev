@@ -167,6 +167,40 @@ describe('SearchPage — running searches', () => {
     await flushPromises();
   });
 
+  it('still shows the run, and refuses a second one, after leaving and coming back', async () => {
+    let release!: () => void;
+    ctx.mock.rpc.on(
+      'search',
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ success: true } as never);
+        }) as never,
+    );
+
+    const first = await mountPage(ctx);
+    void first.get('[data-testid="run-all-searches-button"]').trigger('click');
+    await flushPromises();
+    // Navigating away unmounts the page; the loop goes on.
+    first.unmount();
+
+    const second = mount(SearchPage);
+    await flushPromises();
+
+    expect(second.get('[data-testid="search-status-open_alex"]').text()).toContain(
+      'Searching',
+    );
+    expect(second.get('[data-testid="search-status-pubmed"]').text()).toBe('Queued');
+    const runAll = second.get('[data-testid="run-all-searches-button"]');
+    expect(runAll.attributes('disabled')).toBeDefined();
+    await runAll.trigger('click');
+    await flushPromises();
+    expect(ctx.mock.rpc.callsTo('search')).toHaveLength(1);
+
+    release();
+    await flushPromises();
+    second.unmount();
+  });
+
   it('keeps going when one source fails and reports the shortfall', async () => {
     ctx.mock.rpc.on('search', (params) => {
       if ((params as { source: string }).source === OPEN_ALEX) {

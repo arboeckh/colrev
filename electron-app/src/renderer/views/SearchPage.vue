@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { storeToRefs } from 'pinia';
 import { Plus, Loader2, Play } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +13,7 @@ import StepPageShell from '@/components/layout/StepPageShell.vue';
 import SearchPageHelp from './SearchPageHelp.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
+import { usePageRunsStore } from '@/stores/pageRuns';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectDataStore } from '@/stores/projectData';
 import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
@@ -20,6 +22,7 @@ import type { SearchSource } from '@/types';
 
 const projects = useProjectsStore();
 const backend = useBackendStore();
+const pageRuns = usePageRunsStore();
 const notifications = useNotificationsStore();
 const projectData = useProjectDataStore();
 const { isReadOnly } = useReadOnly();
@@ -35,13 +38,20 @@ const sourcesLoadError = ref<string | null>(null);
 // whichever source the shared progress channel last mentioned. The backend
 // handles one RPC at a time, so the batch advances one source at a time and
 // the sources still waiting say "Queued".
-const searchingSource = ref<string | null>(null);
-const queuedSources = ref<string[]>([]);
-const isRunningAll = ref(false);
+//
+// The run state lives in a store: the loop keeps going when the user leaves the
+// page, and the page they come back to must still show it.
+const { searchingSource, queuedSources, isRunningAllSearches: isRunningAll } =
+  storeToRefs(pageRuns);
 const progressBySource = ref<Record<string, string>>({});
 let progressCleanup: (() => void) | null = null;
 
 const isSearching = computed(() => searchingSource.value !== null);
+// A search is already going (from this page or another one's loop), or some
+// other writer operation holds the backend.
+const isBusy = computed(
+  () => isSearching.value || isRunningAll.value || backend.runningOperation !== null,
+);
 
 // Filter out empty FILES type sources (like the default files.bib)
 // These are useful for PDF imports but clutter the UI when empty
@@ -70,6 +80,8 @@ const existingApiEndpoints = computed(() => {
     .map(s => s.platform ?? s.endpoint ?? '')
     .filter(Boolean);
 });
+
+const existingSearchPaths = computed(() => sources.value.map(sourceKey).filter(Boolean));
 
 // Dialog state — single unified Add Source dialog
 const showAddSourceDialog = ref(false);
@@ -111,7 +123,7 @@ async function runSourceSearch(sourceFilename: string): Promise<boolean> {
 
 /** Run every API source, one after another, reporting each on its own card. */
 async function runAllSearches() {
-  if (isSearching.value || isRunningAll.value) return;
+  if (isBusy.value) return;
   if (!projects.currentProjectId || !backend.isRunning) return;
 
   const pending = runnableSources.value.map(sourceKey).filter(Boolean);
@@ -146,6 +158,7 @@ async function runAllSearches() {
 
 /** Run one source from its card, outside a batch. */
 async function runSingleSearch(sourceFilename: string) {
+  if (isBusy.value) return;
   if (await runSourceSearch(sourceFilename)) {
     notifications.success('Search completed');
   }
@@ -224,7 +237,7 @@ onUnmounted(() => {
 
       <Button
         v-if="runnableSources.length > 0"
-        :disabled="isSearching || isRunningAll || !backend.isRunning || isReadOnly"
+        :disabled="isBusy || !backend.isRunning || isReadOnly"
         data-testid="run-all-searches-button"
         @click="runAllSearches"
       >
@@ -253,7 +266,7 @@ onUnmounted(() => {
         :project-id="projects.currentProjectId!"
         :run-state="runStateFor(source)"
         :progress-message="progressBySource[sourceKey(source)]"
-        :busy="isSearching || isRunningAll"
+        :busy="isBusy"
         :read-only="isReadOnly"
         class="w-80"
         @run-search="runSingleSearch"
@@ -263,7 +276,7 @@ onUnmounted(() => {
       <div v-if="!isReadOnly" class="relative w-72" data-testid="add-source-card">
         <Card
           class="h-full border-dashed border-2 hover:border-primary/50 hover:bg-accent/50 transition-colors cursor-pointer"
-          :class="(isSearching || isRunningAll) && 'pointer-events-none opacity-50'"
+          :class="isBusy && 'pointer-events-none opacity-50'"
           @click="showAddSourceDialog = true"
         >
           <CardContent class="flex flex-col items-center justify-center py-6 text-muted-foreground h-full">
@@ -282,6 +295,7 @@ onUnmounted(() => {
       v-model:open="showAddSourceDialog"
       :project-id="projects.currentProjectId"
       :existing-api-endpoints="existingApiEndpoints"
+      :existing-search-paths="existingSearchPaths"
     />
     </div>
   </StepPageShell>
