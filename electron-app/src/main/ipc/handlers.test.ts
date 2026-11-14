@@ -66,7 +66,7 @@ function githubDeps(overrides: Partial<GitHubHandlerDeps> = {}): GitHubHandlerDe
     git: {
       clone: vi.fn(async () => ({ success: true })),
       createTag: vi.fn(async () => ({ success: true })),
-      pushTags: vi.fn(async () => ({ success: true })),
+      pushTag: vi.fn(async () => ({ success: true })),
     },
     fs: { existsSync: () => false, mkdirSync: () => undefined },
     ...overrides,
@@ -376,7 +376,7 @@ describe('github handlers', () => {
     const handlers = handlersFor(
       githubDeps({
         fs: { existsSync, mkdirSync },
-        git: { clone, createTag: vi.fn(), pushTags: vi.fn() } as never,
+        git: { clone, createTag: vi.fn(), pushTag: vi.fn() } as never,
       }),
     );
 
@@ -405,7 +405,7 @@ describe('github handlers', () => {
       githubDeps({
         // Root exists, target does not.
         fs: { existsSync: (p: string) => p === '/projects/alice', mkdirSync },
-        git: { clone, createTag: vi.fn(), pushTags: vi.fn() } as never,
+        git: { clone, createTag: vi.fn(), pushTag: vi.fn() } as never,
       }),
     );
 
@@ -425,7 +425,7 @@ describe('github handlers', () => {
       githubDeps({
         getActiveLogin: () => null,
         fs: { existsSync: vi.fn(() => false), mkdirSync },
-        git: { clone, createTag: vi.fn(), pushTags: vi.fn() } as never,
+        git: { clone, createTag: vi.fn(), pushTag: vi.fn() } as never,
       }),
     );
 
@@ -444,7 +444,7 @@ describe('github handlers', () => {
     const handlers = handlersFor(
       githubDeps({
         fs: { existsSync: () => true, mkdirSync: () => undefined },
-        git: { clone, createTag: vi.fn(), pushTags: vi.fn() } as never,
+        git: { clone, createTag: vi.fn(), pushTag: vi.fn() } as never,
       }),
     );
     expect(
@@ -457,7 +457,7 @@ describe('github handlers', () => {
   });
 
   it('stops the release flow when tagging fails', async () => {
-    const pushTags = vi.fn();
+    const pushTag = vi.fn();
     const createRelease = vi.fn();
     const handlers = handlersFor(
       githubDeps({
@@ -465,7 +465,7 @@ describe('github handlers', () => {
         git: {
           clone: vi.fn(),
           createTag: vi.fn(async () => ({ success: false, error: 'tag exists' })),
-          pushTags,
+          pushTag,
         } as never,
       }),
     );
@@ -478,7 +478,99 @@ describe('github handlers', () => {
         projectPath: '/repo',
       }),
     ).toEqual({ success: false, error: 'tag exists' });
-    expect(pushTags).not.toHaveBeenCalled();
+    expect(pushTag).not.toHaveBeenCalled();
     expect(createRelease).not.toHaveBeenCalled();
+  });
+
+  describe('retrying a release after a partial failure', () => {
+    const params = {
+      remoteUrl: 'https://github.com/a/b',
+      tagName: 'v1.0',
+      name: 'Release 1',
+      body: '',
+      projectPath: '/repo',
+    };
+
+    it('succeeds on the second attempt, reusing the tag and pushing only that tag', async () => {
+      const createTag = vi.fn(async () => ({ success: true }));
+      const pushTag = vi.fn(async () => ({ success: true }));
+      const release = { id: 1, tagName: 'v1.0' };
+      const createRelease = vi
+        .fn()
+        .mockResolvedValueOnce({ success: false, error: 'Validation Failed' })
+        .mockResolvedValueOnce({ success: true, release });
+      const handlers = handlersFor(
+        githubDeps({
+          gh: fakeGitHubClient({ createRelease }),
+          git: { clone: vi.fn(), createTag, pushTag } as never,
+        }),
+      );
+      const call = () => handlers.get('github:create-release')!(noEvent, params);
+
+      expect(await call()).toEqual({ success: false, error: 'Validation Failed' });
+      expect(await call()).toEqual({ success: true, release });
+
+      expect(createTag).toHaveBeenCalledTimes(2);
+      expect(pushTag).toHaveBeenCalledTimes(2);
+      // Only the release's own tag is pushed.
+      expect(pushTag).toHaveBeenCalledWith('/repo', 'v1.0', 'tok');
+    });
+
+    it('does not create the release when the tag push fails', async () => {
+      const createRelease = vi.fn();
+      const handlers = handlersFor(
+        githubDeps({
+          gh: fakeGitHubClient({ createRelease }),
+          git: {
+            clone: vi.fn(),
+            createTag: vi.fn(async () => ({ success: true })),
+            pushTag: vi.fn(async () => ({ success: false, error: 'offline' })),
+          } as never,
+        }),
+      );
+      expect(await handlers.get('github:create-release')!(noEvent, params)).toEqual({
+        success: false,
+        error: 'offline',
+      });
+      expect(createRelease).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GitHub list failures reach the renderer', () => {
+    it('github:list-colrev-repos returns the failure, not an empty success', async () => {
+      const handlers = handlersFor(
+        githubDeps({
+          gh: fakeGitHubClient({
+            listColrevRepos: async () => {
+              throw new Error('GitHub rejected the sign-in while listing your repositories.');
+            },
+          }),
+        }),
+      );
+      expect(await handlers.get('github:list-colrev-repos')!(noEvent)).toEqual({
+        success: false,
+        error: 'GitHub rejected the sign-in while listing your repositories.',
+        repos: [],
+      });
+    });
+
+    it.each([
+      ['github:list-releases', 'listReleases', 'releases'],
+      ['github:list-collaborators', 'listRepoCollaborators', 'collaborators'],
+      ['github:list-pending-invitations', 'listPendingRepoInvitations', 'invitations'],
+    ])('%s returns the failure', async (channel, method, key) => {
+      const handlers = handlersFor(
+        githubDeps({
+          gh: fakeGitHubClient({
+            [method]: async () => {
+              throw new Error('rate limit');
+            },
+          }),
+        }),
+      );
+      expect(
+        await handlers.get(channel)!(noEvent, { remoteUrl: 'https://github.com/a/b' }),
+      ).toEqual({ success: false, error: 'rate limit', [key]: [] });
+    });
   });
 });
