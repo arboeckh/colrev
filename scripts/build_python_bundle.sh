@@ -14,7 +14,9 @@
 #
 # Cache:
 #   ~/.cache/colrev-build/tarballs/   python-build-standalone tarballs
-#   ~/.cache/colrev-build/wheels/     built colrev / internal-package wheels
+#   ~/.cache/colrev-build/wheels/     built colrev wheel (rebuilt every run) and
+#                                     internal-package wheels (keyed by the hash
+#                                     of their pyproject.toml)
 #
 # Requirements (host):
 #   - Python 3.12 with `build` and `pip` available (e.g. conda env `colrev`).
@@ -152,28 +154,60 @@ PY
   esac
 }
 
-build_wheels() {
-    log "Building colrev wheel..."
-    mkdir -p "$WHEEL_CACHE"
-    ( cd "$REPO_ROOT" && "$HOST_PYTHON" -m build --wheel --outdir "$WHEEL_CACHE" >/dev/null )
+# Wheels this build installs, one path per element. Filled by build_wheels.
+BUNDLE_WHEELS=()
 
+build_wheels() {
+    BUNDLE_WHEELS=()
+
+    # The colrev wheel is rebuilt on every run, into a directory emptied first:
+    # a cached colrev-<old version>.whl next to the new one makes pip fail with
+    # ResolutionImpossible, and a restored CI cache holds the old one.
+    log "Building colrev wheel..."
+    local main_dir="${WHEEL_CACHE}/colrev"
+    rm -f "$WHEEL_CACHE"/*.whl  # loose wheels from older versions of this script
+    rm -rf "$main_dir"
+    mkdir -p "$main_dir"
+    ( cd "$REPO_ROOT" && "$HOST_PYTHON" -m build --wheel --outdir "$main_dir" >/dev/null )
+    BUNDLE_WHEELS+=("$main_dir"/*.whl)
+
+    # The internal packages' code ships inside the colrev wheel; their own
+    # wheels only contribute dist-info/entry_points.txt, which is how colrev
+    # discovers them. Cache each under a directory named after the hash of its
+    # pyproject.toml, so a changed entry point rebuilds the wheel.
     log "Building internal-package wheels..."
     local pkg_dir
     for pkg_dir in "$REPO_ROOT"/colrev/packages/*/; do
         [[ -f "${pkg_dir}pyproject.toml" ]] || continue
-        local pkg_name
+        local pkg_name pkg_hash pkg_wheel_dir
         pkg_name=$("$HOST_PYTHON" - "$pkg_dir" <<'PY'
 import sys, tomllib
 with open(sys.argv[1] + "pyproject.toml", "rb") as f:
     print(tomllib.load(f)["project"]["name"])
 PY
 )
-        # Skip rebuild if a wheel for this version is already cached.
-        if compgen -G "${WHEEL_CACHE}/${pkg_name//./_}-*.whl" >/dev/null; then
-            continue
+        pkg_hash=$("$HOST_PYTHON" - "${pkg_dir}pyproject.toml" <<'PY'
+import hashlib, sys
+print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest()[:16])
+PY
+)
+        pkg_wheel_dir="${WHEEL_CACHE}/internal/${pkg_name}-${pkg_hash}"
+        if ! compgen -G "${pkg_wheel_dir}/*.whl" >/dev/null; then
+            # Drop this package's wheels for older pyproject.toml contents.
+            rm -rf "${WHEEL_CACHE}/internal/${pkg_name}-"*
+            mkdir -p "$pkg_wheel_dir"
+            ( cd "$pkg_dir" && "$HOST_PYTHON" -m build --wheel --outdir "$pkg_wheel_dir" >/dev/null )
         fi
-        ( cd "$pkg_dir" && "$HOST_PYTHON" -m build --wheel --outdir "$WHEEL_CACHE" >/dev/null )
+        BUNDLE_WHEELS+=("$pkg_wheel_dir"/*.whl)
     done
+}
+
+# Every internal-package pyproject.toml has `packages = ["src"]`, so each wheel
+# installs a top-level `src` package, all overwriting one another. Nothing
+# imports it (entry points name colrev.packages.<pkg>.src..., shipped in the
+# colrev wheel), so keep it out of the bundle.
+remove_stray_src() {
+    rm -rf "$1/src"
 }
 
 install_into_mac_bundle() {
@@ -191,18 +225,26 @@ install_into_mac_bundle() {
         -r "$REPO_ROOT/requirements.txt"
 
     log "Installing colrev + internal wheels into mac bundle..."
-    # shellcheck disable=SC2046
     "$bundle_python" -m pip install \
         --no-deps \
         --target "$site_packages" \
         --upgrade \
-        $(ls "$WHEEL_CACHE"/*.whl)
+        "${BUNDLE_WHEELS[@]}"
+    remove_stray_src "$site_packages"
 }
 
 install_into_win_bundle() {
     local bundle="$1"
     # Windows python-build-standalone layout: <bundle>/Lib/site-packages
     local site_packages="${bundle}/Lib/site-packages"
+    local py_version="${PYTHON_VERSION%.*}"
+
+    # pip evaluates markers against the host, not --platform, so on a
+    # macOS/Linux host it would skip the win32-only requirements (colorama,
+    # jinxed, ...). Resolve the markers for Windows ourselves.
+    local win_requirements="${CACHE_DIR}/requirements-win.txt"
+    "$HOST_PYTHON" "$REPO_ROOT/scripts/win_requirements.py" \
+        filter "$REPO_ROOT/requirements.txt" "$win_requirements" "$py_version"
 
     log "Cross-installing requirements.txt into windows bundle..."
     "$HOST_PYTHON" -m pip install \
@@ -210,20 +252,24 @@ install_into_win_bundle() {
         --target "$site_packages" \
         --upgrade \
         --platform win_amd64 \
-        --python-version "${PYTHON_VERSION%.*}" \
+        --python-version "$py_version" \
         --only-binary=:all: \
-        -r "$REPO_ROOT/requirements.txt"
+        -r "$win_requirements"
 
     log "Cross-installing colrev + internal wheels into windows bundle..."
-    # shellcheck disable=SC2046
     "$HOST_PYTHON" -m pip install \
         --no-deps \
         --target "$site_packages" \
         --upgrade \
         --platform win_amd64 \
-        --python-version "${PYTHON_VERSION%.*}" \
+        --python-version "$py_version" \
         --only-binary=:all: \
-        $(ls "$WHEEL_CACHE"/*.whl)
+        "${BUNDLE_WHEELS[@]}"
+    remove_stray_src "$site_packages"
+
+    log "Checking the windows bundle has every Windows requirement..."
+    "$HOST_PYTHON" "$REPO_ROOT/scripts/win_requirements.py" \
+        verify "$REPO_ROOT/requirements.txt" "$site_packages" "$py_version"
 }
 
 # Generate a Mac/Linux shim from a console_scripts entry.
