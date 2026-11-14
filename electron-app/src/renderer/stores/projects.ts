@@ -237,14 +237,30 @@ export const useProjectsStore = defineStore('projects', () => {
         // Non-critical
       }
 
-      // Auto-switch to dev (the working branch) if currently on main.
-      // Reviewer branches (review/*) are the router guard's business — NOT
-      // this function's, because switchBranch calls loadProject and would loop.
+      // Auto-switch to dev (the working branch) if currently on main, or if the
+      // project was left on a reviewer branch (the app quit mid-review) and is
+      // not being opened on a review step. Reviewer branches are otherwise the
+      // router guard's business, but it only sees navigations, and opening a
+      // project is one the guard ran before this load knew the branch.
       try {
         const { useGitStore } = await import('./git');
-        if (useGitStore().isOnMain) {
-          const { ensureWorkingBranch } = await import('../composables/useManagedTaskAccess');
-          await ensureWorkingBranch();
+        const { ensureWorkingBranch, isReviewerBranch } = await import(
+          '../composables/useManagedTaskAccess'
+        );
+        const gitStore = useGitStore();
+        // `git.initialize()` runs after this, so on the first open of a project
+        // the snapshot is still null and the branch reads as `main`: a repo
+        // already on dev was checked out again, and one left on a reviewer
+        // branch was moved to dev without its decisions being pushed.
+        await gitStore.ensureSnapshot();
+        if (gitStore.snapshot) {
+          let shouldSwitch = gitStore.isOnMain;
+          if (!shouldSwitch && isReviewerBranch(gitStore.currentBranch)) {
+            const { default: router } = await import('../router');
+            shouldSwitch = !router.currentRoute.value.meta.managedReviewKind;
+          }
+          // Publishes a reviewer branch first, then switches.
+          if (shouldSwitch) await ensureWorkingBranch();
         }
       } catch {
         // Non-critical — user can still work on whatever branch they're on

@@ -281,6 +281,11 @@ export interface GitOperationResult {
   error?: string;
 }
 
+export interface GitFetchResult extends GitOperationResult {
+  /** True when the fetch moved, added or pruned a remote-tracking ref. */
+  refsChanged?: boolean;
+}
+
 export interface GitCheckoutResult extends GitOperationResult {
   /** Populated when `error === 'DIRTY_WORKTREE'`. */
   dirty?: { uncommittedCount: number; untrackedCount: number };
@@ -334,7 +339,7 @@ export interface MergeConflictResolution {
 }
 
 export interface GitAPI {
-  fetch: (projectPath: string) => Promise<GitOperationResult>;
+  fetch: (projectPath: string) => Promise<GitFetchResult>;
   pull: (projectPath: string, ffOnly?: boolean) => Promise<GitOperationResult>;
   fastForwardMain: (projectPath: string) => Promise<GitOperationResult>;
   push: (projectPath: string) => Promise<GitOperationResult>;
