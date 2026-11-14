@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { BackendSession, type BackendLike } from './backend-session';
-import { RPC_TRANSPORT_NOT_RUNNING } from './colrev-backend';
+import { RpcError, RPC_TRANSPORT_NOT_RUNNING, RPC_TRANSPORT_TIMEOUT } from './colrev-backend';
 
 class FakeBackend implements BackendLike {
   running = false;
@@ -9,6 +9,7 @@ class FakeBackend implements BackendLike {
   startError: Error | null = null;
   stopDelay: Promise<void> = Promise.resolve();
   call = vi.fn(async (method: string) => ({ method }) as never);
+  whenTimedOutCallSettled = vi.fn(async () => {});
 
   get isRunning(): boolean {
     return this.running;
@@ -155,5 +156,61 @@ describe('BackendSession', () => {
     await h.session.callRpc('ping', {});
     await h.session.callRpc('write', {});
     expect(h.lockOrder).toEqual(['rpc:write']);
+  });
+
+  it('holds the git lock until a timed-out call has finished server-side', async () => {
+    const events: string[] = [];
+    let settle!: () => void;
+    const settled = new Promise<void>((r) => (settle = r));
+    let lockChain: Promise<unknown> = Promise.resolve();
+    const session = new BackendSession<FakeBackend>({
+      create: () => {
+        const b = new FakeBackend();
+        b.call.mockRejectedValue(
+          new RpcError('Request timeout', RPC_TRANSPORT_TIMEOUT, 'get_git_status'),
+        );
+        b.whenTimedOutCallSettled.mockImplementation(() => settled);
+        return b;
+      },
+      isLockFreeMethod: () => false,
+      // A real FIFO lock: the second holder starts only after the first returns.
+      withGitLock: (label, fn) => {
+        const run = lockChain.then(async () => {
+          events.push(`lock:${label}`);
+          try {
+            return await fn();
+          } finally {
+            events.push(`unlock:${label}`);
+          }
+        });
+        lockChain = run.catch(() => {});
+        return run;
+      },
+    });
+    await session.start();
+
+    const first = session.callRpc('get_git_status', {});
+    const second = session.callRpc('other', {});
+    await new Promise((r) => setTimeout(r, 20));
+    // Python is still running the first call, so nothing may take the lock.
+    expect(events).toEqual(['lock:rpc:get_git_status']);
+
+    settle();
+    expect(await first).toMatchObject({ ok: false, error: { code: RPC_TRANSPORT_TIMEOUT } });
+    await second;
+    expect(events.slice(0, 3)).toEqual([
+      'lock:rpc:get_git_status',
+      'unlock:rpc:get_git_status',
+      'lock:rpc:other',
+    ]);
+  });
+
+  it('does not wait for a backend failure that is not a timeout', async () => {
+    const h = makeSession();
+    await h.session.start();
+    const backend = h.created[0];
+    backend.call.mockRejectedValue(new Error('boom'));
+    await h.session.callRpc('x', {});
+    expect(backend.whenTimedOutCallSettled).not.toHaveBeenCalled();
   });
 });

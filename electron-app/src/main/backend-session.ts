@@ -1,8 +1,14 @@
-import { RpcError, RPC_TRANSPORT_NOT_RUNNING, serializeRpcError } from './colrev-backend';
+import {
+  RpcError,
+  RPC_TRANSPORT_NOT_RUNNING,
+  RPC_TRANSPORT_TIMEOUT,
+  serializeRpcError,
+} from './colrev-backend';
 import type { ColrevBackend } from './colrev-backend';
 
 /** The part of ColrevBackend the session uses; tests pass fakes. */
-export type BackendLike = Pick<ColrevBackend, 'start' | 'stop' | 'call' | 'isRunning'>;
+export type BackendLike = Pick<ColrevBackend, 'start' | 'stop' | 'call' | 'isRunning'> &
+  Partial<Pick<ColrevBackend, 'whenTimedOutCallSettled'>>;
 
 export interface BackendSessionDeps<B extends BackendLike> {
   /** Build a fresh backend (and wire its events). Called once per start. */
@@ -81,6 +87,27 @@ export class BackendSession<B extends BackendLike = ColrevBackend> {
   }
 
   /**
+   * `backend.call`, except that a transport timeout does not release the caller
+   * (and with it the git mutex) while Python is still running the request: the
+   * rejection is held back until the late response arrives or the process dies.
+   * Otherwise a dugite write could run alongside that call's index reads.
+   */
+  private async callHoldingLockUntilSettled(
+    backend: B,
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    try {
+      return await backend.call(method, params);
+    } catch (err) {
+      if (err instanceof RpcError && err.code === RPC_TRANSPORT_TIMEOUT) {
+        await backend.whenTimedOutCallSettled?.();
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Forward one RPC to the backend.
    *
    * Returns an envelope instead of throwing: Electron strips custom Error
@@ -102,8 +129,9 @@ export class BackendSession<B extends BackendLike = ColrevBackend> {
           await this.deps.withGitLock(`rpc:${method}`, () => {
             // The backend may have been stopped or dropped while this call
             // waited for the lock.
-            if (!this.backend) throw notRunning();
-            return this.backend.call(method, params);
+            const backend = this.backend;
+            if (!backend) throw notRunning();
+            return this.callHoldingLockUntilSettled(backend, method, params);
           });
       return { ok: true, result };
     } catch (err) {

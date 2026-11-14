@@ -367,7 +367,6 @@ export interface GitAPI {
   dirtyState: (projectPath: string) => Promise<GitDirtyState>;
   abortMerge: (projectPath: string) => Promise<GitOperationResult>;
   hasMergeConflict: (projectPath: string) => Promise<boolean>;
-  addAndCommit: (projectPath: string, message: string) => Promise<GitOperationResult>;
   revListCount: (projectPath: string, from: string, to: string) => Promise<{ success: boolean; count: number; error?: string }>;
   analyzeDivergence: (
     projectPath: string,

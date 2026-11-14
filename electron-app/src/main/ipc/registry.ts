@@ -95,12 +95,15 @@ export function registerHandlers(
  * The bar is "opens no repository at all". `get_git_status` deliberately does
  * NOT qualify: it constructs a `git.Repo` and reads the index and refs, which
  * is exactly the state a concurrent write is mutating.
+ *
+ * `delete_project` is not on this list either: a dugite fetch or push on that
+ * same project may hold the mutex, and removing its directory underneath it
+ * would corrupt the transfer.
  */
 export const LOCK_FREE_RPC_METHODS: ReadonlyMap<string, string> = new Map([
   ['ping', 'transport liveness check; touches no filesystem'],
   ['init_project', 'creates the repo directory before any repo exists'],
   ['list_projects', 'reads the project registry file, never a repo'],
-  ['delete_project', 'removes a directory tree; nothing else may be using it'],
   ['get_csv_source_templates', 'reads bundled static templates'],
 ]);
 
