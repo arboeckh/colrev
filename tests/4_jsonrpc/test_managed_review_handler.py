@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tempfile
 import types
@@ -1251,6 +1252,119 @@ class TestManagedReviewJSONRPC:
             task_id=task["id"],
         )
         assert "error" not in response, response
+
+    def _launch_screen_task(self) -> dict:
+        """One pdf_prepared record and a launched screen task over it."""
+        self._commit_records(
+            [
+                {
+                    "ID": "R1",
+                    "origin": "import.bib/R1",
+                    "status": "pdf_prepared",
+                    "title": "Gamma",
+                    "author": "Doe, Jane",
+                    "year": "2023",
+                    "journal": "Journal A",
+                    "file": "data/pdfs/R1.pdf",
+                },
+            ],
+            "Add screen-ready record",
+        )
+        create_response = _request(
+            "create_managed_review_task",
+            self.project_id,
+            self.base_path,
+            kind="screen",
+            reviewer_logins=["alice", "bob"],
+            created_by="owner",
+        )
+        assert "error" not in create_response, create_response
+        task = create_response["result"]["task"]
+        self._create_local_review_branches(task, create_response["result"]["launch_ref"])
+        return task
+
+    def _status_of(self, record_id: str) -> str:
+        text = (self.test_dir / "data" / "records.bib").read_text(encoding="utf-8")
+        entry = text.split(f"@article{{{record_id},", 1)[1].split("\n}", 1)[0]
+        match = re.search(r"colrev_status\s*=\s*\{(\w+)\}", entry)
+        assert match, entry
+        return match.group(1)
+
+    def test_batch_prescreen_over_a_covered_record_is_refused(self):
+        task = self._launch_prescreen_task_with_shared_branches()
+        self.repo.git.checkout("dev")
+
+        response = _request("prescreen", self.project_id, self.base_path)
+
+        assert response["error"]["code"] == -32008, response
+        assert task["id"] in response["error"]["message"]
+        assert self._status_of("R1") == "md_processed"
+
+    def test_batch_screen_over_a_covered_record_is_refused(self):
+        task = self._launch_screen_task()
+        self.repo.git.checkout("dev")
+
+        response = _request("screen", self.project_id, self.base_path)
+
+        assert response["error"]["code"] == -32008, response
+        assert task["id"] in response["error"]["message"]
+        assert self._status_of("R1") == "pdf_prepared"
+
+    def test_include_all_screen_over_a_covered_record_is_refused(self):
+        task = self._launch_screen_task()
+        self.repo.git.checkout("dev")
+
+        response = _request("include_all_screen", self.project_id, self.base_path)
+
+        assert response["error"]["code"] == -32008, response
+        assert task["id"] in response["error"]["message"]
+        assert self._status_of("R1") == "pdf_prepared"
+
+        # Once the task is aborted it covers nothing, and the call works.
+        _request(
+            "cancel_managed_review_task",
+            self.project_id,
+            self.base_path,
+            task_id=task["id"],
+            canceled_by="owner",
+        )
+        response = _request("include_all_screen", self.project_id, self.base_path)
+        assert "error" not in response, response
+        assert self._status_of("R1") == "rev_included"
+
+    def test_update_decisions_cannot_change_a_covered_record_on_dev(self):
+        # update_*_decisions only revise records that are already decided. A
+        # covered record is still undecided on dev until reconciliation, so
+        # these calls skip it and need no gate.
+        self._launch_prescreen_task_with_shared_branches()
+        self.repo.git.checkout("dev")
+
+        response = _request(
+            "update_prescreen_decisions",
+            self.project_id,
+            self.base_path,
+            changes=[{"record_id": "R1", "decision": "include"}],
+        )
+
+        assert "error" not in response, response
+        assert response["result"]["updated_records"] == []
+        assert response["result"]["skipped"][0]["record_id"] == "R1"
+        assert self._status_of("R1") == "md_processed"
+
+    def test_update_screen_decisions_cannot_change_a_covered_record_on_dev(self):
+        self._launch_screen_task()
+        self.repo.git.checkout("dev")
+
+        response = _request(
+            "update_screen_decisions",
+            self.project_id,
+            self.base_path,
+            changes=[{"record_id": "R1", "decision": "include"}],
+        )
+
+        assert "error" not in response, response
+        assert response["result"]["updated_records"] == []
+        assert self._status_of("R1") == "pdf_prepared"
 
     def test_decision_on_a_record_no_task_covers_is_not_refused(self):
         task = self._launch_prescreen_task_with_shared_branches()

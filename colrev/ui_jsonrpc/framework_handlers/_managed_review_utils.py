@@ -8,11 +8,14 @@ exactly one place.
 
 from __future__ import annotations
 
+from typing import Iterable
 from typing import Optional
 from typing import Set
 
 import colrev.review_manager
+from colrev.constants import Fields
 from colrev.ui_jsonrpc.errors import ManagedTaskActiveError
+from colrev.ui_jsonrpc.managed_review import ELIGIBLE_STATE_BY_KIND
 from colrev.ui_jsonrpc.managed_review import TASK_STATES_ACTIVE
 from colrev.ui_jsonrpc.managed_review import ManagedReviewService
 
@@ -74,13 +77,55 @@ def require_task_id_for_covered_record(
     """
     if task_id:
         return
+    _raise_if_covered(
+        review_manager=review_manager, stage=stage, record_ids=[record_id]
+    )
+
+
+def require_no_covered_record_to_decide(
+    *,
+    review_manager: colrev.review_manager.ReviewManager,
+    stage: str,
+) -> None:
+    """Refuse a bulk decision call that would decide a covered record.
+
+    For the calls that decide every record still awaiting a decision of
+    ``stage`` (the batch ``prescreen`` / ``screen`` and ``include_all_screen``)
+    and take no ``task_id``. The records they would change are the ones in the
+    stage's source state; the call is refused when an active task of this
+    ``stage`` covers any of them.
+
+    Raises:
+        ManagedTaskActiveError: an active task of this ``stage`` covers a record
+            the call would decide.
+    """
+    to_decide = {
+        record_id
+        for record_id, record in (
+            review_manager.dataset.load_records_dict() or {}
+        ).items()
+        if record.get(Fields.STATUS) == ELIGIBLE_STATE_BY_KIND[stage]
+    }
+    _raise_if_covered(review_manager=review_manager, stage=stage, record_ids=to_decide)
+
+
+def _raise_if_covered(
+    *,
+    review_manager: colrev.review_manager.ReviewManager,
+    stage: str,
+    record_ids: Iterable[str],
+) -> None:
+    record_id_set = set(record_ids)
+    if not record_id_set:
+        return
     service = ManagedReviewService(review_manager=review_manager)
     for task in service.load_manifest()["managed_tasks"]:
         if task["kind"] != stage or task["state"] not in TASK_STATES_ACTIVE:
             continue
-        if record_id in task["record_ids"]:
+        covered = sorted(record_id_set & set(task["record_ids"]))
+        if covered:
             raise ManagedTaskActiveError(
-                f"Record '{record_id}' is part of the active managed {stage} task "
+                f"Record '{covered[0]}' is part of the active managed {stage} task "
                 f"{task['id']}. Decide it on your reviewer branch with that task's "
                 "id; the decisions are reconciled on dev."
             )

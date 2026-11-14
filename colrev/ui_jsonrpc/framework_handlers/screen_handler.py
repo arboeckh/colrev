@@ -172,6 +172,9 @@ class ScreenHandler(BaseHandler):
         assert self.review_manager is not None
         logger.info("Running screen operation for project %s", req.project_id)
         screen_operation = self.op(OperationsType.screen, notify=True)
+        managed_review_utils.require_no_covered_record_to_decide(
+            review_manager=self.review_manager, stage="screen"
+        )
         screen_operation.main(split_str=req.split_str)
         return ScreenBatchResponse(
             project_id=req.project_id,
@@ -459,6 +462,9 @@ class ScreenHandler(BaseHandler):
         assert self.review_manager is not None
         logger.info("Including all records in screen for project %s", req.project_id)
         screen_operation = self.op(OperationsType.screen, notify=False)
+        managed_review_utils.require_no_covered_record_to_decide(
+            review_manager=self.review_manager, stage="screen"
+        )
         screen_operation.include_all_in_screen(persist=False)
         return IncludeAllScreenResponse(
             project_id=req.project_id,
