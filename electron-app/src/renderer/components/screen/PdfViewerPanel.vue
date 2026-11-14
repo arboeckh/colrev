@@ -25,20 +25,25 @@ const emit = defineEmits<{
 const reloadKey = ref(0);
 const fileExists = ref<boolean | null>(null);
 
+// Guards against an older check resolving after a newer one has started.
+let checkToken = 0;
+
 async function checkExistence() {
-  if (!props.pdfPath || !projects.currentProjectId) {
-    fileExists.value = null;
-    return;
-  }
+  const token = ++checkToken;
+  // Drop the previous record's answer right away: the panel is reused across
+  // records, and a stale `false` would show "No PDF available" until the
+  // async check for the new path returns.
+  fileExists.value = null;
+  if (!props.pdfPath || !projects.currentProjectId) return;
   try {
     const res = await window.pdfFiles.exists({
       projectId: projects.currentProjectId,
       relativePath: props.pdfPath,
     });
-    fileExists.value = res.exists;
+    if (token === checkToken) fileExists.value = res.exists;
   } catch {
     // If the IPC fails for any reason, fall back to letting the iframe try.
-    fileExists.value = true;
+    if (token === checkToken) fileExists.value = true;
   }
 }
 
@@ -55,7 +60,10 @@ const pdfUrl = computed(() => {
   if (fileExists.value === false) return null;
   // Cache-bust the iframe src when reloadKey changes so an import takes effect.
   const suffix = reloadKey.value ? `?v=${reloadKey.value}` : '';
-  return `colrev-pdf://pdf/${encodeURIComponent(projects.currentProjectId)}/${props.pdfPath}${suffix}`;
+  // The protocol handler decodes each path segment, so encode each one: a `#`,
+  // `?` or `%` in a file name would otherwise cut or break the URL.
+  const encodedPath = props.pdfPath.split('/').map(encodeURIComponent).join('/');
+  return `colrev-pdf://pdf/${encodeURIComponent(projects.currentProjectId)}/${encodedPath}${suffix}`;
 });
 
 function onImported(count: number) {

@@ -55,7 +55,8 @@ const records = ref<PdfRecord[]>([]);
 const isLoading = ref(false);
 const hasLoadedOnce = ref(false);
 const loadError = ref<string | null>(null);
-const uploadingRecordId = ref<string | null>(null);
+// Several uploads can be in flight at once (one file picker, many rows).
+const uploadingRecordIds = ref<string[]>([]);
 const markingRecordId = ref<string | null>(null);
 const undoingRecordId = ref<string | null>(null);
 const showBatchUpload = ref(false);
@@ -171,6 +172,8 @@ const stages = computed<StageMeta[]>(() => [
   },
 ]);
 
+/** The backend's page cap for `get_records` (`MAX_LIMIT` in `records_handler.py`). */
+const RECORDS_PAGE_SIZE = 500;
 
 async function loadRecords() {
   if (!projects.currentProjectId || !backend.isRunning) return;
@@ -179,43 +182,52 @@ async function loadRecords() {
   loadError.value = null;
   const guard = projectData.snapshot();
   try {
-    const response = await backend.call('get_records', {
-      project_id: projects.currentProjectId,
-      filters: {
-        status: [
-          'rev_prescreen_included',
-          'pdf_needs_manual_retrieval',
-          'pdf_imported',
-          'pdf_not_available',
-          'pdf_prepared',
-          'pdf_needs_manual_preparation',
-          'rev_excluded',
-          'rev_included',
-          'rev_synthesized',
+    // `get_records` caps a page at 500 (MAX_LIMIT in records_handler.py), so
+    // page through with `has_more` until every PDF-stage record is loaded.
+    const loaded: PdfRecord[] = [];
+    let offset = 0;
+    for (;;) {
+      const response = await backend.call('get_records', {
+        project_id: projects.currentProjectId,
+        filters: {
+          status: [
+            'rev_prescreen_included',
+            'pdf_needs_manual_retrieval',
+            'pdf_imported',
+            'pdf_not_available',
+            'pdf_prepared',
+            'pdf_needs_manual_preparation',
+            'rev_excluded',
+            'rev_included',
+            'rev_synthesized',
+          ],
+        },
+        pagination: { offset, limit: RECORDS_PAGE_SIZE },
+        fields: [
+          'ID',
+          'title',
+          'author',
+          'year',
+          'colrev_status',
+          'journal',
+          'booktitle',
+          'doi',
+          'pages',
+          'file',
+          'colrev_data_provenance',
         ],
-      },
-      pagination: { offset: 0, limit: 2000 },
-      fields: [
-        'ID',
-        'title',
-        'author',
-        'year',
-        'colrev_status',
-        'journal',
-        'booktitle',
-        'doi',
-        'pages',
-        'file',
-        'colrev_data_provenance',
-      ],
-    });
+      });
 
-    // Project/branch switch mid-flight: discard the stale response.
-    if (!guard.isCurrent()) return;
-    if (response.success) {
-      records.value = response.records as unknown as PdfRecord[];
-      hasLoadedOnce.value = true;
+      // Project/branch switch mid-flight: discard the stale response.
+      if (!guard.isCurrent()) return;
+      if (!response.success) return;
+      const page = response.records as unknown as PdfRecord[];
+      loaded.push(...page);
+      if (!response.pagination?.has_more || page.length === 0) break;
+      offset += page.length;
     }
+    records.value = loaded;
+    hasLoadedOnce.value = true;
   } catch (err) {
     if (guard.isCurrent()) {
       loadError.value = err instanceof Error ? err.message : 'Unknown error';
@@ -275,7 +287,13 @@ async function handlePdfFileSelected(event: Event) {
   const kind = pendingUploadKind.value;
   if (!file || !recordId || !projects.currentProjectId) return;
 
-  uploadingRecordId.value = recordId;
+  // Consume the pending slot now: the next Upload click may set it for another
+  // row while this upload is still in flight.
+  pendingUploadRecordId.value = null;
+  pendingUploadKind.value = 'normal';
+  // A new attempt replaces the previous outcome (e.g. a failed one).
+  delete uploadResults.value[recordId];
+  uploadingRecordIds.value = [...uploadingRecordIds.value, recordId];
   try {
     const content = await readFileAsBase64(file);
 
@@ -334,9 +352,7 @@ async function handlePdfFileSelected(event: Event) {
       message,
     );
   } finally {
-    uploadingRecordId.value = null;
-    pendingUploadRecordId.value = null;
-    pendingUploadKind.value = 'normal';
+    uploadingRecordIds.value = uploadingRecordIds.value.filter((id) => id !== recordId);
   }
 }
 
@@ -697,7 +713,7 @@ onMounted(async () => {
               title="records"
               :show-status="true"
               :show-actions="!isReadOnly"
-              :uploading-record-id="uploadingRecordId"
+              :uploading-record-ids="uploadingRecordIds"
               :marking-record-id="markingRecordId"
               :undoing-record-id="undoingRecordId"
               :upload-results="uploadResults"
@@ -800,7 +816,7 @@ onMounted(async () => {
               title="records"
               :show-status="true"
               :show-actions="!isReadOnly"
-              :uploading-record-id="uploadingRecordId"
+              :uploading-record-ids="uploadingRecordIds"
               :marking-record-id="markingRecordId"
               :undoing-record-id="undoingRecordId"
               :upload-results="uploadResults"
@@ -887,7 +903,7 @@ onMounted(async () => {
               title="records"
               :show-status="true"
               :show-actions="!isReadOnly"
-              :uploading-record-id="uploadingRecordId"
+              :uploading-record-ids="uploadingRecordIds"
               :marking-record-id="markingRecordId"
               :undoing-record-id="undoingRecordId"
               :upload-results="uploadResults"
