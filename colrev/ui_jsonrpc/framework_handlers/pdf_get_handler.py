@@ -155,7 +155,12 @@ class PDFGetHandler(BaseHandler):
         last_exc: Optional[BaseException] = None
 
         for attempt in range(1, max_attempts + 1):
-            pdf_get_operation = self.op(OperationsType.pdf_get, notify=True)
+            # The clean-repo precondition is checked on the first attempt only.
+            # A failed attempt persists the results of the workers that did
+            # finish (a staged partial save of records.bib), so on a retry the
+            # repo is dirty by our own doing and the check would raise
+            # CleanRepoRequiredError, losing the quarantine details.
+            pdf_get_operation = self.op(OperationsType.pdf_get, notify=attempt == 1)
             try:
                 pdf_get_operation.main(
                     progress_callback=make_progress_callback(

@@ -43,7 +43,6 @@ from colrev.ui_jsonrpc.framework import registry
 HAPPY_PATH_GAPS: dict[str, str] = {
     # --- reach the network or a heavy package chain ------------------------
     "data": "runs the data operation (paper_md endpoint) — covered by e2e 07-data",
-    "pdf_get": "retrieves PDFs over the network — covered by e2e 04-pdf-get",
     "pdf_prep": "runs the OCR/grobid package chain — covered by e2e 04-pdf-get",
     "prep": "runs metadata prep against external APIs — covered by e2e 02-preprocessing",
     # --- need a project carried far down the pipeline ----------------------
