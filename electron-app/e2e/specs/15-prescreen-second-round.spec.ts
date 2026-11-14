@@ -399,4 +399,48 @@ test.describe('prescreen-second-round', () => {
     });
     await workspace.markPhase(electronApp, 'unshared-decisions-shared');
   });
+  test('entering a review with unsaved changes carries on after the dialog, and can be retried', async ({
+    workspace,
+    electronApp,
+    window,
+  }) => {
+    test.setTimeout(300_000);
+
+    // An active task, Alice on dev with an unsaved change: checking out her
+    // reviewer branch is refused until she saves or discards.
+    const aliceProject = projectPath(workspace, ALICE.login);
+    git(aliceProject, ['checkout', 'dev']);
+    const bibPath = path.join(aliceProject, 'data', 'records.bib');
+    fs.writeFileSync(bibPath, `${fs.readFileSync(bibPath, 'utf-8').trimEnd()}\n\n% unsaved change\n`);
+    expect(git(aliceProject, ['status', '--porcelain'])).not.toBe('');
+
+    await openReview(window);
+    await waitForBranch(window, 'dev');
+    await gotoStep(window, '/prescreen');
+    await window.waitForSelector('[data-testid="launch-task-card"]', { timeout: 60_000 });
+
+    const dialog = window.locator('[data-testid="branch-switch-blocked-dialog"]');
+
+    // Cancel leaves the review blocked — with a way back in, not a dead end.
+    await window.click('[data-testid="workflow-phase-review"]');
+    await expect(dialog).toBeVisible({ timeout: 60_000 });
+    await window.click('[data-testid="branch-switch-blocked-cancel"]');
+    await expect(dialog).toBeHidden();
+    await expect(window.getByText('Switching to your review assignment failed')).toBeVisible();
+    await window.click('[data-testid="managed-access-retry"]');
+    await expect(dialog).toBeVisible({ timeout: 60_000 });
+
+    // Resolving the dialog finishes the entry: no second click on Review.
+    await clickWhenEnabled(window, '[data-testid="branch-switch-blocked-discard"]', 10_000);
+    await waitForBranch(window, 'review/');
+    // Both reviewers are through the queue in this snapshot, so what loads is
+    // the finished state rather than a record card.
+    await window.waitForSelector(
+      '[data-testid="prescreen-record-card"], [data-testid="prescreen-complete"]',
+      { timeout: 60_000 },
+    );
+    await expect(window.locator('[data-testid="managed-access-retry"]')).toBeHidden();
+    await expect(window.getByText('Switching to your review assignment failed')).toBeHidden();
+    await workspace.markPhase(electronApp, 'entered-after-dialog');
+  });
 });

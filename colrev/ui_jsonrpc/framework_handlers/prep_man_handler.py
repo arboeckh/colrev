@@ -97,7 +97,15 @@ class PrepManHandler(BaseHandler):
         record = colrev.record.record_prep.PrepRecord(record_dict)
         for field, value in req.fields.items():
             if field == Fields.ENTRYTYPE:
+                if not value:
+                    raise ValueError("ENTRYTYPE cannot be cleared")
                 record.data[Fields.ENTRYTYPE] = value
+            elif value is None or (isinstance(value, str) and value.strip() == ""):
+                # A cleared field is removed, not stored as an empty string:
+                # an empty value would still count as "present" for the
+                # quality checks (e.g. a Book Title that is inconsistent with
+                # the entry type).
+                record.remove_field(key=field)
             else:
                 record.update_field(
                     key=field,

@@ -111,9 +111,14 @@ const {
   assignedReviewer,
   accessState,
   isManagedAccessBlocked,
+  accessCheckFailed,
   loadManagedTask,
   ensureAccess: ensureManagedTaskAccess,
-} = useManagedTaskAccess('prescreen');
+} = useManagedTaskAccess('prescreen', {
+  // The save-or-discard dialog that blocked entering the review resolved and
+  // its switch went through: arrange access again (hoisted function).
+  onSwitchResolved: () => arrangeAccessAndLoad(),
+});
 const allDecisionsMade = ref(false);
 
 // Decision debounce to prevent duplicate notifications
@@ -175,11 +180,15 @@ const {
   onArrowRight: () => decide('include'),
 });
 const managedAccessTitle = computed(() => {
+  if (accessCheckFailed.value) return 'Could not check your review assignment';
   if (!activeManagedTask.value) return 'Prescreen is unavailable';
   if (assignedReviewer.value) return 'Switching to your review assignment failed';
   return 'Managed prescreen is active';
 });
 const managedAccessDescription = computed(() => {
+  if (accessCheckFailed.value) {
+    return 'The review tasks could not be read, so the app cannot tell which branch prescreen decisions belong on. Nothing was changed.';
+  }
   if (!activeManagedTask.value) {
     return 'No managed prescreen branch is available for the current session.';
   }
@@ -670,17 +679,33 @@ async function exitEditMode() {
  */
 let isArrangingAccess = false;
 
+// A full invalidation that arrives mid-pass is remembered, not dropped: the
+// pass's own queue load is discarded by the request-epoch guard, which would
+// leave the queue empty until the user navigated away.
+let rerunRequested = false;
+
+function resetWalkthroughState(): void {
+  decisionHistory.value = [];
+  allDecisionsMade.value = false;
+  isEditMode.value = false;
+  editQueue.value = [];
+}
+
 async function arrangeAccessAndLoad(): Promise<void> {
   if (isArrangingAccess) return;
   isArrangingAccess = true;
   try {
-    const canLoadQueue = await ensureManagedTaskAccess();
-    if (canLoadQueue) {
-      await loadQueue();
-    } else {
-      queue.value = [];
-      totalCount.value = 0;
-    }
+    do {
+      if (rerunRequested) resetWalkthroughState();
+      rerunRequested = false;
+      const canLoadQueue = await ensureManagedTaskAccess();
+      if (canLoadQueue) {
+        await loadQueue();
+      } else {
+        queue.value = [];
+        totalCount.value = 0;
+      }
+    } while (rerunRequested);
   } finally {
     isArrangingAccess = false;
   }
@@ -698,12 +723,13 @@ useProjectDataChanged(async (event) => {
   // straight back and fight them for the branch.
   if (git.isSwitchingBranch) return;
   // …and when *we* are driving it, the pass already underway will load the
-  // queue; re-entering here would do the whole sequence a second time.
-  if (isArrangingAccess) return;
-  decisionHistory.value = [];
-  allDecisionsMade.value = false;
-  isEditMode.value = false;
-  editQueue.value = [];
+  // queue; re-entering here would do the whole sequence a second time. A
+  // genuinely separate invalidation (a pull) is run after that pass instead.
+  if (isArrangingAccess) {
+    rerunRequested = true;
+    return;
+  }
+  resetWalkthroughState();
   await arrangeAccessAndLoad();
 });
 
@@ -742,7 +768,19 @@ onUnmounted(() => {
       :icon="Filter"
       :title="managedAccessTitle"
       :description="managedAccessDescription"
-    />
+    >
+      <template #action>
+        <Button
+          size="sm"
+          variant="outline"
+          :disabled="accessState === 'loading' || accessState === 'switching'"
+          data-testid="managed-access-retry"
+          @click="arrangeAccessAndLoad"
+        >
+          Retry
+        </Button>
+      </template>
+    </EmptyState>
     <div
       v-else-if="!isPageReady"
       class="flex-1 flex items-center justify-center"

@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { Database } from 'lucide-vue-next';
 import type { DbConnector } from './db-catalog';
+import { baseName } from '@/lib/files';
 
 const props = withDefaults(
   defineProps<{
@@ -19,7 +20,7 @@ const LOGO_URLS = import.meta.glob('../../assets/db-logos/*.{svg,png,jpg,jpeg}',
 
 const logoUrl = computed<string | null>(() => {
   const match = Object.entries(LOGO_URLS).find(([path]) => {
-    const file = path.split('/').pop() ?? '';
+    const file = baseName(path);
     const name = file.replace(/\.(svg|png|jpe?g)$/i, '');
     return name === props.connector.id;
   });

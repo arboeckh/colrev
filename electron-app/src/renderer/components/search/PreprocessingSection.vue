@@ -12,6 +12,7 @@ import { useReadOnly } from '@/composables/useReadOnly';
 import PreprocessingResultsModal from '@/components/preprocessing/PreprocessingResultsModal.vue';
 import type { SearchSource } from '@/types';
 import { formatSourceName } from '@/lib/displayNames';
+import { baseName } from '@/lib/files';
 
 defineProps<{
   projectId: string;
@@ -57,7 +58,7 @@ const visibleSources = computed(() => {
 function getSourceDisplayName(source: SearchSource): string {
   if (source.search_type === 'DB') {
     const path = source.filename || source.search_results_path || '';
-    const basename = path.split('/').pop() || '';
+    const basename = baseName(path);
     return basename.replace(/\.[^/.]+$/, '') || 'unknown';
   }
   return formatSourceName(source.endpoint || source.platform);

@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useBackendStore } from '@/stores/backend';
+import { useNotificationsStore } from '@/stores/notifications';
 import RecordEditDialog from '@/components/preprocessing/RecordEditDialog.vue';
 import type { Record } from '@/types';
 
@@ -25,6 +26,7 @@ const emit = defineEmits<{
 }>();
 
 const backend = useBackendStore();
+const notifications = useNotificationsStore();
 
 // State for each tab
 const activeTab = ref<'attention' | 'ready' | 'merged'>('attention');
@@ -62,6 +64,17 @@ const isOpen = computed({
   set: (value) => emit('update:open', value),
 });
 
+/**
+ * The last page that still has records for `total`, or null when `page` is
+ * already in range. A reload after an edit can leave the current page past the
+ * end (the only record on the last page was fixed): the response is then empty
+ * while the badge still counts the other pages.
+ */
+function clampedPage(page: number, total: number): number | null {
+  const lastPage = Math.max(1, Math.ceil(total / pageSize));
+  return page > lastPage ? lastPage : null;
+}
+
 async function loadReadyRecords() {
   if (!props.projectId) return;
 
@@ -82,6 +95,11 @@ async function loadReadyRecords() {
     if (response.success) {
       readyRecords.value = response.records as Record[];
       readyTotalCount.value = response.total_count;
+      const page = clampedPage(readyCurrentPage.value, response.total_count);
+      if (page !== null) {
+        readyCurrentPage.value = page;
+        return await loadReadyRecords();
+      }
     }
   } catch (err) {
     console.error('Failed to load ready records:', err);
@@ -110,6 +128,11 @@ async function loadAttentionRecords() {
     if (response.success) {
       attentionRecords.value = response.records as Record[];
       attentionTotalCount.value = response.total_count;
+      const page = clampedPage(attentionCurrentPage.value, response.total_count);
+      if (page !== null) {
+        attentionCurrentPage.value = page;
+        return await loadAttentionRecords();
+      }
     }
   } catch (err) {
     console.error('Failed to load attention records:', err);
@@ -138,6 +161,11 @@ async function loadMergedRecords() {
     if (response.success) {
       mergedRecords.value = response.records as Record[];
       mergedTotalCount.value = response.total_count;
+      const page = clampedPage(mergedCurrentPage.value, response.total_count);
+      if (page !== null) {
+        mergedCurrentPage.value = page;
+        return await loadMergedRecords();
+      }
     }
   } catch (err) {
     console.error('Failed to load merged records:', err);
@@ -188,7 +216,23 @@ function goToNextMergedPage() {
   }
 }
 
-// Load records when modal opens
+// Records fixed in the edit dialog are only md_prepared until dedupe runs.
+// Dedupe takes the whole dataset, so it runs once when the modal closes, not
+// after every single edit.
+const needsDedupe = ref(false);
+
+async function runPendingDedupe() {
+  if (!needsDedupe.value || !props.projectId) return;
+  needsDedupe.value = false;
+  try {
+    await backend.call('dedupe', { project_id: props.projectId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    notifications.error('Deduplication after editing failed', message);
+  }
+}
+
+// Load records when modal opens; finish the pending dedupe when it closes
 watch(() => props.open, (newValue) => {
   if (newValue) {
     readyCurrentPage.value = 1;
@@ -197,6 +241,8 @@ watch(() => props.open, (newValue) => {
     loadReadyRecords();
     loadAttentionRecords();
     loadMergedRecords();
+  } else {
+    void runPendingDedupe();
   }
 });
 
@@ -205,15 +251,9 @@ function openEditDialog(recordId: string) {
   showEditDialog.value = true;
 }
 
-async function onRecordUpdated() {
+function onRecordUpdated() {
+  needsDedupe.value = true;
   loadAttentionRecords();
-  // Auto-run dedupe to transition md_prepared → md_processed
-  try {
-    await backend.call('dedupe', { project_id: props.projectId });
-  } catch (err) {
-    console.error('Auto-dedupe after edit failed:', err);
-  }
-  loadReadyRecords();
 }
 
 function getOriginSources(record: Record): string[] {
@@ -243,6 +283,13 @@ function truncate(text: string | undefined, maxLength: number): string {
         <DialogDescription>
           Review records after preprocessing
         </DialogDescription>
+        <p
+          v-if="needsDedupe"
+          class="text-xs text-muted-foreground"
+          data-testid="results-dedupe-pending"
+        >
+          Fixed records are deduplicated and moved to Ready when you close this window.
+        </p>
       </DialogHeader>
 
       <Tabs v-model="activeTab" class="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -365,6 +412,7 @@ function truncate(text: string | undefined, maxLength: number): string {
                   variant="outline"
                   size="sm"
                   :disabled="attentionCurrentPage === 1 || isLoadingAttention"
+                  data-testid="attention-prev-page"
                   @click="goToPreviousAttentionPage"
                 >
                   <ChevronLeft class="h-4 w-4" />
@@ -377,6 +425,7 @@ function truncate(text: string | undefined, maxLength: number): string {
                   variant="outline"
                   size="sm"
                   :disabled="attentionCurrentPage === attentionTotalPages || isLoadingAttention"
+                  data-testid="attention-next-page"
                   @click="goToNextAttentionPage"
                 >
                   Next

@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, getCurrentInstance, onUnmounted, ref } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { useBackendStore } from '@/stores/backend';
 import { useGitStore } from '@/stores/git';
@@ -29,7 +29,19 @@ function isReviewerBranch(branch: string): boolean {
  * implemented twice — verbatim — in PrescreenPage and ScreenPage, with two
  * more switch sites (the router guard and the workflow page) racing them.
  */
-export function useManagedTaskAccess(kind: ManagedReviewKind) {
+export function useManagedTaskAccess(
+  kind: ManagedReviewKind,
+  options: {
+    /**
+     * Re-run the access arrangement (and load the queue). Called when the
+     * save-or-discard dialog that blocked the switch into the review has
+     * resolved and its switch succeeded — nothing else would start it again,
+     * because the invalidation that switch produces is ignored while a branch
+     * switch is in progress.
+     */
+    onSwitchResolved?: () => void | Promise<void>;
+  } = {},
+) {
   const auth = useAuthStore();
   const backend = useBackendStore();
   const git = useGitStore();
@@ -41,6 +53,19 @@ export function useManagedTaskAccess(kind: ManagedReviewKind) {
   const activeManagedTask = ref<ManagedReviewTask | null>(null);
   const assignedReviewerBranch = ref<string | null>(null);
   const accessState = ref<ManagedAccessState>('loading');
+  /** The access check could not run or could not read the task list. */
+  const accessCheckFailed = ref(false);
+  let isDisposed = false;
+  let pendingResume: (() => void | Promise<void>) | null = null;
+  if (getCurrentInstance()) {
+    onUnmounted(() => {
+      isDisposed = true;
+      // Leave no continuation behind for a page that is gone.
+      if (pendingResume && git.blockedSwitchResume === pendingResume) {
+        git.blockedSwitchResume = null;
+      }
+    });
+  }
 
   const isManagedAccessBlocked = computed(() => accessState.value === 'blocked');
 
@@ -76,9 +101,16 @@ export function useManagedTaskAccess(kind: ManagedReviewKind) {
    * BranchSwitchBlockedDialog rather than stashing; see WP-07 §1).
    */
   async function ensureAccess(): Promise<boolean> {
-    if (!projects.currentProjectId || !backend.isRunning) return false;
+    if (!projects.currentProjectId || !backend.isRunning) {
+      // Nothing to check against: not a reason to wait forever, nor to let
+      // decisions through.
+      accessCheckFailed.value = true;
+      accessState.value = 'blocked';
+      return false;
+    }
 
     accessState.value = 'loading';
+    accessCheckFailed.value = false;
     activeManagedTask.value = null;
     assignedReviewerBranch.value = null;
 
@@ -97,9 +129,12 @@ export function useManagedTaskAccess(kind: ManagedReviewKind) {
         kind,
       });
     } catch {
-      // No managed-review information: fall back to unmanaged access.
-      accessState.value = 'ready';
-      return true;
+      // No managed-review information. Falling back to unmanaged access would
+      // land decisions on `dev` during an active task, so fail closed: the
+      // page offers a retry.
+      accessCheckFailed.value = true;
+      accessState.value = 'blocked';
+      return false;
     }
 
     const activeTask = tasksResponse.tasks.find((task) => task.state === 'active') ?? null;
@@ -126,6 +161,16 @@ export function useManagedTaskAccess(kind: ManagedReviewKind) {
       await publishReviewerBranch();
       if (!(await git.switchBranch(reviewer.branch_name))) {
         accessState.value = 'blocked';
+        // A dirty tree opened the save-or-discard dialog. Once the user resolves
+        // it the switch happens inside the dialog, so carry on from there.
+        // (`switchBranch` cleared any earlier continuation when it blocked.)
+        if (git.showBranchSwitchBlockedDialog && options.onSwitchResolved) {
+          const resume = options.onSwitchResolved;
+          pendingResume = () => {
+            if (!isDisposed) return resume();
+          };
+          git.blockedSwitchResume = pendingResume;
+        }
         return false;
       }
     }
@@ -143,6 +188,7 @@ export function useManagedTaskAccess(kind: ManagedReviewKind) {
     assignedReviewer,
     accessState,
     isManagedAccessBlocked,
+    accessCheckFailed,
     loadManagedTask,
     ensureAccess,
   };
@@ -161,6 +207,7 @@ export function useManagedTaskAccess(kind: ManagedReviewKind) {
  */
 export async function ensureWorkingBranch(): Promise<boolean> {
   const git = useGitStore();
+  await git.ensureSnapshot();
   if (git.currentBranch === WORKING_BRANCH) return true;
   // ensureDevBranch only guarantees the branch exists (it may find it on the
   // remote, e.g. a collaborator's fresh clone of the default branch) — the
@@ -236,10 +283,22 @@ export async function shareUnpublishedReviews(tasks: ManagedReviewTask[]): Promi
  * Leave a reviewer branch. Called when navigating away from a managed review
  * step — reviewer branches are temporary, and everything else reads `dev`.
  */
-export async function leaveReviewerBranch(): Promise<boolean> {
+let leaveInFlight: Promise<boolean> | null = null;
+
+export function leaveReviewerBranch(): Promise<boolean> {
   const git = useGitStore();
-  if (!isReviewerBranch(git.currentBranch)) return true;
-  return ensureWorkingBranch();
+  if (!isReviewerBranch(git.currentBranch)) return Promise.resolve(true);
+  // One leave at a time: the router guard runs this on every navigation, and
+  // impatient clicks on a slow network used to queue a push apiece. The
+  // destination page reads `dev`, so the first navigation does wait for the
+  // switch; the ones that follow share it. A refused switch is not the guard's
+  // to handle — the save-or-discard dialog it opened owns the way on.
+  if (!leaveInFlight) {
+    leaveInFlight = ensureWorkingBranch().finally(() => {
+      leaveInFlight = null;
+    });
+  }
+  return leaveInFlight;
 }
 
 /**

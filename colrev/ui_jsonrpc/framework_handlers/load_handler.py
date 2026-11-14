@@ -11,6 +11,7 @@ from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import make_progress_callback
 from colrev.ui_jsonrpc.framework import rpc_method
+from colrev.ui_jsonrpc.framework.source_files import ensure_sources_readable
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,10 @@ class LoadHandler(BaseHandler):
     def load(self, req: LoadRequest) -> LoadResponse:
         assert self.review_manager is not None
         logger.info("Running load operation for project %s", req.project_id)
+
+        # Core would stop at the first search file it cannot parse without
+        # saying which source it was.
+        ensure_sources_readable(self.review_manager)
 
         load_operation = self.review_manager.get_load_operation()
         load_operation.main(
