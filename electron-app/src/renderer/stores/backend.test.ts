@@ -270,6 +270,18 @@ describe('supervised restart', () => {
     await vi.waitFor(() => expect(invalidate).toHaveBeenCalled());
   });
 
+  it('invalidates when a call that timed out in the UI finishes server-side', async () => {
+    const seam = useProjectDataStore();
+    const invalidate = vi.spyOn(seam, 'invalidateAll');
+
+    ctx.mock.emitLateResponse({ method: 'prep.run', id: 7, durationMs: 12000, ok: false });
+    await Promise.resolve();
+    expect(invalidate).not.toHaveBeenCalled();
+
+    ctx.mock.emitLateResponse({ method: 'prep.run', id: 8, durationMs: 12000, ok: true });
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalled());
+  });
+
   it('accepts calls while restarting (main queues them)', async () => {
     const backend = useBackendStore();
     ctx.mock.rpc.on('ping', { status: 'pong' });

@@ -82,6 +82,7 @@ export const useBackendStore = defineStore('backend', () => {
   let unsubRestarting: (() => void) | null = null;
   let unsubRestarted: (() => void) | null = null;
   let unsubRestartFailed: (() => void) | null = null;
+  let unsubLateResponse: (() => void) | null = null;
   let unsubRpcQueue: (() => void) | null = null;
 
   // Computed
@@ -206,6 +207,14 @@ export const useBackendStore = defineStore('backend', () => {
         error.value = 'Backend crashed and could not be restarted';
         addLog('[supervisor] Backend restart failed — giving up');
       });
+      unsubLateResponse = window.colrev.onLateResponse((info) => {
+        addLog(
+          `[rpc] ${info.method} timed out earlier and has now ${info.ok ? 'finished' : 'failed'} server-side`
+        );
+        // The caller was told it timed out, but the call went through: what
+        // the renderer read in between may be stale.
+        if (info.ok) void refreshAfterRestart();
+      });
       unsubRpcQueue = window.colrev.onRpcQueue((state) => {
         rpcInFlight.value = state.inFlight?.method ?? null;
         rpcQueued.value = state.queued;
@@ -256,7 +265,9 @@ export const useBackendStore = defineStore('backend', () => {
     unsubRestarting?.();
     unsubRestarted?.();
     unsubRestartFailed?.();
+    unsubLateResponse?.();
     unsubRpcQueue?.();
+    unsubLateResponse = null;
     unsubLog = unsubError = unsubClose = unsubProgress = null;
     unsubRestarting = unsubRestarted = unsubRestartFailed = unsubRpcQueue = null;
 

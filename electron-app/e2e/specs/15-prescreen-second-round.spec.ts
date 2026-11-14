@@ -332,7 +332,7 @@ test.describe('prescreen-second-round', () => {
       await window.waitForFunction(
         (prev) => {
           const txt = (document.querySelector('[data-testid="reconcile-record-id"]')?.textContent ?? '').trim();
-          return !document.querySelector('[data-testid="reconcile-decision-bar"]') || (txt.length > 0 && txt !== prev);
+          return !!document.querySelector('[data-testid="reconcile-apply-btn"]') || (txt.length > 0 && txt !== prev);
         },
         recordId,
         { timeout: 30_000 },

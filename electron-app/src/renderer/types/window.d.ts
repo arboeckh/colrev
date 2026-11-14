@@ -14,6 +14,13 @@ export interface RestartingInfo {
   delayMs: number;
 }
 
+export interface LateResponseInfo {
+  method: string;
+  id: number;
+  durationMs: number;
+  ok: boolean;
+}
+
 export interface RpcQueueState {
   inFlight: { method: string; startedAt: number } | null;
   queued: string[];
@@ -46,6 +53,8 @@ export interface ColrevAPI {
   onRestarting: (callback: (info: RestartingInfo) => void) => () => void;
   onRestarted: (callback: () => void) => () => void;
   onRestartFailed: (callback: () => void) => () => void;
+  /** A call that timed out in the UI finished server-side (`ok` = succeeded). */
+  onLateResponse: (callback: (info: LateResponseInfo) => void) => () => void;
   /** Snapshots of the serial RPC queue (in-flight method + waiting list). */
   onRpcQueue: (callback: (state: RpcQueueState) => void) => () => void;
 }

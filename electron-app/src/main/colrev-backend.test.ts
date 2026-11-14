@@ -65,6 +65,22 @@ rl.on('line', (line) => {
     case 'die':
       process.exit(1);
       break;
+    case 'garbled':
+      // What the real server does with a line it cannot parse: an error with
+      // id null, and no response carrying this request's id.
+      respond({ jsonrpc: '2.0', error: { code: -32700, message: 'Parse error' }, id: null });
+      break;
+    case 'writeSlowly':
+      // A request that is mid-"write" when the app quits: the marker file only
+      // appears if the process was allowed to finish.
+      setTimeout(() => {
+        fs.writeFileSync(params.marker, 'done');
+        respond({ jsonrpc: '2.0', result: { done: true }, id });
+      }, params.delayMs);
+      break;
+    case 'pid':
+      respond({ jsonrpc: '2.0', result: { pid: process.pid }, id });
+      break;
     default:
       respond({ jsonrpc: '2.0', error: { code: -32601, message: 'not found' }, id });
   }
@@ -82,8 +98,8 @@ beforeAll(() => {
   fs.writeFileSync(scriptPath, FAKE_SERVER_SOURCE);
 });
 
-afterEach(() => {
-  backend?.stop();
+afterEach(async () => {
+  await backend?.stop();
   backend = null;
   fs.rmSync(dieFilePath, { force: true });
 });
@@ -96,6 +112,7 @@ function makeBackend(opts: ConstructorParameters<typeof ColrevBackend>[3] = {}) 
     {
       restartDelaysMs: [50, 50, 50],
       startTimeoutMs: 5000,
+      stopGraceMs: 200,
       ...opts,
     },
   );
@@ -237,9 +254,10 @@ describe('ColrevBackend', () => {
     b.on('restarting', () => {
       sawRestarting = true;
     });
-    b.stop();
+    const stopped = b.stop();
 
     const err = await expectRejection(pending);
+    await stopped;
     expect(err).toBeInstanceOf(RpcError);
     expect(err.code).toBe(RPC_TRANSPORT_STOPPED);
 
@@ -281,4 +299,86 @@ describe('ColrevBackend', () => {
     expect(result).toEqual({ done: true });
     expect(await progress).toMatchObject({ kind: 'generic', message: 'working' });
   });
+
+  it('rejects an id-less error with the in-flight request and keeps the queue moving', async () => {
+    const b = makeBackend();
+    await b.start();
+
+    const garbled = expectRejection(b.call('garbled', {}));
+    const next = b.call('echo', { n: 4 });
+
+    const err = await garbled;
+    expect(err.code).toBe(-32700);
+    expect(err.method).toBe('garbled');
+    expect(await next).toEqual({ n: 4 });
+    expect(b.getQueueState().inFlight).toBeNull();
+  });
+
+  it('ignores close/error events of a child that is no longer current', async () => {
+    const b = makeBackend({ startTimeoutMs: 5000 });
+    await b.start();
+    const first = (b as unknown as { process: ChildProcessLike }).process;
+
+    // Replace the child the way a supervised restart does: kill the old one,
+    // spawn another. The old child's `close` arrives afterwards.
+    (b as unknown as { killProcess(): void }).killProcess();
+    await (b as unknown as { spawnAndWaitReady(): Promise<void> }).spawnAndWaitReady();
+    const second = (b as unknown as { process: ChildProcessLike }).process;
+    expect(second).not.toBe(first);
+
+    const pending = b.call('slow', { delayMs: 300 });
+    first.emit('close', 1);
+    first.emit('error', new Error('late'));
+
+    expect((b as unknown as { process: unknown }).process).toBe(second);
+    expect(await pending).toEqual({ done: true });
+    expect(await b.call('pid', {})).toMatchObject({ pid: second.pid });
+  });
+
+  it('does not throw when stdin fails (EPIPE) between the exit and its close event', async () => {
+    const b = makeBackend({ restartDelaysMs: [5000] });
+    await b.start();
+    const child = (b as unknown as { process: ChildProcessLike }).process;
+
+    const pending = expectRejection(b.call('slow', { delayMs: 5000 }));
+    child.stdin!.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
+    // Still alive and answering: the error was handled, not rethrown.
+    child.kill();
+    expect((await pending).code).toBe(RPC_TRANSPORT_CRASHED);
+  });
+
+  it('lets an in-flight request finish on stop, closing stdin first', async () => {
+    const b = makeBackend({ stopGraceMs: 3000 });
+    await b.start();
+    const marker = path.join(path.dirname(scriptPath), 'marker-finish');
+    fs.rmSync(marker, { force: true });
+
+    const writing = b.call('writeSlowly', { delayMs: 150, marker });
+    const queued = expectRejection(b.call('echo', { n: 1 }));
+    const stopped = b.stop();
+
+    expect(await writing).toEqual({ done: true });
+    expect((await queued).code).toBe(RPC_TRANSPORT_STOPPED);
+    await stopped;
+    expect(fs.existsSync(marker)).toBe(true);
+    expect(b.isRunning).toBe(false);
+    expect((await expectRejection(b.call('echo', {}))).code).toBe(RPC_TRANSPORT_STOPPED);
+  });
+
+  it('kills the process when the in-flight request outlasts the grace period', async () => {
+    const b = makeBackend({ stopGraceMs: 100 });
+    await b.start();
+    const marker = path.join(path.dirname(scriptPath), 'marker-killed');
+    fs.rmSync(marker, { force: true });
+
+    const writing = expectRejection(b.call('writeSlowly', { delayMs: 2000, marker }));
+    const started = Date.now();
+    await b.stop();
+
+    expect((await writing).code).toBe(RPC_TRANSPORT_STOPPED);
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
 });
+
+type ChildProcessLike = import('child_process').ChildProcess;

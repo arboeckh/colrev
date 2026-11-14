@@ -161,7 +161,11 @@ class StatusHandler(BaseHandler):
         logger.info("Getting status for project %s", req.project_id)
 
         status_stats = self.review_manager.get_status_stats()
-        has_changes = self.review_manager.dataset.git_repo.has_changes(Path("."))
+        # Whole-repository check (GitRepo.has_changes matches one exact path, so
+        # Path(".") never matched). ``.repo`` is read-only: no promotion.
+        has_changes = self.review_manager.dataset.git_repo.repo.is_dirty(
+            untracked_files=True
+        )
         next_operation = operation_graph.next_operation(status_stats.currently)
 
         stale_sources = stale_source_entries(self.review_manager)

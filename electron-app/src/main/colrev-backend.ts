@@ -94,6 +94,11 @@ const BACKEND_LOG_TRUNCATE_TO_BYTES = 5 * 1024 * 1024;
 const FAST_TIMEOUT_MS = 10_000;
 const RESTART_DELAYS_MS = [500, 1000, 2000];
 const START_TIMEOUT_MS = 60_000;
+/** How long a deliberate stop lets the in-flight request finish before it
+ * kills the process. */
+const STOP_GRACE_MS = 5_000;
+/** After the kill, how long to wait for the `close` event before giving up on it. */
+const STOP_KILL_WAIT_MS = 2_000;
 
 type TimeoutClass = 'fast' | 'slow';
 
@@ -111,6 +116,8 @@ export interface ColrevBackendOptions {
   fastTimeoutMs?: number;
   restartDelaysMs?: number[];
   startTimeoutMs?: number;
+  /** How long `stop()` lets an in-flight request finish before killing. */
+  stopGraceMs?: number;
 }
 
 /**
@@ -147,6 +154,8 @@ export class ColrevBackend extends EventEmitter {
   private readonly fastTimeoutMs: number;
   private readonly restartDelaysMs: number[];
   private readonly startTimeoutMs: number;
+  private readonly stopGraceMs: number;
+  private stopPromise: Promise<void> | null = null;
 
   constructor(
     private executablePath: string,
@@ -160,6 +169,7 @@ export class ColrevBackend extends EventEmitter {
     this.fastTimeoutMs = opts.fastTimeoutMs ?? FAST_TIMEOUT_MS;
     this.restartDelaysMs = opts.restartDelaysMs ?? RESTART_DELAYS_MS;
     this.startTimeoutMs = opts.startTimeoutMs ?? START_TIMEOUT_MS;
+    this.stopGraceMs = opts.stopGraceMs ?? STOP_GRACE_MS;
 
     const registryPath = process.env.COLREV_FAKE_GITHUB_REGISTRY;
     if (registryPath) {
@@ -198,6 +208,12 @@ export class ColrevBackend extends EventEmitter {
     }
   }
 
+  /** True while there is a child process, or a supervised restart is about
+   * to spawn one. False once stopped, crashed for good, or never started. */
+  get isRunning(): boolean {
+    return !this.stopping && (this.process !== null || this.supervising);
+  }
+
   /**
    * Start the backend subprocess and wait until it answers a ping.
    */
@@ -206,6 +222,7 @@ export class ColrevBackend extends EventEmitter {
       throw new Error('Backend already running');
     }
     this.stopping = false;
+    this.stopPromise = null;
     // A fresh manual start owns its own failure reporting — a crash before
     // this start reaches readiness must not trigger supervision.
     this.everReady = false;
@@ -220,27 +237,43 @@ export class ColrevBackend extends EventEmitter {
         ...this.env,
       };
 
-      this.process = spawn(this.executablePath, this.args, {
+      const child = spawn(this.executablePath, this.args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: processEnv,
         // Windows: python.exe is a console program; don't open a console window.
         windowsHide: true,
       });
+      this.process = child;
+      // Every handler below is bound to *this* child: once a newer child (or
+      // none) is current, a late event from this one must not touch the
+      // shared queue, `process` or `ready`.
+      const isCurrent = () => this.process === child;
 
       // Handle spawn error (e.g. executable missing)
-      this.process.on('error', (err) => {
+      child.on('error', (err) => {
+        if (!isCurrent()) return;
         this.emit('error', err);
         reject(err);
       });
 
+      // A write between the child dying and its `close` event raises EPIPE on
+      // stdin; without a listener that is an uncaught exception. `close`
+      // follows and rejects what is pending.
+      child.stdin?.on('error', (err) => {
+        this.emit('log', `[stdin] ${err.message}`);
+      });
+
       // Parse stdout for JSON-RPC responses
-      if (this.process.stdout) {
-        this.rl = readline.createInterface({ input: this.process.stdout });
-        this.rl.on('line', (line) => this.handleResponse(line));
+      if (child.stdout) {
+        const rl = readline.createInterface({ input: child.stdout });
+        this.rl = rl;
+        rl.on('line', (line) => {
+          if (isCurrent()) this.handleResponse(line);
+        });
       }
 
       // Forward stderr as logs
-      this.process.stderr?.on('data', (data) => {
+      child.stderr?.on('data', (data) => {
         const raw = data.toString();
         this.appendBackendLog(raw);
         const msg = raw.trim();
@@ -248,7 +281,9 @@ export class ColrevBackend extends EventEmitter {
       });
 
       // Handle process exit
-      this.process.on('close', (code) => this.handleClose(code));
+      child.on('close', (code) => {
+        if (isCurrent()) this.handleClose(code);
+      });
 
       // Retry ping until server is ready. Cold start of the packaged
       // python-build-standalone bundle takes the time of a Python interpreter
@@ -258,10 +293,10 @@ export class ColrevBackend extends EventEmitter {
         reject(new Error('Backend start timeout'));
         // Kill without setting `stopping` — a supervised restart must be able
         // to try again after a failed attempt.
-        this.killProcess();
+        if (isCurrent()) this.killProcess();
       }, this.startTimeoutMs);
 
-      this.pingUntilReady(this.startTimeoutMs)
+      this.pingUntilReady(this.startTimeoutMs, child)
         .then(() => {
           clearTimeout(startTimeout);
           this.everReady = true;
@@ -281,17 +316,20 @@ export class ColrevBackend extends EventEmitter {
    * doesn't prevent the next retry. Probes jump the queue (priority) so
    * requests queued during a restart window can't starve the readiness check.
    */
-  private async pingUntilReady(deadlineMs: number): Promise<void> {
+  private async pingUntilReady(deadlineMs: number, child: ChildProcess): Promise<void> {
     const PING_TIMEOUT_MS = 1000;
     const PING_INTERVAL_MS = 500;
     const start = Date.now();
 
     while (Date.now() - start < deadlineMs) {
-      if (this.stopping || !this.process) {
+      if (this.stopping || this.process !== child) {
         throw new Error('Backend stopped during startup');
       }
       try {
         await this.enqueue('ping', {}, { timeoutMs: PING_TIMEOUT_MS, probe: true });
+        if (this.process !== child) {
+          throw new Error('Backend stopped during startup');
+        }
         this.ready = true;
         // Drain anything queued while the handshake was in progress.
         this.pump();
@@ -332,6 +370,9 @@ export class ColrevBackend extends EventEmitter {
     return new Promise((resolve, reject) => {
       // Accept while a process exists or a supervised restart is underway
       // (queued requests are sent once the new process answers ping).
+      if (this.stopping) {
+        return reject(new RpcError('Backend stopped', RPC_TRANSPORT_STOPPED, method));
+      }
       if (!this.process && !this.supervising) {
         return reject(
           new RpcError('Backend not running', RPC_TRANSPORT_NOT_RUNNING, method),
@@ -367,7 +408,7 @@ export class ColrevBackend extends EventEmitter {
    * flight: the Python server is serial, and holding back until the previous
    * response arrives is what makes `inFlight` truthful. */
   private pump(): void {
-    if (this.inFlight || !this.process?.stdin || this.queue.length === 0) {
+    if (this.stopping || this.inFlight || !this.process?.stdin || this.queue.length === 0) {
       return;
     }
     if (!this.ready && !this.queue[0].probe) {
@@ -390,7 +431,10 @@ export class ColrevBackend extends EventEmitter {
       method: entry.method,
       params: entry.params,
     });
-    this.process.stdin.write(JSON.stringify(request) + '\n');
+    // A failed write surfaces on the stdin 'error' listener; the child's
+    // `close` then rejects this entry. The callback only keeps the error from
+    // being rethrown anywhere else.
+    this.process.stdin.write(JSON.stringify(request) + '\n', () => {});
   }
 
   private handleTimeout(entry: QueuedRequest): void {
@@ -417,22 +461,91 @@ export class ColrevBackend extends EventEmitter {
 
   /**
    * Stop the backend subprocess deliberately (no restart).
+   *
+   * Requests still waiting in the queue are rejected at once. The in-flight
+   * request is allowed to finish: stdin is closed (the server exits on EOF
+   * once it has answered) and the process is killed only if it has not exited
+   * after `stopGraceMs`. Killing in the middle of a request can truncate
+   * `data/records.bib` or leave `.git/index.lock` behind.
+   *
+   * Resolves once the process is gone. Safe to call more than once.
    */
-  stop(): void {
+  stop(): Promise<void> {
+    if (this.stopPromise) return this.stopPromise;
     this.stopping = true;
+    const stopped = (method: string) =>
+      new RpcError('Backend stopped', RPC_TRANSPORT_STOPPED, method);
+
     // Reject even with no live process — requests may be queued while a
     // supervised restart is underway.
-    this.rejectAllPending(
-      (method) => new RpcError('Backend stopped', RPC_TRANSPORT_STOPPED, method),
-    );
-    this.killProcess();
+    const queued = this.queue;
+    this.queue = [];
+    for (const entry of queued) {
+      if (entry.timer) clearTimeout(entry.timer);
+      entry.reject(stopped(entry.method));
+    }
+
+    const child = this.process;
+    // During the startup handshake the only request is the ping probe: kill.
+    if (!child || !this.ready) {
+      this.killProcess();
+      this.failInFlight(stopped);
+      this.emitQueueState();
+      this.stopPromise = Promise.resolve();
+      return this.stopPromise;
+    }
+
+    this.emitQueueState();
+    this.stopPromise = this.shutdownGracefully(child);
+    return this.stopPromise;
   }
 
+  private shutdownGracefully(child: ChildProcess): Promise<void> {
+    return new Promise((resolve) => {
+      let graceTimer: NodeJS.Timeout | null = null;
+      let killTimer: NodeJS.Timeout | null = null;
+      const finish = () => {
+        if (graceTimer) clearTimeout(graceTimer);
+        if (killTimer) clearTimeout(killTimer);
+        resolve();
+      };
+      // Registered after the `close` handler from spawnAndWaitReady, so by
+      // the time this runs handleClose has rejected what was left.
+      child.once('close', finish);
+
+      child.stdin?.end();
+      graceTimer = setTimeout(() => {
+        this.emit('log', '[stop] backend did not exit in time; killing it');
+        child.kill();
+        killTimer = setTimeout(() => {
+          // No `close` came: drop the child ourselves.
+          if (this.process === child) this.cleanup();
+          this.failInFlight(
+            (method) => new RpcError('Backend stopped', RPC_TRANSPORT_STOPPED, method),
+          );
+          finish();
+        }, STOP_KILL_WAIT_MS);
+      }, this.stopGraceMs);
+    });
+  }
+
+  /** Kill the current child and detach from it at once. Its in-flight request
+   * is lost with it; queued requests stay for the next child. */
   private killProcess(): void {
-    if (this.process) {
-      this.process.kill();
-      this.cleanup();
-    }
+    const child = this.process;
+    if (!child) return;
+    this.cleanup();
+    child.kill();
+    this.failInFlight((method) => new BackendCrashedError(method, null));
+  }
+
+  private failInFlight(makeError: (method: string) => Error): void {
+    const entry = this.inFlight;
+    if (!entry) return;
+    this.inFlight = null;
+    if (entry.timer) clearTimeout(entry.timer);
+    if (!entry.timedOut) entry.reject(makeError(entry.method));
+    this.emitQueueState();
   }
 
   /** Current queue snapshot (also pushed via 'rpc-queue' events). */
@@ -466,7 +579,11 @@ export class ColrevBackend extends EventEmitter {
     this.emit('close', code);
     // Reject promptly — callers must not wait out a timeout that will never
     // be answered.
-    this.rejectAllPending((method) => new BackendCrashedError(method, code));
+    this.rejectAllPending((method) =>
+      this.stopping
+        ? new RpcError('Backend stopped', RPC_TRANSPORT_STOPPED, method)
+        : new BackendCrashedError(method, code),
+    );
     this.cleanup();
 
     if (!this.stopping && !this.supervising && this.everReady) {
@@ -542,7 +659,12 @@ export class ColrevBackend extends EventEmitter {
       }
 
       const entry = this.inFlight;
-      if (!entry || message.id !== entry.id) {
+      // The server answers with `id: null` when it cannot read or parse a
+      // request line (colrev/ui_jsonrpc/server.py). The pipe carries one
+      // request at a time, so such an error belongs to the one in flight;
+      // treating it as an orphan would leave that request pending forever.
+      const idless = message.error && (message.id === null || message.id === undefined);
+      if (!entry || (message.id !== entry.id && !idless)) {
         // A response we no longer have a caller for (e.g. arrived after a
         // crash-rejection raced the actual response). Log, don't crash.
         this.emit('log', `[orphan-response] ${trimmed}`);

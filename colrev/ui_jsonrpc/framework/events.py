@@ -13,7 +13,6 @@ events in-memory.
 """
 from __future__ import annotations
 
-import json
 import logging
 import threading
 from typing import Callable
@@ -46,7 +45,7 @@ def _default_stdout_emitter(event: ProgressEvent) -> None:
         "method": "progress",
         "params": event.model_dump(mode="json"),
     }
-    transport.write_line(json.dumps(notification))
+    transport.write_line(transport.dumps(notification))
 
 
 def set_emitter(fn: Optional[EmitterFn]) -> None:

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as path from 'path';
-import { AccountScopedProjectPaths } from './account-scoped-project-paths';
+import { AccountScopedProjectPaths, resolveInsideRoot } from './account-scoped-project-paths';
 
 describe('AccountScopedProjectPaths', () => {
   const userData = '/mock/userData';
@@ -44,5 +44,25 @@ describe('AccountScopedProjectPaths', () => {
       const paths = new AccountScopedProjectPaths(userData);
       expect(paths.projectsRoot).toBe(path.join(userData, 'projects'));
     });
+  });
+});
+
+describe('resolveInsideRoot', () => {
+  const root = path.join(path.sep, 'data', 'projects', 'alice');
+
+  it('resolves paths inside the root', () => {
+    expect(resolveInsideRoot(root, 'proj', 'pdfs/a.pdf')).toBe(
+      path.join(root, 'proj', 'pdfs', 'a.pdf'),
+    );
+  });
+
+  it('refuses a project id that escapes into a sibling whose name starts with the root name', () => {
+    expect(resolveInsideRoot(root, '../alice2/proj', 'a.pdf')).toBeNull();
+  });
+
+  it('refuses ../ escapes and the root itself', () => {
+    expect(resolveInsideRoot(root, '..', 'bob', 'a.pdf')).toBeNull();
+    expect(resolveInsideRoot(root, 'proj', '../../x')).toBeNull();
+    expect(resolveInsideRoot(root, '.')).toBeNull();
   });
 });

@@ -19,3 +19,15 @@ export class AccountScopedProjectPaths {
     return path.join(this.projectsRootForAccount(login), projectId);
   }
 }
+
+/**
+ * Resolve `segments` under `root`, or null when the result is not strictly
+ * inside it. Compares against the root plus a separator: a bare prefix check
+ * would accept `/data/alice2/x` as being inside `/data/alice`.
+ */
+export function resolveInsideRoot(root: string, ...segments: string[]): string | null {
+  const resolvedRoot = path.resolve(root);
+  const resolved = path.resolve(resolvedRoot, ...segments);
+  const prefix = resolvedRoot.endsWith(path.sep) ? resolvedRoot : resolvedRoot + path.sep;
+  return resolved.startsWith(prefix) ? resolved : null;
+}
