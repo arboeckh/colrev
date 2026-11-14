@@ -121,7 +121,9 @@ const {
 });
 const allDecisionsMade = ref(false);
 
-// Decision debounce to prevent duplicate notifications
+// Decision debounce: a double-click or a held key must not decide the next
+// record, which the user has not had time to read. It deliberately survives
+// the index change that follows a decision.
 const lastDecisionTime = ref(0);
 
 // Number of records to prefetch per batch in background
@@ -402,10 +404,6 @@ async function enrichSingleRecord(recordId: string) {
 
 // Watch for index changes to prefetch next record
 watch(currentIndex, async (newIndex) => {
-  // The makeDecision debounce only guards same-record double-fires
-  // (simultaneous click + keypress); reset when the active record changes.
-  lastDecisionTime.value = 0;
-
   const nextRecord = activeQueue.value[newIndex + 1];
   if (nextRecord && nextRecord._enrichmentStatus === 'pending') {
     await enrichSingleRecord(nextRecord.id);
@@ -503,6 +501,7 @@ function revertDecision(record: EnrichedRecord, guard: { isCurrent: () => boolea
 
 async function makeDecision(decision: 'include' | 'exclude') {
   if (!currentRecord.value || !projects.currentProjectId || isFinishing.value) return;
+  if (isReadOnly.value) return;
   if (isCurrentDecided.value) return;
   // Debounce: prevent duplicate calls from simultaneous keyboard + click events
   const now = Date.now();
@@ -538,9 +537,12 @@ async function makeDecision(decision: 'include' | 'exclude') {
       // Queue exhausted — flush the seam immediately so the completion
       // screen renders fresh counts (the debounced write refresh would
       // land a beat too late).
+      // Completion flag first: with the queue emptied and the flag still
+      // false, the page would say "No records to prescreen" for the length
+      // of the refresh.
+      allDecisionsMade.value = true;
       queue.value = [];
       await projectData.refreshNow();
-      allDecisionsMade.value = true;
     }
   } finally {
     isFinishing.value = false;
@@ -550,6 +552,8 @@ async function makeDecision(decision: 'include' | 'exclude') {
 /** Decision buttons and arrow keys: decide an undecided record, or revise a
  * decided one while editing. */
 function decide(decision: 'include' | 'exclude') {
+  // Read-only: the buttons are disabled, so the arrow keys must not write either.
+  if (isReadOnly.value) return;
   if (!currentRecord.value || !isCurrentRecordReady.value) return;
   if (isEditMode.value) reviseDecision(decision);
   else if (!isCurrentDecided.value) makeDecision(decision);

@@ -8,7 +8,7 @@
  * locally and the walkthrough advances immediately; the write is flushed on a
  * background chain that preserves click order and rolls back on failure.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
 import {
   branchDeltaResponse,
@@ -51,10 +51,22 @@ function stubQueue(ctx: RendererTestContext, ids: string[] = RECORD_IDS) {
   }));
 }
 
-async function mountPage(ctx: RendererTestContext): Promise<VueWrapper> {
+// The page listens on `window`; a page left mounted would answer the next
+// test's key presses too.
+let mounted: VueWrapper[] = [];
+
+afterEach(() => {
+  mounted.forEach((w) => w.unmount());
+  mounted = [];
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
+
+async function mountPage(ctx: RendererTestContext, branch = 'dev'): Promise<VueWrapper> {
   ctx.openProject();
-  ctx.setGitState({ branch: 'dev' });
+  ctx.setGitState({ branch });
   const wrapper = mount(PrescreenPage);
+  mounted.push(wrapper);
   await flushPromises();
   return wrapper;
 }
@@ -63,10 +75,21 @@ function currentRecordId(wrapper: VueWrapper): string {
   return wrapper.find('[data-testid="prescreen-record-id"]').text();
 }
 
+/** Step past the decision debounce, as a user reading the next abstract would. */
+function afterReading(): void {
+  vi.setSystemTime(Date.now() + 1000);
+}
+
+function press(key: string, init: KeyboardEventInit = {}): void {
+  window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...init }));
+}
+
 describe('PrescreenPage decisions', () => {
   let ctx: RendererTestContext;
 
   beforeEach(() => {
+    // Only Date is faked: the debounce reads it, flushPromises does not.
+    vi.useFakeTimers({ toFake: ['Date'] });
     ctx = setupRendererTest();
     // Access control is out of scope here: no managed task, no branch switch.
     ctx.mock.rpc.onError('get_current_managed_review_task', { message: 'not managed' });
@@ -114,6 +137,7 @@ describe('PrescreenPage decisions', () => {
     const wrapper = await mountPage(ctx);
     await wrapper.find('[data-testid="prescreen-btn-include"]').trigger('click');
     await flushPromises();
+    afterReading();
     await wrapper.find('[data-testid="prescreen-btn-exclude"]').trigger('click');
     await flushPromises();
 
@@ -157,6 +181,8 @@ describe('PrescreenPage decisions', () => {
       wrapper.find('[data-testid="prescreen-remaining-count"]').text();
 
     await wrapper.find('[data-testid="prescreen-btn-include"]').trigger('click');
+    await flushPromises();
+    afterReading();
     await wrapper.find('[data-testid="prescreen-btn-include"]').trigger('click');
     await flushPromises();
     expect(remaining()).toBe('1 remaining');
@@ -240,5 +266,138 @@ describe('PrescreenPage managed access', () => {
     await flushPromises();
 
     expect(currentRecordId(wrapper)).toBe('r1');
+  });
+});
+
+describe('PrescreenPage keyboard decisions', () => {
+  let ctx: RendererTestContext;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    ctx = setupRendererTest();
+    ctx.mock.rpc.onError('get_current_managed_review_task', { message: 'not managed' });
+    ctx.mock.rpc.on('list_managed_review_tasks', () => tasksResponse('prescreen'));
+    ctx.mock.rpc.on('prescreen_record', () => new Promise(() => {}));
+    stubQueue(ctx);
+  });
+
+  afterEach(() => {
+    document.querySelectorAll('[role="dialog"]').forEach((el) => el.remove());
+  });
+
+  it('decides with the arrow keys', async () => {
+    const wrapper = await mountPage(ctx);
+
+    press('ArrowRight');
+    await flushPromises();
+
+    expect(currentRecordId(wrapper)).toBe('r2');
+    expect(ctx.mock.rpc.callsTo('prescreen_record')[0].params).toMatchObject({
+      record_id: 'r1',
+      decision: 'include',
+    });
+  });
+
+  it('ignores a held key', async () => {
+    const wrapper = await mountPage(ctx);
+
+    press('ArrowRight', { repeat: true });
+    await flushPromises();
+
+    expect(currentRecordId(wrapper)).toBe('r1');
+    expect(ctx.mock.rpc.countOf('prescreen_record')).toBe(0);
+  });
+
+  it('decides one record for a double-click, not two', async () => {
+    const wrapper = await mountPage(ctx);
+
+    await wrapper.find('[data-testid="prescreen-btn-include"]').trigger('click');
+    await wrapper.find('[data-testid="prescreen-btn-include"]').trigger('click');
+    await flushPromises();
+
+    expect(currentRecordId(wrapper)).toBe('r2');
+    expect(ctx.mock.rpc.countOf('prescreen_record')).toBe(1);
+
+    // Once the user has had time to read r2, the next decision lands.
+    afterReading();
+    press('ArrowLeft');
+    await flushPromises();
+    // (Its write queues behind the first, which never settles here.)
+    expect(currentRecordId(wrapper)).toBe('r3');
+  });
+
+  it('ignores an arrow pressed with a modifier', async () => {
+    const wrapper = await mountPage(ctx);
+
+    for (const mod of ['metaKey', 'altKey', 'ctrlKey', 'shiftKey'] as const) {
+      press('ArrowRight', { [mod]: true });
+    }
+    await flushPromises();
+
+    expect(currentRecordId(wrapper)).toBe('r1');
+    expect(ctx.mock.rpc.countOf('prescreen_record')).toBe(0);
+  });
+
+  it('ignores arrows while a dialog is open over the page', async () => {
+    const wrapper = await mountPage(ctx);
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    document.body.appendChild(dialog);
+
+    press('ArrowRight');
+    press('ArrowDown');
+    await flushPromises();
+    expect(currentRecordId(wrapper)).toBe('r1');
+    expect(ctx.mock.rpc.countOf('prescreen_record')).toBe(0);
+
+    dialog.remove();
+    press('ArrowRight');
+    await flushPromises();
+    expect(currentRecordId(wrapper)).toBe('r2');
+  });
+
+  it('writes no decision from the arrow keys when read-only', async () => {
+    const wrapper = await mountPage(ctx, 'main');
+
+    press('ArrowRight');
+    press('ArrowLeft');
+    await flushPromises();
+
+    expect(ctx.mock.rpc.countOf('prescreen_record')).toBe(0);
+    expect(currentRecordId(wrapper)).toBe('r1');
+  });
+});
+
+describe('PrescreenPage last decision', () => {
+  let ctx: RendererTestContext;
+
+  beforeEach(() => {
+    ctx = setupRendererTest();
+    ctx.mock.rpc.onError('get_current_managed_review_task', { message: 'not managed' });
+    ctx.mock.rpc.on('list_managed_review_tasks', () => tasksResponse('prescreen'));
+    stubQueue(ctx, ['r1']);
+    ctx.mock.rpc.on('prescreen_record', (params) => ({
+      success: true,
+      project_id: 'lit-review',
+      record: {
+        id: params.record_id as string,
+        decision: params.decision as 'include' | 'exclude',
+        new_status: 'rev_prescreen_included',
+      },
+      remaining_count: 0,
+      already_decided: false,
+    }));
+  });
+
+  it('shows the completion screen, not "No records", while the final refresh runs', async () => {
+    // The refresh that reads the final counts never settles.
+    vi.spyOn(useProjectDataStore(), 'refreshNow').mockReturnValue(new Promise(() => {}));
+
+    const wrapper = await mountPage(ctx);
+    await wrapper.find('[data-testid="prescreen-btn-include"]').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).not.toContain('No records to prescreen');
+    expect(wrapper.find('[data-testid="prescreen-complete"]').exists()).toBe(true);
   });
 });
