@@ -5,6 +5,8 @@ import { useGitStore } from './git';
 import { useProjectsStore } from './projects';
 import { useNotificationsStore } from './notifications';
 import { useBackendStore } from './backend';
+import { useConnectionStore } from './connection';
+import { useAuthStore } from './auth';
 import type { GitStateSnapshot } from '@/types/window';
 
 function snapshot(overrides: Partial<GitStateSnapshot> = {}): GitStateSnapshot {
@@ -36,6 +38,7 @@ function stubRemoteOps(ok = true) {
     fetch: vi.fn().mockResolvedValue(ok),
     pull: vi.fn().mockResolvedValue(ok),
     push: vi.fn().mockResolvedValue(ok),
+    pushBranch: vi.fn().mockResolvedValue(ok),
     fastForwardMain: vi.fn().mockResolvedValue(ok),
     tryAutoResolveDivergence: vi.fn().mockResolvedValue(ok),
   };
@@ -355,5 +358,377 @@ describe('sync coordinator', () => {
 
     expect(sync.isSuspended).toBe(false);
     expect(sync.isRunning).toBe(false);
+  });
+
+  describe('a failed push', () => {
+    /** The debounce starts at the first tick that sees the branch ahead. */
+    async function afterDebounce(fn: () => Promise<void>): Promise<void> {
+      await fn();
+      vi.advanceTimersByTime(10_000);
+      await fn();
+    }
+
+    it('is not retried — or toasted — on every tick', async () => {
+      vi.useFakeTimers();
+      try {
+        const git = useGitStore();
+        git.applySnapshot(snapshot({ ahead: 1 }));
+        const ops = stubRemoteOps();
+        await useSyncStore().fetchNow();
+        const sync = useSyncStore();
+        const error = vi.spyOn(useNotificationsStore(), 'error');
+        ops.push.mockImplementation(async () => {
+          git.lastPushError = 'something unclassified';
+          return false;
+        });
+
+        await afterDebounce(() => sync.tick());
+        // A minute of ticks used to mean twelve pushes and twelve toasts; the
+        // first retry is due after 15s, so nothing happens inside 10s.
+        for (let i = 0; i < 2; i++) {
+          vi.advanceTimersByTime(5_000);
+          await sync.tick();
+        }
+
+        expect(ops.push).toHaveBeenCalledOnce();
+        expect(sync.lastIdleReason).toBe('push-backoff');
+        // Reported once, by the coordinator, not once per attempt.
+        expect(error).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('retries after the backoff, with a longer wait after each failure', async () => {
+      vi.useFakeTimers();
+      try {
+        const git = useGitStore();
+        git.applySnapshot(snapshot({ ahead: 1 }));
+        const ops = stubRemoteOps(false);
+        ops.fetch.mockResolvedValue(true);
+        const sync = useSyncStore();
+        await sync.fetchNow();
+
+        await afterDebounce(() => sync.tick());
+        expect(ops.push).toHaveBeenCalledTimes(1);
+
+        vi.advanceTimersByTime(15_000);
+        await sync.tick();
+        expect(ops.push).toHaveBeenCalledTimes(2);
+
+        vi.advanceTimersByTime(15_000);
+        await sync.tick();
+        expect(ops.push).toHaveBeenCalledTimes(2);
+        vi.advanceTimersByTime(15_000);
+        await sync.tick();
+        expect(ops.push).toHaveBeenCalledTimes(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('fetches after a rejection so the policy can pull or resolve, without a toast', async () => {
+      vi.useFakeTimers();
+      try {
+        const git = useGitStore();
+        git.applySnapshot(snapshot({ ahead: 1 }));
+        const ops = stubRemoteOps();
+        const sync = useSyncStore();
+        await sync.fetchNow();
+        const error = vi.spyOn(useNotificationsStore(), 'error');
+        ops.push.mockImplementation(async () => {
+          git.lastPushError = 'REJECTED_FETCH_FIRST';
+          return false;
+        });
+
+        await afterDebounce(() => sync.tick());
+        expect(ops.push).toHaveBeenCalledOnce();
+        ops.fetch.mockClear();
+
+        vi.advanceTimersByTime(5_000);
+        // The fetch is what shows the collaborator's commit.
+        ops.fetch.mockImplementation(async () => {
+          git.applySnapshot(snapshot({ ahead: 1, behind: 1, refreshedAt: 3 }));
+          return true;
+        });
+        await sync.tick();
+        expect(ops.fetch).toHaveBeenCalledOnce();
+
+        await sync.tick();
+        expect(ops.tryAutoResolveDivergence).toHaveBeenCalledOnce();
+        expect(ops.push).toHaveBeenCalledOnce();
+        expect(error).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('stops automatic pushes on a rejected credential until the user signs in again', async () => {
+      vi.useFakeTimers();
+      try {
+        const git = useGitStore();
+        git.applySnapshot(snapshot({ ahead: 1 }));
+        const ops = stubRemoteOps();
+        const sync = useSyncStore();
+        await sync.fetchNow();
+        ops.push.mockImplementation(async () => {
+          git.lastPushError = 'AUTH_FAILED';
+          return false;
+        });
+
+        await afterDebounce(() => sync.tick());
+        expect(sync.problem?.kind).toBe('auth');
+
+        vi.advanceTimersByTime(3_600_000);
+        await sync.fetchNow();
+        await sync.tick();
+        await sync.tick();
+        expect(ops.push).toHaveBeenCalledOnce();
+        expect(sync.lastIdleReason).toBe('push-auth-failed');
+
+        // A new session: the credential may work now.
+        useAuthStore().session = {
+          user: { login: 'alice', name: null, avatarUrl: '', email: null },
+          authenticatedAt: new Date().toISOString(),
+        };
+        await vi.advanceTimersByTimeAsync(0);
+        ops.push.mockResolvedValue(true);
+        await sync.tick();
+        expect(ops.push).toHaveBeenCalledTimes(2);
+        expect(sync.problem).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not record "offline" as a push failure — it goes out the moment the network is back', async () => {
+      vi.useFakeTimers();
+      try {
+        const git = useGitStore();
+        git.applySnapshot(snapshot({ ahead: 1 }));
+        const ops = stubRemoteOps();
+        const sync = useSyncStore();
+        await sync.fetchNow();
+        ops.push.mockImplementationOnce(async () => {
+          git.lastPushError = 'OFFLINE';
+          return false;
+        });
+
+        await afterDebounce(() => sync.tick());
+
+        expect(sync.pushFailure).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('lets an explicit Sync now try again at once', async () => {
+      vi.useFakeTimers();
+      try {
+        const git = useGitStore();
+        git.applySnapshot(snapshot({ ahead: 1 }));
+        const ops = stubRemoteOps();
+        const sync = useSyncStore();
+        await sync.fetchNow();
+        ops.push.mockImplementationOnce(async () => {
+          git.lastPushError = 'AUTH_FAILED';
+          return false;
+        });
+        await afterDebounce(() => sync.tick());
+        expect(ops.push).toHaveBeenCalledOnce();
+
+        await sync.syncNow();
+
+        expect(ops.push).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('offline', () => {
+    it('probes with a fetch, and a success clears the flag so everything resumes', async () => {
+      const git = useGitStore();
+      git.applySnapshot(snapshot({ behind: 2 }));
+      const ops = stubRemoteOps();
+      const connection = useConnectionStore();
+      const sync = useSyncStore();
+      connection.markOffline();
+      ops.fetch.mockImplementation(async () => {
+        connection.markOnline();
+        return true;
+      });
+
+      await sync.tick();
+      expect(ops.fetch).toHaveBeenCalledOnce();
+      expect(connection.isOnline).toBe(true);
+
+      await sync.tick();
+      expect(ops.pull).toHaveBeenCalledOnce();
+    });
+
+    it('backs off between probes while the remote stays unreachable', async () => {
+      vi.useFakeTimers();
+      try {
+        const git = useGitStore();
+        git.applySnapshot(snapshot());
+        const ops = stubRemoteOps(false);
+        const connection = useConnectionStore();
+        const sync = useSyncStore();
+        connection.markOffline();
+
+        await sync.tick();
+        await sync.tick();
+        await sync.tick();
+        expect(ops.fetch).toHaveBeenCalledOnce();
+        expect(sync.lastIdleReason).toBe('offline');
+
+        vi.advanceTimersByTime(15_000);
+        await sync.tick();
+        expect(ops.fetch).toHaveBeenCalledTimes(2);
+        // The second failure doubles the wait.
+        vi.advanceTimersByTime(15_000);
+        await sync.tick();
+        expect(ops.fetch).toHaveBeenCalledTimes(2);
+        vi.advanceTimersByTime(15_000);
+        await sync.tick();
+        expect(ops.fetch).toHaveBeenCalledTimes(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('retries at once when the browser reports the connection is back', async () => {
+      vi.useFakeTimers();
+      try {
+        const git = useGitStore();
+        git.applySnapshot(snapshot());
+        const ops = stubRemoteOps();
+        const connection = useConnectionStore();
+        const sync = useSyncStore();
+        sync.start();
+        await vi.advanceTimersByTimeAsync(0);
+        ops.fetch.mockClear();
+        sync.lastFetchAt = null;
+        connection.markOffline();
+        sync.fetchFailure = { at: Date.now(), count: 4 };
+
+        connection.markOnline();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(sync.fetchFailure).toBeNull();
+        expect(ops.fetch).toHaveBeenCalled();
+        sync.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('the automatic pull', () => {
+    it('is quiet and backs off when the engine refuses it', async () => {
+      vi.useFakeTimers();
+      try {
+        const git = useGitStore();
+        git.applySnapshot(snapshot({ behind: 2 }));
+        const ops = stubRemoteOps();
+        const sync = useSyncStore();
+        await sync.fetchNow();
+        const error = vi.spyOn(useNotificationsStore(), 'error');
+        ops.pull.mockImplementation(async () => {
+          git.lastPullError = 'DIRTY_WORKTREE';
+          return false;
+        });
+
+        await sync.tick();
+        await sync.tick();
+        await sync.tick();
+
+        expect(ops.pull).toHaveBeenCalledOnce();
+        expect(ops.pull).toHaveBeenCalledWith({ quiet: true });
+        expect(error).not.toHaveBeenCalled();
+        expect(sync.lastIdleReason).toBe('pull-backoff');
+        expect(sync.problem?.kind).toBe('pull');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('goes ahead again once the situation changes — a saved tree is worth a retry', async () => {
+      vi.useFakeTimers();
+      try {
+        const git = useGitStore();
+        git.applySnapshot(snapshot({ behind: 2 }));
+        const ops = stubRemoteOps();
+        const sync = useSyncStore();
+        await sync.fetchNow();
+        ops.pull.mockImplementationOnce(async () => {
+          git.lastPullError = 'DIRTY_WORKTREE';
+          return false;
+        });
+        await sync.tick();
+
+        // The user saves their work: the snapshot goes dirty-then-clean, each
+        // arriving on its own.
+        git.applySnapshot(snapshot({ behind: 2, isClean: false, refreshedAt: 2 }));
+        await vi.advanceTimersByTimeAsync(0);
+        git.applySnapshot(snapshot({ behind: 2, isClean: true, refreshedAt: 3 }));
+        await vi.advanceTimersByTimeAsync(0);
+        await sync.tick();
+
+        expect(ops.pull).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('a published main the remote never received', () => {
+    it('is pushed by the loop although main is not checked out, and announced once it lands', async () => {
+      const git = useGitStore();
+      git.applySnapshot(snapshot({ branch: 'dev', mainAhead: 1 }));
+      const ops = stubRemoteOps();
+      ops.pushBranch.mockResolvedValue(true);
+      const success = vi.spyOn(useNotificationsStore(), 'success');
+      const sync = useSyncStore();
+
+      await sync.tick();
+
+      expect(ops.pushBranch).toHaveBeenCalledWith('main', { quiet: true });
+      expect(success).toHaveBeenCalledWith('Version published', expect.any(String));
+    });
+
+    it('backs off when the push fails and does not retry on every tick', async () => {
+      const git = useGitStore();
+      git.applySnapshot(snapshot({ branch: 'dev', mainAhead: 1 }));
+      stubRemoteOps();
+      const pushBranch = vi.fn(async () => {
+        git.lastPushBranchError = 'something unclassified';
+        return false;
+      });
+      Object.assign(git.__remoteOps, { pushBranch });
+      const sync = useSyncStore();
+
+      await sync.tick();
+      await sync.tick();
+      await sync.tick();
+
+      expect(pushBranch).toHaveBeenCalledOnce();
+      expect(sync.problem?.kind).toBe('push');
+    });
+
+    it('does not push a main that has diverged — that needs combining, and the banner says so', async () => {
+      const git = useGitStore();
+      git.applySnapshot(snapshot({ branch: 'dev', mainAhead: 1, mainBehind: 2 }));
+      stubRemoteOps();
+      const pushBranch = vi.fn().mockResolvedValue(true);
+      Object.assign(git.__remoteOps, { pushBranch });
+      const sync = useSyncStore();
+
+      await sync.tick();
+
+      expect(pushBranch).not.toHaveBeenCalled();
+      expect(sync.escalation).toBe('main-diverged');
+    });
   });
 });

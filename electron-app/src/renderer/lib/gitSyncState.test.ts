@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeGitSyncState } from './gitSyncState';
+import { computeGitSyncState, isPushEnabled } from './gitSyncState';
 
 const base = {
   ahead: 0,
@@ -196,5 +196,24 @@ describe('computeGitSyncState', () => {
       const state = computeGitSyncState({ ...base, ahead: 1, behind: 1 });
       expect(state.push.tooltip).toMatch(/pull first/i);
     });
+  });
+});
+
+describe('saving while offline', () => {
+  it('keeps the push button usable when there is unsaved work — saving is a local commit', () => {
+    const state = computeGitSyncState({ ...base, isOffline: true, pendingCount: 2 });
+    expect(state.push.status).toBe('offline');
+    expect(isPushEnabled(state.push)).toBe(true);
+    expect(state.push.tooltip).toContain('save');
+  });
+
+  it('disables it when there is nothing to save — a push cannot go anywhere', () => {
+    const state = computeGitSyncState({ ...base, isOffline: true, ahead: 2 });
+    expect(isPushEnabled(state.push)).toBe(false);
+  });
+
+  it('is enabled online exactly when there is something to push', () => {
+    expect(isPushEnabled(computeGitSyncState({ ...base, ahead: 1 }).push)).toBe(true);
+    expect(isPushEnabled(computeGitSyncState({ ...base }).push)).toBe(false);
   });
 });
