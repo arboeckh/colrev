@@ -103,6 +103,9 @@ class StructuredFieldSpec(BaseModel):
     data_type: str = "str"
     options: Optional[List[Any]] = None
     optional: Optional[bool] = None
+    # Set by the renderer when the user renamed an existing field, so that the
+    # extracted values move to the new column instead of being dropped.
+    previous_name: Optional[str] = None
 
 
 class ConfigureStructuredEndpointRequest(ProjectScopedRequest):
@@ -158,7 +161,6 @@ class DataHandler(BaseHandler):
         request=GetDataExtractionQueueRequest,
         response=GetDataExtractionQueueResponse,
         operation_type=OperationsType.data,
-        writes=True,
         timeout_class="fast",
     )
     def get_data_extraction_queue(
@@ -189,81 +191,24 @@ class DataHandler(BaseHandler):
                 completed_count=0,
             )
 
-        # Normalize fields to dicts
-        field_dicts: List[Dict[str, Any]] = []
-        for f in fields:
-            if isinstance(f, dict):
-                field_dicts.append(f)
-            else:
-                fd: Dict[str, Any] = {
-                    "name": f.name,
-                    "explanation": f.explanation,
-                    "data_type": f.data_type,
-                }
-                if hasattr(f, "options") and f.options:
-                    fd["options"] = f.options
-                if hasattr(f, "optional") and f.optional:
-                    fd["optional"] = True
-                field_dicts.append(fd)
-
+        field_dicts = self._normalize_fields(fields)
         field_names = [f["name"] for f in field_dicts]
-        optional_names = {f["name"] for f in field_dicts if f.get("optional")}
-
-        def _new_row(rid: str, columns: List[str]) -> pd.DataFrame:
-            row: Dict[str, List[str]] = {Fields.ID: [rid]}
-            for col in columns:
-                if col == Fields.ID:
-                    continue
-                row[col] = [""] if col in optional_names else ["TODO"]
-            return pd.DataFrame(row)[columns]
 
         # Run operation to prime state notifications & load records
         self.op(OperationsType.data, notify=True)
         records_dict = self.review_manager.dataset.load_records_dict() or {}
 
-        eligible_records = {
-            rid: r
+        eligible_ids = [
+            rid
             for rid, r in records_dict.items()
             if r.get(Fields.STATUS)
             in [RecordState.rev_included, RecordState.rev_synthesized]
-        }
+        ]
 
-        data_path = self._get_structured_data_path(ep_settings)
-
-        if not data_path.is_file():
-            data_path.parent.mkdir(parents=True, exist_ok=True)
-            columns = [Fields.ID] + field_names
-            data_df = pd.DataFrame(columns=columns)
-            for rid in eligible_records:
-                data_df = pd.concat(
-                    [data_df, _new_row(rid, columns)], axis=0, ignore_index=True
-                )
-            data_df.sort_values(by=[Fields.ID], inplace=True)
-            data_df.to_csv(data_path, index=False, quoting=csv.QUOTE_ALL)
-        else:
-            data_df = pd.read_csv(data_path, dtype=str)
-            existing_ids = set(data_df[Fields.ID].tolist())
-            added = False
-            for rid in eligible_records:
-                if rid not in existing_ids:
-                    data_df = pd.concat(
-                        [data_df, _new_row(rid, list(data_df.columns))],
-                        axis=0,
-                        ignore_index=True,
-                    )
-                    added = True
-            # Backfill: any pre-existing row with "TODO" in an optional column
-            # should be "" so structured.update_record_status_matrix accepts it.
-            backfilled = False
-            for col in optional_names:
-                if col in data_df.columns:
-                    mask = data_df[col] == "TODO"
-                    if mask.any():
-                        data_df.loc[mask, col] = ""
-                        backfilled = True
-            if added or backfilled:
-                data_df.sort_values(by=[Fields.ID], inplace=True)
-                data_df.to_csv(data_path, index=False, quoting=csv.QUOTE_ALL)
+        # A read must not write: rows for newly eligible records are added to
+        # the frame in memory only. The CSV is created / updated by
+        # ``save_data_extraction`` and ``configure_structured_endpoint``.
+        data_df = self._load_frame(ep_settings, field_dicts, eligible_ids)
 
         result_records: List[ExtractionRecord] = []
         completed_count = 0
@@ -333,10 +278,12 @@ class DataHandler(BaseHandler):
             raise ValueError("colrev.structured endpoint is not configured")
 
         data_path = self._get_structured_data_path(ep_settings)
-        if not data_path.is_file():
-            raise ValueError(f"Data CSV not found at {data_path}")
+        field_dicts = self._normalize_fields(ep_settings.get("fields", []))
 
-        data_df = pd.read_csv(data_path, dtype=str)
+        eligible_ids = self._eligible_ids()
+        # The CSV may not exist yet (loading the queue no longer creates it):
+        # build the full frame, then write it with this record's values.
+        data_df = self._load_frame(ep_settings, field_dicts, eligible_ids)
         mask = data_df[Fields.ID] == req.record_id
         if mask.sum() == 0:
             raise ValueError(f"Record '{req.record_id}' not found in data CSV")
@@ -345,40 +292,13 @@ class DataHandler(BaseHandler):
             if field_name in data_df.columns:
                 data_df.loc[mask, field_name] = str(field_value)
 
-        # Clear "TODO" placeholders in optional-field columns so CoLRev's
-        # structured endpoint (which requires `"TODO" not in row` to transition
-        # a record to rev_synthesized) accepts them as complete.
-        optional_names = {
-            (f["name"] if isinstance(f, dict) else f.name)
-            for f in ep_settings.get("fields", [])
-            if (
-                f.get("optional") if isinstance(f, dict)
-                else getattr(f, "optional", False)
-            )
-        }
-        for col in optional_names:
-            if col in data_df.columns:
-                todo_mask = data_df[col] == "TODO"
-                if todo_mask.any():
-                    data_df.loc[todo_mask, col] = ""
-
-        data_df.to_csv(data_path, index=False, quoting=csv.QUOTE_ALL)
-
-        rel_path = Path(
-            ep_settings.get("data_path_relative", "data/data/data.csv")
-        )
-        self.review_manager.dataset.git_repo.add_changes(
-            rel_path, ignore_missing=True
-        )
+        self._write_frame(ep_settings, data_df)
 
         data_operation = self.op(OperationsType.data, notify=True)
         data_operation.main(silent_mode=True)
 
-        data_df = pd.read_csv(data_path, dtype=str)
-        field_names = [
-            f["name"] if isinstance(f, dict) else f.name
-            for f in ep_settings.get("fields", [])
-        ]
+        data_df = self._read_csv(data_path)
+        field_names = [f["name"] for f in field_dicts]
         remaining_count = 0
         for _, row in data_df.iterrows():
             for fname in field_names:
@@ -462,8 +382,6 @@ class DataHandler(BaseHandler):
 
         ep_settings = self._find_structured_endpoint()
         if ep_settings is not None:
-            new_field_names = [f["name"] for f in normalized_fields]
-
             for i, ep in enumerate(
                 self.review_manager.settings.data.data_package_endpoints
             ):
@@ -484,19 +402,7 @@ class DataHandler(BaseHandler):
                         }
                     break
 
-            data_path = self._get_structured_data_path(ep_dict)
-            if data_path.is_file():
-                data_df = pd.read_csv(data_path, dtype=str)
-                for fname in new_field_names:
-                    if fname not in data_df.columns:
-                        data_df[fname] = "TODO"
-                cols_to_keep = [Fields.ID] + new_field_names
-                data_df = data_df[[c for c in cols_to_keep if c in data_df.columns]]
-                for fname in new_field_names:
-                    if fname not in data_df.columns:
-                        data_df[fname] = "TODO"
-                data_df = data_df[[Fields.ID] + new_field_names]
-                data_df.to_csv(data_path, index=False, quoting=csv.QUOTE_ALL)
+            self._rewrite_csv_for_fields(ep_dict, normalized_fields, req.fields)
         else:
             new_ep = {
                 "endpoint": "colrev.structured",
@@ -505,7 +411,9 @@ class DataHandler(BaseHandler):
                 "data_path_relative": "data/data/data.csv",
             }
             self.review_manager.settings.data.data_package_endpoints.append(new_ep)
+            self._rewrite_csv_for_fields(new_ep, normalized_fields, req.fields)
 
+        # Stages settings.json (commits are driven by ``commit_changes``).
         self.review_manager.save_settings()
 
         return ConfigureStructuredEndpointResponse(
@@ -515,6 +423,166 @@ class DataHandler(BaseHandler):
         )
 
     # -- helpers ------------------------------------------------------------
+
+    @staticmethod
+    def _normalize_fields(fields: List[Any]) -> List[Dict[str, Any]]:
+        """Field definitions (dicts or settings objects) as plain dicts."""
+        out: List[Dict[str, Any]] = []
+        for f in fields:
+            if isinstance(f, dict):
+                out.append(f)
+                continue
+            fd: Dict[str, Any] = {
+                "name": f.name,
+                "explanation": f.explanation,
+                "data_type": f.data_type,
+            }
+            if getattr(f, "options", None):
+                fd["options"] = f.options
+            if getattr(f, "optional", False):
+                fd["optional"] = True
+            out.append(fd)
+        return out
+
+    @staticmethod
+    def _read_csv(path: Path) -> pd.DataFrame:
+        # keep_default_na=False: "NA", "N/A", "None", "null" and blank cells are
+        # values the user typed, not missing data. Without it pandas turns them
+        # into NaN ("nan" on display) and a later write erases them.
+        return pd.read_csv(path, dtype=str, keep_default_na=False)
+
+    @staticmethod
+    def _complete_frame(
+        data_df: pd.DataFrame,
+        field_dicts: List[Dict[str, Any]],
+        eligible_ids: List[str],
+    ) -> pd.DataFrame:
+        """Add a row for every eligible record that has none, and clear "TODO"
+        placeholders in optional columns (so that
+        ``structured.update_record_status_matrix`` accepts them). In memory
+        only."""
+        field_names = {f["name"] for f in field_dicts}
+        optional_names = {f["name"] for f in field_dicts if f.get("optional")}
+        columns = list(data_df.columns)
+
+        existing_ids = set(data_df[Fields.ID].tolist())
+        new_rows = []
+        for rid in eligible_ids:
+            if rid in existing_ids:
+                continue
+            row: Dict[str, List[str]] = {Fields.ID: [rid]}
+            for col in columns:
+                if col == Fields.ID:
+                    continue
+                # Columns of removed fields are not part of the extraction.
+                row[col] = (
+                    ["TODO"]
+                    if col in field_names and col not in optional_names
+                    else [""]
+                )
+            new_rows.append(pd.DataFrame(row)[columns])
+        if new_rows:
+            data_df = pd.concat([data_df, *new_rows], axis=0, ignore_index=True)
+
+        for col in optional_names:
+            if col in data_df.columns:
+                data_df.loc[data_df[col] == "TODO", col] = ""
+
+        return data_df.sort_values(by=[Fields.ID]).reset_index(drop=True)
+
+    def _load_frame(
+        self,
+        ep_settings: Dict[str, Any],
+        field_dicts: List[Dict[str, Any]],
+        eligible_ids: List[str],
+    ) -> pd.DataFrame:
+        """The extraction table as it should be, built in memory (no writes):
+        the CSV if there is one, completed for the eligible records."""
+        data_path = self._get_structured_data_path(ep_settings)
+        if data_path.is_file():
+            data_df = self._read_csv(data_path)
+        else:
+            data_df = pd.DataFrame(
+                columns=[Fields.ID] + [f["name"] for f in field_dicts]
+            )
+        return self._complete_frame(data_df, field_dicts, eligible_ids)
+
+    def _eligible_ids(self) -> List[str]:
+        assert self.review_manager is not None
+        # Instantiating the operation is what lets the review manager load
+        # records (it runs the precondition checks).
+        self.op(OperationsType.data, notify=True)
+        records_dict = self.review_manager.dataset.load_records_dict() or {}
+        return [
+            rid
+            for rid, r in records_dict.items()
+            if r.get(Fields.STATUS)
+            in [RecordState.rev_included, RecordState.rev_synthesized]
+        ]
+
+    def _write_frame(self, ep_settings: Dict[str, Any], data_df: pd.DataFrame) -> None:
+        """Write the extraction table and stage it."""
+        assert self.review_manager is not None
+        data_path = self._get_structured_data_path(ep_settings)
+        data_path.parent.mkdir(parents=True, exist_ok=True)
+        data_df.to_csv(data_path, index=False, quoting=csv.QUOTE_ALL)
+        self.review_manager.dataset.git_repo.add_changes(
+            Path(ep_settings.get("data_path_relative", "data/data/data.csv")),
+            ignore_missing=True,
+        )
+
+    def _rewrite_csv_for_fields(
+        self,
+        ep_settings: Dict[str, Any],
+        normalized_fields: List[Dict[str, Any]],
+        specs: List[StructuredFieldSpec],
+    ) -> None:
+        """Bring the CSV in line with a new field set without losing data.
+
+        A renamed field (``previous_name``) carries its column over. A removed
+        field's column stays in the file (placeholders cleared) so that its
+        values are not lost and come back if the field is re-added.
+        """
+        assert self.review_manager is not None
+        data_path = self._get_structured_data_path(ep_settings)
+        old_df = (
+            self._read_csv(data_path)
+            if data_path.is_file()
+            else pd.DataFrame(columns=[Fields.ID])
+        )
+        old_columns = list(old_df.columns)
+
+        # Which old column feeds which new field. Renames first, so that a new
+        # field that reuses a renamed field's old name does not also take it.
+        source: Dict[str, str] = {}
+        claimed: set = set()
+        for spec in specs:
+            prev = spec.previous_name
+            if prev and prev != spec.name and prev in old_columns and prev != Fields.ID:
+                source[spec.name] = prev
+                claimed.add(prev)
+        for spec in specs:
+            if spec.name in source:
+                continue
+            if spec.name in old_columns and spec.name not in claimed:
+                source[spec.name] = spec.name
+                claimed.add(spec.name)
+
+        new_df = pd.DataFrame({Fields.ID: old_df[Fields.ID]})
+        for f in normalized_fields:
+            default = "" if f.get("optional") else "TODO"
+            if f["name"] in source:
+                new_df[f["name"]] = old_df[source[f["name"]]]
+            else:
+                new_df[f["name"]] = default
+        for col in old_columns:
+            if col != Fields.ID and col not in claimed:
+                # Kept for the data, but a placeholder must not hold records
+                # back from completing.
+                new_df[col] = old_df[col].where(old_df[col] != "TODO", "")
+
+        new_df = self._complete_frame(new_df, normalized_fields, self._eligible_ids())
+        self._write_frame(ep_settings, new_df)
 
     def _find_structured_endpoint(self) -> Optional[Dict[str, Any]]:
         assert self.review_manager is not None

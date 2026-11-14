@@ -32,6 +32,9 @@ const emit = defineEmits<{
 
 interface FieldRow {
   name: string;
+  // The name the field had when the dialog opened (undefined for a new field),
+  // so that a rename carries the extracted values over.
+  previousName?: string;
   explanation: string;
   data_type: 'str' | 'int' | 'double' | 'select' | 'multi_select';
   options: string[];
@@ -81,6 +84,7 @@ watch(
       if (props.existingFields.length > 0) {
         fields.value = props.existingFields.map((f) => ({
           name: f.name,
+          previousName: f.name,
           explanation: f.explanation ?? '',
           data_type: (f.data_type ?? 'str') as FieldRow['data_type'],
           options: f.options ? [...f.options] : [],
@@ -174,6 +178,9 @@ function save() {
     }
     if (f.optional) {
       field.optional = true;
+    }
+    if (f.previousName && f.previousName !== field.name) {
+      (field as Record<string, unknown>).previous_name = f.previousName;
     }
     return field;
   });

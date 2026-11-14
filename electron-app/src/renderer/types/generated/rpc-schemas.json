@@ -1546,6 +1546,18 @@
                 ],
                 "default": null,
                 "title": "Options"
+              },
+              "previous_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Previous Name"
               }
             },
             "required": [
@@ -3506,7 +3518,7 @@
         "type": "object"
       },
       "timeout_class": "fast",
-      "writes": true
+      "writes": false
     },
     "get_git_status": {
       "request": {
