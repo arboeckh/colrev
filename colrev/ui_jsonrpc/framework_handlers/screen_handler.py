@@ -31,6 +31,14 @@ Decision = Literal["include", "exclude"]
 CriterionValue = Literal["in", "out", "TODO"]
 
 
+def _stored_criteria(*, screen_op, inclusion: bool, criteria_str: str) -> str:
+    """The criteria string ``ScreenOperation.screen`` stores for a decision."""
+    if inclusion:
+        names = screen_op.get_screening_criteria()
+        return ";".join(f"{name}=in" for name in names) if names else "NA"
+    return criteria_str
+
+
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
@@ -311,7 +319,19 @@ class ScreenHandler(BaseHandler):
             criteria_str = "NA"
 
         record = colrev.record.record.Record(record_dict)
-        if not already_decided:
+        # Re-deciding with the same outcome still has to save changed criteria
+        # ticks; otherwise the response would echo ticks that were never stored.
+        # An exclusion sent without ticks says nothing about criteria: keep them.
+        criteria_changed = (
+            already_decided
+            and (req.decision == "include" or bool(req.criteria_decisions))
+            and record_dict.get(Fields.SCREENING_CRITERIA) != _stored_criteria(
+                screen_op=screen_op,
+                inclusion=req.decision == "include",
+                criteria_str=criteria_str,
+            )
+        )
+        if not already_decided or criteria_changed:
             screen_op.screen(
                 record=record,
                 screen_inclusion=(req.decision == "include"),
