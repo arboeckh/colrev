@@ -18,9 +18,12 @@ keep working.
 """
 from __future__ import annotations
 
+import json
+import math
 import os
 import sys
 import threading
+from typing import Any
 from typing import Optional
 from typing import TextIO
 
@@ -39,6 +42,27 @@ def init_wire() -> None:
             _wire = os.fdopen(
                 os.dup(1), "w", encoding="utf-8", newline="\n", buffering=1
             )
+
+
+def _null_non_finite(value: Any) -> Any:
+    """Return ``value`` with every NaN / +-Infinity float replaced by ``None``."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: _null_non_finite(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_null_non_finite(item) for item in value]
+    return value
+
+
+def dumps(message: Any) -> str:
+    """Serialise a JSON-RPC message for the wire.
+
+    ``json.dumps`` emits bare ``NaN`` / ``Infinity`` for non-finite floats,
+    which is not JSON and which Node's ``JSON.parse`` rejects. They become
+    ``null`` instead.
+    """
+    return json.dumps(_null_non_finite(message), allow_nan=False)
 
 
 def write_line(line: str) -> None:

@@ -153,10 +153,10 @@ class InitHandler(BaseHandler):
 
             settings_path = target_path / "settings.json"
             if settings_path.exists() and title != project_id:
-                with open(settings_path) as f:
+                with open(settings_path, encoding="utf-8") as f:
                     settings = json.load(f)
                 settings["project"]["title"] = title
-                with open(settings_path, "w") as f:
+                with open(settings_path, "w", encoding="utf-8") as f:
                     json.dump(settings, f, indent=4)
 
                 subprocess.run(
@@ -211,10 +211,12 @@ class InitHandler(BaseHandler):
             project_id = item.name
             title = project_id
             try:
-                with open(settings_file) as f:
+                with open(settings_file, encoding="utf-8") as f:
                     settings = json.load(f)
                 title = settings.get("project", {}).get("title", project_id)
-            except (json.JSONDecodeError, KeyError):
+            except (OSError, ValueError, KeyError, AttributeError):
+                # One unreadable or malformed settings.json (ValueError covers
+                # JSONDecodeError and UnicodeDecodeError) must not fail the list.
                 pass
 
             projects.append(

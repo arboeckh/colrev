@@ -56,6 +56,12 @@ export function resolveBackendLaunch(input: BackendLaunchInput): BackendLaunchSp
 
   const env: Record<string, string> = { ...input.gitEnv };
 
+  // The wire is UTF-8 (JSON-RPC lines, logs, and every file colrev reads or
+  // writes). Without these, Python on Windows decodes a piped stdin with the
+  // ANSI code page: non-ASCII text arrives garbled, or fails to decode at all.
+  env.PYTHONUTF8 = '1';
+  env.PYTHONIOENCODING = 'utf-8';
+
   // Prepend the bundle's bin/Scripts dir to PATH so subprocess calls from
   // inside colrev (e.g. subprocess.check_call(["pre-commit", ...])) resolve to
   // the bundled shims rather than whatever happens to be on the host.
