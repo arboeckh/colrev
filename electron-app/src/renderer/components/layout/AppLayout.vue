@@ -10,6 +10,7 @@ import { useGitStore } from '@/stores/git';
 import { useSyncStore } from '@/stores/sync';
 import { useNotificationsStore } from '@/stores/notifications';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
+import { Button } from '@/components/ui/button';
 import ReviewerBranchBanner from '@/components/common/ReviewerBranchBanner.vue';
 
 const route = useRoute();
@@ -21,15 +22,25 @@ const notifications = useNotificationsStore();
 const pending = usePendingChangesStore();
 
 // Load project when route changes
-async function loadProjectFromRoute() {
+async function loadProjectFromRoute(options: { force?: boolean } = {}) {
   const projectId = route.params.id as string;
 
   if (!projectId) return;
 
-  // Only load if different from current project
-  if (projectId !== projects.currentProjectId) {
+  // Load when the route names a different project, or when the one it names
+  // has nothing loaded: a failed load leaves the id set with no project, and
+  // comparing ids alone would never try again. A load already in flight is
+  // left to finish.
+  const needsLoad =
+    projectId !== projects.currentProjectId ||
+    (!projects.currentProject && !projects.isLoadingProject);
+  if (needsLoad || options.force) {
     if (!backend.isRunning) {
-      notifications.error('Backend not running', 'Please wait for the backend to start');
+      // The `running` watcher below loads it once the backend is back.
+      notifications.error(
+        'Backend not running',
+        'The review opens as soon as the backend is back.',
+      );
       return;
     }
 
@@ -81,30 +92,41 @@ watch(
   { immediate: false }
 );
 
+// A review opened while the backend was down (starting, or restarting after a
+// crash) has nothing to show until it is back: load as soon as it is running,
+// whatever state it was in at mount. A review that is already loaded is not
+// touched; the restart's own invalidation refreshes it.
+watch(
+  () => backend.isRunning,
+  (running) => {
+    if (running) void loadProjectFromRoute();
+  },
+);
+
+// Something outside the layout (the header Refresh with nothing loaded) asked
+// for the review to be loaded again.
+watch(
+  () => projects.reloadRequest,
+  () => {
+    void loadProjectFromRoute({ force: true });
+  },
+);
+
 // Load project on mount if backend is running
 onMounted(async () => {
   window.addEventListener('focus', handleWindowFocus);
-
-  // Wait for backend if it's starting
-  if (backend.isStarting) {
-    const unwatch = watch(
-      () => backend.isRunning,
-      async (running) => {
-        if (running) {
-          unwatch();
-          await loadProjectFromRoute();
-        }
-      }
-    );
-  } else if (backend.isRunning) {
-    await loadProjectFromRoute();
-  }
+  if (backend.isRunning) await loadProjectFromRoute();
 });
 
 onUnmounted(() => {
   window.removeEventListener('focus', handleWindowFocus);
   sync.stop();
   git.cleanup();
+  // Leaving the project layout (back to the list, signing out, a rejected
+  // token redirecting to /login) ends the session with this review. Keeping
+  // the id made reopening the same review look "already loaded", which skipped
+  // both the load and the git initialisation.
+  projects.clearCurrentProject();
 });
 </script>
 
@@ -139,6 +161,17 @@ onUnmounted(() => {
             <div class="text-destructive text-4xl mb-4">!</div>
             <h2 class="text-lg font-semibold mb-2">Failed to load review</h2>
             <p class="text-muted-foreground">{{ projects.projectError }}</p>
+            <Button
+              class="mt-4"
+              data-testid="project-load-retry"
+              :disabled="!backend.isRunning"
+              @click="loadProjectFromRoute({ force: true })"
+            >
+              Retry
+            </Button>
+            <p v-if="!backend.isRunning" class="mt-2 text-xs text-muted-foreground">
+              Waiting for the backend to start.
+            </p>
           </div>
         </div>
 

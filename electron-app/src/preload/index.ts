@@ -242,6 +242,7 @@ contextBridge.exposeInMainWorld('gitState', {
   refresh: (projectId: string, projectPath: string) =>
     ipcRenderer.invoke('git-state:refresh', projectId, projectPath),
   get: (projectId: string) => ipcRenderer.invoke('git-state:get', projectId),
+  forget: (projectId: string) => ipcRenderer.invoke('git-state:forget', projectId),
   onChanged: (callback: (snapshot: unknown) => void) => {
     const handler = (_e: unknown, snapshot: unknown) => callback(snapshot);
     ipcRenderer.on('git-state-changed', handler);

@@ -326,6 +326,9 @@ export function createWindowMock(): WindowMock {
         return { success: true, state: snapshots.get(projectId) ?? null };
       }),
       get: vi.fn(async (projectId: string) => snapshots.get(projectId) ?? null),
+      forget: vi.fn(async (projectId: string) => {
+        snapshots.delete(projectId);
+      }),
       onChanged: vi.fn(gitStateChanged.subscribe),
     } as unknown as MockedObject<GitStateAPI>,
 

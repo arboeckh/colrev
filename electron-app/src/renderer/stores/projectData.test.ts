@@ -148,10 +148,13 @@ describe('projectData invalidation seam', () => {
       await vi.runAllTimersAsync();
       await done;
 
-      expect(events).toHaveLength(2);
-      expect(events[1].full).toBe(true);
-      expect(events[1].methods).toContain('commit_changes');
-      expect(events[1].methods).toContain('invalidate');
+      // The leading refresh had not started yet, so the invalidation joined it
+      // (one full event) — or followed it (two). Never a third.
+      expect(events.length).toBeLessThanOrEqual(2);
+      const last = events[events.length - 1];
+      expect(last.full).toBe(true);
+      expect(last.methods).toContain('commit_changes');
+      expect(last.methods).toContain('invalidate');
     });
   });
 

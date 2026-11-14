@@ -22,6 +22,9 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
   // fetch failure must be distinguishable from "no tasks": on failure the
   // last-known task lists are kept and this flag is set.
   const lastRefreshError = ref<string | null>(null);
+  // The project the task lists belong to. "Last known" is only a fallback for
+  // the same project; another review's tasks are never it.
+  let tasksProjectId: string | null = null;
 
   // Computed: active task per kind
   const activePrescreenTask = computed(() =>
@@ -104,12 +107,21 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
           kind: 'screen',
         }),
       ]);
+      // Another review was opened while this was in flight.
+      if (projects.currentProjectId !== id) return;
       prescreenTasks.value = prescreenResp.tasks;
       screenTasks.value = screenResp.tasks;
+      tasksProjectId = id;
       lastRefreshError.value = null;
     } catch (err) {
+      if (projects.currentProjectId !== id) return;
       // Keep last-known tasks — clearing them would make a failed fetch look
-      // like "no active tasks" and wrongly change access decisions.
+      // like "no active tasks" and wrongly change access decisions. They are
+      // only "known" for the project they were read for.
+      if (tasksProjectId !== id) {
+        prescreenTasks.value = [];
+        screenTasks.value = [];
+      }
       lastRefreshError.value = err instanceof Error ? err.message : 'Failed to load review tasks';
     } finally {
       isLoading.value = false;
@@ -117,6 +129,7 @@ export const useManagedReviewStore = defineStore('managedReview', () => {
   }
 
   function cleanup() {
+    tasksProjectId = null;
     prescreenTasks.value = [];
     screenTasks.value = [];
     lastRefreshError.value = null;
