@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { AlertTriangle, CheckCircle2, Loader2, Users } from 'lucide-vue-next';
+import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, Users } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/auth';
 import { useBackendStore } from '@/stores/backend';
@@ -11,6 +11,7 @@ import { QueueMap } from '@/components/common';
 import RecordCard, { type DisplayRecord } from '@/components/prescreen/RecordCard.vue';
 import ReconcileDecisionButtons from './ReconcileDecisionButtons.vue';
 import ReconcileApplyBar from './ReconcileApplyBar.vue';
+import { collectRecordsById } from './reconcile-records';
 import BlockedRecordsBanner from './BlockedRecordsBanner.vue';
 import { selectedReviewerFor, type ReconcileKind, type ReviewerRole } from './reconcile-utils';
 import type {
@@ -40,6 +41,7 @@ type StagedDecision = {
 };
 
 const isLoading = ref(false);
+const loadError = ref<string | null>(null);
 const isApplying = ref(false);
 const preview = ref<GetReconciliationPreviewResponse | null>(null);
 const recordDetails = ref<Record<string, DisplayRecord>>({});
@@ -146,6 +148,7 @@ const progressItems = computed(() =>
 async function loadPreview() {
   if (!projects.currentProjectId) return;
   isLoading.value = true;
+  loadError.value = null;
   try {
     const response = await backend.call(
       'get_reconciliation_preview',
@@ -161,10 +164,9 @@ async function loadPreview() {
       await loadRecordDetails(conflictItems.value.map((item) => item.id));
     }
   } catch (err) {
-    notifications.error(
-      'Preview failed',
-      err instanceof Error ? err.message : 'Unknown error',
-    );
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    loadError.value = message;
+    notifications.error('Preview failed', message);
   } finally {
     isLoading.value = false;
   }
@@ -173,26 +175,27 @@ async function loadPreview() {
 async function loadRecordDetails(ids: string[]) {
   if (!projects.currentProjectId || ids.length === 0) return;
   try {
-    const response = await backend.call('get_records', {
-      project_id: projects.currentProjectId,
-      filters: {},
-      pagination: { offset: 0, limit: 1000 },
-      fields: ['ID', 'title', 'author', 'year', 'journal', 'booktitle', 'abstract'],
-    });
-    const wanted = new Set(ids);
+    const found = await collectRecordsById(
+      (pagination) =>
+        backend.call('get_records', {
+          project_id: projects.currentProjectId!,
+          filters: {},
+          pagination,
+          fields: ['ID', 'title', 'author', 'year', 'journal', 'booktitle', 'abstract'],
+        }),
+      ids,
+    );
     const details: Record<string, DisplayRecord> = {};
-    for (const record of response.records) {
-      const rid = (record as any).ID ?? (record as any).id;
-      if (!rid || !wanted.has(rid)) continue;
+    for (const [rid, record] of Object.entries(found) as [string, any][]) {
       details[rid] = {
         id: rid,
-        title: (record as any).title,
-        author: (record as any).author,
-        year: (record as any).year,
-        journal: (record as any).journal,
-        booktitle: (record as any).booktitle,
-        abstract: (record as any).abstract,
-        _enrichmentStatus: (record as any).abstract ? 'complete' : 'failed',
+        title: record.title,
+        author: record.author,
+        year: record.year,
+        journal: record.journal,
+        booktitle: record.booktitle,
+        abstract: record.abstract,
+        _enrichmentStatus: record.abstract ? 'complete' : 'failed',
       };
     }
     recordDetails.value = details;
@@ -202,6 +205,13 @@ async function loadRecordDetails(ids: string[]) {
       err instanceof Error ? err.message : 'Unknown error',
     );
   }
+}
+
+function onChangeDecision() {
+  const item = currentItem.value;
+  if (!item || !stagedDecisions.value[item.id]) return;
+  const { [item.id]: _removed, ...rest } = stagedDecisions.value;
+  stagedDecisions.value = rest;
 }
 
 function onDecide(decision: 'include' | 'exclude') {
@@ -303,6 +313,30 @@ watch(
     >
       <Loader2 class="h-4 w-4 animate-spin mr-2" />
       Loading reconciliation preview...
+    </div>
+
+    <!-- Preview failed: nothing else to show, so offer a way out -->
+    <div
+      v-else-if="loadError !== null && !preview"
+      class="flex-1 flex flex-col items-center justify-center max-w-xl mx-auto text-center gap-4"
+      data-testid="reconcile-load-error"
+    >
+      <div class="rounded-full bg-amber-500/15 p-3">
+        <AlertTriangle class="h-6 w-6 text-amber-600 dark:text-amber-400" />
+      </div>
+      <div class="space-y-1">
+        <h3 class="text-lg font-medium">Could not load the reconciliation preview</h3>
+        <p class="text-sm text-muted-foreground break-words">{{ loadError }}</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <Button variant="ghost" size="sm" data-testid="reconcile-back-btn" @click="emit('close')">
+          <ArrowLeft class="h-4 w-4" />
+          Back
+        </Button>
+        <Button size="sm" data-testid="reconcile-retry-btn" @click="loadPreview">
+          Retry
+        </Button>
+      </div>
     </div>
 
     <!-- Hard-blocked guard: records missing on a branch, can't be overridden -->
@@ -443,7 +477,6 @@ watch(
         </div>
 
         <ReconcileDecisionButtons
-          v-if="!allDecided"
           :decision="currentStagedDecision"
           :reviewers="currentItem.reviewers"
           :kind="kind"
@@ -451,6 +484,7 @@ watch(
           :show-skip-to-next="nextUndecidedIndex !== -1"
           test-id-prefix="reconcile"
           @decide="onDecide"
+          @change="onChangeDecision"
           @skip-to-next="skipToNextUndecided"
         />
       </div>

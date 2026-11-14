@@ -13,6 +13,7 @@ import ScreenSplitPanel from '@/components/screen/ScreenSplitPanel.vue';
 import ScreenReconcileCriteriaPanel from './ScreenReconcileCriteriaPanel.vue';
 import BlockedRecordsBanner from './BlockedRecordsBanner.vue';
 import ReconcileApplyBar from './ReconcileApplyBar.vue';
+import { collectRecordsById } from './reconcile-records';
 import { deriveScreenDecision, formatCriteriaString, canIncludeDecision, canExcludeDecision, type CriterionDecision } from '@/lib/screen-decision';
 import type {
   ApplyReconciliationResponse,
@@ -41,6 +42,7 @@ type StagedRecord = {
 };
 
 const isLoading = ref(false);
+const loadError = ref<string | null>(null);
 const isApplying = ref(false);
 const preview = ref<GetReconciliationPreviewResponse | null>(null);
 const criteriaDefs = ref<Record<string, ScreenCriterionInfo>>({});
@@ -183,18 +185,19 @@ async function loadCriteria() {
 async function loadPdfPaths(ids: string[]) {
   if (!projects.currentProjectId || ids.length === 0) return;
   try {
-    const response = await backend.call('get_records', {
-      project_id: projects.currentProjectId,
-      filters: {},
-      pagination: { offset: 0, limit: 1000 },
-      fields: ['ID', 'file'],
-    });
-    const wanted = new Set(ids);
+    const found = await collectRecordsById(
+      (pagination) =>
+        backend.call('get_records', {
+          project_id: projects.currentProjectId!,
+          filters: {},
+          pagination,
+          fields: ['ID', 'file'],
+        }),
+      ids,
+    );
     const paths: Record<string, string> = {};
-    for (const record of response.records) {
-      const rid = (record as any).ID ?? (record as any).id;
-      if (!rid || !wanted.has(rid)) continue;
-      const file = (record as any).file;
+    for (const [rid, record] of Object.entries(found)) {
+      const file = record.file;
       if (typeof file === 'string' && file) paths[rid] = file;
     }
     pdfPaths.value = paths;
@@ -206,6 +209,7 @@ async function loadPdfPaths(ids: string[]) {
 async function loadPreview() {
   if (!projects.currentProjectId) return;
   isLoading.value = true;
+  loadError.value = null;
   try {
     await loadCriteria();
     const response = await backend.call(
@@ -217,7 +221,9 @@ async function loadPreview() {
     );
     preview.value = response;
     currentIndex.value = 0;
-    const items = response.items.filter((item) => item.status === 'conflict');
+    // Overridable-blocked records with disagreeing reviewers are conflicts
+    // too (`conflictItems`): each needs a staged entry to be resolvable.
+    const items = conflictItems.value;
     const next: Record<string, StagedRecord> = {};
     for (const item of items) {
       next[item.id] = { criteria: buildDefaultDecisions(item), confirmed: null };
@@ -227,10 +233,9 @@ async function loadPreview() {
       await loadPdfPaths(items.map((item) => item.id));
     }
   } catch (err) {
-    notifications.error(
-      'Preview failed',
-      err instanceof Error ? err.message : 'Unknown error',
-    );
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    loadError.value = message;
+    notifications.error('Preview failed', message);
   } finally {
     isLoading.value = false;
   }
@@ -370,6 +375,29 @@ onUnmounted(() => {
     </div>
 
     <div
+      v-else-if="loadError !== null && !preview"
+      class="flex-1 flex flex-col items-center justify-center max-w-xl mx-auto text-center gap-4"
+      data-testid="reconcile-load-error"
+    >
+      <div class="rounded-full bg-amber-500/15 p-3">
+        <AlertTriangle class="h-6 w-6 text-amber-600 dark:text-amber-400" />
+      </div>
+      <div class="space-y-1">
+        <h3 class="text-lg font-medium">Could not load the reconciliation preview</h3>
+        <p class="text-sm text-muted-foreground break-words">{{ loadError }}</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <Button variant="ghost" size="sm" data-testid="reconcile-back-btn" @click="emit('close')">
+          <ArrowLeft class="h-4 w-4" />
+          Back
+        </Button>
+        <Button size="sm" data-testid="reconcile-retry-btn" @click="loadPreview">
+          Retry
+        </Button>
+      </div>
+    </div>
+
+    <div
       v-else-if="hardBlockedItems.length > 0"
       class="flex-1 flex flex-col items-center justify-center max-w-xl mx-auto text-center gap-4"
       data-testid="reconcile-hard-blocked"
@@ -402,6 +430,10 @@ onUnmounted(() => {
           </ul>
         </li>
       </ul>
+      <Button variant="ghost" size="sm" data-testid="reconcile-back-btn" @click="emit('close')">
+        <ArrowLeft class="h-4 w-4" />
+        Back
+      </Button>
     </div>
 
     <div
