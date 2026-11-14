@@ -24,6 +24,7 @@ from pydantic import ConfigDict
 from colrev.constants import Fields
 from colrev.constants import RecordState
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import rpc_method
@@ -427,9 +428,9 @@ class RecordsHandler(BaseHandler):
         file_value = record.get(Fields.FILE)
         if file_value:
             assert self.review_manager is not None
-            file_path = Path(str(file_value))
-            if not file_path.is_absolute():
-                file_path = self.review_manager.path / file_path
+            file_path = portability.project_file(
+                self.review_manager.path, file_value
+            )
             formatted["file_on_disk"] = file_path.exists()
         else:
             formatted["file_on_disk"] = None

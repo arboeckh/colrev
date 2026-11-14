@@ -149,7 +149,7 @@ def restore_last_run_snapshot(
         history["last_run_config"] = snapshot
         if last_run:
             history["last_run"] = last_run
-        with open(history_path, "w", encoding="utf-8") as f:
+        with open(history_path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(history, f, indent=4, ensure_ascii=False)
     except (json.JSONDecodeError, OSError) as exc:
         logger.warning("Error restoring search history %s: %s", history_path, exc)

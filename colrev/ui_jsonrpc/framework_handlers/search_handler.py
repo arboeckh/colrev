@@ -26,6 +26,7 @@ from pydantic import ConfigDict
 
 from colrev.constants import OperationsType
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import ProgressEventKind
 from colrev.ui_jsonrpc.framework.search_staleness import preserve_last_run_snapshot
 from colrev.ui_jsonrpc.framework.search_staleness import restore_last_run_snapshot
@@ -663,6 +664,8 @@ class SearchHandler(BaseHandler):
             target_path,
             write_mode,
             encoding=None if "b" in write_mode else "utf-8",
+            # No translation: the committed bytes are the same on every platform.
+            newline=None if "b" in write_mode else "\n",
         ) as f:
             f.write(file_content)
 
@@ -989,13 +992,17 @@ class SearchHandler(BaseHandler):
 
         history_data = source.to_dict()
         history_data.pop("search_history_path", None)
+        # On Windows core's ``str(Path)`` is ``data\\search\\db1.bib``.
+        for key in portability.HISTORY_PATH_KEYS:
+            if isinstance(history_data.get(key), str):
+                history_data[key] = portability.to_posix(history_data[key])
         history_data["last_run"] = last_run
         history_data["last_run_config"] = run_config_snapshot(source)
         # Mirror on the in-memory object so save_settings() preserves it.
         source.last_run = last_run
 
         history_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(history_path, "w", encoding="utf-8") as f:
+        with open(history_path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(history_data, f, indent=4, ensure_ascii=False)
 
         self.review_manager.dataset.git_repo.add_changes(history_path)

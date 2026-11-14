@@ -71,6 +71,13 @@ export function renderGitConfig(identity: GitIdentity): string {
     '[user]',
     `\tname = ${identity.name}`,
     `\temail = ${identity.email}`,
+    // Project files are committed with LF on every platform, so a Windows
+    // collaborator's commits are byte-identical to a Mac one's: git must not
+    // convert line endings (the backend writes LF itself), and long project
+    // paths must not fail on Windows.
+    '[core]',
+    '\tautocrlf = false',
+    '\tlongpaths = true',
     '',
   ].join('\n');
 }

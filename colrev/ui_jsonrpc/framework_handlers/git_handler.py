@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+from pathlib import Path
 from typing import Any
 from typing import Dict
 from typing import List
@@ -23,6 +24,7 @@ from pydantic import ConfigDict
 from pydantic import Field
 
 from colrev.ui_jsonrpc.framework import BaseHandler
+from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import rpc_method
@@ -140,7 +142,7 @@ class GitHandler(BaseHandler):
         # view of the index in some gitpython versions, so ``index.diff("HEAD")``
         # can report zero staged files immediately after ``add_changes``. A
         # fresh Repo re-reads the index from disk.
-        git_repo = git.Repo(str(self.review_manager.path))
+        git_repo = self.ctx.open_repo(self.review_manager.path)
 
         # Current branch (or short SHA when detached).
         try:
@@ -237,13 +239,14 @@ class GitHandler(BaseHandler):
         assert self.review_manager is not None
         logger.info("commit_changes for project %s", req.project_id)
 
-        repo = git.Repo(self.review_manager.path)
+        repo = self.ctx.open_repo(self.review_manager.path)
 
         # Stage every working-tree change (including untracked and deleted
         # files) before inspecting the index. Write handlers are expected to
         # stage as they go, but the "Save" button must never be a dead-end
         # when a file was modified outside an RPC write path (e.g. a data
         # extraction output, or a user edit made while the app was closed).
+        portability.lf_sweep(self.review_manager.path)
         try:
             repo.git.add("-A")
         except Exception as e:  # noqa: BLE001
@@ -314,7 +317,7 @@ class GitHandler(BaseHandler):
                 "discard_changes without paths requires confirm=True"
             )
 
-        repo = git.Repo(self.review_manager.path)
+        repo = self.ctx.open_repo(self.review_manager.path)
 
         if req.paths:
             # Record what will change before we discard.
@@ -381,7 +384,7 @@ class GitHandler(BaseHandler):
         if not req.confirm:
             raise ValueError("reset_to_remote requires confirm=True")
 
-        repo = git.Repo(self.review_manager.path)
+        repo = self.ctx.open_repo(self.review_manager.path)
 
         if not repo.remotes:
             raise ValueError(
@@ -470,6 +473,7 @@ class GitHandler(BaseHandler):
             # Commit the working tree onto the backup branch without moving
             # the user's branch: check it out, commit, then come back.
             repo.git.checkout("-b", backup_ref)
+            portability.lf_sweep(Path(repo.working_tree_dir))
             repo.git.add("-A")
             repo.git.commit(
                 "-m",

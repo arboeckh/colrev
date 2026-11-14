@@ -31,8 +31,10 @@ import colrev.exceptions as colrev_exceptions
 import colrev.review_manager
 from colrev.ui_jsonrpc import transport
 from colrev.ui_jsonrpc import validation
+from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework.context import HandlerContext
 from colrev.ui_jsonrpc.framework.lazy_git import IndexLockedError
+from colrev.ui_jsonrpc.framework.lazy_git import LazyWriteGitRepo
 from colrev.ui_jsonrpc.framework.lazy_git import install_lazy_git_repo
 from colrev.ui_jsonrpc.framework.registry import MethodSpec
 from colrev.ui_jsonrpc.framework.registry import registry
@@ -159,8 +161,13 @@ class Dispatcher:
         project_path,
     ) -> Dict[str, Any]:
         original_cwd = os.getcwd()
+        ctx: HandlerContext | None = None
+        review_manager = None
         try:
             os.chdir(project_path)
+            # A source saved on Windows names its files with backslashes, which
+            # makes the project unusable here: heal before colrev reads them.
+            portability.heal_search_history(Path(project_path))
             review_manager = colrev.review_manager.ReviewManager(
                 path_str=str(project_path),
                 verbose_mode=getattr(request_obj, "verbose", False),
@@ -172,6 +179,7 @@ class Dispatcher:
                 # dirty, mirroring the engine's prep_man precedent.
                 review_manager.manual_decision_mode = True
             install_lazy_git_repo(review_manager, Path(project_path))
+            _keep_history_portable(review_manager, Path(project_path))
 
             ctx = HandlerContext(
                 method_name=spec.name,
@@ -186,6 +194,49 @@ class Dispatcher:
 
         finally:
             os.chdir(original_cwd)
+            self._release(ctx, review_manager, Path(project_path), spec.writes)
+
+    @staticmethod
+    def _release(
+        ctx: HandlerContext | None,
+        review_manager: Any,
+        project_path: Path,
+        writes: bool,
+    ) -> None:
+        """End-of-request cleanup: LF files, no open handles on the project."""
+        try:
+            if writes:
+                portability.lf_sweep(project_path)
+        except OSError:
+            logger.exception("Could not normalise line endings in %s", project_path)
+        finally:
+            if ctx is not None:
+                ctx.close_repos()
+            lazy = (
+                review_manager.dataset.__dict__.get("git_repo")
+                if review_manager is not None
+                else None
+            )
+            if isinstance(lazy, LazyWriteGitRepo):
+                lazy.close()
+            portability.close_log_handlers(project_path)
+
+
+def _keep_history_portable(review_manager: Any, project_path: Path) -> None:
+    """After every ``save_settings``, put the history files' paths in POSIX form.
+
+    Core writes ``str(Path)`` into ``data/search/*_search_history.json``, which
+    on Windows is ``data\\search\\db1.bib``. Pulled onto a Mac that makes the
+    source unreadable (see :mod:`colrev.ui_jsonrpc.framework.portability`).
+    """
+    original = review_manager.save_settings
+
+    def save_settings(*args: Any, **kwargs: Any) -> Any:
+        result = original(*args, **kwargs)
+        portability.normalize_history_files(project_path)
+        return result
+
+    review_manager.save_settings = save_settings
 
 
 def _serialize(spec: MethodSpec, response_obj) -> Dict[str, Any]:

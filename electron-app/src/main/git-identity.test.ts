@@ -41,6 +41,11 @@ describe('renderGitConfig', () => {
     const text = renderGitConfig({ name: 'Alice Smith', email: 'alice@uni.edu' });
     expect(text).toContain('[user]\n\tname = Alice Smith\n\temail = alice@uni.edu\n');
   });
+
+  it('turns off line-ending conversion and enables long paths', () => {
+    const text = renderGitConfig({ name: 'Alice Smith', email: 'alice@uni.edu' });
+    expect(text).toContain('[core]\n\tautocrlf = false\n\tlongpaths = true\n');
+  });
 });
 
 describe('writeGitIdentity', () => {
