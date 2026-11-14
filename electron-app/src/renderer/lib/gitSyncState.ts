@@ -29,6 +29,18 @@ export interface PushDescriptor extends ButtonDescriptor<PushStatus> {
   unpushedCount: number;
 }
 
+/**
+ * Whether the push button can be clicked.
+ *
+ * The button is also the commit path: with uncommitted work it saves first and
+ * pushes second, and the save is a local commit that needs no network. So being
+ * offline disables only the push half — with unsaved work the button stays
+ * usable, and what it commits goes out when the connection is back.
+ */
+export function isPushEnabled(push: PushDescriptor): boolean {
+  return push.status === 'active' || (push.status === 'offline' && push.unsavedCount > 0);
+}
+
 export interface GitSyncState {
   push: PushDescriptor;
   pull: ButtonDescriptor<PullStatus>;
@@ -96,7 +108,13 @@ export function computeGitSyncState(input: GitSyncInput): GitSyncState {
 
   if (isOffline) {
     return {
-      push: push('offline', pushLabel(pendingCount, ahead), 'No connection to remote.'),
+      push: push(
+        'offline',
+        pushLabel(pendingCount, ahead),
+        pendingCount > 0
+          ? 'No connection to remote. You can still save your changes; they upload automatically once the connection is back.'
+          : 'No connection to remote. Your work is saved on this computer and uploads automatically once the connection is back.',
+      ),
       pull: {
         status: 'offline',
         label: pullCount > 0 ? `Pull (${pullCount})` : 'Pull',

@@ -8,7 +8,7 @@
  * who cannot turn automatic syncing off has no recourse when it misbehaves.
  */
 import { computed } from 'vue';
-import { Check, Loader2, RefreshCw, WifiOff } from 'lucide-vue-next';
+import { AlertTriangle, Check, Loader2, RefreshCw, WifiOff } from 'lucide-vue-next';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -26,7 +26,9 @@ import {
 } from '@/components/ui/tooltip';
 import { useGitStore } from '@/stores/git';
 import { useSyncStore } from '@/stores/sync';
+import { useAuthStore } from '@/stores/auth';
 
+const auth = useAuthStore();
 const git = useGitStore();
 const sync = useSyncStore();
 
@@ -44,7 +46,17 @@ function relativeTime(at: number | null): string {
 const state = computed(() => {
   if (!git.hasRemote) return null;
   if (git.isOffline) {
-    return { icon: WifiOff, label: 'Offline', tooltip: 'No connection to the remote. Syncing resumes automatically.' };
+    return {
+      icon: WifiOff,
+      label: 'Offline',
+      tooltip: 'No connection to the remote. The app keeps checking and syncing resumes automatically.',
+    };
+  }
+  if (sync.problem?.kind === 'auth') {
+    return { icon: AlertTriangle, label: 'Sign in to sync', tooltip: sync.problem.message };
+  }
+  if (sync.problem) {
+    return { icon: AlertTriangle, label: 'Sync paused', tooltip: sync.problem.message };
   }
   if (sync.busy) {
     return { icon: Loader2, label: 'Syncing', tooltip: 'Talking to the remote…', spin: true };
@@ -111,6 +123,14 @@ const state = computed(() => {
         Share my changes automatically
       </DropdownMenuCheckboxItem>
       <DropdownMenuSeparator />
+      <DropdownMenuItem
+        v-if="sync.problem?.kind === 'auth'"
+        data-testid="sync-sign-in"
+        @click="auth.login()"
+      >
+        <AlertTriangle class="h-3.5 w-3.5" />
+        Sign in again
+      </DropdownMenuItem>
       <DropdownMenuItem data-testid="sync-now" @click="sync.syncNow()">
         <RefreshCw class="h-3.5 w-3.5" />
         Sync now

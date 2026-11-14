@@ -11,6 +11,7 @@ import {
 } from './useManagedTaskAccess';
 import { useAuthStore } from '@/stores/auth';
 import { useGitStore } from '@/stores/git';
+import { useProjectsStore } from '@/stores/projects';
 import type { ManagedReviewReviewer, ManagedReviewTask } from '@/types/generated/rpc';
 import type { AuthSession, GitStateSnapshot } from '@/types/window';
 import {
@@ -481,15 +482,122 @@ describe('useManagedTaskAccess', () => {
     expect(ctx.mock.git.checkout).not.toHaveBeenCalled();
   });
 
-  it('falls back to unmanaged access when managed-review info is unavailable', async () => {
+  it('fails closed when managed-review info is unavailable', async () => {
     signInAs('alice');
     stubCurrentTask([null]);
     ctx.mock.rpc.onError('list_managed_review_tasks', { message: 'backend down' });
 
     const access = useManagedTaskAccess('prescreen');
-    await expect(access.ensureAccess()).resolves.toBe(true);
+    await expect(access.ensureAccess()).resolves.toBe(false);
 
+    // Unmanaged access would let decisions land on dev during an active task.
+    expect(access.accessState.value).toBe('blocked');
+    expect(access.accessCheckFailed.value).toBe(true);
+    expect(ctx.mock.git.checkout).not.toHaveBeenCalled();
+
+    // A retry that can read the tasks clears the failure.
+    stubProjectReload(null);
+    await expect(access.ensureAccess()).resolves.toBe(true);
     expect(access.accessState.value).toBe('ready');
-    expect(access.isManagedAccessBlocked.value).toBe(false);
+    expect(access.accessCheckFailed.value).toBe(false);
+  });
+
+  it('does not sit on "loading" when there is no project to check', async () => {
+    ctx.mock.rpc.on('get_current_managed_review_task', () => {
+      throw new Error('unreachable');
+    });
+    useProjectsStore().currentProjectId = null;
+
+    const access = useManagedTaskAccess('prescreen');
+    await expect(access.ensureAccess()).resolves.toBe(false);
+
+    expect(access.accessState.value).toBe('blocked');
+  });
+
+  it('re-runs the access check once the save-or-discard dialog switch succeeds', async () => {
+    signInAs('alice');
+    const task = activeTask();
+    stubProjectReload(task);
+    stubCurrentTask([null, task]);
+    ctx.mock.git.checkout.mockResolvedValueOnce({
+      success: false,
+      error: 'DIRTY_WORKTREE',
+      dirty: { uncommittedCount: 2, untrackedCount: 0 },
+    });
+
+    const onSwitchResolved = vi.fn();
+    const access = useManagedTaskAccess('prescreen', { onSwitchResolved });
+    await expect(access.ensureAccess()).resolves.toBe(false);
+
+    const git = useGitStore();
+    expect(git.showBranchSwitchBlockedDialog).toBe(true);
+    // The dialog's switch runs this once it has switched.
+    expect(git.blockedSwitchResume).not.toBeNull();
+    await git.blockedSwitchResume!();
+    expect(onSwitchResolved).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves no continuation when the switch fails without a dialog', async () => {
+    signInAs('alice');
+    stubProjectReload(activeTask());
+    stubCurrentTask([null]);
+    ctx.mock.git.checkout.mockResolvedValueOnce({ success: false, error: 'boom' });
+
+    const access = useManagedTaskAccess('prescreen', { onSwitchResolved: vi.fn() });
+    await expect(access.ensureAccess()).resolves.toBe(false);
+
+    expect(useGitStore().blockedSwitchResume).toBeNull();
+  });
+});
+
+describe('leaving a reviewer branch', () => {
+  beforeEach(() => {
+    ctx = setupRendererTest();
+    ctx.openProject({ path: '/projects/lit-review' });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('shares one switch between navigations that arrive while it runs', async () => {
+    const git = standOn('review/prescreen/t1/alice');
+    let finish!: (value: boolean) => void;
+    const switchBranch = vi
+      .spyOn(git, 'switchBranch')
+      .mockImplementation(() => new Promise<boolean>((resolve) => (finish = resolve)));
+
+    const first = leaveReviewerBranch();
+    const second = leaveReviewerBranch();
+    await vi.waitFor(() => expect(switchBranch).toHaveBeenCalled());
+    finish(true);
+
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(switchBranch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('first open of a project', () => {
+  beforeEach(() => {
+    ctx = setupRendererTest();
+    ctx.openProject({ path: '/projects/lit-review' });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('reads the git snapshot before deciding to switch, so dev is not checked out again', async () => {
+    // No snapshot in the store yet; the main process knows the repo is on dev.
+    const git = useGitStore();
+    ctx.setGitState({ branch: 'dev' });
+    git.snapshots = {};
+    const switchBranch = vi.spyOn(git, 'switchBranch');
+
+    expect(await ensureWorkingBranch()).toBe(true);
+
+    expect(ctx.mock.gitState.refresh).toHaveBeenCalled();
+    expect(switchBranch).not.toHaveBeenCalled();
   });
 });
