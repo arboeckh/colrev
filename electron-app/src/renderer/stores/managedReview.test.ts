@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { useGitStore } from './git';
 import { useManagedReviewStore } from './managedReview';
 import { useProjectsStore } from './projects';
+import { useSyncStore } from './sync';
 import type { ManagedReviewTask } from '@/types/generated/rpc';
 import {
   setupRendererTest,
@@ -128,6 +129,58 @@ describe('refresh', () => {
     const managed = useManagedReviewStore();
     await managed.refresh();
     expect(managed.isLoading).toBe(false);
+  });
+});
+
+describe('background fetch', () => {
+  beforeEach(() => {
+    ctx.setGitState({ remoteUrl: 'https://github.com/acme/lit-review.git' });
+  });
+
+  it('re-reads the tasks when the fetch moved remote refs', async () => {
+    // Another reviewer's progress lives on their branch, which a fetch brings in
+    // without changing anything the git snapshot shows.
+    let progress = 0;
+    ctx.mock.rpc.on('list_managed_review_tasks', (p) =>
+      tasksResponse(
+        p.kind,
+        p.kind === 'prescreen'
+          ? [
+              task({
+                id: 'p1',
+                reviewer_progress: [
+                  {
+                    role: 'reviewer_b',
+                    github_login: 'bob',
+                    branch_name: 'review/prescreen/p1/bob',
+                    available: true,
+                    completed_count: progress,
+                    pending_count: 10 - progress,
+                  },
+                ],
+              }),
+            ]
+          : [],
+      ),
+    );
+    const managed = useManagedReviewStore();
+    await managed.refresh();
+    expect(managed.activePrescreenTask?.reviewer_progress[0].completed_count).toBe(0);
+
+    progress = 4;
+    ctx.mock.git.fetch.mockResolvedValueOnce({ success: true, refsChanged: true });
+    await useSyncStore().fetchNow();
+
+    expect(managed.activePrescreenTask?.reviewer_progress[0].completed_count).toBe(4);
+  });
+
+  it('leaves the tasks alone when the fetch brought nothing new', async () => {
+    ctx.mock.rpc.on('list_managed_review_tasks', (p) => tasksResponse(p.kind));
+
+    await useSyncStore().fetchNow();
+
+    expect(ctx.mock.git.fetch).toHaveBeenCalledTimes(1);
+    expect(ctx.mock.rpc.countOf('list_managed_review_tasks')).toBe(0);
   });
 });
 

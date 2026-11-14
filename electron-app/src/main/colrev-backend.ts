@@ -118,6 +118,14 @@ export interface ColrevBackendOptions {
   startTimeoutMs?: number;
   /** How long `stop()` lets an in-flight request finish before killing. */
   stopGraceMs?: number;
+  /**
+   * RPCs to send to every fresh server process (the first start and each
+   * supervised restart) right after it answers its first ping and before any
+   * queued request is sent, so state that lives only in the process — such as
+   * a connector API key — is there when the next request runs. A call that
+   * fails is logged by method name and skipped.
+   */
+  handshakeCalls?: () => Array<{ method: string; params: Record<string, unknown> }>;
 }
 
 /**
@@ -155,6 +163,7 @@ export class ColrevBackend extends EventEmitter {
   private readonly restartDelaysMs: number[];
   private readonly startTimeoutMs: number;
   private readonly stopGraceMs: number;
+  private readonly handshakeCalls: NonNullable<ColrevBackendOptions['handshakeCalls']>;
   private stopPromise: Promise<void> | null = null;
 
   constructor(
@@ -170,6 +179,7 @@ export class ColrevBackend extends EventEmitter {
     this.restartDelaysMs = opts.restartDelaysMs ?? RESTART_DELAYS_MS;
     this.startTimeoutMs = opts.startTimeoutMs ?? START_TIMEOUT_MS;
     this.stopGraceMs = opts.stopGraceMs ?? STOP_GRACE_MS;
+    this.handshakeCalls = opts.handshakeCalls ?? (() => []);
 
     const registryPath = process.env.COLREV_FAKE_GITHUB_REGISTRY;
     if (registryPath) {
@@ -329,6 +339,17 @@ export class ColrevBackend extends EventEmitter {
         await this.enqueue('ping', {}, { timeoutMs: PING_TIMEOUT_MS, probe: true });
         if (this.process !== child) {
           throw new Error('Backend stopped during startup');
+        }
+        for (const call of this.handshakeCalls()) {
+          try {
+            await this.enqueue(call.method, call.params, { timeoutMs: 5000, probe: true });
+          } catch {
+            // Never log the params: they may carry a secret.
+            this.emit('log', `[startup] handshake call ${call.method} failed`);
+          }
+          if (this.process !== child) {
+            throw new Error('Backend stopped during startup');
+          }
         }
         this.ready = true;
         // Drain anything queued while the handshake was in progress.

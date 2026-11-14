@@ -26,6 +26,7 @@ import { useNotificationsStore } from '@/stores/notifications';
 import type { AddSourceRequest, UploadSearchFileRequest } from '@/types/generated/rpc';
 import { getLocalTimeZone, today, type DateValue } from '@internationalized/date';
 import { cn } from '@/lib/utils';
+import { fileToBase64, uniqueSearchFilename } from '@/lib/files';
 import DatabaseTile from './DatabaseTile.vue';
 import ConnectorLogo from './ConnectorLogo.vue';
 import ApiQueryForm from './ApiQueryForm.vue';
@@ -48,6 +49,8 @@ const props = defineProps<{
   projectId: string;
   open: boolean;
   existingApiEndpoints?: string[];
+  /** Results files of the sources already in the project (new uploads get a name none of them uses). */
+  existingSearchPaths?: string[];
 }>();
 
 const emit = defineEmits<{
@@ -155,15 +158,6 @@ function handleFileSelect(event: Event) {
   }
 }
 
-function readFileAsText(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(new Error('Failed to read file'));
-    reader.readAsText(file);
-  });
-}
-
 const formattedDate = computed(() => {
   if (!searchDate.value) return 'Select date';
   const d = searchDate.value;
@@ -231,17 +225,16 @@ async function submitUpload() {
   isSubmitting.value = true;
   progressText.value = 'Reading file...';
   try {
-    const content = await readFileAsText(file);
-    const ext = file.name.split('.').pop() || 'bib';
-    const sanitized = c.id.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
-    const targetFilename = `${sanitized}.${ext}`;
+    // The bytes, not text: a Latin-1 export or an .xlsx must reach disk unchanged.
+    const content = await fileToBase64(file);
+    const targetFilename = uniqueSearchFilename(c.id, file.name, props.existingSearchPaths ?? []);
 
     progressText.value = 'Uploading file...';
     const uploadParams: UploadSearchFileRequest = {
       project_id: props.projectId,
       filename: targetFilename,
       content,
-      encoding: 'utf-8',
+      encoding: 'base64',
     };
     if (c.csvTemplate) uploadParams.source_template = c.csvTemplate;
     const uploadResp = await backend.call('upload_search_file', uploadParams);
@@ -408,7 +401,7 @@ function handleCancel() {
                 rel="noopener noreferrer"
                 class="underline"
               >openalex.org/settings/api</a>.
-              The key is stored for this session only and is never written to search history.
+              The key is kept in this computer's system keychain when it has one, and is never written to the project or its search history.
             </p>
           </div>
 

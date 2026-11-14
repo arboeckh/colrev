@@ -110,6 +110,35 @@ branches when they next arrive (`shareUnpublishedReviews`). Only branches of
 in-flight tasks are pushed: a reviewer branch without a remote copy was
 retired after reconciliation, and pushing it would resurrect it.
 
+### A failure backs off; it is never retried at the tick rate
+
+The loop ticks every 5s, so any failure that does not clear itself would repeat
+every 5s — and a push failure used to toast every time. The policy therefore
+takes the coordinator's memory of failures as input (`pushFailure`,
+`pullFailure`, `fetchFailure`, `mainPushFailure`) and waits 15s, doubling to a
+5 min ceiling, before the same operation runs again. What a failure means
+decides what happens next:
+
+- **Rejected push** (`REJECTED_FETCH_FIRST`): the remote moved on, so the loop
+  fetches; the policy then pulls or resolves. No toast — the loop is already
+  doing what the toast would suggest.
+- **Rejected credential** (`AUTH_FAILED`): automatic pushes stop until a new
+  session arrives; the sync indicator says "Sign in to sync".
+- **Anything else** (protected branch, server error): reported once, then
+  backed off.
+- **Refused pull** (dirty overlap, diverged): recorded and backed off, never a
+  dialog or toast — the banner already shows the situation. The backoff is
+  dropped when the situation changes (the tree is saved, `behind` moves).
+- **Offline** is a guess, not a fact: the browser's `online` event does not fire
+  when only the remote went away. The loop keeps probing with a fetch, paced by
+  the same backoff, and a success clears the flag. Saving stays possible
+  offline (it is a local commit); only the push half waits.
+
+A publish whose push failed leaves local `main` ahead of `origin/main` while
+`dev` is checked out. The loop pushes it (`pushMain`) when it can; if the
+collaborator published meanwhile, `main` has diverged and the banner offers
+"Review & combine main" (`resolveDivergedMain`).
+
 ### Interruption happens at operation boundaries, never mid-operation
 
 A modal that appears unprompted while someone is screening record 23 trains

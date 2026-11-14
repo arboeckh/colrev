@@ -76,30 +76,39 @@ def check_source_staleness(source: Any, history_path: Path) -> Tuple[bool, Optio
     return True, reason
 
 
+def source_staleness(project_path: Path, source: Any) -> Tuple[bool, Optional[str]]:
+    """THE per-source staleness rule: ``(is_stale, reason)``.
+
+    FILES/MD sources are never stale. Everything that reports staleness
+    (``get_sources``, ``get_status``, ``get_operation_info``) goes through here.
+    """
+    search_type = getattr(getattr(source, "search_type", None), "value", None) or str(
+        getattr(source, "search_type", "")
+    )
+    if search_type in _UNTRACKED_SEARCH_TYPES:
+        return False, None
+    return check_source_staleness(
+        source, project_path / source.get_search_history_path()
+    )
+
+
 def stale_source_entries(review_manager: Any) -> List[Dict[str, Optional[str]]]:
-    """THE staleness definition for a project's search sources.
+    """The stale search sources of a project, one entry per stale source.
 
-    Returns one entry per stale source. A source is stale when its search
-    has never been run (no history file / no ``last_run``) or its query or
-    parameters changed since the last run. FILES/MD sources are never stale.
-
-    Both the status payload (``get_status``) and ``get_sources`` derive
-    from this single definition — the renderer must not recompute it.
+    A source is stale when its search has never been run (no history file /
+    no ``last_run``) or its query or parameters changed since the last run.
+    See :func:`source_staleness` for the rule itself.
     """
     entries: List[Dict[str, Optional[str]]] = []
     for source in review_manager.settings.sources:
-        search_type = getattr(
-            getattr(source, "search_type", None), "value", None
-        ) or str(getattr(source, "search_type", ""))
-        if search_type in _UNTRACKED_SEARCH_TYPES:
-            continue
-        history_path = review_manager.path / source.get_search_history_path()
-        is_stale, reason = check_source_staleness(source, history_path)
+        is_stale, reason = source_staleness(review_manager.path, source)
         if is_stale:
             entries.append(
                 {
                     "platform": getattr(source, "platform", None),
-                    "filename": str(getattr(source, "search_results_path", "")),
+                    "filename": Path(
+                        str(getattr(source, "search_results_path", ""))
+                    ).as_posix(),
                     "reason": reason,
                 }
             )

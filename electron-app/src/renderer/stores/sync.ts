@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { useGitStore } from './git';
 import { useBackendStore } from './backend';
 import { useConnectionStore } from './connection';
+import { useAuthStore } from './auth';
 import { useNotificationsStore } from './notifications';
 import { useProjectsStore } from './projects';
 import {
@@ -10,6 +11,8 @@ import {
   decideAutoSync,
   type AutoSyncAction,
   type IdleReason,
+  type OperationFailure,
+  type PushFailure,
   type SyncEscalation,
 } from '@/lib/syncPolicy';
 
@@ -52,6 +55,15 @@ const PUSH_DEBOUNCE_MS = 2_000;
  */
 const RESOLVE_RETRY_MS = 60_000;
 
+/**
+ * First retry delay after a failed remote operation; it doubles with each
+ * consecutive failure up to `RETRY_MAX_MS`. The tick runs every 5s, so without
+ * this a failure that does not clear itself repeats at the tick rate — twelve
+ * error toasts a minute, or a fetch storm against an unreachable remote.
+ */
+const RETRY_BASE_MS = 15_000;
+const RETRY_MAX_MS = 5 * 60_000;
+
 const AUTO_PULL_KEY = 'sync.autoPull';
 const AUTO_PUSH_KEY = 'sync.autoPush';
 
@@ -92,6 +104,13 @@ export const useSyncStore = defineStore('sync', () => {
   const lastSyncAt = ref<number | null>(null);
   const lastIdleReason = ref<IdleReason | null>(null);
 
+  // Failure memory. The policy is pure, so what failed and when lives here and
+  // is handed to it on every tick.
+  const pushFailure = ref<PushFailure | null>(null);
+  const mainPushFailure = ref<PushFailure | null>(null);
+  const pullFailure = ref<OperationFailure | null>(null);
+  const fetchFailure = ref<OperationFailure | null>(null);
+
   /** A coordinator-driven git operation is in flight. */
   const busy = ref(false);
   const isRunning = ref(false);
@@ -110,10 +129,46 @@ export const useSyncStore = defineStore('sync', () => {
       isClean: git.isClean,
       hasMergeConflict: git.hasMergeConflict,
       autoPullEnabled: autoPullEnabled.value,
+      mainAhead: git.mainAhead,
+      mainBehind: git.mainBehind,
+      isOnMain: git.isOnMain,
     }),
   );
 
   const isSuspended = computed(() => suspensions.value.length > 0);
+
+  /**
+   * What is wrong with syncing that the user can act on, or null. Read by the
+   * sync indicator: an automatic path that fails quietly must still say so
+   * somewhere, or "synced" is a claim nobody can check.
+   */
+  const problem = computed<{ kind: 'auth' | 'push' | 'pull'; message: string } | null>(() => {
+    if (pushFailure.value?.kind === 'auth' || mainPushFailure.value?.kind === 'auth') {
+      return {
+        kind: 'auth',
+        message: 'GitHub rejected your sign-in, so your changes are not being shared. Sign in again to resume.',
+      };
+    }
+    if (pushFailure.value && pushFailure.value.kind !== 'rejected') {
+      return {
+        kind: 'push',
+        message: 'Your changes could not be pushed. Syncing will retry on its own; use Sync now to retry immediately.',
+      };
+    }
+    if (mainPushFailure.value) {
+      return {
+        kind: 'push',
+        message: 'Your published version could not be uploaded. Syncing will retry on its own.',
+      };
+    }
+    if (pullFailure.value) {
+      return {
+        kind: 'pull',
+        message: 'Collaborators’ changes could not be pulled in. Syncing will retry on its own.',
+      };
+    }
+    return null;
+  });
 
   /**
    * Ask auto-sync to hold off while something is in progress that a working
@@ -155,6 +210,13 @@ export const useSyncStore = defineStore('sync', () => {
       fetchIntervalMs: FETCH_INTERVAL_MS + fetchJitter,
       pushDebounceMs: PUSH_DEBOUNCE_MS,
       resolveRetryMs: RESOLVE_RETRY_MS,
+      pushFailure: pushFailure.value,
+      pullFailure: pullFailure.value,
+      fetchFailure: fetchFailure.value,
+      mainPushFailure: mainPushFailure.value,
+      mainUnpushed: git.mainAhead > 0 && git.mainBehind === 0 && !git.isOnMain,
+      retryBaseMs: RETRY_BASE_MS,
+      retryMaxMs: RETRY_MAX_MS,
     };
   }
 
@@ -201,41 +263,119 @@ export const useSyncStore = defineStore('sync', () => {
     const ok = await runExclusive('fetch', () => git.__remoteOps.fetch());
     if (ok) {
       lastFetchAt.value = Date.now();
+      fetchFailure.value = null;
       // Re-roll so a client that drifted into lockstep with another drifts out.
       fetchJitter = Math.floor(Math.random() * FETCH_JITTER_MS);
+    } else {
+      fetchFailure.value = nextFailure(fetchFailure.value);
     }
     return ok === true;
+  }
+
+  function nextFailure(previous: OperationFailure | null): OperationFailure {
+    return { at: Date.now(), count: (previous?.count ?? 0) + 1 };
+  }
+
+  function pushFailureKind(code: string | null | undefined): PushFailure['kind'] {
+    if (code === 'REJECTED_FETCH_FIRST') return 'rejected';
+    if (code === 'AUTH_FAILED') return 'auth';
+    return 'other';
+  }
+
+  /**
+   * Remember a failed push and, for the automatic path, say so once.
+   *
+   * `OFFLINE` is not recorded: the connection flag and the probe own that case,
+   * and a push that failed for want of a network should go out the moment the
+   * network is back, not after a backoff. A rejected push is not reported
+   * either — the loop answers it by fetching, and the toast would only tell
+   * the user what is already being done — and a failure of the same kind as the
+   * last one is not reported again.
+   */
+  function recordPushFailure(
+    previous: PushFailure | null,
+    code: string | null | undefined,
+    auto: boolean,
+  ): PushFailure | null {
+    if (code === 'OFFLINE') return previous;
+    const kind = pushFailureKind(code);
+    if (auto && kind !== 'rejected' && previous?.kind !== kind) {
+      git.reportGitFailure('push', code ?? undefined);
+    }
+    return { kind, at: Date.now(), count: (previous?.count ?? 0) + 1 };
   }
 
   /**
    * Pull. Safe shapes are handled by the git store (fast-forward); a diverged
    * or dirty repo is escalated there into the semantic merge flow or the
    * pull-blocked dialog rather than being forced through here.
+   *
+   * `auto` is the background loop: it never opens those dialogs. A refused
+   * pull is recorded (so the policy backs off) and left to the sync banner.
    */
-  async function pullNow(): Promise<boolean> {
-    const ok = await runExclusive('pull', () => git.__remoteOps.pull());
-    if (ok) lastSyncAt.value = Date.now();
+  async function pullNow(opts: { auto?: boolean } = {}): Promise<boolean> {
+    const auto = opts.auto === true;
+    const ok = await runExclusive('pull', () => git.__remoteOps.pull({ quiet: auto }));
+    if (ok) {
+      lastSyncAt.value = Date.now();
+      pullFailure.value = null;
+      pushFailure.value = null;
+    } else if (auto) {
+      const code = git.lastPullError;
+      // DIVERGED and DIRTY_WORKTREE are shown by the banner; OFFLINE by the
+      // header. Anything else is news the user has not had yet.
+      const shown = code === 'DIVERGED' || code === 'DIRTY_WORKTREE' || code === 'OFFLINE';
+      if (code !== 'OFFLINE') {
+        if (!shown && pullFailure.value === null) git.reportGitFailure('pull', code ?? undefined);
+        pullFailure.value = nextFailure(pullFailure.value);
+      }
+    }
     return ok === true;
   }
 
-  async function pushNow(): Promise<boolean> {
-    const ok = await runExclusive('push', () => git.__remoteOps.push());
+  async function pushNow(opts: { auto?: boolean } = {}): Promise<boolean> {
+    const auto = opts.auto === true;
+    const ok = await runExclusive('push', () => git.__remoteOps.push({ quiet: auto }));
     if (ok) {
       lastSyncAt.value = Date.now();
       aheadSince.value = null;
+      pushFailure.value = null;
+    } else {
+      pushFailure.value = recordPushFailure(pushFailure.value, git.lastPushError, auto);
     }
     return ok === true;
   }
 
   /**
    * Push a branch by name. The automatic loop only ever pushes the current
-   * branch; this is for work committed on a branch the user has since left (a
-   * reviewer branch), or that must be published regardless of which branch is
-   * checked out by the time the push runs (dev, after a launch).
+   * branch (and `main` after an unshared publish); this is for work committed
+   * on a branch the user has since left (a reviewer branch), or that must be
+   * published regardless of which branch is checked out by the time the push
+   * runs (dev, after a launch).
    */
-  async function pushBranchNow(branchName: string): Promise<boolean> {
-    const ok = await runExclusive('pushBranch', () => git.__remoteOps.pushBranch(branchName));
+  async function pushBranchNow(branchName: string, opts: { auto?: boolean } = {}): Promise<boolean> {
+    const auto = opts.auto === true;
+    const ok = await runExclusive('pushBranch', () =>
+      git.__remoteOps.pushBranch(branchName, { quiet: auto }),
+    );
     if (ok) lastSyncAt.value = Date.now();
+    if (branchName === 'main') {
+      if (ok) {
+        if (mainPushFailure.value !== null || auto) {
+          notifications.success(
+            'Version published',
+            'Your published version has now reached the remote.',
+          );
+        }
+        mainPushFailure.value = null;
+      } else {
+        mainPushFailure.value = recordPushFailure(
+          mainPushFailure.value,
+          git.lastPushBranchError,
+          auto,
+        );
+      }
+    }
     return ok;
   }
 
@@ -250,6 +390,9 @@ export const useSyncStore = defineStore('sync', () => {
     if (ok) {
       lastSyncAt.value = Date.now();
       lastResolveAttemptAt.value = null;
+      // The remote was ahead of the push that kept failing; the merge has it.
+      pushFailure.value = null;
+      pullFailure.value = null;
       // The merge commit is ours to publish; let the push debounce start now.
       aheadSince.value = Date.now();
     } else {
@@ -271,6 +414,10 @@ export const useSyncStore = defineStore('sync', () => {
    * behave differently from the background loop.
    */
   async function syncNow(): Promise<void> {
+    // An explicit "sync now" is the user asking, so every backoff and block
+    // from earlier automatic failures is lifted: the button must try, not
+    // report that the loop is waiting.
+    clearFailures();
     await fetchNow();
     if (git.behind > 0 && git.ahead === 0 && git.isClean) {
       await pullNow();
@@ -284,6 +431,16 @@ export const useSyncStore = defineStore('sync', () => {
     if (git.ahead > 0 && git.behind === 0) {
       await pushNow();
     }
+    if (git.mainAhead > 0 && git.mainBehind === 0 && !git.isOnMain) {
+      await pushBranchNow('main');
+    }
+  }
+
+  function clearFailures(): void {
+    pushFailure.value = null;
+    mainPushFailure.value = null;
+    pullFailure.value = null;
+    fetchFailure.value = null;
   }
 
   /**
@@ -310,13 +467,17 @@ export const useSyncStore = defineStore('sync', () => {
       case 'pull': {
         lastIdleReason.value = null;
         const count = git.behind;
-        const ok = await pullNow();
+        const ok = await pullNow({ auto: true });
         if (ok) announcePull(count);
         return;
       }
       case 'push':
         lastIdleReason.value = null;
-        await pushNow();
+        await pushNow({ auto: true });
+        return;
+      case 'pushMain':
+        lastIdleReason.value = null;
+        await pushBranchNow('main', { auto: true });
         return;
       case 'resolve':
         lastIdleReason.value = null;
@@ -393,6 +554,43 @@ export const useSyncStore = defineStore('sync', () => {
     },
   );
 
+  // A failure belongs to the situation it happened in. When that changes, the
+  // backoff must not outlive it: a pull refused over a dirty tree should go the
+  // moment the tree is saved, and a push rejected on one branch says nothing
+  // about the next.
+  watch(
+    () => [git.isClean, git.behind] as const,
+    () => {
+      pullFailure.value = null;
+    },
+  );
+  watch(
+    () => git.currentBranch,
+    () => {
+      pushFailure.value = null;
+    },
+  );
+  watch(
+    () => git.mainAhead > 0,
+    (unpushed) => {
+      if (!unpushed) mainPushFailure.value = null;
+    },
+  );
+
+  // A rejected credential stays rejected until the user signs in again, so the
+  // automatic loop stops pushing for good until then — and resumes on its own
+  // the moment a new session arrives.
+  const auth = useAuthStore();
+  watch(
+    () => auth.session,
+    () => {
+      if (pushFailure.value?.kind === 'auth') pushFailure.value = null;
+      if (mainPushFailure.value?.kind === 'auth') mainPushFailure.value = null;
+    },
+  );
+
+  let offReconnect: (() => void) | null = null;
+
   /**
    * Start the background loop for the current project. Called once, from
    * `AppLayout`; `architecture.test.ts` enforces that it stays the only caller
@@ -405,6 +603,16 @@ export const useSyncStore = defineStore('sync', () => {
     // in tests, before the harness set them).
     loadPreferences();
     isRunning.value = true;
+    // Connectivity is back (the browser said so, or a fetch got through): the
+    // delays built up while it was down are moot, so retry now rather than
+    // after whatever is left of them. A rejected credential stays rejected.
+    offReconnect = connection.onReconnect(() => {
+      fetchFailure.value = null;
+      pullFailure.value = null;
+      if (pushFailure.value?.kind !== 'auth') pushFailure.value = null;
+      if (mainPushFailure.value?.kind !== 'auth') mainPushFailure.value = null;
+      if (isRunning.value) void tick();
+    });
     tickTimer = setInterval(() => void tick(), TICK_MS);
     watchAhead();
     void tick();
@@ -417,6 +625,9 @@ export const useSyncStore = defineStore('sync', () => {
       tickTimer = null;
     }
     clearPushTimer();
+    offReconnect?.();
+    offReconnect = null;
+    clearFailures();
     suspensions.value = [];
     lastFetchAt.value = null;
     aheadSince.value = null;
@@ -454,10 +665,15 @@ export const useSyncStore = defineStore('sync', () => {
     lastSyncAt,
     lastResolveAttemptAt,
     lastIdleReason,
+    pushFailure,
+    mainPushFailure,
+    pullFailure,
+    fetchFailure,
     busy,
     isRunning,
     // getters
     escalation,
+    problem,
     isSuspended,
     // suspension
     suspend,

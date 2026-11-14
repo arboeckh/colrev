@@ -45,7 +45,6 @@ HAPPY_PATH_GAPS: dict[str, str] = {
     "data": "runs the data operation (paper_md endpoint) — covered by e2e 07-data",
     "pdf_prep": "runs the OCR/grobid package chain — covered by e2e 04-pdf-get",
     "prep": "runs metadata prep against external APIs — covered by e2e 02-preprocessing",
-    "search": "issues live API searches — covered by e2e 01-search (recorded HTTP)",
     # --- need a project carried far down the pipeline ----------------------
     "export_data_csv": "needs a populated data/data.csv — covered by e2e 07-data",
     "save_data_extraction": "runs the data operation on rev_included records — e2e 07-data",
