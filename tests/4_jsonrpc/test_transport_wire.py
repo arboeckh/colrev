@@ -118,3 +118,25 @@ class TestWireFallback:
         transport._reset_for_tests()
         transport.write_line('{"jsonrpc": "2.0"}')
         assert capsys.readouterr().out == '{"jsonrpc": "2.0"}\n'
+
+
+def test_stdout_to_devnull_flushes_buffer_before_restoring_fd1():
+    """A buffered partial line must not be glued onto the next wire line."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys, os\n"
+        "from colrev.ui_jsonrpc import transport\n"
+        "transport.init_wire()\n"
+        "sys.stdout = os.fdopen(1, 'w', buffering=1 << 16, closefd=False)\n"
+        "with transport.stdout_to_devnull():\n"
+        "    with transport.stdout_to_devnull():  # re-entrant\n"
+        "        sys.stdout.write('stray partial line')\n"
+        "    sys.stdout.write(' more')\n"
+        "transport.write_line('{\"ok\": 1}')\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    ).stdout
+    assert out == '{"ok": 1}\n'
