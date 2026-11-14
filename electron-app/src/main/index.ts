@@ -2,22 +2,20 @@ import { app, BrowserWindow, dialog, protocol, net, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { pathToFileURL } from 'url';
-import {
-  ColrevBackend,
-  RpcError,
-  RPC_TRANSPORT_NOT_RUNNING,
-  serializeRpcError,
-} from './colrev-backend';
+import { ColrevBackend } from './colrev-backend';
+import { BackendSession } from './backend-session';
+import { acquireSingleInstance } from './single-instance';
 import { setupGitEnvironment } from './git-env';
 import { writeGitIdentity } from './git-identity';
 import { AuthManager } from './auth-manager';
-import { AccountScopedProjectPaths } from './account-scoped-project-paths';
+import { AccountScopedProjectPaths, resolveInsideRoot } from './account-scoped-project-paths';
 
 // Allow running multiple instances with separate data directories via COLREV_USER env var
 // Usage: COLREV_USER=alice npm run dev  /  COLREV_USER=bob npm run dev
 if (process.env.COLREV_USER) {
   app.setPath('userData', path.join(app.getPath('userData') + '-' + process.env.COLREV_USER));
 }
+
 import { getGitHubClient } from './github-client-factory';
 import { resolveBackendLaunch } from './backend-launcher';
 import { createGitHandlers, realGitOps } from './ipc/git-handlers';
@@ -53,7 +51,19 @@ protocol.registerSchemesAsPrivileged([
 const backgroundLaunch = process.env.COLREV_BACKGROUND === '1';
 
 let mainWindow: BrowserWindow | null = null;
-let backend: ColrevBackend | null = null;
+
+// One instance per userData directory: two would run two backends against the
+// same repos (with separate git mutexes) and race on auth.json. Instances with
+// a different userData (COLREV_USER, --user-data-dir) are unaffected.
+const hasSingleInstanceLock = acquireSingleInstance(app, () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  } else if (app.isReady()) {
+    createWindow();
+  }
+});
 const authManager = new AuthManager();
 const projectPaths = new AccountScopedProjectPaths(app.getPath('userData'));
 
@@ -64,8 +74,7 @@ const projectPaths = new AccountScopedProjectPaths(app.getPath('userData'));
  */
 const gitState = new GitStateManager({
   callBackend: <T,>(method: string, params: Record<string, unknown>) => {
-    if (!backend) return Promise.reject(new Error('Backend not running'));
-    return backend.call<T>(method, params);
+    return session.callBackend<T>(method, params);
   },
   hasMergeConflict: gitHasMergeConflict,
   emit: (snapshot) => mainWindow?.webContents.send('git-state-changed', snapshot),
@@ -119,7 +128,7 @@ function createWindow() {
 function forwardBackendEvents(b: ColrevBackend): void {
   b.on('log', (msg) => mainWindow?.webContents.send('colrev:log', msg));
   b.on('error', (err) => mainWindow?.webContents.send('colrev:error', err.message));
-  // Do NOT null the backend on 'close': an unexpected exit triggers a
+  // Do NOT drop the backend on 'close': an unexpected exit triggers a
   // supervised restart inside ColrevBackend. It is only discarded on explicit
   // stop or when the supervisor gives up.
   b.on('close', (code) => mainWindow?.webContents.send('colrev:close', code));
@@ -127,16 +136,15 @@ function forwardBackendEvents(b: ColrevBackend): void {
   b.on('restarting', (info) => mainWindow?.webContents.send('colrev:restarting', info));
   b.on('restarted', () => mainWindow?.webContents.send('colrev:restarted'));
   b.on('restart-failed', () => {
-    backend = null;
+    session.discard(b);
     mainWindow?.webContents.send('colrev:restart-failed');
   });
   b.on('rpc-queue', (state) => mainWindow?.webContents.send('colrev:rpc-queue', state));
+  b.on('late-response', (info) => mainWindow?.webContents.send('colrev:late-response', info));
 }
 
-async function startBackend(): Promise<{ success: boolean; message?: string; error?: string }> {
-  if (backend) return { success: true, message: 'Already running' };
-
-  try {
+const session = new BackendSession<ColrevBackend>({
+  create: () => {
     const launch = resolveBackendLaunch({
       isPackaged: app.isPackaged,
       platform: process.platform,
@@ -145,40 +153,13 @@ async function startBackend(): Promise<{ success: boolean; message?: string; err
       userDataDir: app.getPath('userData'),
       env: process.env,
     });
-
-    backend = new ColrevBackend(launch.command, launch.args, launch.env);
+    const backend = new ColrevBackend(launch.command, launch.args, launch.env);
     forwardBackendEvents(backend);
-    await backend.start();
-    return { success: true };
-  } catch (err) {
-    backend?.stop();
-    backend = null;
-    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
-  }
-}
-
-/**
- * Forward one RPC to the Python backend.
- *
- * Returns an envelope instead of throwing: Electron strips custom Error
- * properties at the IPC boundary, and the renderer needs the structured
- * {code, message, data, method} to branch on error codes.
- */
-async function callRpc(method: string, params: Record<string, unknown>) {
-  try {
-    if (!backend) {
-      throw new RpcError('Backend not running', RPC_TRANSPORT_NOT_RUNNING, method);
-    }
-    const result = isLockFreeRpcMethod(method)
-      ? await backend.call(method, params)
-      : // Lock-retry lives in the Python dispatcher (see
-        // colrev/ui_jsonrpc/framework/dispatcher.py); don't double-retry here.
-        await withGitLock(`rpc:${method}`, () => backend!.call(method, params));
-    return { ok: true, result };
-  } catch (err) {
-    return { ok: false, error: serializeRpcError(err) };
-  }
-}
+    return backend;
+  },
+  isLockFreeMethod: isLockFreeRpcMethod,
+  withGitLock,
+});
 
 // --- Dialog + file handlers ------------------------------------------------
 
@@ -224,9 +205,7 @@ async function openFileDialog(options: DialogFilters & { title?: string }) {
 function resolveAccountFile(projectId: string, relativePath: string): string | null {
   const login = authManager.getActiveLogin();
   if (!login) return null;
-  const accountRoot = projectPaths.projectsRootForAccount(login);
-  const filePath = path.resolve(accountRoot, projectId, relativePath);
-  return filePath.startsWith(path.resolve(accountRoot)) ? filePath : null;
+  return resolveInsideRoot(projectPaths.projectsRootForAccount(login), projectId, relativePath);
 }
 
 function pdfExists(params: { projectId: string; relativePath: string }) {
@@ -271,13 +250,12 @@ function setupIPC() {
 
   registerHandlers([
     ...createAppHandlers({
-      startBackend,
+      startBackend: () => session.start(),
       stopBackend: async () => {
-        backend?.stop();
-        backend = null;
+        await session.stop();
         return { success: true };
       },
-      callRpc,
+      callRpc: (method, params) => session.callRpc(method, params),
       saveFileDialog,
       chooseSavePath,
       openFileDialog,
@@ -289,10 +267,8 @@ function setupIPC() {
     ...createGitHandlers({
       git: realGitOps,
       getToken: () => authManager.getToken(),
-      callBackend: <T,>(method: string, params: Record<string, unknown>) => {
-        if (!backend) return Promise.reject(new Error('Backend not running'));
-        return backend.call<T>(method, params);
-      },
+      callBackend: <T,>(method: string, params: Record<string, unknown>) =>
+        session.callBackend<T>(method, params),
       refreshGitState: (projectId, projectPath) => gitState.refresh(projectId, projectPath),
       getGitState: (projectId) => gitState.get(projectId),
     }),
@@ -308,6 +284,9 @@ function setupIPC() {
 }
 
 app.whenReady().then(() => {
+  // Lost the single-instance lock: this process is quitting, open nothing.
+  if (!hasSingleInstanceLock) return;
+
   // Must run before the first window exists: an accessory app is never made
   // frontmost on launch, so the human's current app keeps the keyboard.
   if (backgroundLaunch) {
@@ -358,10 +337,14 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  backend?.stop();
   if (process.platform !== 'darwin') {
+    // 'before-quit' stops the backend.
     app.quit();
+    return;
   }
+  // The app stays alive without a window on macOS. Stop the backend and drop
+  // it: the next window's `colrev:start` then spawns a new one.
+  void session.stop();
 });
 
 app.on('activate', () => {
@@ -370,6 +353,15 @@ app.on('activate', () => {
   }
 });
 
-app.on('before-quit', () => {
-  backend?.stop();
+// Quitting waits for the backend to finish the request it is in the middle of
+// (bounded) instead of killing it: a kill during a write can truncate
+// data/records.bib or leave .git/index.lock behind.
+let backendStoppedForQuit = false;
+app.on('before-quit', (event) => {
+  if (backendStoppedForQuit) return;
+  event.preventDefault();
+  void session.stop().finally(() => {
+    backendStoppedForQuit = true;
+    app.quit();
+  });
 });

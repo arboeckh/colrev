@@ -83,6 +83,17 @@ contextBridge.exposeInMainWorld('colrev', {
     return () => ipcRenderer.removeListener('colrev:restarted', handler);
   },
 
+  /**
+   * A fast call timed out in the UI and the server then finished it: the
+   * outcome (committed or failed) only arrives now, so state read in between
+   * may be stale.
+   */
+  onLateResponse: (callback: (info: unknown) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, info: unknown) => callback(info);
+    ipcRenderer.on('colrev:late-response', handler);
+    return () => ipcRenderer.removeListener('colrev:late-response', handler);
+  },
+
   onRestartFailed: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on('colrev:restart-failed', handler);

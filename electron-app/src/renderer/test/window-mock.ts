@@ -38,6 +38,7 @@ import type {
   GitStateAPI,
   GitStateSnapshot,
   PdfFilesAPI,
+  LateResponseInfo,
   RestartingInfo,
   RpcQueueState,
 } from '@/types/window';
@@ -224,6 +225,7 @@ export interface WindowMock {
   emitRestarted(): void;
   emitRestartFailed(): void;
   emitRpcQueue(state: RpcQueueState): void;
+  emitLateResponse(info: LateResponseInfo): void;
   emitAuthUpdate(session: AuthSession | null): void;
   emitDeviceFlowStatus(status: DeviceFlowStatus): void;
 
@@ -245,6 +247,7 @@ export function createWindowMock(): WindowMock {
   const restarting = channel<RestartingInfo>();
   const restarted = channel<void>();
   const restartFailed = channel<void>();
+  const lateResponse = channel<LateResponseInfo>();
   const rpcQueue = channel<RpcQueueState>();
   const gitStateChanged = channel<GitStateSnapshot>();
   const authUpdates = channel<AuthSession | null>();
@@ -264,6 +267,7 @@ export function createWindowMock(): WindowMock {
     onRestarting: vi.fn(restarting.subscribe),
     onRestarted: vi.fn((cb: () => void) => restarted.subscribe(cb)),
     onRestartFailed: vi.fn((cb: () => void) => restartFailed.subscribe(cb)),
+    onLateResponse: vi.fn(lateResponse.subscribe),
     onRpcQueue: vi.fn(rpcQueue.subscribe),
   } as unknown as MockedObject<ColrevAPI>;
 
@@ -392,6 +396,7 @@ export function createWindowMock(): WindowMock {
     emitRestarted: () => restarted.emit(undefined as void),
     emitRestartFailed: () => restartFailed.emit(undefined as void),
     emitRpcQueue: rpcQueue.emit,
+    emitLateResponse: lateResponse.emit,
     emitAuthUpdate: authUpdates.emit,
     emitDeviceFlowStatus: deviceFlow.emit,
 
