@@ -26,6 +26,7 @@ from typing import Optional
 import colrev.loader.bib
 import colrev.record.record
 import colrev.review_manager
+from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.constants import Fields
 from colrev.constants import OperationsType
 from colrev.constants import RecordState
@@ -186,7 +187,7 @@ class ManagedReviewService:
 
     def _require_dev_branch(self, *, action: str) -> None:
         if self._get_current_branch() != "dev":
-            raise ValueError(f"{action} must be run from the dev branch.")
+            raise InvalidStateError(f"{action} must be run from the dev branch.")
 
     def _get_branch_tracking(self) -> Dict[str, Any]:
         git_repo = self.review_manager.dataset.git_repo.repo
@@ -636,7 +637,7 @@ class ManagedReviewService:
 
         readiness = self.get_task_readiness(kind=kind)
         if not readiness["ready"]:
-            raise ValueError(" ".join(readiness["issues"]))
+            raise InvalidStateError(" ".join(readiness["issues"]))
 
         git_repo = self.review_manager.dataset.git_repo.repo
         manifest = self.load_manifest()
@@ -661,7 +662,7 @@ class ManagedReviewService:
         }
         for reviewer in reviewers:
             if reviewer["branch_name"] in existing_refs:
-                raise ValueError(
+                raise InvalidStateError(
                     f"Branch {reviewer['branch_name']} already exists. Try launching again."
                 )
 
@@ -768,7 +769,7 @@ class ManagedReviewService:
         task = self._find_task(manifest=manifest, task_id=task_id)
 
         if task["state"] == "completed":
-            raise ValueError("Completed tasks cannot be canceled.")
+            raise InvalidStateError("Completed tasks cannot be canceled.")
         if task["state"] == "aborted":
             return {"success": True, "task": self._serialize_task(task=task)}
 
@@ -1011,11 +1012,11 @@ class ManagedReviewService:
         if override_blocks:
             self._reclassify_overridable_blocks(preview=preview, task=task)
         if preview["summary"]["blocked_count"] > 0:
-            raise ValueError(
+            raise InvalidStateError(
                 "Resolve blocked records before applying reconciliation."
             )
         if preview["summary"]["pending_count"] > 0:
-            raise ValueError(
+            raise InvalidStateError(
                 "Both reviewers must finish all records before reconciliation."
             )
 
@@ -1032,11 +1033,11 @@ class ManagedReviewService:
 
         for item in preview["items"]:
             if item["status"] == "blocked":
-                raise ValueError(
+                raise InvalidStateError(
                     f"Record {item['id']} is blocked and cannot be reconciled automatically."
                 )
             if item["status"] == "pending":
-                raise ValueError(
+                raise InvalidStateError(
                     f"Record {item['id']} is still pending reviewer decisions."
                 )
 
@@ -1241,7 +1242,7 @@ class ManagedReviewService:
             None,
         )
         if audit_entry is None:
-            raise ValueError("No reconciliation audit exists for this task yet.")
+            raise InvalidStateError("No reconciliation audit exists for this task yet.")
 
         filename = f"{task_id}-audit.{export_format}"
         if export_format == "json":

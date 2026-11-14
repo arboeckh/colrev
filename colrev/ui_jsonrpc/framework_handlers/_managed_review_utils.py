@@ -14,6 +14,7 @@ from typing import Set
 
 import colrev.review_manager
 from colrev.constants import Fields
+from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.errors import ManagedTaskActiveError
 from colrev.ui_jsonrpc.managed_review import ELIGIBLE_STATE_BY_KIND
 from colrev.ui_jsonrpc.managed_review import TASK_STATES_ACTIVE
@@ -48,7 +49,7 @@ def task_record_ids(
     current_branch = service._get_current_branch()
     allowed_branches = {r["branch_name"] for r in task["reviewers"]}
     if current_branch not in allowed_branches:
-        raise ValueError(
+        raise InvalidStateError(
             f"Managed {stage} tasks can only be reviewed from an "
             "assigned reviewer branch."
         )

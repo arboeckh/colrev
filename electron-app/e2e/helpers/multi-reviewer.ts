@@ -269,11 +269,17 @@ export async function decideAllRecords(
 export function prescreenDecide(
   buttonTimeout = 60_000,
 ): DecideAllRecordsOptions['decide'] {
+  // The page ignores a decision made within 500 ms of the previous one (a
+  // double-click must not decide a record nobody has read), so pace ourselves.
+  let lastDecisionAt = 0;
   return async (window, decision) => {
     const btn = decision === 'include'
       ? '[data-testid="prescreen-btn-include"]'
       : '[data-testid="prescreen-btn-exclude"]';
+    const wait = lastDecisionAt + 600 - Date.now();
+    if (wait > 0) await window.waitForTimeout(wait);
     await clickWhenEnabled(window, btn, buttonTimeout);
+    lastDecisionAt = Date.now();
   };
 }
 

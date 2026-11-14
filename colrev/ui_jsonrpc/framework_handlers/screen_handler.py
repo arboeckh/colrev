@@ -19,6 +19,7 @@ import colrev.record.record
 from colrev.constants import Fields
 from colrev.constants import OperationsType
 from colrev.constants import RecordState
+from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
@@ -314,7 +315,7 @@ class ScreenHandler(BaseHandler):
             RecordState.rev_excluded,
         }
         if not already_decided and current_status not in valid_source_states:
-            raise ValueError(
+            raise InvalidStateError(
                 f"Record '{req.record_id}' is not ready for screening "
                 f"(current status: {current_status})"
             )

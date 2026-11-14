@@ -18,8 +18,10 @@
  */
 export function parseOwnerRepo(remoteUrl: string): { owner: string; repo: string } | null {
   // HTTPS: https://github.com/owner/repo.git — SSH: git@github.com:owner/repo.git
-  const match = remoteUrl.match(/github\.com[/:]([^/]+)\/([^/.]+?)(?:\.git)?$/);
-  if (match) {
+  // GitHub allows dots in repo names (`lit-review-v1.2`), and a remote may end
+  // in a slash. Only a trailing `.git` (and slashes) is stripped.
+  const match = remoteUrl.trim().match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?\/*$/);
+  if (match && match[2] !== '.' && match[2] !== '..') {
     return { owner: match[1], repo: match[2] };
   }
   return null;

@@ -25,6 +25,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 from colrev.constants import Fields
+from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
@@ -262,7 +263,7 @@ class PDFShareHandler(BaseHandler):
         record_dict = records[req.record_id]
         file_value = record_dict.get(Fields.FILE)
         if not file_value:
-            raise ValueError(
+            raise InvalidStateError(
                 f"Record '{req.record_id}' has no file reference — "
                 "use upload_pdf instead"
             )

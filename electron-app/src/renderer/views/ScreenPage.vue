@@ -22,6 +22,8 @@ import { useProjectDataStore } from '@/stores/projectData';
 import { useManagedTaskAccess } from '@/composables/useManagedTaskAccess';
 import { useProjectDataChanged } from '@/composables/useProjectDataChanged';
 import { useReadOnly } from '@/composables/useReadOnly';
+import { isOverlayOpen } from '@/composables/useWalkthroughNavigation';
+import { useSyncSuspense } from '@/composables/useSyncSuspense';
 import { usePendingChangesStore } from '@/stores/pendingChanges';
 import {
   canIncludeDecision,
@@ -74,6 +76,9 @@ const loadError = ref<string | null>(null);
 const currentIndex = ref(0);
 const isDeciding = ref(false);
 const mode = ref<ScreenMode>('screening');
+// The queue and the ticked criteria are local to this page: a clean-tree
+// auto-pull would reset them, so hold it off while the page is open.
+useSyncSuspense('screen-walkthrough');
 const allDecisionsMade = ref(false);
 // One implementation of the reviewer-branch invariant, shared with ScreenPage
 // and the router guard (WP-07 §6).
@@ -193,6 +198,10 @@ async function loadQueue() {
       queue.value = [...history, ...newRecords];
       totalCount.value = response.total_count;
       currentIndex.value = history.length;
+      // A reload that brings records means the screen is not finished (a pull
+      // or PDF import after Edit → Done on a finished screen): leave the
+      // completion mode, which would otherwise hide them.
+      if (mode.value === 'complete' && newRecords.length > 0) mode.value = 'screening';
     }
   } catch (err) {
     if (guard.isCurrent()) {
@@ -312,9 +321,12 @@ async function makeDecision(decision: 'include' | 'exclude') {
       // Queue exhausted — flush the seam immediately so the completion
       // screen renders fresh counts (the debounced write refresh would
       // land a beat too late).
+      // Completion flag first: with the queue emptied and the flag still
+      // false, the page would show "No PDFs ready to screen" for the length
+      // of the refresh.
+      allDecisionsMade.value = true;
       queue.value = [];
       await projectData.refreshNow();
-      allDecisionsMade.value = true;
     }
   } finally {
     isDeciding.value = false;
@@ -464,6 +476,9 @@ async function exitEditMode() {
 
 function toggleCriterion(name: string, value: 'in' | 'out' | 'TODO') {
   if (!currentRecord.value) return;
+  // A decided record's ticks are what was saved; outside edit mode a change
+  // would differ from disk with nothing saving it.
+  if (isCurrentDecided.value && mode.value !== 'edit') return;
   currentRecord.value._criteriaDecisions[name] = value;
 }
 
@@ -490,6 +505,7 @@ const jumpItems = computed(() =>
 function handleKeydown(e: KeyboardEvent) {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
   if (mode.value === 'complete') return;
+  if (e.repeat && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
 
   if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
     if (activeQueue.value.length === 0) return;
@@ -497,6 +513,9 @@ function handleKeydown(e: KeyboardEvent) {
     isJumpOpen.value = !isJumpOpen.value;
     return;
   }
+
+  // Plain arrows only, and not while a dialog or menu has the keyboard.
+  if (e.metaKey || e.altKey || e.ctrlKey || e.shiftKey || isOverlayOpen()) return;
 
   switch (e.key) {
     case 'ArrowUp':
@@ -587,9 +606,12 @@ onMounted(async () => {
     await git.refreshStatus();
     isPageReady.value = true;
   }
-  window.addEventListener('keydown', handleKeydown);
 });
 
+// Registered synchronously (not after the awaits in onMounted): leaving the
+// page while it is still loading would otherwise add the listener after
+// onUnmounted had already run, and nothing would ever remove it.
+window.addEventListener('keydown', handleKeydown);
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown);
 });

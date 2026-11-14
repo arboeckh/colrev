@@ -12,6 +12,15 @@ export interface UseWalkthroughNavigationOptions<T> {
   shouldHandleKey?: () => boolean;
 }
 
+/** True while a modal dialog, alert dialog or menu is open over the page. */
+export function isOverlayOpen(): boolean {
+  return (
+    document.querySelector(
+      '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]',
+    ) !== null
+  );
+}
+
 export function useWalkthroughNavigation<T>(options: UseWalkthroughNavigationOptions<T>) {
   // Every walkthrough holds a position in a list that a pull would reshuffle
   // underneath the user. Suspending here rather than in each page means a new
@@ -57,6 +66,12 @@ export function useWalkthroughNavigation<T>(options: UseWalkthroughNavigationOpt
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    // Holding a key repeats it: that would decide records the user has not read.
+    if (e.repeat) return;
+    // Cmd/Alt/Ctrl/Shift + arrow belongs to the OS or a text-selection gesture.
+    if (e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return;
+    // A dialog or menu over the page owns the keyboard.
+    if (isOverlayOpen()) return;
     if (options.shouldHandleKey && !options.shouldHandleKey()) return;
     if (!currentItem.value) return;
     switch (e.key) {

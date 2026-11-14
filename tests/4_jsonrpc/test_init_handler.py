@@ -21,6 +21,8 @@ from pathlib import Path
 import pytest
 
 import colrev.constants
+from colrev.ui_jsonrpc import validation
+from colrev.ui_jsonrpc.errors import NotFoundError
 from colrev.ui_jsonrpc.handler import JSONRPCHandler
 
 
@@ -80,21 +82,36 @@ class TestInitProject:
         settings = json.loads((initialized_project / "settings.json").read_text())
         assert settings["project"]["title"] == "Review One"
 
-    def test_sanitizes_the_project_id_out_of_a_traversal_attempt(
-        self, handler, projects_root
+    @pytest.mark.parametrize(
+        "bad_id",
+        ["../escaped", "..", ".", ".hidden", "a/b", "a\\b", "/abs", "", "has space"],
+    )
+    def test_rejects_a_project_id_that_could_leave_the_projects_root(
+        self, handler, projects_root, bad_id
     ) -> None:
         response = _request(
             handler,
             "init_project",
-            {"project_id": "../escaped", "base_path": str(projects_root)},
+            {"project_id": bad_id, "base_path": str(projects_root)},
+        )
+
+        assert "error" in response
+        assert response["error"]["code"] == -32602
+        assert list(projects_root.iterdir()) == []
+        assert not (projects_root.parent / "escaped").exists()
+
+    def test_keeps_a_project_id_with_dots_as_it_is(self, handler, projects_root) -> None:
+        # GitHub allows dots in repository names, and a cloned repository's id
+        # is its name: the id must not be rewritten.
+        response = _request(
+            handler,
+            "init_project",
+            {"project_id": "lit-review-v1.2", "base_path": str(projects_root)},
         )
 
         assert "error" not in response, response.get("error")
-        # The id is stripped to safe characters, and the project stays under
-        # the projects root.
-        assert response["result"]["project_id"] == "escaped"
-        assert Path(response["result"]["path"]).parent == projects_root.resolve()
-        assert not (projects_root.parent / "escaped").exists()
+        assert response["result"]["project_id"] == "lit-review-v1.2"
+        assert (projects_root / "lit-review-v1.2" / "settings.json").exists()
 
     def test_reports_failure_for_an_unknown_review_type(
         self, handler, projects_root
@@ -109,6 +126,54 @@ class TestInitProject:
             },
         )
         assert "error" in response
+
+
+class TestProjectIdsWithDots:
+    """A folder named ``review.v2`` (e.g. a cloned repo) is listed *and* opens."""
+
+    @staticmethod
+    def _make_project(root: Path, name: str) -> Path:
+        project = root / name
+        project.mkdir()
+        (project / "settings.json").write_text(
+            json.dumps({"project": {"title": name}})
+        )
+        return project
+
+    def test_a_listed_project_with_a_dot_resolves_to_its_own_directory(
+        self, handler, projects_root, initialized_project
+    ) -> None:
+        # `reviewv2` is what the old id rewriting turned `review.v2` into.
+        dotted = self._make_project(projects_root, "review.v2")
+        self._make_project(projects_root, "reviewv2")
+
+        listed = _request(handler, "list_projects", {"base_path": str(projects_root)})
+        listed_ids = {p["id"] for p in listed["result"]["projects"]}
+        assert {"review.v2", "reviewv2"} <= listed_ids
+
+        resolved = validation.validate_existing_project(
+            {"project_id": "review.v2", "base_path": str(projects_root)}
+        )
+        assert resolved == dotted.resolve()
+
+    def test_project_calls_reject_a_traversal_id(self, handler, projects_root) -> None:
+        response = _request(
+            handler,
+            "get_status",
+            {"project_id": "../projects", "base_path": str(projects_root)},
+        )
+        assert response["error"]["code"] == -32602
+
+    def test_project_calls_do_not_fall_through_to_a_sibling(
+        self, handler, projects_root
+    ) -> None:
+        # Only `reviewv2` exists: asking for `review.v2` is "not found", not a
+        # silent operation on the other project.
+        self._make_project(projects_root, "reviewv2")
+        with pytest.raises(NotFoundError):
+            validation.validate_existing_project(
+                {"project_id": "review.v2", "base_path": str(projects_root)}
+            )
 
 
 class TestListProjects:
@@ -186,6 +251,34 @@ class TestDeleteProject:
 
         assert "error" in response
         assert stray.exists(), "delete_project rmtree'd a non-project directory"
+
+    @pytest.mark.parametrize("bad_id", ["../projects", "..", ".", "a/b", ".hidden", ""])
+    def test_rejects_an_id_that_could_leave_the_projects_root(
+        self, handler, projects_root, initialized_project, bad_id
+    ) -> None:
+        response = _request(
+            handler,
+            "delete_project",
+            {"project_id": bad_id, "base_path": str(projects_root)},
+        )
+
+        assert response["error"]["code"] == -32602
+        assert initialized_project.exists(), "delete_project followed a traversal id"
+        assert projects_root.exists()
+
+    def test_deletes_a_project_whose_name_has_a_dot(self, handler, projects_root) -> None:
+        project = projects_root / "review.v2"
+        project.mkdir()
+        (project / "settings.json").write_text("{}")
+
+        response = _request(
+            handler,
+            "delete_project",
+            {"project_id": "review.v2", "base_path": str(projects_root)},
+        )
+
+        assert response["result"]["project_id"] == "review.v2"
+        assert not project.exists()
 
     def test_reports_a_missing_project(self, handler, projects_root) -> None:
         response = _request(

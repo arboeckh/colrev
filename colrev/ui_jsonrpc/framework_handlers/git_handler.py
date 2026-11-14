@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import datetime
 import logging
+import tempfile
+from pathlib import Path
 from typing import Any
 from typing import Dict
 from typing import List
@@ -22,10 +24,14 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
 from colrev.ui_jsonrpc.framework import rpc_method
+from colrev.ui_jsonrpc.framework.lazy_git import ensure_index_unlocked
+from colrev.ui_jsonrpc.framework.lazy_git import install_lazy_git_repo
+from colrev.ui_jsonrpc.framework.project_files import build_review_manager
 
 logger = logging.getLogger(__name__)
 
@@ -130,9 +136,9 @@ class GitHandler(BaseHandler):
         request=GetGitStatusRequest,
         response=GetGitStatusResponse,
         timeout_class="fast",
+        git_only=True,
     )
     def get_git_status(self, req: GetGitStatusRequest) -> GetGitStatusResponse:
-        assert self.review_manager is not None
         logger.info("Getting git status for project %s", req.project_id)
 
         # Use a fresh ``git.Repo`` instance rather than the cached one on
@@ -140,7 +146,9 @@ class GitHandler(BaseHandler):
         # view of the index in some gitpython versions, so ``index.diff("HEAD")``
         # can report zero staged files immediately after ``add_changes``. A
         # fresh Repo re-reads the index from disk.
-        git_repo = git.Repo(str(self.review_manager.path))
+        git_repo = self._repo()
+        # A status read must not take the index lock or rewrite the index.
+        git_repo.git.update_environment(GIT_OPTIONAL_LOCKS="0")
 
         # Current branch (or short SHA when detached).
         try:
@@ -232,22 +240,23 @@ class GitHandler(BaseHandler):
         request=CommitChangesRequest,
         response=CommitChangesResponse,
         writes=True,
+        git_only=True,
     )
     def commit_changes(self, req: CommitChangesRequest) -> CommitChangesResponse:
-        assert self.review_manager is not None
         logger.info("commit_changes for project %s", req.project_id)
 
-        repo = git.Repo(self.review_manager.path)
+        repo = self._repo()
+        ensure_index_unlocked(self._project_path())
 
         # Stage every working-tree change (including untracked and deleted
         # files) before inspecting the index. Write handlers are expected to
         # stage as they go, but the "Save" button must never be a dead-end
         # when a file was modified outside an RPC write path (e.g. a data
         # extraction output, or a user edit made while the app was closed).
-        try:
-            repo.git.add("-A")
-        except Exception as e:  # noqa: BLE001
-            logger.debug("commit_changes add -A failed: %s", e)
+        # A failed ``add -A`` must fail the call: carrying on would commit
+        # whatever happened to be staged already and report a partial commit
+        # as the whole save.
+        repo.git.add("-A")
 
         # Detect staged changes. For a repo with no HEAD yet, any index entries
         # count as staged.
@@ -268,7 +277,7 @@ class GitHandler(BaseHandler):
                 message="No changes to commit",
             )
 
-        self.review_manager.create_commit(msg=req.message, skip_hooks=True)
+        self._create_commit(repo, req.message)
 
         commit = repo.head.commit
         commit_sha = commit.hexsha
@@ -299,9 +308,9 @@ class GitHandler(BaseHandler):
         request=DiscardChangesRequest,
         response=DiscardChangesResponse,
         writes=True,
+        git_only=True,
     )
     def discard_changes(self, req: DiscardChangesRequest) -> DiscardChangesResponse:
-        assert self.review_manager is not None
         logger.info(
             "discard_changes for project %s (paths=%s, confirm=%s)",
             req.project_id,
@@ -314,25 +323,11 @@ class GitHandler(BaseHandler):
                 "discard_changes without paths requires confirm=True"
             )
 
-        repo = git.Repo(self.review_manager.path)
+        repo = self._repo()
+        ensure_index_unlocked(self._project_path())
 
         if req.paths:
-            # Record what will change before we discard.
-            modified_before = {item.a_path for item in repo.index.diff(None)}
-            try:
-                staged_before = {item.a_path for item in repo.index.diff("HEAD")}
-            except Exception:
-                staged_before = set()
-            targeted = set(req.paths)
-            discarded = sorted(
-                (modified_before | staged_before) & targeted
-            ) or sorted(targeted)
-
-            repo.git.checkout("HEAD", "--", *req.paths)
-            return DiscardChangesResponse(
-                project_id=req.project_id,
-                discarded_files=list(discarded),
-            )
+            return self._discard_paths(repo, req)
 
         # Full reset path — confirm is True here.
         modified_before = [item.a_path for item in repo.index.diff(None)]
@@ -340,9 +335,17 @@ class GitHandler(BaseHandler):
             staged_before = [item.a_path for item in repo.index.diff("HEAD")]
         except Exception:
             staged_before = []
-        discarded = sorted(set(modified_before) | set(staged_before))
+        # Untracked files that are not ignored go too: the confirmation says
+        # "discard all changes", and a leftover untracked file keeps the
+        # repository "not clean" for managed-review readiness.
+        untracked_before = list(repo.untracked_files)
+        discarded = sorted(
+            set(modified_before) | set(staged_before) | set(untracked_before)
+        )
 
         repo.git.reset("--hard", "HEAD")
+        # ``-fd`` without ``-x``: ignored files (caches, .venv, ...) stay.
+        repo.git.clean("-fd")
 
         return DiscardChangesResponse(
             project_id=req.project_id,
@@ -354,6 +357,7 @@ class GitHandler(BaseHandler):
         request=ResetToRemoteRequest,
         response=ResetToRemoteResponse,
         writes=True,
+        git_only=True,
     )
     def reset_to_remote(
         self, req: ResetToRemoteRequest
@@ -371,7 +375,6 @@ class GitHandler(BaseHandler):
         one operation in the app that can do it must stay reversible by
         something other than the reflog — which no user will ever find.
         """
-        assert self.review_manager is not None
         logger.info(
             "reset_to_remote for project %s (confirm=%s)",
             req.project_id,
@@ -381,10 +384,11 @@ class GitHandler(BaseHandler):
         if not req.confirm:
             raise ValueError("reset_to_remote requires confirm=True")
 
-        repo = git.Repo(self.review_manager.path)
+        repo = self._repo()
+        ensure_index_unlocked(self._project_path())
 
         if not repo.remotes:
-            raise ValueError(
+            raise InvalidStateError(
                 "No remote configured. Reset to remote requires an 'origin' "
                 "remote; push the project to a remote first."
             )
@@ -392,13 +396,13 @@ class GitHandler(BaseHandler):
         try:
             current_branch = repo.active_branch.name
         except TypeError:
-            raise ValueError(
+            raise InvalidStateError(
                 "Cannot reset: HEAD is detached, not on a branch."
             )
 
         tracking = repo.active_branch.tracking_branch()
         if tracking is None:
-            raise ValueError(
+            raise InvalidStateError(
                 f"Branch '{current_branch}' has no upstream. Push the branch "
                 "to the remote first so it has a tracking branch to reset to."
             )
@@ -492,6 +496,98 @@ class GitHandler(BaseHandler):
     # Internals
     # ------------------------------------------------------------------
 
+    def _project_path(self) -> Path:
+        assert self.ctx.project_path is not None
+        return Path(self.ctx.project_path)
+
+    def _repo(self) -> git.Repo:
+        """A fresh ``git.Repo`` on the project (these methods are git-only)."""
+        return git.Repo(str(self._project_path()))
+
+    def _discard_paths(
+        self, repo: git.Repo, req: DiscardChangesRequest
+    ) -> DiscardChangesResponse:
+        """Revert only ``req.paths``: tracked files to HEAD, new files removed."""
+        assert req.paths
+        modified_before = {item.a_path for item in repo.index.diff(None)}
+        try:
+            staged_before = {item.a_path for item in repo.index.diff("HEAD")}
+        except Exception:
+            staged_before = set()
+        untracked_before = set(repo.untracked_files)
+        targeted = set(req.paths)
+
+        # Files git does not know in HEAD (newly added, staged or not) have
+        # nothing to check out: ``checkout HEAD -- <path>`` fails on them.
+        in_head: set[str] = set()
+        try:
+            in_head = set(
+                repo.git.ls_tree("-r", "--name-only", "HEAD", "--", *req.paths)
+                .splitlines()
+            )
+        except git.GitCommandError:
+            in_head = set()
+
+        tracked_paths = [p for p in req.paths if self._covers(p, in_head)]
+        new_paths = [p for p in req.paths if p not in tracked_paths]
+
+        if tracked_paths:
+            repo.git.checkout("HEAD", "--", *tracked_paths)
+        if new_paths:
+            # Unstage newly added files (no-op for untracked ones), then
+            # delete them: discarding an addition means the file goes.
+            repo.git.rm("-r", "-f", "--cached", "--ignore-unmatch", "--", *new_paths)
+            repo.git.clean("-fd", "--", *new_paths)
+
+        discarded = sorted(
+            (modified_before | staged_before | untracked_before) & targeted
+        ) or sorted(targeted)
+        return DiscardChangesResponse(
+            project_id=req.project_id,
+            discarded_files=list(discarded),
+        )
+
+    @staticmethod
+    def _covers(path: str, in_head: set[str]) -> bool:
+        """Whether ``path`` (a file or a directory) has tracked content in HEAD."""
+        prefix = path.rstrip("/") + "/"
+        return path in in_head or any(f.startswith(prefix) for f in in_head)
+
+    def _create_commit(self, repo: git.Repo, message: str) -> None:
+        """Commit the staged changes.
+
+        With a loadable project this is the engine's commit (message plus the
+        commit report). When the project cannot be loaded (conflict markers in
+        ``settings.json``, a truncated history file) the commit is the plain
+        git one: saving must stay possible exactly then, e.g. to conclude a
+        merge. A merge in progress keeps both parents either way.
+        """
+        review_manager = None
+        try:
+            review_manager = build_review_manager(self._project_path())
+            install_lazy_git_repo(review_manager, self._project_path())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "commit_changes: project not loadable (%s); plain git commit", exc
+            )
+        if review_manager is not None:
+            review_manager.create_commit(msg=message, skip_hooks=True)
+            return
+        # No hooks at all (``--no-verify`` leaves prepare-commit-msg running,
+        # and the project's hooks load the project, which is what is broken).
+        with tempfile.TemporaryDirectory() as no_hooks:
+            repo.git.execute(
+                [
+                    "git",
+                    "-c",
+                    f"core.hooksPath={no_hooks}",
+                    "commit",
+                    "-m",
+                    message,
+                    "--no-verify",
+                ]
+            )
+
     def _get_last_commit_info(self, git_repo: Any) -> Optional[LastCommitInfo]:
         try:
             commit = git_repo.head.commit
@@ -521,10 +617,13 @@ class GitHandler(BaseHandler):
             path = item.a_path or item.b_path or ""
             if not path.startswith("data/"):
                 continue
+            # ``index.diff("HEAD")`` diffs the index against HEAD, i.e. the
+            # reverse of the change being staged: a file added to the index
+            # shows as "D" and a staged deletion as "A".
             change_type_map: Dict[str, str] = {
-                "A": "added",
+                "A": "removed",
                 "M": "modified",
-                "D": "removed",
+                "D": "added",
                 "R": "modified",
                 "T": "modified",
             }

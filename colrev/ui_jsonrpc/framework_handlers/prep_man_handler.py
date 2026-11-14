@@ -15,6 +15,7 @@ import colrev.record.record_prep
 from colrev.constants import Fields
 from colrev.constants import OperationsType
 from colrev.constants import RecordState
+from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import ProjectResponse
 from colrev.ui_jsonrpc.framework import ProjectScopedRequest
@@ -89,7 +90,7 @@ class PrepManHandler(BaseHandler):
             record_dict.get(Fields.STATUS)
             != RecordState.md_needs_manual_preparation
         ):
-            raise ValueError(
+            raise InvalidStateError(
                 f"Record '{req.record_id}' is not in md_needs_manual_preparation state "
                 f"(current: {record_dict.get(Fields.STATUS)})"
             )
