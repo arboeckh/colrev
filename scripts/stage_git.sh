@@ -45,10 +45,12 @@ CHECKSUM="$(read_entry checksum)"
 ARCHIVE_NAME="${URL##*/}"
 
 sha256_of() {
+    # Hash stdin: given a path with backslashes (Windows), GNU sha256sum
+    # prefixes its output line with "\".
     if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$1" | cut -d' ' -f1
+        sha256sum < "$1" | cut -d' ' -f1
     else
-        shasum -a 256 "$1" | cut -d' ' -f1
+        shasum -a 256 < "$1" | cut -d' ' -f1
     fi
 }
 

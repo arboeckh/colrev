@@ -17,7 +17,8 @@
  *     imported colrev with no conda env on the host to fall back on.
  *  5. Creating a review through the UI works end-to-end: the init_project
  *     RPC (bundled colrev), git init + commits (bundled dugite git), and the
- *     push to the fake GitHub bare remote.
+ *     push to the fake GitHub bare remote. With no ~/.gitconfig, as on a
+ *     fresh PC: commits are authored as the signed-in GitHub account.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -45,6 +46,9 @@ const test = baseTest.extend({
       releases: [],
     });
     seedAuth(ws.userDataDir, 'alice', 'tok-alice');
+    // Like a fresh PC: no ~/.gitconfig. The git identity must come from the
+    // signed-in GitHub account (git-identity.ts), not from the test setup.
+    fs.rmSync(path.join(ws.userDataDir, '.gitconfig'), { force: true });
 
     await use(ws);
   },
@@ -86,6 +90,7 @@ test.describe(`smoke (${MODE})`, () => {
         const pinia = window.__pinia__;
         return pinia?._s.get('backend')?.status === 'running';
       },
+      undefined,
       { timeout: BACKEND_TIMEOUT },
     );
 
@@ -100,6 +105,7 @@ test.describe(`smoke (${MODE})`, () => {
     // Creation ends by navigating into the new project.
     await window.waitForFunction(
       () => location.hash.includes('/project/smoke-review'),
+      undefined,
       { timeout: 120_000 },
     );
 
@@ -116,6 +122,12 @@ test.describe(`smoke (${MODE})`, () => {
       cwd: projectPath, encoding: 'utf-8',
     });
     expect(log.trim().length).toBeGreaterThan(0);
+
+    // Committed as the signed-in GitHub account (the fake GitHub's profile).
+    const author = execFileSync('git', ['log', '-1', '--format=%an <%ae>'], {
+      cwd: projectPath, encoding: 'utf-8',
+    }).trim();
+    expect(author).toBe('Alice Smith <alice@test.local>');
 
     // The app pushed to the fake GitHub bare remote and switched to dev.
     const barePath = workspace.bareRemotePath('alice', 'smoke-review');

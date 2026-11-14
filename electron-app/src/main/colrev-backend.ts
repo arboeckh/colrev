@@ -223,6 +223,8 @@ export class ColrevBackend extends EventEmitter {
       this.process = spawn(this.executablePath, this.args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: processEnv,
+        // Windows: python.exe is a console program; don't open a console window.
+        windowsHide: true,
       });
 
       // Handle spawn error (e.g. executable missing)

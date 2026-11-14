@@ -33,8 +33,12 @@ describe('resolveBackendLaunch', () => {
 
   it('uses the Windows bundle layout when packaged for win32', () => {
     const spec = resolveBackendLaunch(input({ isPackaged: true, platform: 'win32' }));
-    const binDir = path.join('/app/Resources', 'python-win-x64', 'Scripts');
-    expect(spec.command).toBe(path.join(binDir, 'colrev-jsonrpc.cmd'));
+    const bundleRoot = path.join('/app/Resources', 'python-win-x64');
+    // The bundled interpreter itself, never the .cmd shim: Node can't spawn
+    // .cmd files without a shell.
+    expect(spec.command).toBe(path.join(bundleRoot, 'python.exe'));
+    expect(spec.args).toEqual(['-m', 'colrev.ui_jsonrpc.server']);
+    expect(spec.env.PATH.split(path.delimiter)[0]).toBe(path.join(bundleRoot, 'Scripts'));
   });
 
   it('leaves PATH untouched in dev — there is no bundle to prepend', () => {
@@ -56,5 +60,14 @@ describe('resolveBackendLaunch', () => {
       resolveBackendLaunch(input({ env: { COLREV_FAKE_GITHUB_REGISTRY: '/ws/registry.json' } }))
         .env.HOME,
     ).toBe('/userData');
+  });
+
+  it('also redirects USERPROFILE on Windows, which Python uses for ~ there', () => {
+    const fake = { COLREV_FAKE_GITHUB_REGISTRY: '/ws/registry.json' };
+    expect(resolveBackendLaunch(input({ platform: 'win32' })).env.USERPROFILE).toBeUndefined();
+    expect(
+      resolveBackendLaunch(input({ platform: 'win32', env: fake })).env.USERPROFILE,
+    ).toBe('/userData');
+    expect(resolveBackendLaunch(input({ env: fake })).env.USERPROFILE).toBeUndefined();
   });
 });

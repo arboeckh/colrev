@@ -181,7 +181,7 @@ case "$PLATFORM" in
         ;;
     win)
         BUNDLE_PLATFORM="win-x64"
-        PYTHON_OUT="$REPO_ROOT/electron-app/resources/python-win-x64/Scripts/colrev-jsonrpc.cmd"
+        PYTHON_OUT="$REPO_ROOT/electron-app/resources/python-win-x64/Scripts/colrev-jsonrpc.exe"
         PACKAGE_OUT="$REPO_ROOT/electron-app/release/win-unpacked"
         ;;
     linux)

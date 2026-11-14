@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, protocol, net, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { pathToFileURL } from 'url';
 import {
   ColrevBackend,
   RpcError,
@@ -8,6 +9,7 @@ import {
   serializeRpcError,
 } from './colrev-backend';
 import { setupGitEnvironment } from './git-env';
+import { writeGitIdentity } from './git-identity';
 import { AuthManager } from './auth-manager';
 import { AccountScopedProjectPaths } from './account-scoped-project-paths';
 
@@ -249,6 +251,11 @@ function appInfo() {
 // --- Registration ----------------------------------------------------------
 
 function setupIPC() {
+  // Commits are made as the signed-in GitHub account (see git-identity.ts).
+  const userDataDir = app.getPath('userData');
+  writeGitIdentity(userDataDir, authManager.getCachedSession()?.user ?? null);
+  authManager.setActiveUserCallback((user) => writeGitIdentity(userDataDir, user));
+
   let activeLogin = authManager.getCachedSession()?.user.login ?? null;
   authManager.setAuthUpdateCallback((session) => {
     const login = session?.user.login ?? null;
@@ -341,7 +348,9 @@ app.whenReady().then(() => {
       return new Response('PDF not found', { status: 404 });
     }
 
-    return net.fetch(`file://${filePath}`);
+    // pathToFileURL, not `file://${filePath}`: on Windows that would be
+    // file://D:\…, which is not a valid file URL.
+    return net.fetch(pathToFileURL(filePath).toString());
   });
 
   setupIPC();

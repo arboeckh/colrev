@@ -39,8 +39,9 @@ export function parseFakeRemote(remoteUrl: string): { owner: string; repo: strin
   const real = parseOwnerRepo(remoteUrl);
   if (real) return real;
 
-  if (remoteUrl.startsWith('/')) {
-    const match = remoteUrl.match(/\/([^/]+)\/([^/]+?)\.git$/);
+  // POSIX (/tmp/…) or Windows (D:\tmp\… or D:/tmp/…) absolute path.
+  if (/^(?:[A-Za-z]:)?[\\/]/.test(remoteUrl)) {
+    const match = remoteUrl.match(/[\\/]([^\\/]+)[\\/]([^\\/]+?)\.git$/);
     if (match) return { owner: match[1], repo: match[2] };
   }
   return null;

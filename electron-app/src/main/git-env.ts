@@ -1,5 +1,6 @@
 import * as path from 'path';
 import { app } from 'electron';
+import { gitConfigHome } from './git-identity';
 
 /**
  * Setup Git environment using dugite's bundled Git.
@@ -57,9 +58,15 @@ export function setupGitEnvironment(): Record<string, string> {
   // process (github-manager, git-manager).
   process.env.LOCAL_GIT_DIRECTORY = dugiteGitPath;
 
+  // The app-owned git identity (see git-identity.ts). On process.env too, so
+  // dugite calls from the main process (merges, pulls) see it.
+  const xdgConfigHome = gitConfigHome(app.getPath('userData'));
+  process.env.XDG_CONFIG_HOME = xdgConfigHome;
+
   return {
     PATH: newPath,
     GIT_EXEC_PATH: gitExecPath,
+    XDG_CONFIG_HOME: xdgConfigHome,
     // Disable Git's pager for subprocess use
     GIT_PAGER: '',
     // Ensure Git doesn't prompt for credentials interactively

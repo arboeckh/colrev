@@ -253,28 +253,6 @@ EOF
     chmod +x "$out"
 }
 
-# Generate a Windows .cmd shim from a console_scripts entry.
-#
-# The Windows shim invokes `python.exe -c "..."`, which means the parent
-# process has no `__main__.__file__` for multiprocessing.spawn to point a
-# worker at — the spawn child runs `python.exe -c "spawn_main(...)"` and
-# never re-executes this -c snippet. So unlike the mac shim, no
-# __name__-guard is needed here.
-write_win_shim() {
-    local bundle="$1"
-    local name="$2"
-    local target="$3"
-    local module="${target%%:*}"
-    local func="${target##*:}"
-    local scripts_dir="${bundle}/Scripts"
-    mkdir -p "$scripts_dir"
-    local out="${scripts_dir}/${name}.cmd"
-    cat >"$out" <<EOF
-@echo off
-"%~dp0..\\python.exe" -c "import sys; from ${module} import ${func}; sys.exit(${func}())" %*
-EOF
-}
-
 # Walk every dist-info/entry_points.txt and emit shims for [console_scripts].
 generate_shims() {
     local bundle="$1"
@@ -310,13 +288,15 @@ for ep_file in site.glob("*.dist-info/entry_points.txt"):
         print(f"{name}\t{target}")
 PY
 
+    if [[ "$platform" != "mac-arm64" ]]; then
+        # .exe launchers, not .cmd: see scripts/write_win_launchers.py.
+        "$HOST_PYTHON" "$REPO_ROOT/scripts/write_win_launchers.py" \
+            "${bundle}/Scripts" "${CACHE_DIR}/entry_points.txt"
+        return
+    fi
     while IFS=$'\t' read -r name target; do
         [[ -n "$name" ]] || continue
-        if [[ "$platform" == "mac-arm64" ]]; then
-            write_mac_shim "$bundle" "$name" "$target"
-        else
-            write_win_shim "$bundle" "$name" "$target"
-        fi
+        write_mac_shim "$bundle" "$name" "$target"
     done <"${CACHE_DIR}/entry_points.txt"
 }
 
