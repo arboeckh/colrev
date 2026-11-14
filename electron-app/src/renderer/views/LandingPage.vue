@@ -155,6 +155,13 @@ async function discoverProjects() {
   }
 }
 
+// Enter in the name field must not get around what the Create button's
+// disabled state says: no creating while offline or while one is in progress.
+function onNameEnter() {
+  if (isCreatingProject.value || !connection.isOnline) return;
+  void createProject();
+}
+
 async function createProject() {
   if (!generatedSlug.value) {
     notifications.error('Review name required', 'Please enter a review name');
@@ -330,7 +337,7 @@ loadInvitations();
                       placeholder="My Literature Review"
                       data-testid="project-id-input"
                       :disabled="isCreatingProject"
-                      @keyup.enter="createProject"
+                      @keyup.enter="onNameEnter"
                     />
                     <!-- Name what actually gets created. The dialog makes a
                          repository on the user's GitHub account and previously

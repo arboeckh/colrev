@@ -196,6 +196,61 @@ class TestPrepManUpdateRecordEndpoint:
         assert result["details"]["new_status"] == "md_needs_manual_preparation"
         assert "remaining_defects" in result["details"]
 
+    @pytest.mark.parametrize("cleared", [None, "", "   "])
+    def test_update_clears_field_instead_of_storing_empty_string(self, cleared):
+        """A cleared field is removed from the record, not stored as ''."""
+        original_cwd = os.getcwd()
+        project_path = self.base_path / self.project_id
+        os.chdir(project_path)
+        try:
+            rm = colrev.review_manager.ReviewManager(
+                path_str=str(project_path),
+                force_mode=True,
+            )
+            rm.get_status_operation()
+            records_dict = rm.dataset.load_records_dict()
+            records_dict[self.attention_record_id][Fields.BOOKTITLE] = "Some Book"
+            rm.dataset.save_records_dict(records_dict)
+            rm.create_commit(msg="Add booktitle to article")
+        finally:
+            os.chdir(original_cwd)
+
+        request = {
+            "jsonrpc": "2.0",
+            "method": "prep_man_update_record",
+            "params": {
+                "project_id": self.project_id,
+                "base_path": str(self.base_path),
+                "record_id": self.attention_record_id,
+                "fields": {"title": "Fixed Title", Fields.BOOKTITLE: cleared},
+            },
+            "id": 1,
+        }
+
+        response = self.handler.handle_request(request)
+
+        assert "error" not in response, f"Unexpected error: {response.get('error')}"
+        record = response["result"]["details"]["record"]
+        assert record["title"] == "Fixed Title"
+        assert Fields.BOOKTITLE not in record
+
+    def test_update_cannot_clear_entrytype(self):
+        request = {
+            "jsonrpc": "2.0",
+            "method": "prep_man_update_record",
+            "params": {
+                "project_id": self.project_id,
+                "base_path": str(self.base_path),
+                "record_id": self.attention_record_id,
+                "fields": {Fields.ENTRYTYPE: ""},
+            },
+            "id": 1,
+        }
+
+        response = self.handler.handle_request(request)
+        assert "error" in response
+        assert "entrytype" in response["error"]["message"].lower()
+
     def test_update_wrong_status_returns_error(self):
         """Test that updating a record not in md_needs_manual_preparation returns error."""
         request = {
