@@ -33,6 +33,10 @@ export const RPC_ERROR_CODES = {
   NOT_FOUND: -32007,
   /** A decision on a record an active managed review task covers, made without the task's id. */
   MANAGED_TASK_ACTIVE: -32008,
+  /** The request is fine but the project/record is in the wrong state for it (message says how). */
+  INVALID_STATE: -32009,
+  /** A project file (settings.json, a search history JSON) cannot be read; the message names it. */
+  PROJECT_FILE_UNREADABLE: -32010,
   // Transport codes (Electron bridge — the server never answered)
   TRANSPORT_CRASHED: -33000,
   TRANSPORT_TIMEOUT: -33001,
@@ -89,6 +93,8 @@ export function rpcErrorUserMessage(err: unknown): string {
   switch (err.code) {
     case RPC_ERROR_CODES.PRECONDITION_FAILED:
       return 'The project has uncommitted changes — commit or discard them first.';
+    case RPC_ERROR_CODES.PROJECT_FILE_UNREADABLE:
+      return `${err.message}. Fix or restore the file, or reset the project to the remote.`;
     case RPC_ERROR_CODES.RESOURCE_LOCKED:
       return 'The repository is locked by another process. Try again in a moment.';
     case RPC_ERROR_CODES.TRANSPORT_CRASHED:

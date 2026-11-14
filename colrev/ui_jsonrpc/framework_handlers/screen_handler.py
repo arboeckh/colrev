@@ -19,6 +19,7 @@ import colrev.record.record
 from colrev.constants import Fields
 from colrev.constants import OperationsType
 from colrev.constants import RecordState
+from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import ProjectResponse
@@ -173,6 +174,9 @@ class ScreenHandler(BaseHandler):
         assert self.review_manager is not None
         logger.info("Running screen operation for project %s", req.project_id)
         screen_operation = self.op(OperationsType.screen, notify=True)
+        managed_review_utils.require_no_covered_record_to_decide(
+            review_manager=self.review_manager, stage="screen"
+        )
         screen_operation.main(split_str=req.split_str)
         return ScreenBatchResponse(
             project_id=req.project_id,
@@ -312,7 +316,7 @@ class ScreenHandler(BaseHandler):
             RecordState.rev_excluded,
         }
         if not already_decided and current_status not in valid_source_states:
-            raise ValueError(
+            raise InvalidStateError(
                 f"Record '{req.record_id}' is not ready for screening "
                 f"(current status: {current_status})"
             )
@@ -460,6 +464,9 @@ class ScreenHandler(BaseHandler):
         assert self.review_manager is not None
         logger.info("Including all records in screen for project %s", req.project_id)
         screen_operation = self.op(OperationsType.screen, notify=False)
+        managed_review_utils.require_no_covered_record_to_decide(
+            review_manager=self.review_manager, stage="screen"
+        )
         screen_operation.include_all_in_screen(persist=False)
         return IncludeAllScreenResponse(
             project_id=req.project_id,

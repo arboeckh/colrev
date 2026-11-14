@@ -22,6 +22,7 @@ from pydantic import ConfigDict
 from colrev.constants import Fields
 from colrev.constants import OperationsType
 from colrev.constants import RecordState
+from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import ProjectResponse
@@ -276,7 +277,7 @@ class DataHandler(BaseHandler):
 
         ep_settings = self._find_structured_endpoint()
         if ep_settings is None:
-            raise ValueError("colrev.structured endpoint is not configured")
+            raise InvalidStateError("colrev.structured endpoint is not configured")
 
         data_path = self._get_structured_data_path(ep_settings)
         field_dicts = self._normalize_fields(ep_settings.get("fields", []))
@@ -327,11 +328,11 @@ class DataHandler(BaseHandler):
 
         ep_settings = self._find_structured_endpoint()
         if ep_settings is None:
-            raise ValueError("colrev.structured endpoint is not configured")
+            raise InvalidStateError("colrev.structured endpoint is not configured")
 
         data_path = self._get_structured_data_path(ep_settings)
         if not data_path.is_file():
-            raise ValueError("No data CSV file found")
+            raise InvalidStateError("No data CSV file found")
 
         csv_content = data_path.read_text(encoding="utf-8")
         return ExportDataCsvResponse(

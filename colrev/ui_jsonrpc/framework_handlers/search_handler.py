@@ -28,6 +28,7 @@ from colrev.constants import OperationsType
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import ProgressEventKind
+from colrev.ui_jsonrpc.framework.project_files import write_json_atomic
 from colrev.ui_jsonrpc.framework.search_staleness import preserve_last_run_snapshot
 from colrev.ui_jsonrpc.framework.search_staleness import restore_last_run_snapshot
 from colrev.ui_jsonrpc.framework.search_staleness import run_config_snapshot
@@ -1002,8 +1003,9 @@ class SearchHandler(BaseHandler):
         source.last_run = last_run
 
         history_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(history_path, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(history_data, f, indent=4, ensure_ascii=False)
+        # Atomic: a kill mid-write must not leave a truncated history file,
+        # which would make the whole project unloadable.
+        write_json_atomic(history_path, history_data, indent=4, ensure_ascii=False)
 
         self.review_manager.dataset.git_repo.add_changes(history_path)
 

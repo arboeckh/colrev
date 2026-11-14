@@ -8,7 +8,9 @@ method flows through one code path:
 3. If ``spec.requires_project``: construct a ``ReviewManager`` rooted at the
    resolved project path, apply ``spec.precondition`` (the engine's operation
    preconditions apply unchanged unless the method is a per-record
-   manual-decision endpoint), inject LazyWriteGitRepo.
+   manual-decision endpoint), inject LazyWriteGitRepo. ``spec.git_only``
+   methods get no ReviewManager: they must work on a project whose settings or
+   search-history files are broken.
 4. Instantiate ``spec.handler_cls`` with a HandlerContext.
 5. Call the handler, serialize the response via ``model_dump``.
 """
@@ -22,13 +24,13 @@ from pathlib import Path
 from typing import Any
 from typing import Callable
 from typing import Dict
+from typing import List
 from typing import TypeVar
 
 from git import GitCommandError
 from pydantic import ValidationError
 
 import colrev.exceptions as colrev_exceptions
-import colrev.review_manager
 from colrev.ui_jsonrpc import transport
 from colrev.ui_jsonrpc import validation
 from colrev.ui_jsonrpc.framework import portability
@@ -36,6 +38,7 @@ from colrev.ui_jsonrpc.framework.context import HandlerContext
 from colrev.ui_jsonrpc.framework.lazy_git import IndexLockedError
 from colrev.ui_jsonrpc.framework.lazy_git import LazyWriteGitRepo
 from colrev.ui_jsonrpc.framework.lazy_git import install_lazy_git_repo
+from colrev.ui_jsonrpc.framework.project_files import build_review_manager
 from colrev.ui_jsonrpc.framework.registry import MethodSpec
 from colrev.ui_jsonrpc.framework.registry import registry
 
@@ -94,6 +97,26 @@ def _retry_on_lock(method_name: str, fn: Callable[[], _T]) -> _T:
     raise IndexLockedError() from last_exc
 
 
+def _as_lock_error(exc: BaseException) -> BaseException:
+    """The exception to raise for a failure that ran inside a handler body.
+
+    A handler that already ran is not re-run, so a lock failure inside it is
+    reported as -32006 right away (the user can retry the action) instead of
+    being retried here.
+    """
+    if isinstance(exc, IndexLockedError):
+        return exc
+    if isinstance(
+        exc, (GitCommandError, colrev_exceptions.GitNotAvailableError, OSError)
+    ) and _is_lock_error(exc):
+        if isinstance(exc, colrev_exceptions.GitNotAvailableError):
+            return exc
+        locked = IndexLockedError()
+        locked.__cause__ = exc
+        return locked
+    return exc
+
+
 class Dispatcher:
     """Single entry point for registered RPC methods."""
 
@@ -113,9 +136,7 @@ class Dispatcher:
             raise ValueError(f"Invalid params for {method!r}: {exc}") from exc
 
         if spec.requires_project:
-            return _retry_on_lock(
-                method, lambda: self._dispatch_project_scoped(spec, request_obj)
-            )
+            return self._dispatch_project_scoped(spec, request_obj)
         return _retry_on_lock(
             method, lambda: self._dispatch_no_project(spec, request_obj)
         )
@@ -154,24 +175,23 @@ class Dispatcher:
         with transport.stdout_to_devnull():
             return self._run_project_scoped(spec, request_obj, project_path)
 
-    def _run_project_scoped(
+    def _build_context(
         self,
         spec: MethodSpec,
         request_obj,
         project_path,
-    ) -> Dict[str, Any]:
-        original_cwd = os.getcwd()
-        ctx: HandlerContext | None = None
+        built: List[HandlerContext],
+    ) -> HandlerContext:
+        """Construct the ReviewManager (unless git-only) and the handler context.
+
+        Every context built is appended to ``built`` so that the request's
+        cleanup (:meth:`_release`) reaches all of them, retried ones too.
+        """
         review_manager = None
-        try:
-            os.chdir(project_path)
-            # A source saved on Windows names its files with backslashes, which
-            # makes the project unusable here: heal before colrev reads them.
-            portability.heal_search_history(Path(project_path))
-            review_manager = colrev.review_manager.ReviewManager(
-                path_str=str(project_path),
+        if not spec.git_only:
+            review_manager = build_review_manager(
+                project_path,
                 verbose_mode=getattr(request_obj, "verbose", False),
-                high_level_operation=True,
             )
             if spec.precondition == "manual_decision":
                 # Narrow engine relaxation (see colrev/PATCHES.md): per-record
@@ -181,25 +201,81 @@ class Dispatcher:
             install_lazy_git_repo(review_manager, Path(project_path))
             _keep_history_portable(review_manager, Path(project_path))
 
-            ctx = HandlerContext(
-                method_name=spec.name,
-                project_id=getattr(request_obj, "project_id", None),
-                project_path=project_path,
-                review_manager=review_manager,
-            )
+        ctx = HandlerContext(
+            method_name=spec.name,
+            project_id=getattr(request_obj, "project_id", None),
+            project_path=Path(project_path),
+            review_manager=review_manager,
+        )
+        built.append(ctx)
+        return ctx
+
+    def _call_handler(
+        self, spec: MethodSpec, request_obj, ctx: HandlerContext
+    ) -> Dict[str, Any]:
+        """Run the handler once. On failure, drop the project's records cache.
+
+        A handler that fails part-way through a save can leave the process-wide
+        records cache ahead of ``records.bib`` (see colrev/PATCHES.md), so
+        later reads would serve a change that was never written.
+        """
+        try:
             handler = spec.handler_cls(ctx)
             response_obj = spec.handler(handler, request_obj)
-
             return _serialize(spec, response_obj)
+        except BaseException:
+            if ctx.review_manager is not None:
+                try:
+                    ctx.review_manager.dataset.invalidate_records_cache()
+                except Exception:  # noqa: BLE001
+                    logger.debug("Could not invalidate records cache", exc_info=True)
+            raise
 
+    def _run_project_scoped(
+        self,
+        spec: MethodSpec,
+        request_obj,
+        project_path,
+    ) -> Dict[str, Any]:
+        original_cwd = os.getcwd()
+        built: List[HandlerContext] = []
+        try:
+            os.chdir(project_path)
+            if spec.writes:
+                # Building the context runs no handler code, so it is safe to
+                # retry on lock contention. The handler body is not: it may
+                # already have hit the network or saved records, and running
+                # it again would repeat that. A lock failure inside it is
+                # reported (-32006) and the user retries the action.
+                ctx = _retry_on_lock(
+                    spec.name,
+                    lambda: self._build_context(
+                        spec, request_obj, project_path, built
+                    ),
+                )
+                try:
+                    return self._call_handler(spec, request_obj, ctx)
+                except Exception as exc:
+                    mapped = _as_lock_error(exc)
+                    if mapped is exc:
+                        raise
+                    raise mapped from exc
+            # Read-only methods are idempotent: retry the whole call.
+            return _retry_on_lock(
+                spec.name,
+                lambda: self._call_handler(
+                    spec,
+                    request_obj,
+                    self._build_context(spec, request_obj, project_path, built),
+                ),
+            )
         finally:
             os.chdir(original_cwd)
-            self._release(ctx, review_manager, Path(project_path), spec.writes)
+            self._release(built, Path(project_path), spec.writes)
 
     @staticmethod
     def _release(
-        ctx: HandlerContext | None,
-        review_manager: Any,
+        built: List[HandlerContext],
         project_path: Path,
         writes: bool,
     ) -> None:
@@ -210,15 +286,16 @@ class Dispatcher:
         except OSError:
             logger.exception("Could not normalise line endings in %s", project_path)
         finally:
-            if ctx is not None:
+            for ctx in built:
                 ctx.close_repos()
-            lazy = (
-                review_manager.dataset.__dict__.get("git_repo")
-                if review_manager is not None
-                else None
-            )
-            if isinstance(lazy, LazyWriteGitRepo):
-                lazy.close()
+                review_manager = ctx.review_manager
+                lazy = (
+                    review_manager.dataset.__dict__.get("git_repo")
+                    if review_manager is not None
+                    else None
+                )
+                if isinstance(lazy, LazyWriteGitRepo):
+                    lazy.close()
             portability.close_log_handlers(project_path)
 
 

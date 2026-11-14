@@ -32,6 +32,7 @@ import colrev.loader.load_utils
 import colrev.ops.merge
 import colrev.settings
 from colrev.constants import Fields
+from colrev.ui_jsonrpc.errors import InvalidStateError
 from colrev.ui_jsonrpc.framework import BaseHandler
 from colrev.ui_jsonrpc.framework import portability
 from colrev.ui_jsonrpc.framework import ProjectResponse
@@ -276,7 +277,7 @@ class MergeHandler(BaseHandler):
         repo = self.ctx.open_repo(self.review_manager.path)
         active = repo.active_branch.name
         if active != ours:
-            raise ValueError(
+            raise InvalidStateError(
                 f"Expected to be on branch {ours!r} but the project is on "
                 f"{active!r}. Refresh and retry."
             )
@@ -445,14 +446,14 @@ class MergeHandler(BaseHandler):
         assert self.review_manager is not None
         parsed, reason = _parse_settings_stages(settings_stages)
         if parsed is None:
-            raise ValueError(f"Merge blocked: {reason}")
+            raise InvalidStateError(f"Merge blocked: {reason}")
         merged, conflicts = merge_settings(*parsed, decisions=decisions)
         if conflicts:
             missing = ", ".join(c["path"] for c in conflicts)
             raise ValueError(f"Missing merge resolution for setting(s): {missing}")
         error = validate_merged_settings(merged)
         if error:
-            raise ValueError(
+            raise InvalidStateError(
                 f"Merge aborted: the merged settings.json would not load: {error}"
             )
 

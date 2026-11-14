@@ -59,6 +59,7 @@ class BaseHandler:
                 writes=draft.writes,
                 timeout_class=draft.timeout_class,
                 precondition=draft.precondition,
+                git_only=draft.git_only,
             )
             registry.register(spec)
 

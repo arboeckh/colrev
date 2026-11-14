@@ -47,6 +47,108 @@ describe('start / stop lifecycle', () => {
   });
 });
 
+describe('starting again (Retry)', () => {
+  it('can start after a failed start, and leaves one set of listeners', async () => {
+    const backend = useBackendStore();
+    ctx.mock.colrev.start = vi.fn(async () => ({ success: false, error: 'python missing' }));
+    await backend.start();
+    expect(backend.status).toBe('error');
+
+    ctx.mock.colrev.start = vi.fn(async () => ({ success: true }));
+    await expect(backend.start()).resolves.toBe(true);
+    expect(backend.isRunning).toBe(true);
+
+    backend.clearLogs();
+    ctx.mock.emitLog('hello');
+    expect(backend.logs.filter((l) => l.includes('[backend] hello'))).toHaveLength(1);
+
+    // Progress and queue events are handled once too.
+    const seen: unknown[] = [];
+    backend.onSearchProgress((p) => void seen.push(p));
+    ctx.mock.emitProgress({ kind: 'search_progress', message: 'x', current: 1, total: 2 });
+    expect(seen).toHaveLength(1);
+  });
+
+  it('unsubscribes the previous listeners before subscribing again', async () => {
+    const backend = useBackendStore();
+    const unsubscribes: ReturnType<typeof vi.fn>[] = [];
+    ctx.mock.colrev.onLog = vi.fn(() => {
+      const off = vi.fn();
+      unsubscribes.push(off);
+      return off;
+    });
+    ctx.mock.colrev.start = vi.fn(async () => ({ success: false, error: 'nope' }));
+
+    await backend.start();
+    await backend.start();
+
+    expect(unsubscribes).toHaveLength(2);
+    expect(unsubscribes[0]).toHaveBeenCalledTimes(1);
+    expect(unsubscribes[1]).not.toHaveBeenCalled();
+  });
+});
+
+describe('restart action', () => {
+  beforeEach(async () => {
+    await useBackendStore().start();
+    ctx.openProject();
+  });
+
+  it('stops, starts and then runs the full refresh', async () => {
+    const backend = useBackendStore();
+    const invalidate = vi.spyOn(useProjectDataStore(), 'invalidateAll');
+    const order: string[] = [];
+    ctx.mock.colrev.stop = vi.fn(async () => {
+      order.push('stop');
+      return { success: true };
+    });
+    ctx.mock.colrev.start = vi.fn(async () => {
+      order.push('start');
+      return { success: true };
+    });
+    ctx.mock.emitRpcQueue({ inFlight: { method: 'search', startedAt: 1 }, queued: ['x'] });
+
+    await expect(backend.restart()).resolves.toBe(true);
+
+    expect(order).toEqual(['stop', 'start']);
+    expect(backend.isRunning).toBe(true);
+    expect(backend.rpcInFlight).toBeNull();
+    expect(backend.rpcQueued).toEqual([]);
+    expect(invalidate).toHaveBeenCalled();
+  });
+
+  it('reports restarting while it works and does not run twice at once', async () => {
+    const backend = useBackendStore();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    ctx.mock.colrev.stop = vi.fn(async () => {
+      await gate;
+      return { success: true };
+    });
+
+    const first = backend.restart();
+    const second = backend.restart();
+    expect(backend.status).toBe('restarting');
+
+    release();
+    await Promise.all([first, second]);
+    expect(ctx.mock.colrev.stop).toHaveBeenCalledTimes(1);
+    expect(backend.isRunning).toBe(true);
+  });
+
+  it('ends in error, without a refresh, when the new backend does not start', async () => {
+    const backend = useBackendStore();
+    const invalidate = vi.spyOn(useProjectDataStore(), 'invalidateAll');
+    ctx.mock.colrev.start = vi.fn(async () => ({ success: false, error: 'boom' }));
+
+    await expect(backend.restart()).resolves.toBe(false);
+    expect(backend.status).toBe('error');
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+});
+
 describe('call', () => {
   beforeEach(async () => {
     await useBackendStore().start();
@@ -237,6 +339,19 @@ describe('progress events', () => {
       total: 0,
     });
     expect(backend.operationProgress).toBeNull();
+  });
+
+  it('records when the in-flight call was first seen', () => {
+    const backend = useBackendStore();
+    expect(backend.rpcInFlightSince).toBeNull();
+    ctx.mock.emitRpcQueue({ inFlight: { method: 'search', startedAt: 1 }, queued: [] });
+    const since = backend.rpcInFlightSince;
+    expect(since).not.toBeNull();
+    // The same call reported again (queue grew) keeps its start time.
+    ctx.mock.emitRpcQueue({ inFlight: { method: 'search', startedAt: 1 }, queued: ['a'] });
+    expect(backend.rpcInFlightSince).toBe(since);
+    ctx.mock.emitRpcQueue({ inFlight: null, queued: [] });
+    expect(backend.rpcInFlightSince).toBeNull();
   });
 
   it('mirrors the serial RPC queue', () => {
