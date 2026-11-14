@@ -21,6 +21,7 @@ export interface AppHandlerDeps {
     getSession(): Promise<unknown>;
     getCachedSession(): unknown;
     startDeviceFlow(): Promise<unknown>;
+    cancelDeviceFlow(): void;
     logout(): unknown;
     getToken(): unknown;
     listAccounts(): unknown;
@@ -55,6 +56,7 @@ export function createAppHandlers(deps: AppHandlerDeps): IpcHandlerSpec[] {
     lockFree('auth:get-session', () => auth.getSession(), 'auth store + GitHub API; no repo'),
     lockFree('auth:get-cached-session', async () => auth.getCachedSession(), 'auth store only'),
     lockFree('auth:login', () => auth.startDeviceFlow(), 'GitHub device flow; no repo'),
+    lockFree('auth:cancel-login', async () => auth.cancelDeviceFlow(), 'stops the device-flow poll; no repo'),
     lockFree('auth:logout', async () => auth.logout(), 'auth store only'),
     lockFree('auth:get-token', async () => auth.getToken(), 'auth store only'),
     lockFree('auth:list-accounts', async () => auth.listAccounts(), 'auth store only'),

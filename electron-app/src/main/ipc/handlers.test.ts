@@ -89,6 +89,7 @@ function appDeps(overrides: Partial<AppHandlerDeps> = {}): AppHandlerDeps {
       getSession: noop,
       getCachedSession: () => null,
       startDeviceFlow: noop,
+      cancelDeviceFlow: () => undefined,
       logout: () => undefined,
       getToken: () => 'tok',
       listAccounts: () => [],
@@ -132,6 +133,7 @@ describe('lock classification', () => {
     expect(lockFree).toEqual([
       '__test/switchAccount',
       'app:info',
+      'auth:cancel-login',
       'auth:get-cached-session',
       'auth:get-session',
       'auth:get-token',

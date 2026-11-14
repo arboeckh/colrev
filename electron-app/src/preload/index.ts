@@ -141,6 +141,7 @@ contextBridge.exposeInMainWorld('auth', {
   getSession: () => ipcRenderer.invoke('auth:get-session'),
   getCachedSession: () => ipcRenderer.invoke('auth:get-cached-session'),
   login: () => ipcRenderer.invoke('auth:login'),
+  cancelLogin: () => ipcRenderer.invoke('auth:cancel-login'),
   logout: () => ipcRenderer.invoke('auth:logout'),
   getToken: () => ipcRenderer.invoke('auth:get-token'),
   listAccounts: () => ipcRenderer.invoke('auth:list-accounts'),

@@ -98,6 +98,34 @@ describe('AuthManager — offline behavior', () => {
     expect(onDisk.accounts).toHaveLength(0);
   });
 
+  it('keeps the account when GitHub returns 403 (rate limit, proxy, captive portal)', async () => {
+    global.fetch = vi.fn(() =>
+      Promise.resolve(
+        new Response('rate limited', { status: 403, headers: { 'x-ratelimit-remaining': '0' } }),
+      ),
+    ) as unknown as typeof fetch;
+
+    const mgr = new AuthManager();
+    const updates: unknown[] = [];
+    mgr.setAuthUpdateCallback((s) => updates.push(s));
+    const session = await mgr.getSession();
+
+    expect(session?.user.login).toBe('alice');
+    expect(updates).toEqual([]);
+    const onDisk = JSON.parse(fs.readFileSync(path.join(userDataDir, 'auth.json'), 'utf-8'));
+    expect(onDisk.accounts).toHaveLength(1);
+    expect(onDisk.activeLogin).toBe('alice');
+    expect(mgr.getToken()).toBe('token-alice');
+  });
+
+  it('keeps the account when a plain 403 comes without rate-limit headers', async () => {
+    global.fetch = vi.fn(() => Promise.resolve(new Response('blocked', { status: 403 }))) as unknown as typeof fetch;
+
+    const mgr = new AuthManager();
+    expect((await mgr.getSession())?.user.login).toBe('alice');
+    expect(readAuthFile().accounts).toHaveLength(1);
+  });
+
   it('refreshes the cached profile on a successful 200 response', async () => {
     const updated = { login: 'alice', name: 'Alice Updated', avatar_url: 'https://new', email: 'alice@example.com' };
     global.fetch = vi.fn(() =>
@@ -757,5 +785,298 @@ describe('AuthManager — decrypt-failure eviction', () => {
     expect(mgr.getToken()).toBeNull();
     // Unlike getSession, getToken leaves the store alone.
     expect(readAuthFile().accounts).toHaveLength(1);
+  });
+});
+
+describe('AuthManager — 403 on account switch', () => {
+  let originalFetch: typeof fetch;
+
+  beforeEach(() => {
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'colrev-auth-switch403-'));
+    seedTwoAccounts('alice');
+    originalFetch = global.fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    fs.rmSync(userDataDir, { recursive: true, force: true });
+  });
+
+  it('switches with the cached profile and keeps both accounts', async () => {
+    global.fetch = vi.fn(() =>
+      Promise.resolve(new Response('slow down', { status: 403, headers: { 'retry-after': '60' } })),
+    ) as unknown as typeof fetch;
+    const mgr = new AuthManager();
+
+    const session = await mgr.switchAccount('bob');
+
+    expect(session?.user.login).toBe('bob');
+    const onDisk = readAuthFile();
+    expect(onDisk.activeLogin).toBe('bob');
+    expect(onDisk.accounts.map((a) => a.user.login)).toEqual(['alice', 'bob']);
+  });
+});
+
+describe('AuthManager — getSession identity race', () => {
+  let originalFetch: typeof fetch;
+
+  beforeEach(() => {
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'colrev-auth-race-'));
+    seedTwoAccounts('alice');
+    originalFetch = global.fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    fs.rmSync(userDataDir, { recursive: true, force: true });
+  });
+
+  it('does not write the previous account\'s identity when the active account changed mid-request', async () => {
+    let release: (r: Response) => void = () => {};
+    global.fetch = vi.fn(
+      () => new Promise<Response>((resolve) => (release = resolve)),
+    ) as unknown as typeof fetch;
+    const mgr = new AuthManager();
+    const identities: Array<string | null> = [];
+    mgr.setActiveUserCallback((u) => identities.push(u?.login ?? null));
+
+    const pending = mgr.getSession(); // validating alice
+    mgr.switchAccountLocal('bob'); // user switches while /user is in flight
+    identities.length = 0; // ignore the switch's own emission
+
+    release(
+      new Response(
+        JSON.stringify({ login: 'alice', name: 'Alice', avatar_url: 'https://x', email: null }),
+        { status: 200 },
+      ),
+    );
+    const session = await pending;
+
+    expect(identities).toEqual([]);
+    // The answer is the account that is active now, not the one that was validated.
+    expect(session?.user.login).toBe('bob');
+    expect(readAuthFile().activeLogin).toBe('bob');
+  });
+
+  it('still writes the identity when the account did not change', async () => {
+    global.fetch = vi.fn(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ login: 'alice', name: 'Alice', avatar_url: 'https://x', email: null }), {
+          status: 200,
+        }),
+      ),
+    ) as unknown as typeof fetch;
+    const mgr = new AuthManager();
+    const identities: Array<string | null> = [];
+    mgr.setActiveUserCallback((u) => identities.push(u?.login ?? null));
+
+    await mgr.getSession();
+
+    expect(identities).toEqual(['alice']);
+  });
+});
+
+describe('AuthManager — overlapping and cancelled device flows', () => {
+  let originalFetch: typeof fetch;
+
+  beforeEach(() => {
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'colrev-auth-devcancel-'));
+    originalFetch = global.fetch;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    global.fetch = originalFetch;
+    fs.rmSync(userDataDir, { recursive: true, force: true });
+  });
+
+  interface Gate {
+    promise: Promise<void>;
+    open: () => void;
+  }
+  function gate(): Gate {
+    let open: () => void = () => {};
+    const promise = new Promise<void>((resolve) => (open = resolve));
+    return { promise, open };
+  }
+
+  /**
+   * Fake GitHub whose device-code, token and profile endpoints can each be
+   * held back. `tokenFor` picks the poll answer per device code.
+   */
+  function mockGitHub(opts: {
+    deviceCodeGates?: Gate[];
+    profileGate?: Gate;
+    tokenFor: (deviceCode: string) => Record<string, unknown>;
+  }) {
+    let codes = 0;
+    const polls: string[] = [];
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const href = typeof url === 'string' ? url : url.toString();
+      if (href.includes('device/code')) {
+        const n = codes++;
+        await opts.deviceCodeGates?.[n]?.promise;
+        return {
+          ok: true,
+          json: async () => ({
+            device_code: `dc-${n}`,
+            user_code: `CODE-${n}`,
+            verification_uri: 'https://github.com/login/device',
+            interval: 1,
+            expires_in: 900,
+          }),
+        } as unknown as Response;
+      }
+      if (href.includes('login/oauth/access_token')) {
+        const code = JSON.parse(String(init?.body)).device_code as string;
+        polls.push(code);
+        return { ok: true, json: async () => opts.tokenFor(code) } as unknown as Response;
+      }
+      if (href.includes('api.github.com/user')) {
+        await opts.profileGate?.promise;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ login: 'alice', name: 'Alice', avatar_url: 'https://x', email: null }),
+        } as unknown as Response;
+      }
+      throw new Error(`Unexpected fetch: ${href}`);
+    }) as unknown as typeof fetch;
+    return { polls };
+  }
+
+  function watch(mgr: AuthManager) {
+    const statuses: Array<{ status: string; userCode?: string }> = [];
+    const updates: unknown[] = [];
+    mgr.setDeviceFlowCallback((s) => statuses.push(s));
+    mgr.setAuthUpdateCallback((s) => updates.push(s));
+    return { statuses, updates };
+  }
+
+  it('a second start during the first one\'s device-code request cancels the first', async () => {
+    const g0 = gate();
+    const { polls } = mockGitHub({
+      deviceCodeGates: [g0],
+      tokenFor: () => ({ error: 'authorization_pending' }),
+    });
+    const mgr = new AuthManager();
+    const { statuses } = watch(mgr);
+
+    const first = mgr.startDeviceFlow(); // stuck in the device-code request
+    const second = mgr.startDeviceFlow();
+    await vi.advanceTimersByTimeAsync(0);
+    g0.open();
+    await first;
+    await vi.advanceTimersByTimeAsync(3000);
+
+    // Only the second flow's code reaches the UI and gets polled.
+    expect(statuses.filter((s) => s.status === 'polling').map((s) => s.userCode)).toEqual(['CODE-1']);
+    expect(polls.every((c) => c === 'dc-1')).toBe(true);
+    expect(polls.length).toBeGreaterThan(0);
+
+    mgr.cancelDeviceFlow();
+    await second;
+  });
+
+  it('the stale flow does not emit expired after the new flow succeeds', async () => {
+    mockGitHub({
+      tokenFor: (code) =>
+        code === 'dc-0' ? { error: 'expired_token' } : { access_token: 'gho_new' },
+    });
+    const mgr = new AuthManager();
+    const { statuses } = watch(mgr);
+
+    const first = mgr.startDeviceFlow();
+    await vi.advanceTimersByTimeAsync(0);
+    const second = mgr.startDeviceFlow();
+    await vi.advanceTimersByTimeAsync(3000);
+    await Promise.all([first, second]);
+
+    expect(statuses.map((s) => s.status)).not.toContain('expired');
+    expect(statuses[statuses.length - 1]?.status).toBe('success');
+  });
+
+  it('cancelDeviceFlow stops polling and stores nothing even if the user approves later', async () => {
+    const { polls } = mockGitHub({ tokenFor: () => ({ access_token: 'gho_late' }) });
+    const mgr = new AuthManager();
+    const { statuses, updates } = watch(mgr);
+
+    const flow = mgr.startDeviceFlow();
+    await vi.advanceTimersByTimeAsync(0); // device code shown, first poll not yet due
+    mgr.cancelDeviceFlow();
+    await vi.advanceTimersByTimeAsync(5000);
+    await flow;
+
+    expect(polls).toEqual([]);
+    expect(statuses.map((s) => s.status)).toEqual(['awaiting_code', 'polling']);
+    expect(updates).toEqual([]);
+    expect(fs.existsSync(authFilePath())).toBe(false);
+  });
+
+  it('cancelling while the device-code request is in flight emits nothing more', async () => {
+    const g0 = gate();
+    const { polls } = mockGitHub({ deviceCodeGates: [g0], tokenFor: () => ({ access_token: 'x' }) });
+    const mgr = new AuthManager();
+    const { statuses } = watch(mgr);
+
+    const flow = mgr.startDeviceFlow();
+    await vi.advanceTimersByTimeAsync(0);
+    mgr.cancelDeviceFlow();
+    g0.open();
+    await vi.advanceTimersByTimeAsync(5000);
+    await flow;
+
+    expect(statuses.map((s) => s.status)).toEqual(['awaiting_code']);
+    expect(polls).toEqual([]);
+  });
+
+  it('a logout during the profile request does not store the account', async () => {
+    const profileGate = gate();
+    mockGitHub({ profileGate, tokenFor: () => ({ access_token: 'gho_new' }) });
+    const mgr = new AuthManager();
+    const { statuses, updates } = watch(mgr);
+
+    const flow = mgr.startDeviceFlow();
+    await vi.advanceTimersByTimeAsync(1100); // token received, profile request held
+    await mgr.logout();
+    profileGate.open();
+    await vi.advanceTimersByTimeAsync(0);
+    await flow;
+
+    expect(statuses.map((s) => s.status)).not.toContain('success');
+    expect(updates.every((u) => u === null)).toBe(true);
+    expect(fs.existsSync(authFilePath()) ? readAuthFile().accounts : []).toEqual([]);
+  });
+});
+
+describe('AuthManager — atomic auth.json writes', () => {
+  beforeEach(() => {
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'colrev-auth-atomic-'));
+    seedTwoAccounts('alice');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(userDataDir, { recursive: true, force: true });
+  });
+
+  it('leaves no temp file behind after a write', () => {
+    const mgr = new AuthManager();
+    mgr.switchAccountLocal('bob');
+
+    expect(fs.readdirSync(userDataDir)).toEqual(['auth.json']);
+    expect(readAuthFile().activeLogin).toBe('bob');
+  });
+
+  it('removes the temp file when the rename fails', () => {
+    // A non-empty directory at the target path makes the rename fail.
+    fs.rmSync(authFilePath());
+    fs.mkdirSync(authFilePath());
+    fs.writeFileSync(path.join(authFilePath(), 'keep'), 'x');
+    const mgr = new AuthManager();
+
+    expect(() => mgr.removeAccount('alice')).toThrow(/EISDIR/);
+    expect(fs.readdirSync(userDataDir)).toEqual(['auth.json']);
   });
 });

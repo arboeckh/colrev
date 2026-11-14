@@ -295,6 +295,7 @@ export function createWindowMock(): WindowMock {
     getSession: vi.fn(async () => null),
     getCachedSession: vi.fn(async () => null),
     login: vi.fn(async () => {}),
+    cancelLogin: vi.fn(async () => {}),
     logout: vi.fn(async () => {}),
     getToken: vi.fn(async () => null),
     listAccounts: vi.fn(async () => [] as AccountInfo[]),
