@@ -4,10 +4,13 @@ import { useBackendStore } from '@/stores/backend';
 
 const backend = useBackendStore();
 
-// Only show while the backend hasn't reached 'running'. We cover both the
-// initial 'stopped'→'starting' transition (before App.vue kicks start()) and
-// the 'starting'→'running' window that follows.
-const shouldShow = computed(() => !backend.isRunning && !backend.error);
+// Show while the backend is starting or restarting. A backend that is stopped
+// or failed is not "starting": that state has a Retry (landing page, project
+// banner) rather than a spinner that never ends.
+const shouldShow = computed(
+  () => backend.status === 'starting' || backend.status === 'restarting',
+);
+const isRestarting = computed(() => backend.status === 'restarting');
 
 const startTime = ref(Date.now());
 const elapsed = ref(0);
@@ -42,8 +45,14 @@ const showElapsed = computed(() => elapsed.value >= 15);
         <div
           class="animate-spin h-10 w-10 border-4 border-primary border-t-transparent rounded-full mx-auto mb-6"
         />
-        <h2 class="text-lg font-semibold mb-3">Starting CoLRev</h2>
-        <p class="text-sm text-muted-foreground leading-relaxed">
+        <h2 class="text-lg font-semibold mb-3" data-testid="backend-overlay-title">
+          {{ isRestarting ? 'Restarting the review engine' : 'Starting CoLRev' }}
+        </h2>
+        <p v-if="isRestarting" class="text-sm text-muted-foreground leading-relaxed">
+          The review engine stopped and is starting again. Your work is saved;
+          what is on screen will refresh when it is back.
+        </p>
+        <p v-else class="text-sm text-muted-foreground leading-relaxed">
           First launch can take up to 30 seconds while the review engine loads.
           This is normal — subsequent launches start faster.
         </p>

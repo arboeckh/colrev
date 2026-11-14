@@ -5,6 +5,8 @@ import { useRoute } from 'vue-router';
 import { Toaster } from '@/components/ui/sonner';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import AppRouterView from '@/components/layout/AppRouterView.vue';
+import BackendStartingOverlay from '@/components/common/BackendStartingOverlay.vue';
+import BackendBusyIndicator from '@/components/common/BackendBusyIndicator.vue';
 import DebugPanel from '@/components/common/DebugPanel.vue';
 import ConflictResolutionDialog from '@/components/common/ConflictResolutionDialog.vue';
 import PullBlockedDialog from '@/components/common/PullBlockedDialog.vue';
@@ -38,17 +40,24 @@ onMounted(async () => {
   boundLogin = auth.user?.login ?? null;
 
   if (backend.canStart) {
-    const started = await backend.start();
-    if (started) {
-      // Discover projects immediately after backend starts
-      await discoverProjects();
-      // Fetch GitHub CoLRev repos in the background if authenticated
-      if (auth.isAuthenticated) {
-        githubRepos.fetchRepos();
-      }
-    }
+    await backend.start();
   }
 });
+
+// Whenever the backend comes up — first start, a Retry, a requested or
+// supervised restart — discover projects, and fetch the GitHub repos in the
+// background when signed in. (start() sets basePath before it reports
+// 'running', so discovery sees the account's projects root.)
+watch(
+  () => backend.isRunning,
+  (running) => {
+    if (!running) return;
+    void discoverProjects();
+    if (auth.isAuthenticated) {
+      githubRepos.fetchRepos();
+    }
+  },
+);
 
 // Discover existing projects from disk
 async function discoverProjects() {
@@ -111,6 +120,12 @@ watch(
   <div class="min-h-screen bg-background text-foreground">
     <!-- Toast notifications -->
     <Toaster position="bottom-right" :expand="true" />
+
+    <!-- Starting / restarting the backend -->
+    <BackendStartingOverlay />
+
+    <!-- What a slow call is waiting on, with Restart backend -->
+    <BackendBusyIndicator />
 
     <!-- Debug panel (floating button in bottom right) -->
     <DebugPanel />

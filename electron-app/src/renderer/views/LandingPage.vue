@@ -129,6 +129,17 @@ async function declineInvitation(inv: RepoInvitation) {
   }
 }
 
+// Start the backend again after it failed to start or stopped.
+const isRetryingBackend = ref(false);
+async function retryBackend() {
+  isRetryingBackend.value = true;
+  try {
+    await backend.start();
+  } finally {
+    isRetryingBackend.value = false;
+  }
+}
+
 // Loading state for project list
 const isLoadingProjects = ref(false);
 
@@ -290,13 +301,13 @@ loadInvitations();
               <div
                 class="h-2 w-2 rounded-full"
                 :class="{
-                  'bg-yellow-500 animate-pulse': backend.isStarting,
+                  'bg-yellow-500 animate-pulse': backend.isStarting || backend.status === 'restarting',
                   'bg-red-500': backend.status === 'error',
                   'bg-muted': backend.status === 'stopped',
                 }"
               />
               <span class="text-muted-foreground">
-                {{ backend.isStarting ? 'Starting up…' : backend.status === 'error' ? "Couldn't start" : 'Not running' }}
+                {{ backend.isStarting ? 'Starting up…' : backend.status === 'restarting' ? 'Restarting…' : backend.status === 'error' ? "Couldn't start" : 'Not running' }}
               </span>
             </div>
 
@@ -392,11 +403,21 @@ loadInvitations();
       <!-- Page content -->
       <main class="flex-1 overflow-auto px-6 py-8">
         <!-- Backend not running message -->
-        <div v-if="!backend.isRunning && !backend.isStarting" class="text-center py-12">
-          <div class="inline-flex items-center gap-2 text-yellow-500 mb-4">
-            <Loader2 class="h-5 w-5 animate-spin" />
-            <span>Waiting for backend to start...</span>
-          </div>
+        <div
+          v-if="backend.hasStarted && !backend.isRunning && !backend.isStarting && backend.status !== 'restarting'"
+          class="text-center py-12"
+          data-testid="backend-not-running"
+        >
+          <p class="mb-1 font-medium">The review engine is not running.</p>
+          <p v-if="backend.error" class="mb-4 text-sm text-muted-foreground">{{ backend.error }}</p>
+          <Button
+            :disabled="isRetryingBackend"
+            data-testid="backend-retry-button"
+            @click="retryBackend"
+          >
+            <Loader2 v-if="isRetryingBackend" class="h-4 w-4 mr-2 animate-spin" />
+            Retry
+          </Button>
         </div>
 
         <!-- Empty state -->

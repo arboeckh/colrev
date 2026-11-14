@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import Header from './Header.vue';
 import Sidebar from './Sidebar.vue';
+import BackendStatusBanner from '@/components/common/BackendStatusBanner.vue';
 import SyncStatusBanner from '@/components/common/SyncStatusBanner.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { useBackendStore } from '@/stores/backend';
@@ -134,6 +135,9 @@ onUnmounted(() => {
   <div class="flex flex-col h-screen">
     <!-- Header -->
     <Header />
+
+    <!-- Backend exited or failed to start: says so, with Retry. -->
+    <BackendStatusBanner />
 
     <SyncStatusBanner />
 
