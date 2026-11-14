@@ -39,8 +39,7 @@ function createSaveAndSyncIssue(ctx: {
         try {
           if (!ctx.git.isClean) {
             // The `commit_changes` RPC, like every other save in the app. The
-            // main-process `addAndCommit` is the one path that runs the repo's
-            // git hooks, and in a packaged app they cannot resolve
+            // former main-process `addAndCommit` ran the repo's git hooks, and in a packaged app they cannot resolve
             // `colrev-hooks-format`: the commit aborted, the tree stayed dirty
             // and this issue never cleared. The store reports the failure.
             const committed = await usePendingChangesStore().commit(

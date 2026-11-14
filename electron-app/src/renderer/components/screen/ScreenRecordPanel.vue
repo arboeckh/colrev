@@ -143,6 +143,7 @@ const emit = defineEmits<{
           <ScreenCriteriaChecklist
             :criteria="criteria"
             :decisions="criteriaDecisions"
+            :readonly="isCurrentDecided && mode !== 'edit'"
             @toggle="(name, value) => emit('toggleCriterion', name, value)"
           />
         </div>

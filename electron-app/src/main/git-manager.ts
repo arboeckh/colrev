@@ -4,6 +4,8 @@
  * Reuses the token-auth pattern from github-manager.ts.
  */
 
+import { execNetworkGit, type NetworkExecResult } from './git-network';
+
 export interface BranchInfo {
   name: string;
   current: boolean;
@@ -57,7 +59,7 @@ const OFFLINE_STDERR_PATTERNS: RegExp[] = [
   /Could not resolve host/i,
   /Could not resolve proxy/i,
   /Temporary failure in name resolution/i,
-  /unable to access '[^']*': (Failed to connect|Connection (refused|timed out|reset)|Could ?n[o']?t connect to server|Operation timed out|Network is unreachable|Empty reply from server|SSL connect error)/i,
+  /unable to access '[^']*': (Failed to connect|Connection (refused|timed out|reset)|Could ?n[o']?t connect to server|Operation timed out|Operation too slow|Network is unreachable|Empty reply from server|SSL connect error)/i,
   /fatal: unable to look up/i,
 ];
 
@@ -69,6 +71,18 @@ const OFFLINE_STDERR_PATTERNS: RegExp[] = [
  * for transport failures. Returns null when the failure has no actionable
  * classification; callers surface stderr in that case.
  */
+/**
+ * A rejected or missing credential. With prompts disabled, git answers a
+ * rejected `http.extraheader` token with "could not read Username" (it fell
+ * back to asking) rather than its own "Authentication failed" wording.
+ */
+const AUTH_STDERR_PATTERNS: RegExp[] = [
+  /could not read (Username|Password) for/i,
+  /terminal prompts disabled/i,
+  /The requested URL returned error: (401|403)/i,
+  /HTTP(?:\/[\d.]+)? 401\b/i,
+];
+
 export async function classifyGitFailure(
   stderr: string,
 ): Promise<GitFailureCode | null> {
@@ -89,6 +103,7 @@ export async function classifyGitFailure(
       break;
   }
 
+  if (AUTH_STDERR_PATTERNS.some((p) => p.test(stderr))) return AUTH_FAILED;
   if (OFFLINE_STDERR_PATTERNS.some((p) => p.test(stderr))) return OFFLINE;
   return null;
 }
@@ -96,11 +111,17 @@ export async function classifyGitFailure(
 /**
  * Build the failure result for a command that talked to the remote: a
  * structured code when the failure is one the UI can act on, raw stderr
- * otherwise.
+ * otherwise. A command killed by the network timeout is OFFLINE-class: the
+ * remote did not answer in time.
  */
-async function remoteFailure(stderr: string, fallback: string): Promise<GitResult> {
-  const code = await classifyGitFailure(stderr);
-  return { success: false, error: code ?? stderr ?? fallback };
+async function remoteFailure(
+  result: Pick<NetworkExecResult, 'stderr' | 'timedOut'>,
+  fallback: string,
+): Promise<GitResult> {
+  if (result.timedOut) return { success: false, error: OFFLINE };
+  const code = await classifyGitFailure(result.stderr);
+  // dugite's stderr is '' (never null) when git printed nothing: `||`, not `??`.
+  return { success: false, error: code || result.stderr || fallback };
 }
 
 export interface GitCheckoutResult extends GitResult {
@@ -123,19 +144,6 @@ export interface GitDirtyState extends GitResult {
   untrackedCount: number;
 }
 
-/**
- * Returns `git -c` args that authenticate HTTPS requests via an
- * `Authorization: Basic` header. The header lives only on the command line
- * for that single git invocation — it is never written to `.git/config`,
- * so a force-kill can't leak the token to disk, and concurrent reads of
- * `git remote get-url origin` always see a clean URL.
- */
-function gitAuthArgs(token: string | null): string[] {
-  if (!token) return [];
-  const auth = Buffer.from(`x-access-token:${token}`).toString('base64');
-  return ['-c', `http.extraheader=Authorization: Basic ${auth}`];
-}
-
 /** A fetch result that also says whether it moved any remote-tracking ref. */
 export interface GitFetchResult extends GitResult {
   refsChanged?: boolean;
@@ -154,15 +162,13 @@ export async function gitFetch(
   projectPath: string,
   token: string | null = null,
 ): Promise<GitFetchResult> {
-  const { exec } = await import('dugite');
-
   const before = await remoteRefSnapshot(projectPath);
-  const result = await exec(
-    [...gitAuthArgs(token), 'fetch', '--prune', 'origin'],
-    projectPath,
-  );
+  const result = await execNetworkGit(['fetch', '--prune', 'origin'], projectPath, {
+    token,
+    kind: 'fetch',
+  });
   if (result.exitCode !== 0) {
-    return remoteFailure(result.stderr, 'Fetch failed');
+    return remoteFailure(result, 'Fetch failed');
   }
   const after = await remoteRefSnapshot(projectPath);
   // Unknown (a for-each-ref failed) counts as moved: the caller refreshes on it.
@@ -174,11 +180,9 @@ export async function gitPull(
   token: string | null = null,
   ffOnly = true,
 ): Promise<GitResult> {
-  const { exec } = await import('dugite');
-
-  const args = [...gitAuthArgs(token), 'pull', 'origin'];
+  const args = ['pull', 'origin'];
   if (ffOnly) args.push('--ff-only');
-  const result = await exec(args, projectPath);
+  const result = await execNetworkGit(args, projectPath, { token, kind: 'pushPull' });
   if (result.exitCode !== 0) {
     const stderr = result.stderr || '';
     if (stderr.includes('Not possible to fast-forward') || stderr.includes('fatal: Not possible')) {
@@ -190,7 +194,7 @@ export async function gitPull(
     ) {
       return { success: false, error: DIRTY_WORKTREE };
     }
-    return remoteFailure(stderr, 'Pull failed');
+    return remoteFailure(result, 'Pull failed');
   }
   return { success: true };
 }
@@ -199,19 +203,18 @@ export async function gitPush(
   projectPath: string,
   token: string | null = null,
 ): Promise<GitResult> {
-  const { exec } = await import('dugite');
-
   // --no-verify: skip pre-commit pre-push hook. In the packaged app the
   // hook's INSTALL_PYTHON is the PyInstaller bundle, not a real Python,
   // and crashes when invoked with `-mpre_commit hook-impl …`.
-  const result = await exec(
-    [...gitAuthArgs(token), 'push', '--no-verify', '-u', 'origin', 'HEAD'],
+  const result = await execNetworkGit(
+    ['push', '--no-verify', '-u', 'origin', 'HEAD'],
     projectPath,
+    { token, kind: 'pushPull' },
   );
   if (result.exitCode !== 0) {
     // Classified so the renderer can say "Pull first" / "Sign in again" /
     // "You're offline" instead of pasting stderr into a toast.
-    return remoteFailure(result.stderr, 'Push failed');
+    return remoteFailure(result, 'Push failed');
   }
   return { success: true };
 }
@@ -221,14 +224,13 @@ export async function gitPushBranch(
   branchName: string,
   token: string | null = null,
 ): Promise<GitResult> {
-  const { exec } = await import('dugite');
-
-  const result = await exec(
-    [...gitAuthArgs(token), 'push', '--no-verify', '-u', 'origin', `${branchName}:${branchName}`],
+  const result = await execNetworkGit(
+    ['push', '--no-verify', '-u', 'origin', `${branchName}:${branchName}`],
     projectPath,
+    { token, kind: 'pushPull' },
   );
   if (result.exitCode !== 0) {
-    return remoteFailure(result.stderr, `Failed to push ${branchName}`);
+    return remoteFailure(result, `Failed to push ${branchName}`);
   }
   return { success: true };
 }
@@ -245,18 +247,17 @@ export async function gitDeleteRemoteBranch(
   branchName: string,
   token: string | null = null,
 ): Promise<GitResult> {
-  const { exec } = await import('dugite');
-
-  const result = await exec(
-    [...gitAuthArgs(token), 'push', '--no-verify', 'origin', '--delete', branchName],
+  const result = await execNetworkGit(
+    ['push', '--no-verify', 'origin', '--delete', branchName],
     projectPath,
+    { token, kind: 'pushPull' },
   );
   if (result.exitCode !== 0) {
     const stderr = result.stderr || '';
     if (/remote ref does not exist|unable to delete '[^']*': remote ref does not exist/i.test(stderr)) {
       return { success: true };
     }
-    return remoteFailure(stderr, `Failed to delete ${branchName} on the remote`);
+    return remoteFailure(result, `Failed to delete ${branchName} on the remote`);
   }
   return { success: true };
 }
@@ -272,7 +273,7 @@ export async function gitListBranches(
 
   // List all branches with details
   const result = await exec(
-    ['branch', '-a', '--format=%(refname:short)\t%(upstream:short)\t%(upstream:track)\t%(committerdate:iso8601)'],
+    ['branch', '-a', '--format=%(refname)\t%(upstream:short)\t%(upstream:track)\t%(committerdate:iso8601)'],
     projectPath,
   );
 
@@ -284,10 +285,19 @@ export async function gitListBranches(
   const lines = result.stdout.trim().split('\n').filter(Boolean);
 
   for (const line of lines) {
-    const [name, upstream, track, date] = line.split('\t');
+    const [refname, upstream, track, date] = line.split('\t');
 
-    // Skip origin/HEAD
-    if (name.includes('HEAD')) continue;
+    // Full refnames, because `%(refname:short)` prints the symbolic ref
+    // `refs/remotes/origin/HEAD` as plain `origin`, which would pass for a
+    // local branch of that name. Skip it, and a detached HEAD's "(HEAD
+    // detached at …)" entry, which has no ref at all.
+    if (/^refs\/remotes\/[^/]+\/HEAD$/.test(refname)) continue;
+    const name = refname.startsWith('refs/heads/')
+      ? refname.slice('refs/heads/'.length)
+      : refname.startsWith('refs/remotes/')
+        ? refname.slice('refs/remotes/'.length)
+        : null;
+    if (name === null) continue;
 
     const isRemote = name.startsWith('origin/');
     const localName = isRemote ? name.replace('origin/', '') : name;
@@ -522,30 +532,6 @@ export async function gitAbortMerge(
   return { success: true };
 }
 
-export async function gitAddAndCommit(
-  projectPath: string,
-  message: string,
-): Promise<GitResult> {
-  const { exec } = await import('dugite');
-
-  const addResult = await exec(['add', '-A'], projectPath);
-  if (addResult.exitCode !== 0) {
-    return { success: false, error: addResult.stderr || 'git add failed' };
-  }
-
-  // Check if there's anything to commit
-  const statusResult = await exec(['status', '--porcelain'], projectPath);
-  if (statusResult.stdout.trim() === '') {
-    return { success: true }; // Nothing to commit
-  }
-
-  const commitResult = await exec(['commit', '-m', message], projectPath);
-  if (commitResult.exitCode !== 0) {
-    return { success: false, error: commitResult.stderr || 'git commit failed' };
-  }
-  return { success: true };
-}
-
 export async function gitCreateTag(
   projectPath: string,
   tagName: string,
@@ -563,14 +549,13 @@ export async function gitPushTags(
   projectPath: string,
   token: string | null = null,
 ): Promise<GitResult> {
-  const { exec } = await import('dugite');
-
-  const result = await exec(
-    [...gitAuthArgs(token), 'push', '--no-verify', 'origin', '--tags'],
+  const result = await execNetworkGit(
+    ['push', '--no-verify', 'origin', '--tags'],
     projectPath,
+    { token, kind: 'pushPull' },
   );
   if (result.exitCode !== 0) {
-    return remoteFailure(result.stderr, 'Failed to push tags');
+    return remoteFailure(result, 'Failed to push tags');
   }
   return { success: true };
 }
@@ -642,21 +627,29 @@ export async function gitFastForwardMain(
 ): Promise<GitResult> {
   const { exec } = await import('dugite');
 
-  const fetchRes = await exec(
-    [...gitAuthArgs(token), 'fetch', '--prune', 'origin'],
-    projectPath,
-  );
+  const fetchRes = await execNetworkGit(['fetch', '--prune', 'origin'], projectPath, {
+    token,
+    kind: 'fetch',
+  });
   if (fetchRes.exitCode !== 0) {
-    return remoteFailure(fetchRes.stderr, 'Fetch failed');
+    return remoteFailure(fetchRes, 'Fetch failed');
   }
 
   const ancestorRes = await exec(
     ['merge-base', '--is-ancestor', 'main', 'origin/main'],
     projectPath,
   );
-  if (ancestorRes.exitCode !== 0) {
+  if (ancestorRes.exitCode === 1) {
     // Exit code 1 means "not an ancestor" → local main has diverged.
     return { success: false, error: DIVERGED };
+  }
+  if (ancestorRes.exitCode !== 0) {
+    // Anything else (128: an unknown ref) is not divergence: local `main` or
+    // `origin/main` does not exist, which the UI must not call a divergence.
+    return {
+      success: false,
+      error: ancestorRes.stderr.trim() || "Cannot fast-forward main: 'main' or 'origin/main' is missing",
+    };
   }
 
   // Check current branch — if on main, use a plain pull-equivalent so
@@ -698,17 +691,16 @@ export async function gitClone(
   targetPath: string,
   token: string | null,
 ): Promise<GitResult> {
-  const { exec } = await import('dugite');
   const path = await import('path');
 
   const parentDir = path.dirname(targetPath);
 
-  const result = await exec(
-    [...gitAuthArgs(token), 'clone', cloneUrl, targetPath],
-    parentDir,
-  );
+  const result = await execNetworkGit(['clone', cloneUrl, targetPath], parentDir, {
+    token,
+    kind: 'clone',
+  });
   if (result.exitCode !== 0) {
-    return remoteFailure(result.stderr, 'Clone failed');
+    return remoteFailure(result, 'Clone failed');
   }
 
   return { success: true };
