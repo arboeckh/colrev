@@ -51,7 +51,7 @@ dependencies = [
     "requests-cache>=1.2.0",
     "lingua-language-detector>=2.0.2",
     "pycountry>=24.6.1",
-    "nameparser>=1.1.2",
+    "nameparser>=1.1.2,<2",
     "number-parser>=0.3.2",
     "pymupdf>=1.24.3,<=1.25.3",
     "toml>=0.10.2",
