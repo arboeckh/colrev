@@ -550,13 +550,13 @@ async function makeDecision(decision: 'include' | 'exclude') {
 }
 
 /** Decision buttons and arrow keys: decide an undecided record, or revise a
- * decided one while editing. */
+ * decided one, whether it was reached by jumping back or in edit mode. */
 function decide(decision: 'include' | 'exclude') {
   // Read-only: the buttons are disabled, so the arrow keys must not write either.
   if (isReadOnly.value) return;
   if (!currentRecord.value || !isCurrentRecordReady.value) return;
-  if (isEditMode.value) reviseDecision(decision);
-  else if (!isCurrentDecided.value) makeDecision(decision);
+  if (isCurrentDecided.value) reviseDecision(decision);
+  else makeDecision(decision);
 }
 
 // --- Edit mode functions ---
@@ -617,10 +617,18 @@ function reviseDecision(decision: 'include' | 'exclude') {
   const target: DecisionState = decision === 'include' ? 'included' : 'excluded';
   const previous = record._decision;
   if (previous !== target) {
-    record._decision = target;
+    setRecordDecision(record, target);
     flushRevision(record, decision, previous, projectData.snapshot());
   }
   nextRecord();
+}
+
+/** Set a decided record's decision, and keep the review walkthrough's history
+ * copy of it in step: a later queue load prepends that history. */
+function setRecordDecision(record: EnrichedRecord, decision: DecisionState) {
+  record._decision = decision;
+  const historic = decisionHistory.value.find((r) => r.id === record.id);
+  if (historic) historic._decision = decision;
 }
 
 function flushRevision(
@@ -632,7 +640,7 @@ function flushRevision(
   const projectId = projects.currentProjectId!;
   const applied: DecisionState = decision === 'include' ? 'included' : 'excluded';
   const rollBack = (message: string) => {
-    if (guard.isCurrent() && record._decision === applied) record._decision = previous;
+    if (guard.isCurrent() && record._decision === applied) setRecordDecision(record, previous);
     notifications.error('Decision change failed', message);
   };
   const run = decisionChain.then(async () => {
@@ -1013,7 +1021,7 @@ onUnmounted(() => {
             :disabled="!isCurrentRecordReady || isReadOnly"
             :is-submitting="isFinishing"
             :show-skip-to-next="!isEditMode && nextUndecidedIndex !== -1"
-            :editable="isEditMode"
+            :editable="isCurrentDecided"
             test-id-prefix="prescreen"
             @decide="decide"
             @skip-to-next="skipToNextUndecided"

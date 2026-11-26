@@ -18,7 +18,7 @@ const props = withDefaults(
     disabled?: boolean;
     showNextButton?: boolean;
     /** Keep the Include/Exclude buttons on a decided record, marking the
-     * current decision, so it can be changed (editing decisions). */
+     * current decision, so it can be changed. */
     editable?: boolean;
     testIdPrefix?: string;
   }>(),
@@ -113,6 +113,17 @@ const isConfirmed = computed(
         <Loader2 v-if="isSubmitting" class="h-5 w-5 animate-spin" />
         <Check v-else class="h-5 w-5 text-green-600" />
         <span>Include</span>
+      </Button>
+
+      <Button
+        v-if="editable && showNextButton"
+        variant="outline"
+        size="sm"
+        :data-testid="`${testIdPrefix}-btn-skip-to-undecided`"
+        @click="emit('skipToNext')"
+      >
+        <ArrowRight class="h-4 w-4 mr-1" />
+        Next
       </Button>
     </div>
   </div>

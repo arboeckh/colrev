@@ -12,7 +12,7 @@ withDefaults(
     showKeyboardHints?: boolean;
     showSkipToNext?: boolean;
     /** Keep both buttons on a decided record, marking the current decision,
-     * so it can be changed (editing decisions). */
+     * so it can be changed. */
     editable?: boolean;
     testIdPrefix?: string;
   }>(),
@@ -74,6 +74,17 @@ const emit = defineEmits<{
           v-if="showKeyboardHints"
           class="ml-1 text-[11px] text-muted-foreground font-normal"
         >&rarr;</span>
+      </Button>
+
+      <Button
+        v-if="editable && decision !== 'undecided' && showSkipToNext"
+        variant="outline"
+        size="lg"
+        :data-testid="`${testIdPrefix}-btn-skip-to-undecided`"
+        @click="emit('skip-to-next')"
+      >
+        <ArrowRight class="h-4 w-4" />
+        Next undecided
       </Button>
     </template>
 
