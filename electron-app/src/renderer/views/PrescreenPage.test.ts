@@ -213,6 +213,64 @@ describe('PrescreenPage decisions', () => {
   });
 });
 
+describe('PrescreenPage changing a decision already made', () => {
+  let ctx: RendererTestContext;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    ctx = setupRendererTest();
+    ctx.mock.rpc.onError('get_current_managed_review_task', { message: 'not managed' });
+    ctx.mock.rpc.on('list_managed_review_tasks', () => tasksResponse('prescreen'));
+    stubQueue(ctx);
+    ctx.mock.rpc.on('prescreen_record', (params) => ({
+      success: true,
+      project_id: 'lit-review',
+      record: {
+        id: params.record_id as string,
+        decision: params.decision as 'include' | 'exclude',
+        new_status: 'rev_prescreen_included',
+      },
+      remaining_count: 2,
+      already_decided: false,
+    }));
+    ctx.mock.rpc.on('update_prescreen_decisions', () => ({
+      success: true,
+      project_id: 'lit-review',
+      changes_count: 1,
+      message: 'ok',
+      updated_records: ['r1'],
+      skipped: [],
+    }));
+  });
+
+  it('revises the decision on a record jumped back to', async () => {
+    const wrapper = await mountPage(ctx);
+    await wrapper.find('[data-testid="prescreen-btn-include"]').trigger('click');
+    await flushPromises();
+    expect(currentRecordId(wrapper)).toBe('r2');
+
+    await wrapper.find('[data-testid="prescreen-btn-previous"]').trigger('click');
+    await flushPromises();
+    expect(currentRecordId(wrapper)).toBe('r1');
+
+    const exclude = wrapper.find('[data-testid="prescreen-btn-exclude"]');
+    expect(exclude.exists()).toBe(true);
+    expect(wrapper.find('[data-testid="prescreen-btn-include"]').attributes('aria-pressed')).toBe('true');
+
+    afterReading();
+    await exclude.trigger('click');
+    await flushPromises();
+
+    expect(ctx.mock.rpc.countOf('update_prescreen_decisions')).toBe(1);
+    expect(ctx.mock.rpc.countOf('prescreen_record')).toBe(1);
+    expect(currentRecordId(wrapper)).toBe('r2');
+
+    await wrapper.find('[data-testid="prescreen-btn-previous"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="prescreen-btn-exclude"]').attributes('aria-pressed')).toBe('true');
+  });
+});
+
 describe('PrescreenPage managed access', () => {
   let ctx: RendererTestContext;
 

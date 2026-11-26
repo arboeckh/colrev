@@ -337,8 +337,8 @@ function confirmCriteriaDecision(decision: 'include' | 'exclude') {
   if (isDeciding.value || isReadOnly.value) return;
   if (decision === 'include' && !canInclude.value) return;
   if (decision === 'exclude' && !canExclude.value) return;
-  if (mode.value === 'edit') reviseDecision(decision);
-  else if (!isCurrentDecided.value) makeDecision(decision);
+  if (isCurrentDecided.value) reviseDecision(decision);
+  else makeDecision(decision);
 }
 
 // --- Edit mode ---
@@ -388,13 +388,37 @@ async function loadEditQueue() {
   }
 }
 
+/** What a decided record holds on disk: the baseline recorded when it was
+ * loaded for editing or when its ticks were first changed, else what it shows. */
+function savedStateOf(record: ScreenEnrichedRecord) {
+  let saved = savedEdits.get(record.id);
+  if (!saved) {
+    saved = { decision: record._decision, criteria: { ...record._criteriaDecisions } };
+    savedEdits.set(record.id, saved);
+  }
+  return saved;
+}
+
+/** Set a decided record's decision, and keep the review walkthrough's history
+ * copy of it in step: a later queue load prepends that history. */
+function setRecordDecision(record: ScreenEnrichedRecord, decision: DecisionState) {
+  record._decision = decision;
+  const historic = decisionHistory.value.find((r) => r.id === record.id);
+  if (historic) historic._decision = decision;
+}
+
+function syncHistoryCriteria(record: ScreenEnrichedRecord) {
+  const historic = decisionHistory.value.find((r) => r.id === record.id);
+  if (historic) historic._criteriaDecisions = { ...record._criteriaDecisions };
+}
+
 /** Change the decision (or an exclusion's criteria) on the current record and
  * move on, as reviewing does. Optimistic, on the same ordered write chain as
  * first decisions. */
 function reviseDecision(decision: 'include' | 'exclude') {
   const record = currentRecord.value;
-  const saved = record && savedEdits.get(record.id);
-  if (!record || !saved) return;
+  if (!record || record._decision === 'undecided') return;
+  const saved = savedStateOf(record);
 
   const target: DecisionState = decision === 'include' ? 'included' : 'excluded';
   const criteriaChanged =
@@ -412,7 +436,8 @@ function reviseDecision(decision: 'include' | 'exclude') {
           criterion.criterion_type === 'exclusion_criterion' ? 'TODO' : 'in';
       }
     }
-    record._decision = target;
+    setRecordDecision(record, target);
+    syncHistoryCriteria(record);
     savedEdits.set(record.id, { decision: target, criteria: { ...record._criteriaDecisions } });
     flushRevision(record, decision, criteriaDecisions, saved, projectData.snapshot());
   }
@@ -430,8 +455,9 @@ function flushRevision(
   const applied = savedEdits.get(record.id);
   const rollBack = (message: string) => {
     if (guard.isCurrent() && savedEdits.get(record.id) === applied) {
-      record._decision = previous.decision;
+      setRecordDecision(record, previous.decision);
       record._criteriaDecisions = { ...previous.criteria };
+      syncHistoryCriteria(record);
       savedEdits.set(record.id, previous);
     }
     notifications.error('Decision change failed', message);
@@ -476,9 +502,9 @@ async function exitEditMode() {
 
 function toggleCriterion(name: string, value: 'in' | 'out' | 'TODO') {
   if (!currentRecord.value) return;
-  // A decided record's ticks are what was saved; outside edit mode a change
-  // would differ from disk with nothing saving it.
-  if (isCurrentDecided.value && mode.value !== 'edit') return;
+  // A decided record's ticks are what was saved: note them before the change,
+  // so that confirming the decision can tell what differs from disk.
+  if (isCurrentDecided.value) savedStateOf(currentRecord.value);
   currentRecord.value._criteriaDecisions[name] = value;
 }
 

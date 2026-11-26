@@ -116,10 +116,16 @@ describe('ScreenPage', () => {
     expect(wrapper.text()).toContain('complete');
   });
 
-  it('does not let the criteria checklist change on a decided record outside edit mode', async () => {
+  it('lets a decision already made be changed after jumping back to it', async () => {
     stubScreen(ctx, ['r1', 'r2']);
-    // The write never lands; the optimistic state is what the page shows.
-    ctx.mock.rpc.on('screen_record', () => new Promise(() => {}));
+    ctx.mock.rpc.on('update_screen_decisions', () => ({
+      success: true,
+      project_id: 'lit-review',
+      changes_count: 1,
+      message: 'ok',
+      updated_records: ['r1'],
+      skipped: [],
+    }));
 
     const wrapper = mount(ScreenPage);
     mounted.push(wrapper);
@@ -130,13 +136,23 @@ describe('ScreenPage', () => {
     await flushPromises();
     expect(wrapper.get('[data-testid="screen-record-id"]').text()).toBe('r2');
 
-    // Back to the decided record: its ticks are what was saved.
+    // Back to the decided record: both buttons are live, the decision marked.
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }));
     await flushPromises();
     expect(wrapper.get('[data-testid="screen-record-id"]').text()).toBe('r1');
-    expect(wrapper.get('[data-testid="criterion-check-Relevant"]').text()).toContain('Met');
+    expect(wrapper.get('[data-testid="screen-btn-include"]').attributes('aria-pressed')).toBe('true');
 
+    // Un-tick the criterion and exclude: a change, written as a revision.
     await wrapper.get('[data-testid="criterion-check-Relevant"]').trigger('click');
-    expect(wrapper.get('[data-testid="criterion-check-Relevant"]').text()).toContain('Met');
+    await wrapper.get('[data-testid="screen-btn-exclude"]').trigger('click');
+    await flushPromises();
+
+    expect(ctx.mock.rpc.countOf('update_screen_decisions')).toBe(1);
+    expect(ctx.mock.rpc.countOf('screen_record')).toBe(1);
+    expect(wrapper.get('[data-testid="screen-record-id"]').text()).toBe('r2');
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }));
+    await flushPromises();
+    expect(wrapper.get('[data-testid="screen-btn-exclude"]').attributes('aria-pressed')).toBe('true');
   });
 });

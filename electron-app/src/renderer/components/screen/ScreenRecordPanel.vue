@@ -143,7 +143,6 @@ const emit = defineEmits<{
           <ScreenCriteriaChecklist
             :criteria="criteria"
             :decisions="criteriaDecisions"
-            :readonly="isCurrentDecided && mode !== 'edit'"
             @toggle="(name, value) => emit('toggleCriterion', name, value)"
           />
         </div>
@@ -189,7 +188,7 @@ const emit = defineEmits<{
       :is-submitting="isDeciding"
       :disabled="readOnly"
       :show-next-button="mode !== 'edit' && isCurrentDecided && nextUndecidedIndex !== -1"
-      :editable="mode === 'edit'"
+      :editable="isCurrentDecided"
       test-id-prefix="screen"
       @confirm="(decision) => emit('confirmDecision', decision)"
       @skip-to-next="emit('skipToNextUndecided')"
