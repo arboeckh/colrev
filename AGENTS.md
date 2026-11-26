@@ -24,11 +24,14 @@ When a change touches the RPC models, regenerate the types (`pnpm gen-types:full
 `agentixxx preview` runs `scripts/agentixxx/preview.sh`: the Electron app's dev server
 (`electron-vite dev --watch`) with the main process headless, and the preview's link opens the
 renderer in the viewer's own browser, which reaches the main process over the web bridge
-(`electron-app/src/main/web-bridge.ts`, browser side `src/renderer/lib/web-bridge.ts`). It is
-signed in as the fake GitHub account `preview`. Renderer changes hot-reload; a change to the
-main process or the preload restarts the app. A new preload API needs its twin in
-`lib/web-bridge.ts`, or it is missing in previews. The account is fake, so nothing that
-needs real GitHub (cloning, pushing, invitations) works in a preview.
+(`electron-app/src/main/web-bridge.ts`, browser side `src/renderer/lib/web-bridge.ts`). It
+talks to real GitHub, as the desktop app does: the viewer signs in on the login page with
+GitHub's device flow, and cloning, pushing, releases and invitations act on that real account.
+Renderer changes hot-reload; a change to the main process or the preload restarts the app. A
+new preload API needs its twin in `lib/web-bridge.ts`, or it is missing in previews. The
+bridge never serves the GitHub token (`MAIN_PROCESS_ONLY` in `web-bridge.ts`). For checks of
+your own, use the e2e suite and its fake GitHub (`COLREV_FAKE_GITHUB_REGISTRY`), not the
+preview: it would need a person's GitHub sign-in.
 
 ## Never
 

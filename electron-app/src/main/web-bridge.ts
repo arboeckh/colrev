@@ -25,6 +25,9 @@ import type { IpcHandler } from './ipc/registry';
  *   written there to the browser.
  *
  * It listens on localhost only: whatever exposes the preview is in front of it.
+ * That may be anyone with the preview's link, so the channels in
+ * `MAIN_PROCESS_ONLY` are never registered here: the GitHub token stays on
+ * this machine, and the renderer has no use for it.
  */
 
 export interface WebBridgeOptions {
@@ -35,6 +38,9 @@ export interface WebBridgeOptions {
   /** Where uploads land and saves are written. Created on demand. */
   transferDir: string;
 }
+
+/** Channels the bridge refuses: secrets a browser must never receive. */
+const MAIN_PROCESS_ONLY = new Set(['auth:get-token']);
 
 const MAX_UPLOAD_BYTES = 2 * 1024 ** 3;
 const HEARTBEAT_MS = 15_000;
@@ -60,6 +66,7 @@ export class WebBridge {
   constructor(private readonly options: WebBridgeOptions) {}
 
   register(channel: string, handler: IpcHandler): void {
+    if (MAIN_PROCESS_ONLY.has(channel)) return;
     this.handlers.set(channel, handler);
   }
 

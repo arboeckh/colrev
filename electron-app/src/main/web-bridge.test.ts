@@ -59,6 +59,13 @@ describe('WebBridge /invoke', () => {
   it('refuses a channel nothing registered', async () => {
     expect(await invoke('missing')).toMatchObject({ ok: false });
   });
+
+  it('never serves the GitHub token, even when its handler is registered', async () => {
+    bridge.register('auth:get-token', async () => 'gho_secret');
+    const response = await invoke('auth:get-token');
+    expect(response).toMatchObject({ ok: false });
+    expect(JSON.stringify(response)).not.toContain('gho_secret');
+  });
 });
 
 describe('WebBridge /events', () => {
