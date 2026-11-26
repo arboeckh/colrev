@@ -11,7 +11,7 @@ run:
   prepare: bash scripts/agentixxx/prepare.sh
 
 preview:
-  # The Electron app's dev server on a virtual display, served by noVNC (see the script).
+  # The Electron app's dev server on a VNC display that takes the browser window's size, shown
+  # by a noVNC page (see the script).
   command: bash scripts/agentixxx/preview.sh
   port: 6080
-  path: /vnc.html?autoconnect=1&resize=scale

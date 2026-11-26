@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, protocol, net, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, dialog, protocol, net, safeStorage, screen, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { pathToFileURL } from 'url';
@@ -51,6 +51,15 @@ protocol.registerSchemesAsPrivileged([
  */
 const backgroundLaunch = process.env.COLREV_BACKGROUND === '1';
 
+/**
+ * Fill-screen mode (COLREV_FILL_SCREEN=1), for the agentixxx preview
+ * (scripts/agentixxx/preview.sh): there the app runs on a VNC display with no
+ * window manager, so maximize() does nothing, and the display changes size
+ * whenever the viewer's browser window does. In this mode the window covers
+ * the primary display and follows it.
+ */
+const fillScreen = process.env.COLREV_FILL_SCREEN === '1';
+
 let mainWindow: BrowserWindow | null = null;
 
 // One instance per userData directory: two would run two backends against the
@@ -101,6 +110,16 @@ function createWindow() {
   mainWindow.maximize();
   if (backgroundLaunch) {
     mainWindow.showInactive();
+  }
+  if (fillScreen) {
+    const win = mainWindow;
+    const fit = () => win.setBounds(screen.getPrimaryDisplay().bounds);
+    fit();
+    const events = ['display-metrics-changed', 'display-added', 'display-removed'] as const;
+    for (const event of events) screen.on(event as 'display-added', fit);
+    win.on('closed', () => {
+      for (const event of events) screen.off(event as 'display-added', fit);
+    });
   }
 
   // Load the app
