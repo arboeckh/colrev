@@ -1,11 +1,14 @@
 <!doctype html>
 <!--
   The preview's page (scripts/agentixxx/preview.sh): the app's VNC display, through noVNC's RFB
-  module, filling the browser window. The display follows the window's size, so the app is laid
-  out for it, and is SCALE times as many pixels as the window has CSS pixels, with the app
-  rendering at that device scale factor: on a 2x screen, one display pixel per screen pixel.
-  noVNC's own option for this (resizeSession) asks for the window's size in CSS pixels, so the
-  page asks for the size itself.
+  module, filling the browser window.
+
+  The display is the window's size times a scale: the screen's devicePixelRatio, so that a display
+  pixel is a screen pixel, unless that is more than PIXEL_BUDGET pixels, which a big window on a 2x
+  screen is (each pixel costs the VM's CPU to draw and the network to send). The page tells the app
+  the scale on a socket of its own (websockify's token `app`), and the app zooms to it, so it is
+  laid out for the window at any scale. `?scale=1` (or any number) fixes the scale: lower is
+  softer and faster on a slow connection.
 -->
 <html lang="en">
 <head>
@@ -29,35 +32,72 @@
 <script type="module">
 import RFB from './core/rfb.js';
 
-/** The app's device scale factor (`--force-device-scale-factor` in preview.sh). */
-const SCALE = 2;
-/** The largest display side asked for; past it noVNC scales the display down to the window. */
-const MAX_SIDE = 4096;
+/** The most display pixels asked for: 3840x2160. */
+const PIXEL_BUDGET = 3840 * 2160;
+/** The scales the app takes (preview-display.ts). */
+const MIN_SCALE = 0.5;
+const MAX_SCALE = 4;
 
+const fixedScale = Number(new URLSearchParams(location.search).get('scale')) || null;
 const status = document.getElementById('status');
-const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/websockify`;
+const base = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/websockify`;
+
+/** The scale to show the display at, for the window as it is now. */
+function scaleNow() {
+  const area = window.innerWidth * window.innerHeight;
+  const wanted = fixedScale ?? Math.min(window.devicePixelRatio || 1, Math.sqrt(PIXEL_BUDGET / area));
+  return Math.round(Math.min(MAX_SCALE, Math.max(MIN_SCALE, wanted)) * 100) / 100;
+}
+
+/**
+ * The app's socket: the page sends it `scale <n>` lines. It reconnects while the app restarts
+ * (electron-vite's --watch), and sends the scale again when it does.
+ */
+const app = {
+  socket: null,
+  scale: null,
+  send(scale) {
+    this.scale = scale;
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(new TextEncoder().encode(`scale ${scale}\n`));
+    }
+  },
+  connect() {
+    const socket = new WebSocket(`${base}?token=app`, ['binary']);
+    socket.binaryType = 'arraybuffer';
+    socket.onopen = () => { if (this.scale !== null) this.send(this.scale); };
+    socket.onclose = () => setTimeout(() => this.connect(), 1000);
+    this.socket = socket;
+  },
+};
+app.connect();
 
 /**
  * noVNC (1.3) asks for a new size from `_requestRemoteResize`, once the server has said it can
- * resize and after each window resize; this replaces it with one that asks for SCALE times the
- * window. It is noVNC's private method, so a newer noVNC that renames it falls back to a display
- * of the window's CSS size: still laid out for the window, only not sharper. noVNC calls it on
- * the server's first word that it can resize before it has read the screen's id from that word,
- * and the server refuses a request with the wrong id, so the request waits a turn.
+ * resize and after each window resize; this replaces it with one that asks for the window at the
+ * page's scale, and tells the app that scale. It is noVNC's private method, so a newer noVNC that
+ * renames it falls back to a display of the window's CSS size: still laid out for the window,
+ * only softer. noVNC calls it on the server's first word that it can resize before it has read
+ * the screen's id from that word, and the server refuses a request with the wrong id, so the
+ * request waits a turn.
  */
 function askForScaledSize() {
   clearTimeout(this._resizeTimeout);
   this._resizeTimeout = null;
   if (!this._supportsSetDesktopSize) return;
   setTimeout(() => {
-    const width = Math.min(MAX_SIDE, Math.round(window.innerWidth * SCALE));
-    const height = Math.min(MAX_SIDE, Math.round(window.innerHeight * SCALE));
+    const scale = scaleNow();
+    app.send(scale);
+    const width = Math.round(window.innerWidth * scale);
+    const height = Math.round(window.innerHeight * scale);
     RFB.messages.setDesktopSize(this._sock, width, height, this._screenID, this._screenFlags);
   }, 0);
 }
 
+let rfb = null;
+
 function connect() {
-  const rfb = new RFB(document.getElementById('screen'), url);
+  rfb = new RFB(document.getElementById('screen'), `${base}?token=vnc`);
   if (typeof rfb._requestRemoteResize === 'function') rfb._requestRemoteResize = askForScaledSize;
   rfb.scaleViewport = true;
   rfb.resizeSession = true;
@@ -73,7 +113,17 @@ function connect() {
   });
 }
 
+/** A window moved to a screen of another density (or zoomed) fires no resize: ask again. */
+function watchDensity() {
+  const query = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+  query.addEventListener('change', () => {
+    rfb?._requestRemoteResize?.();
+    watchDensity();
+  }, { once: true });
+}
+
 connect();
+watchDensity();
 </script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, protocol, net, safeStorage, screen, shell } from 'electron';
+import { app, BrowserWindow, dialog, protocol, net, safeStorage, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { pathToFileURL } from 'url';
@@ -10,6 +10,7 @@ import { setupGitEnvironment } from './git-env';
 import { writeGitIdentity } from './git-identity';
 import { AuthManager } from './auth-manager';
 import { AccountScopedProjectPaths, resolveInsideRoot } from './account-scoped-project-paths';
+import { attachPreviewDisplay } from './preview-display';
 
 // Allow running multiple instances with separate data directories via COLREV_USER env var
 // Usage: COLREV_USER=alice npm run dev  /  COLREV_USER=bob npm run dev
@@ -52,28 +53,32 @@ protocol.registerSchemesAsPrivileged([
 const backgroundLaunch = process.env.COLREV_BACKGROUND === '1';
 
 /**
- * Fill-screen mode (COLREV_FILL_SCREEN=1), for the agentixxx preview
- * (scripts/agentixxx/preview.sh): there the app runs on a VNC display with no
- * window manager, so maximize() does nothing, and the display changes size
- * whenever the viewer's browser window does. In this mode the window covers
- * the primary display and follows it.
+ * Preview mode (COLREV_PREVIEW=1), for the agentixxx preview: the app on a VNC
+ * display that the viewer's browser window sizes (see preview-display.ts).
  */
-const fillScreen = process.env.COLREV_FILL_SCREEN === '1';
+const previewMode = process.env.COLREV_PREVIEW === '1';
+const previewControlPort = Number(process.env.COLREV_PREVIEW_CONTROL_PORT) || null;
 
 let mainWindow: BrowserWindow | null = null;
 
 // One instance per userData directory: two would run two backends against the
 // same repos (with separate git mutexes) and race on auth.json. Instances with
-// a different userData (COLREV_USER, --user-data-dir) are unaffected.
-const hasSingleInstanceLock = acquireSingleInstance(app, () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-  } else if (app.isReady()) {
-    createWindow();
-  }
-});
+// a different userData (COLREV_USER, --user-data-dir) are unaffected. In the
+// preview, electron-vite --watch starts the new instance before the one it
+// replaces has exited, so the new one waits for the lock.
+const hasSingleInstanceLock = acquireSingleInstance(
+  app,
+  () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    } else if (app.isReady()) {
+      createWindow();
+    }
+  },
+  { waitMs: previewMode ? 15_000 : 0 },
+);
 const authManager = new AuthManager();
 const projectPaths = new AccountScopedProjectPaths(app.getPath('userData'));
 
@@ -111,15 +116,8 @@ function createWindow() {
   if (backgroundLaunch) {
     mainWindow.showInactive();
   }
-  if (fillScreen) {
-    const win = mainWindow;
-    const fit = () => win.setBounds(screen.getPrimaryDisplay().bounds);
-    fit();
-    const events = ['display-metrics-changed', 'display-added', 'display-removed'] as const;
-    for (const event of events) screen.on(event as 'display-added', fit);
-    win.on('closed', () => {
-      for (const event of events) screen.off(event as 'display-added', fit);
-    });
+  if (previewMode) {
+    attachPreviewDisplay(mainWindow, previewControlPort);
   }
 
   // Load the app
