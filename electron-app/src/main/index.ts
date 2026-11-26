@@ -343,6 +343,16 @@ app.whenReady().then(() => {
     }
   }
 
+  // The headless preview runs on a Linux VM with no keyring, where safeStorage
+  // is unavailable: connector API keys would never be kept (connector-keys.ts
+  // refuses to store them in the clear) and the GitHub token would sit in
+  // auth.json as plain base64. Chromium's basic store encrypts with a fixed
+  // key: no real secrecy on that machine, but keys and the sign-in then
+  // survive restarts as they do on a desktop. Must precede any safeStorage use.
+  if (headless && process.platform === 'linux') {
+    safeStorage.setUsePlainTextEncryption(true);
+  }
+
   // Configure dugite's git binary path before any dugite call. This sets
   // LOCAL_GIT_DIRECTORY on process.env so github:* / git:* IPC handlers work
   // regardless of whether the Python backend has been started yet.

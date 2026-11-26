@@ -157,7 +157,8 @@ export function installWebBridge(): void {
     login: call('auth:login'),
     cancelLogin: call('auth:cancel-login'),
     logout: call('auth:logout'),
-    getToken: call('auth:get-token'),
+    // The token stays on the machine the app runs on (main/web-bridge.ts refuses it).
+    getToken: async () => null,
     listAccounts: call('auth:list-accounts'),
     switchAccount: call('auth:switch-account'),
     removeAccount: call('auth:remove-account'),
