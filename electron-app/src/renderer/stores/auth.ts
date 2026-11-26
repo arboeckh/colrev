@@ -2,10 +2,13 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { useConnectionStore } from './connection';
 import type { AuthSession, DeviceFlowStatus, AccountInfo } from '@/types/window';
+import { isWebBridge } from '@/lib/web-bridge';
 
 const KEYCHAIN_EXPLAINED_KEY = 'colrev:keychain-explained';
 
 function isMacPlatform(): boolean {
+  // In a browser on the web bridge the keychain is the remote machine's, never the viewer's.
+  if (isWebBridge()) return false;
   return typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac');
 }
 

@@ -69,6 +69,12 @@ export interface FileOpsAPI {
     defaultName?: string;
     filters?: { name: string; extensions: string[] }[];
   }) => Promise<{ success: boolean; filePath?: string; canceled?: boolean; error?: string }>;
+  /**
+   * Only in a browser on the web bridge (lib/web-bridge.ts): download a file
+   * the app wrote to a path `chooseSavePath` returned. Inside Electron the file
+   * is already where the user chose, and this is undefined.
+   */
+  deliverSavedFile?: (filePath: string) => Promise<void>;
   openDialog: (options: {
     title?: string;
     filters?: { name: string; extensions: string[] }[];
