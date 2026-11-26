@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, protocol, net, safeStorage, screen, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, protocol, net, safeStorage, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { pathToFileURL } from 'url';
@@ -26,6 +26,7 @@ import { GitStateManager } from './git-state';
 import { gitHasMergeConflict } from './git-manager';
 import { isLockFreeRpcMethod, registerHandlers } from './ipc/registry';
 import { withGitLock } from './gitMutex';
+import { WebBridge } from './web-bridge';
 
 // Register custom protocol scheme before app is ready
 protocol.registerSchemesAsPrivileged([
@@ -52,15 +53,21 @@ protocol.registerSchemesAsPrivileged([
 const backgroundLaunch = process.env.COLREV_BACKGROUND === '1';
 
 /**
- * Fill-screen mode (COLREV_FILL_SCREEN=1), for the agentixxx preview
- * (scripts/agentixxx/preview.sh): there the app runs on a VNC display with no
- * window manager, so maximize() does nothing, and the display changes size
- * whenever the viewer's browser window does. In this mode the window covers
- * the primary display and follows it.
+ * Web preview (scripts/agentixxx/preview.sh): COLREV_WEB_BRIDGE_PORT starts the
+ * web bridge (web-bridge.ts) on that localhost port, so the renderer can run in
+ * a browser against this process; COLREV_HEADLESS=1 opens no window of our own.
  */
-const fillScreen = process.env.COLREV_FILL_SCREEN === '1';
+const webBridgePort = Number(process.env.COLREV_WEB_BRIDGE_PORT) || 0;
+const headless = process.env.COLREV_HEADLESS === '1';
 
 let mainWindow: BrowserWindow | null = null;
+let webBridge: WebBridge | null = null;
+
+/** What the preload's `ipcRenderer.on` listeners receive: the window and any browser on the bridge. */
+function sendToRenderer(channel: string, ...args: unknown[]): void {
+  mainWindow?.webContents.send(channel, ...args);
+  webBridge?.broadcast(channel, ...args);
+}
 
 // One instance per userData directory: two would run two backends against the
 // same repos (with separate git mutexes) and race on auth.json. Instances with
@@ -70,7 +77,7 @@ const hasSingleInstanceLock = acquireSingleInstance(app, () => {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
     mainWindow.focus();
-  } else if (app.isReady()) {
+  } else if (app.isReady() && !headless) {
     createWindow();
   }
 });
@@ -87,7 +94,7 @@ const gitState = new GitStateManager({
     return session.callBackend<T>(method, params);
   },
   hasMergeConflict: gitHasMergeConflict,
-  emit: (snapshot) => mainWindow?.webContents.send('git-state-changed', snapshot),
+  emit: (snapshot) => sendToRenderer('git-state-changed', snapshot),
 });
 
 function createWindow() {
@@ -110,16 +117,6 @@ function createWindow() {
   mainWindow.maximize();
   if (backgroundLaunch) {
     mainWindow.showInactive();
-  }
-  if (fillScreen) {
-    const win = mainWindow;
-    const fit = () => win.setBounds(screen.getPrimaryDisplay().bounds);
-    fit();
-    const events = ['display-metrics-changed', 'display-added', 'display-removed'] as const;
-    for (const event of events) screen.on(event as 'display-added', fit);
-    win.on('closed', () => {
-      for (const event of events) screen.off(event as 'display-added', fit);
-    });
   }
 
   // Load the app
@@ -146,21 +143,21 @@ function createWindow() {
 // --- Backend lifecycle -----------------------------------------------------
 
 function forwardBackendEvents(b: ColrevBackend): void {
-  b.on('log', (msg) => mainWindow?.webContents.send('colrev:log', msg));
-  b.on('error', (err) => mainWindow?.webContents.send('colrev:error', err.message));
+  b.on('log', (msg) => sendToRenderer('colrev:log', msg));
+  b.on('error', (err) => sendToRenderer('colrev:error', err.message));
   // Do NOT drop the backend on 'close': an unexpected exit triggers a
   // supervised restart inside ColrevBackend. It is only discarded on explicit
   // stop or when the supervisor gives up.
-  b.on('close', (code) => mainWindow?.webContents.send('colrev:close', code));
-  b.on('progress', (event) => mainWindow?.webContents.send('colrev:progress', event));
-  b.on('restarting', (info) => mainWindow?.webContents.send('colrev:restarting', info));
-  b.on('restarted', () => mainWindow?.webContents.send('colrev:restarted'));
+  b.on('close', (code) => sendToRenderer('colrev:close', code));
+  b.on('progress', (event) => sendToRenderer('colrev:progress', event));
+  b.on('restarting', (info) => sendToRenderer('colrev:restarting', info));
+  b.on('restarted', () => sendToRenderer('colrev:restarted'));
   b.on('restart-failed', () => {
     session.discard(b);
-    mainWindow?.webContents.send('colrev:restart-failed');
+    sendToRenderer('colrev:restart-failed');
   });
-  b.on('rpc-queue', (state) => mainWindow?.webContents.send('colrev:rpc-queue', state));
-  b.on('late-response', (info) => mainWindow?.webContents.send('colrev:late-response', info));
+  b.on('rpc-queue', (state) => sendToRenderer('colrev:rpc-queue', state));
+  b.on('late-response', (info) => sendToRenderer('colrev:late-response', info));
 }
 
 // Connector API keys outlive the backend process (and the app): see connector-keys.ts.
@@ -271,50 +268,66 @@ function setupIPC() {
       activeLogin = login;
       gitState.resetForAccountSwitch();
     }
-    mainWindow?.webContents.send('auth:update', session);
+    sendToRenderer('auth:update', session);
   });
   authManager.setDeviceFlowCallback((status) => {
-    mainWindow?.webContents.send('auth:device-flow-status', status);
+    sendToRenderer('auth:device-flow-status', status);
   });
 
-  registerHandlers([
-    ...createAppHandlers({
-      startBackend: () => session.start(),
-      stopBackend: async () => {
-        await session.stop();
-        return { success: true };
-      },
-      callRpc: async (method, params) => {
-        const response = await session.callRpc(method, params);
-        if (response.ok) connectorKeys.rememberFromRpc(method, params);
-        return response;
-      },
-      saveFileDialog,
-      chooseSavePath,
-      openFileDialog,
-      pdfExists,
-      appInfo,
-      auth: authManager,
-      includeTestHandlers: !!process.env.COLREV_FAKE_GITHUB_REGISTRY,
-    }),
-    ...createGitHandlers({
-      git: realGitOps,
-      getToken: () => authManager.getToken(),
-      callBackend: <T,>(method: string, params: Record<string, unknown>) =>
-        session.callBackend<T>(method, params),
-      refreshGitState: (projectId, projectPath) => gitState.refresh(projectId, projectPath),
-      getGitState: (projectId) => gitState.get(projectId),
-      forgetGitState: (projectId) => gitState.forget(projectId),
-    }),
-    ...createGitHubHandlers({
-      gh: getGitHubClient(),
-      getToken: () => authManager.getToken(),
-      getActiveLogin: () => authManager.getActiveLogin(),
-      projectsRootForAccount: (login) => projectPaths.projectsRootForAccount(login),
-      git: realGitHubGitOps,
-      fs,
-    }),
-  ]);
+  registerHandlers(
+    [
+      ...createAppHandlers({
+        startBackend: () => session.start(),
+        stopBackend: async () => {
+          await session.stop();
+          return { success: true };
+        },
+        callRpc: async (method, params) => {
+          const response = await session.callRpc(method, params);
+          if (response.ok) connectorKeys.rememberFromRpc(method, params);
+          return response;
+        },
+        saveFileDialog,
+        chooseSavePath,
+        openFileDialog,
+        pdfExists,
+        appInfo,
+        auth: authManager,
+        includeTestHandlers: !!process.env.COLREV_FAKE_GITHUB_REGISTRY,
+      }),
+      ...createGitHandlers({
+        git: realGitOps,
+        getToken: () => authManager.getToken(),
+        callBackend: <T,>(method: string, params: Record<string, unknown>) =>
+          session.callBackend<T>(method, params),
+        refreshGitState: (projectId, projectPath) => gitState.refresh(projectId, projectPath),
+        getGitState: (projectId) => gitState.get(projectId),
+        forgetGitState: (projectId) => gitState.forget(projectId),
+      }),
+      ...createGitHubHandlers({
+        gh: getGitHubClient(),
+        getToken: () => authManager.getToken(),
+        getActiveLogin: () => authManager.getActiveLogin(),
+        projectsRootForAccount: (login) => projectPaths.projectsRootForAccount(login),
+        git: realGitHubGitOps,
+        fs,
+      }),
+    ],
+    (channel, handler) => {
+      ipcMain.handle(channel, handler);
+      webBridge?.register(channel, handler);
+    },
+  );
+}
+
+async function startWebBridge(): Promise<void> {
+  webBridge = new WebBridge({
+    port: webBridgePort,
+    resolvePdf: resolveAccountFile,
+    transferDir: path.join(app.getPath('temp'), 'colrev-web-bridge'),
+  });
+  const port = await webBridge.listen();
+  console.log(`[colrev] web bridge listening on http://127.0.0.1:${port}/__bridge`);
 }
 
 app.whenReady().then(() => {
@@ -366,8 +379,11 @@ app.whenReady().then(() => {
     return net.fetch(pathToFileURL(filePath).toString());
   });
 
+  if (webBridgePort) {
+    startWebBridge().catch((err) => console.error('[colrev] web bridge failed to start:', err));
+  }
   setupIPC();
-  createWindow();
+  if (!headless) createWindow();
 });
 
 app.on('window-all-closed', () => {
@@ -382,7 +398,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (mainWindow === null) {
+  if (mainWindow === null && !headless) {
     createWindow();
   }
 });

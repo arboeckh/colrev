@@ -22,9 +22,12 @@ When a change touches the RPC models, regenerate the types (`pnpm gen-types:full
 ## Previews
 
 `agentixxx preview` runs `scripts/agentixxx/preview.sh`: the Electron app's dev server
-(`electron-vite dev --watch`) on a virtual display, which the preview's link shows through
-noVNC, signed in as the fake GitHub account `preview`. Renderer changes hot-reload; a change
-to the main process or the preload restarts the app. The account is fake, so nothing that
+(`electron-vite dev --watch`) with the main process headless, and the preview's link opens the
+renderer in the viewer's own browser, which reaches the main process over the web bridge
+(`electron-app/src/main/web-bridge.ts`, browser side `src/renderer/lib/web-bridge.ts`). It is
+signed in as the fake GitHub account `preview`. Renderer changes hot-reload; a change to the
+main process or the preload restarts the app. A new preload API needs its twin in
+`lib/web-bridge.ts`, or it is missing in previews. The account is fake, so nothing that
 needs real GitHub (cloning, pushing, invitations) works in a preview.
 
 ## Never

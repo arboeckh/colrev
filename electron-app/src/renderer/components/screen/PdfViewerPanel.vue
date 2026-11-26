@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { FileText } from 'lucide-vue-next';
 import { useProjectsStore } from '@/stores/projects';
 import PdfShareActions from '@/components/shared/PdfShareActions.vue';
+import { pdfFileUrl } from '@/lib/web-bridge';
 
 const props = withDefaults(
   defineProps<{
@@ -60,10 +61,7 @@ const pdfUrl = computed(() => {
   if (fileExists.value === false) return null;
   // Cache-bust the iframe src when reloadKey changes so an import takes effect.
   const suffix = reloadKey.value ? `?v=${reloadKey.value}` : '';
-  // The protocol handler decodes each path segment, so encode each one: a `#`,
-  // `?` or `%` in a file name would otherwise cut or break the URL.
-  const encodedPath = props.pdfPath.split('/').map(encodeURIComponent).join('/');
-  return `colrev-pdf://pdf/${encodeURIComponent(projects.currentProjectId)}/${encodedPath}${suffix}`;
+  return pdfFileUrl(projects.currentProjectId, props.pdfPath, suffix);
 });
 
 function onImported(count: number) {

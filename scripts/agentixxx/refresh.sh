@@ -8,10 +8,9 @@ cd "$(dirname "$0")/../.."
 git config --global user.name >/dev/null || git config --global user.name "agentixxx"
 git config --global user.email >/dev/null || git config --global user.email "agentixxx@users.noreply.github.com"
 
-# The e2e suite: a virtual display. The preview (scripts/agentixxx/preview.sh): a VNC display,
-# and noVNC to show it in a web page.
+# The e2e suite and the preview (scripts/agentixxx/preview.sh): a virtual display.
 sudo apt-get update -qq
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb tigervnc-standalone-server novnc websockify
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb
 
 # Python: colrev in a venv at .venv (requires-python <3.13; the image has 3.12),
 # with its internal packages editable, so a branch's changes to them are live.

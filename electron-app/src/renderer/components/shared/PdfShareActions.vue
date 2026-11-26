@@ -67,6 +67,7 @@ async function onExport() {
       project_id: projectId,
       output_path: chosen.filePath,
     });
+    await window.fileOps.deliverSavedFile?.(chosen.filePath);
 
     if (res.file_count === 0) {
       notifications.info(
