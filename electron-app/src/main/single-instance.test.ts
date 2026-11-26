@@ -1,9 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import { acquireSingleInstance, type SingleInstanceApp } from './single-instance';
 
+/** The held locks of every fake `app`, which a test can release, as an exiting instance does. */
+const held = new Set<string>();
+const lockControl = { releaseLock: (userData: string) => held.delete(userData) };
+
 /** Fake `app`: the lock is shared per userData directory, like Electron's. */
 function fakeApps() {
-  const held = new Set<string>();
+  held.clear();
   const make = (userData: string) => {
     const listeners: (() => void)[] = [];
     const quit = vi.fn();
@@ -50,4 +54,32 @@ describe('acquireSingleInstance', () => {
     expect(acquireSingleInstance(bob, vi.fn())).toBe(true);
     expect(bob.quit).not.toHaveBeenCalled();
   });
+
+  it('waits for the lock when asked, for an instance that is replacing another', () => {
+    const make = fakeApps();
+    const old = make('/ud/colrev');
+    const replacement = make('/ud/colrev');
+    expect(acquireSingleInstance(old, vi.fn())).toBe(true);
+
+    // The old instance exits, and lets go of the lock, after the third try.
+    let slept = 0;
+    const sleep = (ms: number) => {
+      slept += ms;
+      if (slept === 600) lockControl.releaseLock('/ud/colrev');
+    };
+    expect(acquireSingleInstance(replacement, vi.fn(), { waitMs: 5000, retryMs: 200, sleep })).toBe(true);
+    expect(slept).toBe(600);
+    expect(replacement.quit).not.toHaveBeenCalled();
+  });
+
+  it('gives up after waiting', () => {
+    const make = fakeApps();
+    expect(acquireSingleInstance(make('/ud/colrev'), vi.fn())).toBe(true);
+    const late = make('/ud/colrev');
+    const sleep = vi.fn();
+    expect(acquireSingleInstance(late, vi.fn(), { waitMs: 1000, retryMs: 250, sleep })).toBe(false);
+    expect(sleep).toHaveBeenCalledTimes(4);
+    expect(late.quit).toHaveBeenCalledOnce();
+  });
 });
+
